@@ -1,4 +1,4 @@
-# Umbrella U0 — per-feature-profile build matrix (draft 5.3, 2026-11-09)
+# Umbrella U0 — per-feature-profile build matrix (draft 5.4, 2026-11-09)
 
 ## §0 Status
 
@@ -284,7 +284,8 @@ PM 561 (the rustdoc column's private items, the `doc` job, the PR-D… prereq), 
 columns), PM 564 (no per-PR design in U0; PR-T's expected values), PM 569 (rustdoc coverage of test-only code in
 the matrix, PR-A2's stop rule and deadline, `#11-no-engine-eventtarget-stubs-nonconforming`), PM 573 (the
 `test-only` declaration is PR-M1's; one doc row per member), PM 575 (the reader contract: per-package resolved
-feature sets, I3×I4).
+feature sets, I3×I4), PM 578 (contract (2) relative to the base; the no-engine `EventTarget` slot's Layering
+constraint; the Layering check's criterion and API fields).
 
 
 ### §3.1 User-input touch audit
@@ -596,7 +597,7 @@ parser-only consumer appears") had fired: `elidex-shell` depends on `elidex-js` 
 | **PR-M2a** | CI/tools (consult: Layout lane for the fixture script, A2 owner for the absence) | I5: per-profile absence declarations (App: both `web-storage` features), reading the `test-only` declarations PR-M1 made (PM 573); the classification and the forbidden / unknown checks per row, reading each row's resolve by the reader contract (I3×I4); absorb and delete `scripts/check-fixture-boundary.sh` (+ step, filter line); discharge remedies (i)–(iii) of `#11-test-only-feature-boundary-guard`, which stays open narrowed to (iv) (§4.2, §8; PM 545 P2). | Controls, each recorded: a normal edge enabling `fixtures` → red; `elidex-storage-core/web-storage` reached in the App row → red, and `elidex-script-session/web-storage` likewise; the same feature reached in the App row through the root member's own `[features]` `?/` value (e.g. `"elidex-storage-core?/web-storage"` added to `engine`) → red — a reader that traverses the forward graph's feature nodes is green on this case (§4.1's reproduction; PM 575), so it is the control of the reader contract; an undeclared implicit optional-dependency feature enabled from a normal edge (the slot's `foo-test-support`) → red; a reading in which the row's member does not appear → red (I3×I4 (3)); the `fixtures` dev edges of the base → green. Timeout re-derived. | PR-M1 |
 | **PR-M2b** | CI/tools | I4 completeness per row; closes `#11-test-only-feature-boundary-guard` (its remaining remedy (iv), PM 545 P2). | Controls, each recorded: a feature no row activates → red (incl. an implicit one); the browser row covering both `web-storage` features while App forbids them → green. Timeout re-derived. | PR-M2a, PR-A2 or PR-A2′ |
 | **PR-T0…** (fix-first) | By file, PR-A3…'s owner rule (PM 545 P1): the owning lane if it has a driver; CI/tools if not — test-gate fixes only, any behaviour fix returns to PM (PM 562) | Every test PR-T's Q7 census finds red in a row that compiles the test's subject, in one of two cases: (1) the test compiles there and fails — a behaviour defect, of the subject or of the test, judged against PR-T's expected-value rule; (2) the subject compiles there but the test does not (it names an item the profile compiles out — e.g. a `#[cfg(test)]` helper that takes an engine-only type, Q7): the test is gated in place or rewritten to name only what its configuration compiles (kind (b), applied to test code), never excluded, because its subject is in the profile. A test whose subject the row compiles out is not here: PR-T excludes it under its exclusion rule. One PR per owner; stop rule as PR-A3…'s. | Each test the census names compiles and passes in its row on three OS by the pre-matrix evidence (below); each fix is listed with its case (1)/(2) and, for (1), whether the subject or the test was wrong and by which authority. A returned site does not land open: it is applied in PR-T0′, under PR-A3…'s deadline rule with PR-T in place of PR-M1. | PR-T's Q7 census |
-| **PR-T** | CI/tools (the test columns in the job and the entry point); test gating and exclusions per file by PR-A3…'s owner rule (PM 545 P1) | Defect: a non-full profile's own behaviour is executed by no test in that profile — in the `default` row the no-engine `EventTarget` method stubs (`vm/host/event_target.rs:82`, `:529`, `:633`) and the unhandled-rejection fallback (`vm/natives_promise.rs:632`); in the `app` row the compat ceiling with `compat-webapi` off (`vm/init.rs:184-185`). Run each declared row's tests and doc-tests under that row's flags — the two test columns (I3; per-profile doc-tests are PR-T's, PM 542 (1)); its plan first runs the test-target census (Q7). **Expected values come from the governing spec, never from the configuration's current behaviour** (PM 564): `addEventListener` / `removeEventListener` from DOM §2.7 Interface EventTarget ("add an event listener" step 5 appends the listener to the event listener list; `.claude/tools/webref dfn dom 'add an event listener'`), `dispatchEvent` from its method steps, which return "the result of dispatching" — false only if the event's canceled flag is set (DOM §2.9 Dispatching events, step 13) — and the unhandled-rejection path from ECMA-262 HostPromiseRejectionTracker (host-defined; "The default implementation of HostPromiseRejectionTracker is to return unused", so a host-less configuration owes script no observable report, and the fallback's stderr line is not asserted). The no-engine `EventTarget` stubs do not meet DOM §2.7 (`addEventListener` records nothing; `dispatchEvent` returns `false` for an event nobody canceled): that defect is `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4, §8). PR-T names it; its tests stay red against the stubs until a PR-T0′ applies PM's ruling — which may also be that the no-engine configuration does not expose `EventTarget` at all (the split's question, §8) — and are never made green by asserting the stubs. A test that fails in a profile goes to PR-T0…. | Every declared row's test targets compile and pass, and its doc-tests pass, under the row's flags on three OS, run by the same entry point (per row one `cargo nextest run -p <member>` and one `cargo test -p <member> --doc`); per row, the executed-test count is > 0 for every member whose `--all-features` run has tests, and every test target of the member is either built in the row or named as excluded, so a silently skipped target is red (non-vacuity). **Exclusion paths**: a test may be excluded from a profile only when its subject is compiled out of that profile, by a `cfg` on the test or by a `[[test]]` target's `required-features` (Cargo skips such a target without a diagnostic, Cargo Book §3.1.1 #the-required-features-field; 0 `[[test]]` targets use it at `69fbe61f`, `git grep -n -B3 'required-features' 69fbe61f -- '*Cargo.toml'` shows only two `[[bench]]`s), each named in the PR body with its mechanism and the cfg that removes its subject. A doc-test fence's `ignore` / `no_run` is not a per-profile exclusion — it removes the example from every configuration — so PR-T and PR-T0… add none (base: 10 `ignore`, 0 `no_run`; `` git grep -n -P '```[a-z_0-9,]*ignore' 69fbe61f -- crates | wc -l ``, and the same with `no_run`). No test is skipped by name; the Q7 census is in the PR body. Timeout re-derived; the test columns' artifact reuse measured (I3×I7). | PR-M2b (PM 501 (iv), PM 559); every PR-T0… and PR-T0′ |
+| **PR-T** | CI/tools (the test columns in the job and the entry point); test gating and exclusions per file by PR-A3…'s owner rule (PM 545 P1) | Defect: a non-full profile's own behaviour is executed by no test in that profile — in the `default` row the no-engine `EventTarget` method stubs (`vm/host/event_target.rs:82`, `:529`, `:633`) and the unhandled-rejection fallback (`vm/natives_promise.rs:632`); in the `app` row the compat ceiling with `compat-webapi` off (`vm/init.rs:184-185`). Run each declared row's tests and doc-tests under that row's flags — the two test columns (I3; per-profile doc-tests are PR-T's, PM 542 (1)); its plan first runs the test-target census (Q7). **Expected values come from the governing spec, never from the configuration's current behaviour** (PM 564): `addEventListener` / `removeEventListener` from DOM §2.7 Interface EventTarget ("add an event listener" step 5 appends the listener to the event listener list; `.claude/tools/webref dfn dom 'add an event listener'`), `dispatchEvent` from its method steps, which return "the result of dispatching" — false only if the event's canceled flag is set (DOM §2.9 Dispatching events, step 13) — and the unhandled-rejection path from ECMA-262 HostPromiseRejectionTracker (host-defined; "The default implementation of HostPromiseRejectionTracker is to return unused", so a host-less configuration owes script no observable report, and the fallback's stderr line is not asserted). The no-engine `EventTarget` stubs do not meet DOM §2.7 (`addEventListener` records nothing; `dispatchEvent` returns `false` for an event nobody canceled): that defect is `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4, §8). PR-T names it; its tests stay red against the stubs until a PR-T0′ applies PM's ruling — within the slot's constraint (§8): a non-optional dependency (kind (c)) or the no-engine configuration not exposing `EventTarget`, decided in the crate-split plan, never dispatch re-implemented in `vm/host/` — and are never made green by asserting the stubs. A test that fails in a profile goes to PR-T0…. | Every declared row's test targets compile and pass, and its doc-tests pass, under the row's flags on three OS, run by the same entry point (per row one `cargo nextest run -p <member>` and one `cargo test -p <member> --doc`); per row, the executed-test count is > 0 for every member whose `--all-features` run has tests, and every test target of the member is either built in the row or named as excluded, so a silently skipped target is red (non-vacuity). **Exclusion paths**: a test may be excluded from a profile only when its subject is compiled out of that profile, by a `cfg` on the test or by a `[[test]]` target's `required-features` (Cargo skips such a target without a diagnostic, Cargo Book §3.1.1 #the-required-features-field; 0 `[[test]]` targets use it at `69fbe61f`, `git grep -n -B3 'required-features' 69fbe61f -- '*Cargo.toml'` shows only two `[[bench]]`s), each named in the PR body with its mechanism and the cfg that removes its subject. A doc-test fence's `ignore` / `no_run` is not a per-profile exclusion — it removes the example from every configuration — so PR-T and PR-T0… add none (base: 10 `ignore`, 0 `no_run`; `` git grep -n -P '```[a-z_0-9,]*ignore' 69fbe61f -- crates | wc -l ``, and the same with `no_run`). No test is skipped by name; the Q7 census is in the PR body. Timeout re-derived; the test columns' artifact reuse measured (I3×I7). | PR-M2b (PM 501 (iv), PM 559); every PR-T0… and PR-T0′ |
 
 **Pre-matrix three-OS evidence (PM 558 (1)).** Every PR above that must show rows on three OS before the
 `feature-profiles` job exists (PR-A1, PR-A1′, PR-A3…, PR-A3′, PR-T0…, PR-T0′) gets that evidence the same way: a
@@ -648,16 +649,29 @@ implementation (PM 498, PM 564).
 - **Contracts.** Every fix, whatever its kind and unit:
   1. obeys the Layering mandate in its destination: `vm/host/` holds only prototype install, brand check and
      JsValue↔Entity marshalling, so it is no destination for lifecycle code or for an algorithm;
-  2. leaves one concern's code — in particular `HostData`'s unbind cleanup — with exactly one home: no fix splits it
-     between two places (One issue, one way; R2 A1-IMP-1 and R3 A2-IMP-1 were this
-     defect). A unit drawn around the diagnosed lines alone is how it usually breaks;
+  2. leaves the code no worse than the base (One issue, one way; PM 578): no fix adds a new home for a cleanup
+     concern, and no fix splits one concern across a boundary the base does not have. Consolidating homes that
+     already exist is `#11-host-data-full-decomposition`'s job, not PR-A1's (contract (3)). A fact about the base,
+     not a design for PR-A1: at `69fbe61f`, `HostData`'s unbind cleanup already has two homes — `Vm::unbind` in
+     `crates/script/elidex-js/src/vm/lifecycle.rs` (the ungated `:30-67` block, and the sites at `:147`, `:298`,
+     `:326` and `:474` inside its `#[cfg(feature = "engine")]` block at `:90`, `:474` also `compat-webapi`-gated at
+     `:473`) and `HostData::unbind` at `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:118`
+     (`git grep -n -e 'fn unbind' -e 'cfg(feature' 69fbe61f -- crates/script/elidex-js/src/vm/lifecycle.rs
+     crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs`, then `git show
+     69fbe61f:crates/script/elidex-js/src/vm/lifecycle.rs | sed -n '30,67p;147p;298p;326p;474p'`). The earlier
+     wording of this contract rested on R2/R3's premise that the base has one home, which was never verified;
   3. is coupled to `#11-host-data-full-decomposition` (ledger). That slot books decomposing `HostData` into
      per-subsystem sub-structs as an edge-dense design change of its own PR(s), with the bind/unbind lifecycle among
      its intersecting axes and `host_data/engine_feature/` as where the sub-structs' `impl`s land. PR-A1's plan
      names the slot, states for each fix that touches `HostData` how it stands to the slot's sub-struct boundary,
      and records in the slot (via PM) what PR-A1 moved; PR-A1 does not carry out the decomposition, which the slot keeps
      as its own PR(s), not bundled.
-- **Layering check.** PR-A1's plan carries one line per fix: its kind and, for (a), its destination.
+- **Layering check.** PR-A1's plan carries one line per fix: its kind and, for (a), its destination. It also
+  records:
+  - for engine-bound code that is not an algorithm, the criterion by which the plan chose (a) or (b) (R4 A1-MIN-1);
+  - which existing engine-independent API was checked for the fix (named, or the crate to extend if none); a fix
+    may carry a combination of kinds — e.g. (a) together with (b) or (c) at its call site — listed as such
+    (R4 A1-MIN-2).
 - **The known (c) candidate**: `elidex_plugin::EngineMode` (`vm/init.rs:11`, the §9 E0432; `elidex-plugin` is
   optional, `crates/script/elidex-js/Cargo.toml:80`). PR-A1's plan classifies it, and PM rules if the plan returns it.
 - **What PM routes to VM P4 with it**: the typed-array slot's premise (§8), Q2 (§7), and the rustdoc warnings in
@@ -751,8 +765,19 @@ holds):
 - `#11-vm-typed-array-family-layering-and-gate` (VM P4, `docs/plans/2026-07-vm-p4-slot-ledger.md:310`) — not this
   program's; its "Until then" premise ends when PR-A1 lands (§8.1). PM routes it to VM P4.
 - `#11-no-engine-eventtarget-stubs-nonconforming` (VM P4; registered by PM 569) — the no-engine `EventTarget`
-  stubs fail DOM §2.7 (§6 PR-T). Not this program's: PR-T names it, and a PR-T0′ applies PM's ruling (§6). A PR of
-  the slot that touches `vm/host/event_target.rs` is ordered with L3's brand-check PR-1 via PM.
+  stubs fail DOM §2.7 (§6 PR-T). Not this program's: PR-T names it, and a PR-T0′ applies PM's ruling (§6).
+  **Constraint (PM 578)**: the no-engine resolution does not re-implement dispatch in `vm/host/` (Layering mandate;
+  One issue, one way — the canonical dispatch is `elidex-script-session`'s `script_dispatch_event_core`
+  (`event_dispatch/mod.rs:434`) / `EventListeners` (`event_listener.rs:131`), an engine-only optional dependency,
+  `crates/script/elidex-js/Cargo.toml:39-41`, `:77`; `git grep -n -e 'fn script_dispatch_event_core' -e 'pub struct
+  EventListeners' 69fbe61f -- crates/script/elidex-script-session/src`); the way is making the dependency
+  non-optional (fix kind (c)) or not exposing the interface, decided in the user's F1 = c crate-split plan. A PR of
+  the slot that touches `vm/host/event_target.rs` is ordered via PM with
+  `#11-vm-host-receiver-brand-check-unification` (L3); that slot's canonical `this_is_node_wrapper`
+  (`vm/host/event_target.rs:274`, under `#[cfg(feature = "engine")]` at `:273`; `git grep -n -B1 'fn
+  this_is_node_wrapper' 69fbe61f -- crates/script/elidex-js/src/vm/host/event_target.rs`) is engine-gated, so
+  whether the ordering premise holds on the no-engine side is checked at this slot's Re-eval. PMO item, via PM: the
+  ledger entry's text carries this constraint and the slot id.
 - Otherwise no new slot: PR-T and PR-D… are in this program, not deferred, and per-profile rustdoc is a column of
   PR-M1's matrix (PM 542 (1), PM 559, §4.3).
 
@@ -810,8 +835,8 @@ Recorded, not planned here; the re-homed slot points here (PM 545 P2). All count
   `git show 69fbe61f:<file> | grep -c '^#!\[cfg(feature = "engine")\]$'` → 1 for 29 of the 31, 0 for `elements.rs`
   and `event_target.rs`).
 - A language/host crate split decides where those prototype roots, that module and those stubs live. The `EventTarget`
-  stubs also fail DOM §2.7 (PR-T's expected values, §6), so the split's decision closes
-  `#11-no-engine-eventtarget-stubs-nonconforming` too, unless PM rules it fixed before the split.
+  stubs also fail DOM §2.7 (PR-T's expected values, §6), so the split's plan also decides
+  `#11-no-engine-eventtarget-stubs-nonconforming`'s resolution, within that slot's constraint (§8, PM 578).
 
 ## §9 Brief claims found false or stale (measured at `69fbe61f`)
 
