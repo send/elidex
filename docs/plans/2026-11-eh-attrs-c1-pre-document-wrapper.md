@@ -39,13 +39,13 @@ per-PR memo `docs/plans/2026-11-eh-attrs-c0c-adopt-notification-adoptnode.md` ("
 2. Removal of the three path-specific installs, the per-entity installer and its `HostData` side-store (D-2).
 3. One browsing-context predicate for Document receivers, replacing six copies, and the members that must consult it
    but do not (D-4, D-5, D-6).
-4. Each Document member except the URL pair answers from `this`: the receiver-ignoring natives `readyState` and
+4. Each Document member answers from `this` (the URL pair's value is HEAD's, R-10; its brand check is `this`'s): the receiver-ignoring natives `readyState` and
    `getSelection` are brand-checked and routed (D-5, D-7, D-8). Every per-entity Document fact a member reads is
    enumerated with its writer and reader, or a slot (§5.1 P-11).
 
 **Not in scope.** The document URL — its store, every writer and every reader (`URL`, `documentURI`, `cookie`'s URL,
 DOMParser's *relevantDocument's URL*, `location`, `history`, fetch / API base, origin, storage, workers):
-`#11-document-base-url` (PM 339, R-10); `native_document_get_url` stays HEAD's, so the URL pair keeps ignoring `this`.
+`#11-document-base-url` (PM 339, R-10); `native_document_get_url` stays HEAD's, so the URL pair keeps `current_url` as its value (rev 2.6.3, PM 570 G3: it gains the brand check).
 The `Document` interface object (no DOM node interface object exists in the VM, §7); the browsing-context cluster's
 migration to ECS components (B1 / `#11-browsing-context-state-ecs-components`); new Document members (`characterSet`,
 `implementation`, `location`, …); multi-realm (B1).
@@ -291,7 +291,7 @@ Spec column from the cited steps; HEAD column from code reading at `fab44a1d`, r
 | B1 shape | Every wrapper of a `NodeKind::Document` entity in a VM has `[[Prototype]]` = that VM's `Document.prototype`, chosen in `create_element_wrapper`; no other code decides a Document wrapper's shape |
 | B2 identity | One wrapper per Document entity per VM (wrapper cache); the prototype choice never allocates or replaces a wrapper |
 | B3 surface | `Document.prototype` carries exactly HEAD's member names in HEAD's order under HEAD's gates; no Document member is an own property of a wrapper; every Document member's brand check is `document_receiver`'s: a receiver that is not a `HostObject` throws `TypeError`, bound or not; a bound `HostObject` of the wrong kind throws `TypeError`; an unbound `HostObject` keeps the member's existing default (PM 548, PM 556 D1 / D2; D-5, D-8; W10, W24, W25) |
-| B4 facts | Each member except `URL` / `documentURI` answers from `this`: tree facts through dom-api with `this`; browsing-context facts through the one predicate (D-4); every other fact per §5.1 P-11 (`readyState`: the initial value for every non-bound Document, which is not `this`'s fact for a DOMParser or formerly bound one, R-4). The URL pair stays HEAD's (`#11-document-base-url`, R-10) |
+| B4 facts | Each member answers from `this` (`URL` / `documentURI`: brand check only, rev 2.6.3): tree facts through dom-api with `this`; browsing-context facts through the one predicate (D-4); every other fact per §5.1 P-11 (`readyState`: the initial value for every non-bound Document, which is not `this`'s fact for a DOMParser or formerly bound one, R-4). The URL pair's value stays HEAD's (`#11-document-base-url`, R-10) |
 | B5 lifecycle | Bind / unbind / rebind change no wrapper's prototype and run no per-bind install; a newly bound document's wrapper gets the same prototype; no per-entity install state exists |
 | B6 consumers | DOMParser, `cloneNode`, C0c's `adoptNode` and adopted-reaction flush, C1's I carry no path-specific Document step; C1's T5, T1's third leg and M3's non-URL legs hold on C1's head (the URL legs are R-10's, R-2) |
 
@@ -308,7 +308,7 @@ Spec column from the cited steps; HEAD column from code reading at `fab44a1d`, r
 | B2×B4 | yes | Two Documents have two wrappers whose answers differ (`dp.body !== document.body`; W1) |
 | B2×B5 | yes | The wrapper cache is the only per-entity VM state left for Documents once `document_methods_installed` is gone (W11) |
 | B2×B6 | yes | `p.ownerDocument === p.ownerDocument`; `dp.documentElement.parentNode === dp` (W4) |
-| B3×B4 | yes | `readyState` / `getSelection` gain a brand check that also throws for non-`HostObject` receivers (W10 for `readyState`, W24 for `getSelection`; W9 guards the existing one); a genuine non-bound Document's `readyState` answers its readiness (W23); `URL` / `documentURI` gain none (R-10) |
+| B3×B4 | yes | `readyState` / `getSelection` gain a brand check that also throws for non-`HostObject` receivers (W10 for `readyState`, W24 for `getSelection`; W9 guards the existing one); a genuine non-bound Document's `readyState` answers its readiness (W23); `URL` / `documentURI` gain the brand check (rev 2.6.3, PM 570 G3; W25), their value stays HEAD's (R-10) |
 | B3×B5 | yes | Gates are evaluated once at registration; the policy is fixed at VM construction (H-10), so the gated set equals today's per-wrapper set (W12) |
 | B3×B6 | yes | C0c appended `adoptNode` to `DOCUMENT_METHODS_POST_LIVE_COLLECTION` (landed, #611); under D-1 it moves to the prototype with the rest (D-2, W3; edge e-c0c) |
 | B4×B5 | yes | The predicate reads `HostData::document` at call time; after a rebind the old document reads "no browsing context" (unchanged from HEAD's copies) |
@@ -400,15 +400,20 @@ html 4.12.3`.
    becomes `VmInner::register_document_prototype` (NEW): allocate an ordinary object with `prototype: node_prototype`,
    run the install sequence of `document.rs:329-387` against it unchanged, store it. `Vm::install_document_methods_if_needed`
    is deleted.
-3. `vm/globals.rs`: one call in `register_globals`'s Window branch (the scope fork, `:533`; a worker VM binds no
-   document). The install sequence needs only `Function.prototype` (`register_prototypes` `:118`) and `node_prototype`
+3. `vm/globals.rs`: one call in `register_globals`'s Window branch (the scope fork, `:533`). Worker and service-worker VMs *do* bind a real `NodeKind::Document` entity
+   (`worker_thread.rs:174`, `:193`; `sw_thread.rs:178`, `:210`) and `Range` is installed in every scope (`globals.rs:432`), so
+   `new Range().startContainer` reaches it (item 5's scope rule). The install sequence needs only `Function.prototype` (`register_prototypes` `:118`) and `node_prototype`
    (`register_node_prototype` `:175`): the `FACTORIES` natives look up `range_prototype` etc. at call time
    (`crates/script/elidex-js/src/vm/host/document_traversal.rs:77-80`), and the gates read `spec_level_policy`, set
    before `register_globals` runs (`vm/init.rs:172-185`).
 4. `entity_kind.rs`: `Some(NodeKind::Document) => PrototypeKind::Document` in `prototype_kind_for`'s `match`
    (`:169`); `PrototypeKind::Document` (NEW) documented like its siblings.
 5. `elements.rs`: arm `PrototypeKind::Document => self.document_prototype.expect(..)`, with no `.or(node_prototype)`
-   fallback (§5.4 R-5); the comment `:95-96` loses "Document".
+   fallback (§5.4 R-5); the comment `:95-96` loses "Document". Rev 2.6.3 (PM 570 G1): a guard arm before it,
+   `PrototypeKind::Document if global_scope_kind != Window => node_prototype`, makes `Document.prototype` Window-scope only. This is a
+   scope rule, not R-5's silent fallback: `Range` is `[Exposed=Window]`, so a worker script reaching the document entity is
+   itself the defect (slot `#11-worker-scope-exposes-window-only-interfaces`, §7), and the rule fails safe — no Document member
+   (`cookie`, `createElement`) reaches a worker. On Window the `.expect()` stays with no fallback. Cells W26 / W27 (§6.1).
 6. Deleted: `install_document_methods_if_cloned_doc` and its call (`node_methods_extras.rs:218`, `:222-249`), the
    DOMParser install (`dom_parser.rs:303-305`), the installer call in `install_document_global` (`globals.rs` host
    `:45-49`), `HostData::document_methods_installed` and its initializer (`host_data/mod.rs:106-120`, `:617`). Doc
@@ -482,7 +487,7 @@ wrapper has `Document.prototype` (C1-pre D-1)" (R-2).
   `compatMode`. The ParentNode mixin and the event-handler attributes are class T (they act on `this`).
 - **P-5 receiver-ignoring natives**: `/usr/bin/grep -n '_this: JsValue' crates/script/elidex-js/src/vm/host/document.rs crates/script/elidex-js/src/vm/host/document_accessors.rs crates/script/elidex-js/src/vm/host/document_factories.rs`
   → `document_accessors.rs:120` (URL / documentURI), `:146` (readyState); plus the mapped `window.rs:805` (getSelection). At C1-pre's head
-  among Document members (`document*.rs`): 1, `native_document_get_url` (the program's, R-10).
+  among Document members (`document*.rs`): 0 (rev 2.6.3, PM 570 G3: 1 at `501fd938`, `native_document_get_url`; the URL pair now brand-checks `this`, its value stays R-10's).
 - **P-6 tests whose expectation C1-pre changes** (rev 2.6, PM 548; property: every test that observes a Document
   member's location — own property of a wrapper vs `Document.prototype` — or a non-bound Document's value of a member
   D-4 to D-8 change). Scope: every test path that runs VM scripts — the test files of `elidex-js` (`src/vm/tests/**`,
@@ -597,7 +602,7 @@ Name unchanged, `{}` expectation changed: `hidden_visibility_getters_brand_check
 
 ### §5.3 Touched files
 
-Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Every row is in `elidex-js`.
+Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Rev 2.6.3 (PM 570 F9): re-measured at the PR head against `git merge-base HEAD origin/main` (`git diff --numstat <base> HEAD`, then `wc -l`); the table below keeps the plan's figures, the head figures and the files the diff touches that it omitted follow it. Every row is in `elidex-js`.
 
 | file | lines | change | 1000-line decision |
 |---|---|---|---|
@@ -621,6 +626,18 @@ Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Every ro
 | `crates/script/elidex-js/src/vm/gc/roots.rs` (erratum, rev 2.6) | 619 (at `43e350c7` and at `bd89a35f`) | `GcRoots::proto_roots: [Option<ObjectId>; 197]` → `198` (`:36`) for the `Document.prototype` root; `git show <rev>:<path> \| /usr/bin/grep -n 'proto_roots: \['` | < 1000 |
 | `crates/script/elidex-js/src/vm/gc/collect.rs` (erratum, rev 2.6) | 2074 at `43e350c7`, 2078 at `bd89a35f` | the `proto_roots` array literal gains `self.document_prototype` (+4, after `self.document_fragment_prototype` `:237`) | **> 1000: exempt** (PM 556 D3, §11 O-5) |
 
+Rev 2.6.3 head figures (lines; added/deleted by the diff), no file crosses 1000 that was below it: `globals.rs` 979 (+7),
+`document.rs` 496 (+96/-134, net -38), `document_accessors.rs` 612 (+128/-106, net +22), `elements.rs` 448 (+24, G1's scope arm),
+`host/globals.rs` 60, `dom_parser.rs` 407, `node_methods_extras.rs` 242, `media_query.rs` 647, `entity_kind.rs` 208, `host_data/mod.rs` 712,
+`init.rs` 860, `mod.rs` 2793 (+8), `tests_worker.rs` 984 (+40: W26 / W27; 944 before, 16 lines of headroom), `tests_document_wrapper.rs` 553,
+`tests_document_methods.rs` 998 (+8/-7, net +1 — not "net ≤ 0"), `tests_cookie_referrer.rs` 904 (+31/-27, net +4), `tests_cssom_sheet.rs` 986 (+5/-3, net +2),
+`tests_html_element_proto.rs` 658 (+8/-5), `tests_clone_node.rs` 295, `tests_document_members.rs` 207, `tests_parent_node_mixin.rs` 703,
+`tests_webapi_gate.rs` 473, `tests_engine_s2.rs` 267, `gc/roots.rs` 619, `gc/collect.rs` 2078 (exempt, O-5). Files the table omitted:
+`vm/well_known.rs` 1586 (-2: the `document` string removal; > 1000 and shrinking, no split owed), `vm/host/window.rs` 818 (+7/-5, the `getSelection` mapping),
+`vm/host/document_factories.rs` 150 (+7/-19), `vm/host/document_traversal.rs` 204 (+7/-42), `vm/host/element_proto.rs` 453 (+5/-4), `vm/host/parentnode.rs` 255
+(+4/-4), `vm/globals_install.rs` 176 (+1/-1), `vm/tests/mod.rs` 208 (+1). The rows' "net ≤ 0 / net 0" claims for the test files are
+corrected by the figures above.
+
 ### §5.4 Named risks (and the observable change each is)
 
 - **R-1 own-property enumeration of `document`** → empty (X1, W2).
@@ -630,8 +647,18 @@ Line counts `wc -l` at `43e350c7`; re-measured at the cut (§9 item 1). Every ro
   throws `TypeError`, bound or not (PM 556 D1; W25); the `readyState` getter and the Document `getSelection` called on any
   receiver that is not a Document platform object — a non-Document node, `{}`, `undefined` — throw `TypeError` (W10, W24; D-5, D-8; W9 guards
   the existing check on the moved getters); a genuine non-bound Document's `readyState` answers its readiness, never
-  `""` (W23); the `URL` / `documentURI` getters keep no brand check (R-10).
-- **R-4 a Document wrapper allocated while unbound** would keep `Node.prototype` (B1×B2; D-3).
+  `""` (W23); the `URL` / `documentURI` getters brand-check `this` too (rev 2.6.3, PM 570 G3; W25) and return `current_url` unchanged (R-10).
+- **R-4 a Document wrapper allocated while unbound** would keep `Node.prototype` (B1×B2; D-3). Rev 2.6.3 (PM 570 G2):
+  `install_document_global` (bind time) carries a `debug_assert!` that the cached wrapper's prototype is
+  `document_prototype` (`node_prototype` in a worker / SW VM). **Production-path finding: none exists.** A wrap before bind needs
+  the Document entity and `prototype_kind_for` returns `OtherNode` while unbound, so the only way is a wrap of a known entity
+  between `install_host_data` and `bind`. Commands (re-run at `501fd938`+): (1) `git grep -n 'install_host_data' -- crates | /usr/bin/grep -v 'tests\|benches\|//'`
+  → `engine.rs:44`, `:100` (constructors, no wrap), `sw_thread.rs:189` and `worker_thread.rs:184` (each followed by `bind_worker`, then eval),
+  `vm_api.rs:136` (definition); (2) `git grep -n 'create_element_wrapper' -- crates | /usr/bin/grep -v tests` → every non-test
+  caller runs from a native (bound) or a dispatch path; `natives_promise.rs:526` is behind `host.is_bound()` (`:459-461`),
+  `engine.rs:254` is in listener dispatch on a bound VM, the benches (`event_dispatch.rs:50-57`, `dom_collection.rs:111-114`) bind first;
+  no crate outside `elidex-js` calls `install_host_data`. The assert guards the next such path (a wrap before bind is then a
+  loud debug failure, not a silent `Node.prototype` document for the VM's life).
 - **R-5 registration order** — a missing `register_document_prototype` panics at the first Document wrap (loud;
   §4.1 items 3, 5).
 
@@ -662,9 +689,11 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | W12 | guard (gates) | `'getElementsByTagName' in document`; with `compat-webapi` + BrowserCompat `'cookie' in document`, in an App-mode VM `'cookie' in document` | `true`; `true`; `false` | same |
 | W15 | red (Rust-set state, D-5) | as W1, with `ElementState::FOCUS` set on the fixture element (Rust) and the tab visible: `document.hasFocus.call(d)` | `true` | `false` |
 | W22 | red (fixture, C0c's flush; H-13) | W1's fixture (its Document entity, here D, and its element `p`); nothing wraps D before the script. `r = []; customElements.define('x-a', class extends HTMLElement { adoptedCallback(o, n) { r.push([o, n]); } }); x = document.createElement('x-a'); p.appendChild(x); document.adoptNode(x);` — two *adopt*s, (`document`, D) then (D, `document`); the flush allocates D's first wrapper as the first callback's newDocument. Then, in a second `eval`, with `a = r[1][0]` (the second callback's oldDocument): `[typeof a.createElement, 'createElement' in Object.getPrototypeOf(a), a.hidden, a.visibilityState, typeof a.getSelection == 'function' ? a.getSelection() : 'absent']`. **Control** (green on both; preconditions, same value on the base and after C1-pre, so they cannot fail the cell): `[r.length, a === r[0][1], r[1][1] === document, typeof r[1][1].createElement]` | `["undefined", false, undefined, undefined, "absent"]` (by code reading at `43e350c7`, not run); control `[2, true, true, "function"]` | `["function", true, true, "hidden", null]` (HTML §6.2 `hidden` / `visibilityState` getters with the initial "hidden"; Selection API §4.1 `Selection?`; D-6); control same |
-| W23 | red (fixture; rev 2.6: D-8 (b), PM 548) | W1's fixture (D, reached as `d = p.ownerDocument`): `[d.readyState]`. **Unasserted leg** (recorded, not tested): `dp.readyState`. **Control** (rev 2.6.2: `document.cloneNode().readyState` moved here, same value at `43e350c7`, `bd89a35f` and after): `[document.readyState, document.cloneNode().readyState]` | `43e350c7` (by code reading): `[undefined]` (D's wrapper has `Node.prototype`); `bd89a35f` (by code reading): `["complete"]`; unasserted leg `"complete"` on both; control `["complete", "complete"]` on all columns | `["complete"]` (HTML §3.1.5 initial value; no writer runs for D or a clone, D-8's table); unasserted leg: spec `"interactive"` (HTML §13.2.7 step 4), C1-pre `"complete"` — R-4's missing fact, so no C1-pre assertion; control `["complete", "complete"]` (R-4) |
+| W23 | red (fixture; rev 2.6: D-8 (b), PM 548) | W1's fixture (D, reached as `d = p.ownerDocument`): `[d.readyState]`. **Unasserted leg** (recorded here only; the test has no leg for it, rev 2.6.3, PM 570 F8): `dp.readyState`. **Control** (rev 2.6.2: `document.cloneNode().readyState` moved here, same value at `43e350c7`, `bd89a35f` and after): `[document.readyState, document.cloneNode().readyState]` | `43e350c7` (by code reading): `[undefined]` (D's wrapper has `Node.prototype`); `bd89a35f` (by code reading): `["complete"]`; unasserted leg `"complete"` on both; control `["complete", "complete"]` on all columns | `["complete"]` (HTML §3.1.5 initial value; no writer runs for D or a clone, D-8's table); unasserted leg: spec `"interactive"` (HTML §13.2.7 step 4), C1-pre `"complete"` — R-4's missing fact, so no C1-pre assertion; control `["complete", "complete"]` (R-4) |
 | W24 | red (rev 2.6: D-5, PM 548) | `P = document.hasOwnProperty('getSelection') ? document : Object.getPrototypeOf(document)`; legs through `E(..)`: (1) `P.getSelection.call({})`, (2) `P.getSelection.call(document.body)`. **Control**: `P.getSelection.call(document) === getSelection()` | `43e350c7` (by code reading: the Window's native, `_this`): (1), (2) the Window's `Selection` (no throw); `bd89a35f` (by code reading): (1) `null` (`document_receiver` → `Ok(None)`), (2) `TypeError` "Failed to execute 'getSelection' on 'Document': Illegal invocation"; control `true` on both | (1), (2) `TypeError` "Illegal invocation" (Web IDL §3.7.7 *create an operation function* step 2.1.2.3); control `true` |
-| W25 | red (PM 556 D1) | `P = Object.getPrototypeOf(document)` (or `document` on the base); members (15): the 11 natives whose own `host_if_bound()` early return e77263ce removed — `getElementById`, `querySelector`, `querySelectorAll`, `getElementsByTagName`, `getElementsByClassName`, `getElementsByName`, `adoptNode`, `createElement`, `createTextNode`, `createComment`, `createDocumentFragment` — plus `createTreeWalker` (a traversal factory) and the accessor getters `hidden`, `compatMode`, `readyState` (through their descriptors). Legs: bound, each member `.call({})` and `.call(undefined)` through `E(..)`; then after `vm.unbind()`, the same two receivers, and a retained Document wrapper (`dd = document`). **Control**: bound `.call(document)` of each member | base values by code reading (`document_receiver` → `Ok(None)` for a non-`HostObject`; `createTreeWalker` pre-checks in `require_document_factory_receiver`), at `43e350c7` and `bd89a35f`: bound `{}` / `undefined`: the 11 natives `returned:null`, `hidden` `returned:false`, `compatMode` `returned:""`, `createTreeWalker` `TypeError`; `readyState` `returned:""` at `bd89a35f` and `returned:"complete"` at `43e350c7`; unbound `{}` / `undefined`: the same; unbound `dd`: the 11 natives `null`, `hidden` `false`, `compatMode` `""`, `createTreeWalker` `null`, `readyState` `""` at `bd89a35f` / `"complete"` at `43e350c7`; control `null\|false\|"CSS1Compat"\|"complete"\|object\|object` (`getElementById`, `hidden`, `compatMode`, `readyState`, `createElement`, `createTreeWalker`) | bound and unbound, `{}` and `undefined`: all 15 `TypeError` "Illegal invocation" (Web IDL §3.7.6 *attribute getter* step 1.1.2.3.2, §3.7.7 *create an operation function* step 2.1.2.3); unbound `dd`: the 11 natives `null`, `hidden` `false`, `compatMode` `""`, `createTreeWalker` `null`, `readyState` `"complete"` (PM 556 D2; the `readyState` value is `43e350c7`'s, not `bd89a35f`'s `""`, so reverting to `""` turns this leg red); control (`readyState` leg added) as listed |
+| W25 | red (PM 556 D1) | `P = Object.getPrototypeOf(document)` (or `document` on the base); members (17): the 11 natives whose own `host_if_bound()` early return e77263ce removed — `getElementById`, `querySelector`, `querySelectorAll`, `getElementsByTagName`, `getElementsByClassName`, `getElementsByName`, `adoptNode`, `createElement`, `createTextNode`, `createComment`, `createDocumentFragment` — plus `createTreeWalker` (a traversal factory) and the accessor getters `hidden`, `compatMode`, `readyState`, `URL`, `documentURI` (through their descriptors; the last two rev 2.6.3, PM 570 G3). Legs: bound, each member `.call({})` and `.call(undefined)` through `E(..)`; then after `vm.unbind()`, the same two receivers, and a retained Document wrapper (`dd = document`). **Control**: bound `.call(document)` of each member | base values by code reading (`document_receiver` → `Ok(None)` for a non-`HostObject`; `createTreeWalker` pre-checks in `require_document_factory_receiver`), at `43e350c7` and `bd89a35f`: bound `{}` / `undefined`: the 11 natives `returned:null`, `hidden` `returned:false`, `compatMode` `returned:""`, `createTreeWalker` `TypeError`; `readyState` `returned:""` at `bd89a35f` and `returned:"complete"` at `43e350c7`; unbound `{}` / `undefined`: the same; unbound `dd`: the 11 natives `null`, `hidden` `false`, `compatMode` `""`, `createTreeWalker` `null`, `readyState` `""` at `bd89a35f` / `"complete"` at `43e350c7`; control `null\|false\|"CSS1Compat"\|"complete"\|object\|object` (`getElementById`, `hidden`, `compatMode`, `readyState`, `createElement`, `createTreeWalker`) | bound and unbound, `{}` and `undefined`: all 17 `TypeError` "Illegal invocation" (Web IDL §3.7.6 *attribute getter* step 1.1.2.3.2, §3.7.7 *create an operation function* step 2.1.2.3); unbound `dd`: the 11 natives `null`, `hidden` `false`, `compatMode` `""`, `createTreeWalker` `null`, `readyState` `"complete"`, `URL` / `documentURI` `"about:blank"` (the unchanged value, R-10) (PM 556 D2; the `readyState` value is `43e350c7`'s, not `bd89a35f`'s `""`, so reverting to `""` turns this leg red); control (`readyState` leg added) as listed |
+| W26 | red (rev 2.6.3, PM 570 G1) | in a dedicated-worker VM (`with_worker_vm`, `tests_worker.rs`): `x = new Range().startContainer; [typeof x, typeof x.createElement, 'cookie' in x].join('\|')` | `501fd938`: panics (`create_element_wrapper called before register_document_prototype`, `elements.rs:159`) | `object\|undefined\|false` (`Node.prototype` wrapper; no Document member) |
+| W27 | red (rev 2.6.3, PM 570 G1) | W26's script in a service-worker VM (`Vm::new_service_worker`, bound with `bind_worker`) | `501fd938`: panics, same site | `object\|undefined\|false` |
 
 ### §6.2 Mutation guards
 
@@ -679,6 +708,8 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | cookie gate evaluated per wrapper / dropped | W12 |
 | live-collection gate evaluated per wrapper / dropped | none: equivalent today (`live_collection_spec_level()` is `Living`, `event_handler_consumer.rs:307-309`, and `SpecLevelPolicy::installs_dom` returns `true` for `Living` under every policy, `spec_level.rs:174`); observable once B0/B1 demote the family, which adds the cell |
 | DOMParser or clone install left behind | W2 legs 3 (DOMParser document) and 4 (`document.cloneNode()`): own-name count 0 (before `bd89a35f` / `43e350c7`, by code reading: > 0). Mutation: an own `getElementById` on the DOMParser wrapper gives `0\|true\|1\|0`, on the clone `0\|true\|0\|1`, both red; P-2's DoD grep is a name grep only |
+| the worker / SW scope rule removed from the `PrototypeKind::Document` arm (rev 2.6.3, PM 570 G1; run once: the guard replaced by `if false`) | W26, W27 (both red: panic at `elements.rs:173`) |
+| `URL` / `documentURI` without `document_receiver` (rev 2.6.3, PM 570 G3) | W25 (`ALL({})` count 17 → 15) |
 | `readyState` without brand check | W10 |
 | `readyState` / `getSelection` without the non-`HostObject` pre-check (`{}` / `undefined` fall back to `""` / `null`) | W10 legs (2), (3); W24 leg (1) |
 | Document `getSelection` without `document_receiver` (any receiver delegates) | W24 |
@@ -706,12 +737,13 @@ Document in the page `EcsDom` reached through `ownerDocument`).
 | browsing-context facts as ECS components (the association, the bound document's visibility state and selection) | B1 / `#11-browsing-context-state-ecs-components` (R-11) | the predicate's input is per-VM `HostData::document`; visibility and selection are per-VM |
 | the per-Document custom element registry | `#11-document-null-registry-adopt-reset` | `I.createElement` / `dp.createElement` use the VM's registry |
 | `activeElement` for a Document without a navigable | §1.1 X7 (spec-silent; current behaviour kept) | spec-silent step 1 |
-| every Document member throws `TypeError` on a failed brand check (PM 556 D1; in `document_receiver`; `readyState` and `getSelection` PM 548) | none: done in C1-pre | none for the members through `document_receiver`; members that do not go through it (the `URL` pair, `styleSheets`, the ParentNode members, the event-handler attributes) keep their receiver handling |
+| every Document member throws `TypeError` on a failed brand check (PM 556 D1; in `document_receiver`; `readyState` and `getSelection` PM 548) | none: done in C1-pre | none for the members through `document_receiver`; members that do not go through it (`styleSheets`, the ParentNode members, the event-handler attributes) keep their receiver handling |
 | the unbound-VM `HostObject` receiver's answer (PM 556 D2) | `#11-vm-host-receiver-brand-check-unification` | an unbound VM cannot tell a retained Document wrapper from another `HostObject`, so each member keeps its existing default (the current behaviour is kept) |
 | a non-bound Document's readiness when it is not the initial value (DOMParser: "interactive" until *The end* step 11's task; a formerly bound document) | R-4 (missing per-Document fact; D-8) | `dp.readyState` answers `"complete"` |
 | Document members that do not go through `document_receiver` are shared-interface receivers and are not changed by C1-pre: `styleSheets` (DocumentOrShadowRoot), `prepend` / `append` / `replaceChildren` (ParentNode), `firstElementChild` / `lastElementChild` / `children` / `childElementCount` (`tree_nav_getter`), the event-handler attributes (`require_handler_receiver`) | `#11-vm-host-receiver-brand-check-unification` | their brand check is per shared interface, not per Document |
 | an unbound VM's `getElementsByTagName` / `getElementsByClassName` / `getElementsByName` (and `querySelectorAll`) on a retained Document return `null` | `#11-vm-host-receiver-brand-check-unification` (material for the slot; not fixed here) | `null` for a non-nullable `HTMLCollection` (`NodeList`) return |
 | multi-realm `Document.prototype` | B1 (H-1 below) | one prototype per VM |
+| worker / SW globals install `[Exposed=Window]` interfaces such as `Range` (owner L3; registered, PM 570) | `#11-worker-scope-exposes-window-only-interfaces` | script reaches the worker VM's internal Document entity (`new Range().startContainer`); C1-pre's scope rule (§4.1 item 5) keeps it a `Node.prototype` wrapper with no Document members, which is main's behaviour |
 
 Own deferrals: 2 slot proposals (R-4, R-9), each a pre-existing defect C1-pre does not widen; R-6, R-8, R-10 and R-11
 append pre-existing defects to existing slots; R-13 and R-14 are for the PM to register or decline; the other rows
@@ -825,7 +857,7 @@ are pre-existing or another unit's scope.
   about base URL"; step 2 "Return document's URL"). So `DocumentBaseUrl` cannot hold the URL; the URL is its input,
   through the fallback. Also input: the dom-api's unused `GetDocumentUrl` stub
   (`crates/dom/elidex-dom-api/src/char_data/document_props.rs:14-30`, returns `"about:blank"`, no VM caller), and the
-  URL pair's missing brand check (C1-pre leaves the native as HEAD's). C1-pre rev 1.1's withdrawn design (a second
+  URL pair's missing brand check (C1-pre rev 2.6.3 adds the brand check; the value stays HEAD's). C1-pre rev 1.1's withdrawn design (a second
   component with writers at spawn, clone, DOMParser, navigation commit and the *URL and history update steps*) is in
   that memo's history (`6b35d16c`), not a decision."
 - **R-11 ledger `#11-browsing-context-state-ecs-components` (append)**: "**Defect**: three per-Document facts the
@@ -839,17 +871,25 @@ are pre-existing or another unit's scope.
 - **R-12 L3 (RC-2a), for information (PM 371)**: RC-2a landed first (#596) with `install_document_methods_if_cloned_doc`'s
   call kept (`node_methods_extras.rs:218`), as its plan said; C1-pre's PR then deletes that call, the helper and the doc bullet on Document clones in
   `native_node_clone_node` (§4.1 item 6), and leaves RC-2a's other changes as landed.
-- **R-13 PM**: `[LegacyUnforgeable] location` on Document is absent (§7), for the PM to register or decline.
-- **R-14 PM**: `[SameObject]` `forms` / `images` / `links` allocate per read (§7; the live-collection family, A1 gate
-  B0 / B1), for the PM to register or decline.
+- **R-13 PM (slot to register or decline)**: **Defect**: `[LegacyUnforgeable] location` on Document is absent
+  (`document.location` is `undefined`; HTML §7.2.4 / Document's `location` attribute). **Why deferred**: it is a Document
+  member whose value is the Window's `Location` for the bound document and `null` for one without a browsing context, a
+  new member rather than a wrapper-shape fix, and `[LegacyUnforgeable]` needs an own-property install that C1-pre's
+  one-prototype model (D-1) does not have a place for. **Trigger**: a script or test that reads `document.location`, or the
+  interface-object program (`#11-navigator-interface-object-branding`, R-6). **Re-eval**: 2027-01-31. **Owner**: L3 (default; the PM may assign).
+- **R-14 PM (slot to register or decline)**: **Defect**: `[SameObject]` `forms` / `images` / `links` allocate a new
+  collection per read (`document.forms === document.forms` is `false`; the live-collection family, A1 gate B0 / B1).
+  **Why deferred**: the family moves as a whole when B0 / B1 demote the live-collection source (`live_collection_spec_level()`),
+  and a Document-only cache would be a second mechanism beside it (One issue, one way). **Trigger**: B0 / B1, or a
+  consumer relying on collection identity. **Re-eval**: 2027-01-31. **Owner**: L3 (default; the PM may assign).
 
 ## §9. Definition of done
 
 1. Coordinates re-measured at the cut (D-14 (b) and RC-2a landed; `native_node_clone_node` re-read); §5.1 populations
    re-run and recorded; open VM P4 branches re-checked for `vm/globals.rs`, `vm/mod.rs`, `vm/init.rs`,
    `vm/host/elements.rs`, `vm/host_data/**`, `vm/tests/mod.rs`.
-2. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 1 among Document
-   members (`native_document_get_url`, R-10).
+2. D-1 to D-8 and D-10 to D-12 implemented; P-1's DOM-node allocator count 1; P-2 0 hits; P-5 0 among Document
+   members (rev 2.6.3; was 1, the URL pair).
 3. §6.1 cells present; every red cell (W15 and W22 included) run red on the base with its control green, recorded in
    the PR description.
 4. §5.2 rewrites done; `git grep -n 'install_document_methods\|document_methods_installed\|bridge-document-post-install' -- crates` → 0.
@@ -949,6 +989,7 @@ O-4 state that an unbound retained `HostObject`'s `readyState` is `"complete"` (
 §5.1's old name updated. §7 gains two rows (members outside `document_receiver`; unbound non-nullable `null` returns). Three stale comments in
 `document_factories.rs` and `document.rs` rewritten.
 Rev 2.6.2 addendum (mutation pass): W2 gains legs 3 and 4 (DOMParser document, clone: own-name count 0) closing the R8 mutant; the live-collection gate row is marked equivalent today (every policy installs `Living`), only the cookie gate stays with W12.
+*Rev 2.6.3* (2026-11-09, PM 570, pre-push gate at `501fd938`; PM 548 / 556 as above). **G1**: `Document.prototype` is Window-scope only (§4.1 items 3 and 5; worker and SW VMs bind a Document entity, so "a worker VM binds no document" was false), W26 / W27, a §6.2 row (mutation run once), a §7 row (slot `#11-worker-scope-exposes-window-only-interfaces`). **G2**: R-4's bind-time `debug_assert!` and the production-path finding with its commands. **G3**: `URL` / `documentURI` brand-check `this`; W25 has 17 members; P-5 0 (was 1); R-3, §2.2, §7, DoD item 2 follow. **F1** (R-5 applied: the umbrella's §1.2 row and Order line). **F8**: W23's unasserted leg dropped from the test (the gap stays in R-4 / §7); the cells use the prototype only, no base-compat branch. **F9**: §5.3 re-measured; R-13 / R-14 given defect, why deferred, trigger, re-eval, owner. No new spec lookups.
 
 ## §11. Open questions
 
