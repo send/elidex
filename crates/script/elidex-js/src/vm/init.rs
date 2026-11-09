@@ -301,6 +301,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 document_fragment_prototype: None,
                 #[cfg(feature = "engine")]
+                document_prototype: None,
+                #[cfg(feature = "engine")]
                 html_slot_prototype: None,
                 #[cfg(feature = "engine")]
                 pending_slot_change_signals: std::collections::VecDeque::new(),

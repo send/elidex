@@ -535,14 +535,12 @@ fn shadow_root_wrapper_survives_gc_while_host_alive() {
     );
 }
 
+/// C1-pre G2 (PM 574): wrapping a never-wrapped entity while unbound is an
+/// invariant violation (the prototype is chosen from `NodeKind` once, at first
+/// allocation, and `NodeKind` is unreadable unbound).
 #[test]
-fn create_element_wrapper_on_unbound_does_not_panic() {
-    // R13 finding #3: `create_element_wrapper`'s shadow-root
-    // detection (introduced R9 finding #4) called `hd.dom_shared()`
-    // unconditionally, which asserts `is_bound()`.  An unbound
-    // `HostData` (post-unbind) would panic before reaching the
-    // existing OtherNode fallback.  Now gated on `hd.is_bound()`
-    // so wrapper allocation stays bind-state-agnostic.
+#[should_panic(expected = "create_element_wrapper allocates only while bound")]
+fn create_element_wrapper_unbound_cache_miss_panics() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -554,11 +552,25 @@ fn create_element_wrapper_on_unbound_does_not_panic() {
     let some_entity =
         dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
     vm.unbind();
-    // Direct call into `create_element_wrapper` on the unbound VM —
-    // pre-fix this panicked at `hd.dom_shared()` because the
-    // shadow-root detection didn't gate on `is_bound()`.  Post-fix
-    // it falls through to the OtherNode / Node.prototype branch.
-    let _wrapper = vm.inner.create_element_wrapper(some_entity);
+    let _ = vm.inner.create_element_wrapper(some_entity);
+}
+
+/// A wrapper retained across `unbind` is a cache HIT and keeps working
+/// (PM 556 D2); only the allocating miss is bound-only.
+#[test]
+fn create_element_wrapper_unbound_cache_hit_returns_the_retained_wrapper() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let e = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
+    let bound = vm.inner.create_element_wrapper(e);
+    vm.unbind();
+    assert_eq!(vm.inner.create_element_wrapper(e), bound);
 }
 
 #[test]

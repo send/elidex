@@ -16,13 +16,11 @@
 //! `elidex-dom-api` / `elidex-ecs` handlers via
 //! [`super::dom_bridge::invoke_dom_api`] — the algorithm proper lives
 //! engine-independently per the CLAUDE.md Layering mandate.
-//! `cloneNode` carries one extra step VM-side: a Document clone gets
-//! the document-specific own-property suite installed onto its
-//! wrapper post-dispatch ([`install_document_methods_if_cloned_doc`]).
+//! A Document clone's wrapper gets `Document.prototype` from
+//! `create_element_wrapper` like every Document wrapper.
 
 #![cfg(feature = "engine")]
 
-use super::super::object_kind::ObjectKind;
 use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 use super::event_target::entity_from_this;
 use super::node_proto::require_node_arg;
@@ -199,10 +197,9 @@ pub(super) fn native_node_is_equal_node(
 /// - Event listeners are not cloned: no clone-a-node step copies the
 ///   listener list (the algorithm gates only shadow replication
 ///   explicitly).
-/// - Cloned Document entities receive the full document-specific
-///   own-property suite via
-///   [`super::super::VmInner::install_document_methods_for_entity`]
-///   so `document.cloneNode(true).createElement(...)` works.
+/// - A cloned Document's wrapper has `Document.prototype` (chosen by
+///   `create_element_wrapper`), so `document.cloneNode(true).createElement(...)`
+///   works with no clone-specific step.
 pub(super) fn native_node_clone_node(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -213,39 +210,7 @@ pub(super) fn native_node_clone_node(
     };
     let deep_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let deep = super::super::coerce::to_boolean(ctx.vm, deep_arg);
-    let result =
-        super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])?;
-    install_document_methods_if_cloned_doc(ctx, result);
-    Ok(result)
-}
-
-/// Post-dispatch hook for `cloneNode`: when the cloned wrapper wraps
-/// a Document entity, install the per-Document own-property suite
-/// onto it.  The bridge's `create_element_wrapper` set up the
-/// prototype chain; this adds the document-specific method bag
-/// (`createElement`, `body`/`head` accessors, etc.) so
-/// `document.cloneNode(true).createElement('p')` works.
-///
-/// File-local single-use helper — only `cloneNode` produces
-/// Documents through the clone path.  Centralising this hook at the
-/// bridge layer is tracked under the deferred slot
-/// `#11-bridge-document-post-install`.
-fn install_document_methods_if_cloned_doc(ctx: &mut NativeContext<'_>, result: JsValue) {
-    let JsValue::Object(wrapper) = result else {
-        return;
-    };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind else {
-        return;
-    };
-    let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) else {
-        return;
-    };
-    if matches!(
-        ctx.host().dom().node_kind(entity),
-        Some(elidex_ecs::NodeKind::Document)
-    ) {
-        ctx.vm.install_document_methods_for_entity(entity, wrapper);
-    }
+    super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])
 }
 
 // ---------------------------------------------------------------------------

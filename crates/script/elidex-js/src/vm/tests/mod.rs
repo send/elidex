@@ -54,6 +54,7 @@ mod tests_document_global;
 mod tests_document_members;
 mod tests_document_methods;
 mod tests_document_type;
+mod tests_document_wrapper;
 mod tests_dom_collection;
 mod tests_dom_exception;
 mod tests_dom_handler_dispatch;

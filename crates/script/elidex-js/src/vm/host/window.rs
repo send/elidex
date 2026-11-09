@@ -640,9 +640,10 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
         super::css_style_declaration::native_window_get_computed_style,
     ),
     // Selection API §2: `getSelection()` returns the per-document
-    // Selection singleton.  Identical binding on `Document.prototype`
-    // (see `vm/host/document.rs`).  Single-doc VM never returns null
-    // here; gated to `InvalidStateError` if host is unbound.
+    // Selection singleton; gated to `InvalidStateError` if host is unbound.
+    // `Document.prototype.getSelection` is a separate native
+    // (`native_document_get_selection`: brand check, `null` without a
+    // browsing context).
     ("getSelection", native_window_get_selection),
     // CSSOM-View §4 "Extensions to the Window Interface": `matchMedia(query)`
     // returns a live `MediaQueryList` (CSSOM-View §4.2).
@@ -791,8 +792,9 @@ fn native_window_get_session_storage(
 }
 
 /// `window.getSelection()` (Selection API §2): returns the
-/// per-document Selection singleton.  Identical binding wired on
-/// `Document.prototype` (`vm/host/document.rs`) — both resolve to the
+/// per-document Selection singleton.  `Document.prototype.getSelection`
+/// is a separate native (`native_document_get_selection`: brand check,
+/// `null` when the Document has no browsing context) that returns the
 /// same `[SameObject]` wrapper held in
 /// `HostData::selection_instance`.  Lazily materialises the wrapper
 /// on first call; subsequent calls return the same `ObjectId`

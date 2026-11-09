@@ -43,7 +43,13 @@ pub enum PrototypeKind {
     /// uniform with how other ECS-backed wrapper kinds are
     /// dispatched here ([feedback_objectkind-resolution-uniformity]).
     ShadowRoot,
-    /// Document or anything without a recognised `NodeKind`.
+    /// `NodeKind::Document` — chains via `Document.prototype →
+    /// Node.prototype → …`.  One interface prototype object per VM
+    /// carries the whole Document member suite (WebIDL §3.7.6 /
+    /// §3.7.7); it is chosen here for every wrapper of a Document
+    /// entity, whichever path wraps it first.
+    Document,
+    /// Anything without a recognised `NodeKind`.
     /// Chains directly to `Node.prototype`.
     OtherNode,
 }
@@ -134,17 +140,18 @@ impl HostData {
     /// `node_kind` for the remaining non-Element node families)
     /// with a legacy-payload fallback (`TextContent` / `CommentData`
     /// / `DocTypeData`) for entities lacking an explicit `NodeKind`
-    /// component.  Returns [`PrototypeKind::OtherNode`] when the
-    /// `HostData` is not bound (pre-bind wrapper allocation paths).
+    /// component.  Must be called bound; there is no
+    /// unbound fallback (`create_element_wrapper` asserts first).
     ///
     /// Aliasing contract mirrors [`Self::is_element_entity`] — the
     /// caller must not hold a live `&mut EcsDom` produced via
     /// [`Self::dom`] at the call site.
     #[allow(unsafe_code)]
     pub fn prototype_kind_for(&self, entity: Entity) -> PrototypeKind {
-        if !self.is_bound() {
-            return PrototypeKind::OtherNode;
-        }
+        assert!(
+            self.is_bound(),
+            "prototype_kind_for requires a bound HostData (C1-pre D-3)"
+        );
         // SAFETY: see `is_element_entity` — same contract.
         let dom = unsafe { &*self.dom_ptr };
         // Element has highest priority (matches the pre-PR4e
@@ -178,6 +185,7 @@ impl HostData {
             }
             Some(NodeKind::DocumentType) => PrototypeKind::DocumentType,
             Some(NodeKind::DocumentFragment) => PrototypeKind::DocumentFragment,
+            Some(NodeKind::Document) => PrototypeKind::Document,
             None => {
                 // Defensive inference for legacy entities that
                 // carry CharacterData payload without an explicit

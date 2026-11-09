@@ -146,8 +146,8 @@ fn has_focus_is_false_when_tab_hidden_but_active_element_retained() {
 #[test]
 fn visibility_getters_scope_to_bound_document() {
     // Codex R2 F2: page visibility is a fact of the *bound* document — a
-    // cloned/non-bound `Document` receiver must NOT leak the bound tab's hidden
-    // state.
+    // cloned/non-bound `Document` has no browsing context, so it answers its
+    // initial visibility state (HTML §6.2: "hidden"), not the bound tab's.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     engine.set_visibility(false);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
@@ -166,13 +166,13 @@ fn visibility_getters_scope_to_bound_document() {
         "the bound document reflects the hidden tab"
     );
     assert!(
-        !global_bool(&mut engine, "cloneHidden"),
-        "a cloned (non-bound) document does not leak the bound hidden state"
+        global_bool(&mut engine, "cloneHidden"),
+        "a cloned (non-bound) document has the initial hidden state"
     );
     assert_eq!(
         global_string(&mut engine, "cloneVis"),
-        "visible",
-        "cloned document visibilityState defaults to visible"
+        "hidden",
+        "cloned document visibilityState is the initial \"hidden\""
     );
 }
 

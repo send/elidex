@@ -199,7 +199,7 @@ fn storage_window_seams_legacy_gated() {
 }
 
 fn document_cookie_present(mode: EngineMode) -> bool {
-    // `document.cookie` installs on the Document *wrapper*, so the document must be
+    // `document.cookie` is reached through the bound Document's wrapper, so the document must be
     // bound (the proven path: `bind_vm` + `vm.eval`, as in
     // `live_collection_methods_keep_original_property_order`) — the engine/
     // ScriptContext path leaves `document` unbound.
@@ -248,9 +248,9 @@ fn document_cookie_legacy_gated() {
 #[test]
 fn live_collection_methods_keep_original_property_order() {
     // Codex R9 regression: A1 extracts the `Document` live-collection getters into
-    // a gated sub-table (seam-1c), but elidex installs document methods as the
-    // wrapper's OWN properties (no shared `Document.prototype`), so install order
-    // IS `Object.getOwnPropertyNames(document)` order. The gated install must land
+    // a gated sub-table (seam-1c); the members install on `Document.prototype`, so
+    // install order IS `Object.getOwnPropertyNames(Object.getPrototypeOf(document))`
+    // order. The gated install must land
     // at its ORIGINAL ordinal position (between `querySelectorAll` and
     // `createElement`) — a trailing install would reorder the names after
     // `getSelection`, an observable change A1's no-behavior-change contract forbids.
@@ -264,7 +264,7 @@ fn live_collection_methods_keep_original_property_order() {
     }
     let order_ok = vm
         .eval(
-            "const n = Object.getOwnPropertyNames(document); \
+            "const n = Object.getOwnPropertyNames(Object.getPrototypeOf(document)); \
              n.indexOf('querySelectorAll') >= 0 && \
              n.indexOf('createElement') >= 0 && \
              n.indexOf('querySelectorAll') < n.indexOf('getElementsByTagName') && \

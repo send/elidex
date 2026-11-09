@@ -121,7 +121,7 @@ pub(crate) struct MediaQueryEntry {
     /// is inert for the new document's pass.
     ///
     /// This is the **document `Entity`** (the canonical per-document
-    /// identity, the `HostData::document_methods_installed` precedent), NOT
+    /// identity, the per-document-entity precedent), NOT
     /// `bind_epoch`: the engine's BATCH-BIND model (`HostDriver`) brackets
     /// *every* batch (script-exec / event-dispatch / frame-drain) with
     /// `bind`/`unbind`, bumping `bind_epoch` each time, so `bind_epoch`

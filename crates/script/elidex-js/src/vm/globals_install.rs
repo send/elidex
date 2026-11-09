@@ -75,7 +75,7 @@ impl VmInner {
     /// Install each `(name, native)` as a `DATA`/`METHOD`-attributed
     /// property on `obj_id`.  Shared by `create_object_with_methods`,
     /// the Window prototype registration (`host/window.rs`), and the
-    /// per-bind document-method installer (`host/document.rs`) —
+    /// `Document.prototype` installer (`host/document.rs`) —
     /// everywhere we need to attach a batch of methods to an object
     /// that already exists.
     pub(crate) fn install_methods(

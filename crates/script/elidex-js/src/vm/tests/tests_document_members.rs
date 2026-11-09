@@ -113,20 +113,17 @@ fn compat_mode_is_css1_compat() {
 }
 
 #[test]
-fn compat_mode_on_plain_object_returns_empty_not_css1_compat() {
-    // Copilot R2 F5 lock-in: `compatMode` used to return the cached
-    // "CSS1Compat" string even when called on a non-HostObject
-    // receiver (e.g. via `Object.getOwnPropertyDescriptor(...).get.call({})`).
-    // The unbound-receiver policy for Document accessors is to fall
-    // through silently with the kind's default — empty string here —
-    // so the getter does not leak a plausible answer for an
-    // invalid receiver.
+fn compat_mode_on_plain_object_throws_not_css1_compat() {
+    // Copilot R2 F5 lock-in, rewritten by PM 556 D1: `compatMode` must not
+    // leak the plausible "CSS1Compat" answer for an invalid receiver
+    // (`Object.getOwnPropertyDescriptor(...).get.call({})`); Web IDL's
+    // *attribute getter* brand check throws `TypeError`.
     let out = run(
-        "var getCompat = Object.getOwnPropertyDescriptor(document, 'compatMode').get; \
-         getCompat.call({}) + ':' + typeof getCompat.call({});",
+        "var getCompat = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(document), 'compatMode').get; \
+         try { 'returned:' + getCompat.call({}); } catch (e) { e.name; }",
         build_html_with_head_body,
     );
-    assert_eq!(out, ":string");
+    assert_eq!(out, "TypeError");
 }
 
 #[test]
