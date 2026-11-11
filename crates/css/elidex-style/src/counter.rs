@@ -76,7 +76,9 @@ impl CounterState {
 
     /// Process counter properties from a computed style.
     ///
-    /// Order of operations per CSS Lists 3 §4.1–§4.2: reset → set → increment.
+    /// The order of operations is the code's: reset → set → increment. CSS Lists 3 §4
+    /// orders it reset → increment → set (steps 2–4); the gap is slot
+    /// `#11-list-counter-baking-ua-rule-and-hints`.
     ///
     /// `is_continuation` suppresses increment (used for fragmentation continuations).
     pub fn process_element(&mut self, style: &ComputedStyle, is_continuation: bool) {

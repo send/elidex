@@ -286,7 +286,6 @@ wasmtime = { version = "50.0.1", default-features = false, features = [
 ] }
 wat = "1"
 static_assertions = "1"
-rayon = "1"
 unicode-segmentation = "1"
 unicode-linebreak = "0.1"
 regex = "1"
