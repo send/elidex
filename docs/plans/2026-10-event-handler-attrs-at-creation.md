@@ -354,7 +354,7 @@ element event handler set (`onblur`, `onerror`, `onfocus`, `onload`, `onresize`,
   stays after slice b: it is the creation-equivalent point for the pre-bind parse.
 
 Red cells per clause (§6): K-0 guards U5 (ii), U9, E8, C6, C13, C16 (no red: K-0 is HEAD-equality or improvement). X-W:
-C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pin C15; C14 a window pin until C1, which inverts it to the spec's outcome, C1 memo T17). K-6: E1, E2,
+C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (C15 a window pin until N1, whose node clause inverts it; C14 a window pin until C1, which inverts it to the spec's outcome, C1 memo T17). K-6: E1, E2,
 E4–E7, U7, U10, U11, U12.
 
 ### §0.6 Slice b's invariants (decided; mechanism is slice b's plan)

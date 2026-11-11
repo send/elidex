@@ -909,9 +909,15 @@ command's earlier control, `adopt_on_insert.rs:586:u5_same_document_move_runs_no
 3.10.2's memo-cell population (the `template|content` grep over the C0 memos' §6 cells) does not reach it: that grep's
 C0b output is `T5 T23 U1 U8 U11 U12` (piped to `/usr/bin/grep -c '^| *U5 '` → 0), because U5's cell text is
 "same-document move" while its fixture, `x_subtree`, holds a template. Complement: a fixture built by a helper reached
-only through a glob import (`use super::*`), a `super::super::` path, a two-hop import chain or a file with no
-`#[test]`, by a macro, or from a file read at run time is not seen; a nested `fn` inside a test body ends that test's
-scanned body; code between two items counts for the earlier one (over-inclusion only).
+only through a glob import (`use super::*`), a `use crate::<path>::<file>::…` or `use super::super::<file>::…` path,
+a two-hop import chain or a file with no `#[test]`, by a macro, or from a file read at run time is not seen; a nested `fn` inside a test body ends that test's
+scanned body; code between two items counts for the earlier one (over-inclusion only). Measured for the two unfollowed
+`use` path forms, at `04d92e75`: **0** template-reaching helpers imported that way. Command: the script's first loop
+writes the helper list `$H` (`file<TAB>name<TAB>kind`, 228 rows), then `git grep -hE '^\s*(pub[^ ]* )?use
+(crate|super::super)::' -- $FS_ | tr -c 'A-Za-z0-9_' '\n' | sort -u | comm -12 <(cut -f2 "$H" | sort -u) -` → one
+name, `PRELUDE`; its import (`tests_event_handler_attrs_once.rs:15`, `use super::super::test_helpers::{…, PRELUDE}`)
+resolves to `vm/test_helpers.rs:184`, which is not in `$H` (the name's one row is `tests_template_owner_document.rs`'s
+file-local `PRELUDE`).
 
 *Set (b): the fns whose expected value changed at C1's head.* The expectations rewritten in `7bcc704b`, read per fn
 from `git show 7bcc704b` (a fn whose diff touches only comments, names or a destructuring is not counted), plus C14's
@@ -1253,7 +1259,7 @@ and the head, so no cell is named here, or elsewhere in this memo, as a mutant's
 run once per mutant from the implementation worktree:
 `unset RUSTUP_TOOLCHAIN; cargo test -p elidex-ecs -p elidex-dom-api -p elidex-html-parser -p
 elidex-html-parser-strict -p elidex-custom-elements -p elidex-script-session -p elidex-js --all-features
---no-fail-fast` (the seven crates of §6.4). Each mutant is one verbatim text edit, applied, run and reverted
+--no-fail-fast` (the seven crates of §6.4). Each mutant is one verbatim edit set (one text edit, or for M05 three), applied, run and reverted
 (`git status` clean after each); "edit at" is the line where the edited text starts at `4b43d0bb`, under the crate's
 `src/`. Baseline (unmutated): 0 failures, no build error. "Detected by" lists every test that failed under the mutant,
 as `<crate> <module>::<fn>`. **Result: 17 of 17 detected, 0 survivors.**
@@ -1405,8 +1411,8 @@ that pmo's application right after that merge always includes — no registratio
   subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them)"; §1.1's I7
   row "W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii))" → "W-K5 kept, HEAD-equal (its
   DOMParser half reads null from N1, §1.4 (ii); its template-contents half from C1, §1.4 (iv))"; §0.5's red-cell line
-  "K-5: U8 (window pins C14, C15)" → "K-5: U8 (window pin C15; C14 a window pin until C1, which inverts it to the spec's
-  outcome, C1 memo T17)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
+  "K-5: U8 (window pins C14, C15)" → "K-5: U8 (C15 a window pin until N1, whose node clause inverts it; C14 a window pin
+  until C1, which inverts it to the spec's outcome, C1 memo T17)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
 - **R-4 ledger `#11-ownerless-node-creation`** (pmo, at C1's landing; the close-at-C1 plan is PM 472's, "Re-eval = C1
   landing"; PM 489 gave the row its **Re-eval-date** field, 2027-01-31, as the backstop; PM 607): "**Closed
   by C1** (#<n>, `<sha>`). The `EcsDom` entry and every production creation site, both parser tiers included, landed
@@ -1783,7 +1789,7 @@ observed change. A focused reviewer re-check of these items follows.
   `f(X)`, `f(X)`, `X`).
 - **§6.3 M12 / M13 rows** (`73eefe26`, 17 of 17 mutants run, with a test filter). The causes: under the
   tolerant-threading mutant, insertion adoption at each link re-homes the contents' children into I (the blind spot
-  shared with U14, D-C6), so a read of their `ownerDocument` after the parse is the same with or without it; the
+  U14 covers for clone, D-C6), so a read of their `ownerDocument` after the parse is the same with or without it; the
   segment-`new` mutant changes only the logged `AdoptedContents.documents` pair (`mutation.rs:391`), not the segment's
   stamp document (`:396-399`). The rows' killer lists and §4.3's observation sentence named the tests the filtered run
   saw fail; rev 3.10.4 removes those names (§10.12), and the detecting tests are §6.3's table, a measurement.
@@ -1831,6 +1837,11 @@ and INV-C (§4.6 item 1) are unchanged; the one §4 edit is §4.3's observation 
   not a node in contents; the class stays "value unchanged".
 - **MIN-3.** C0c U19 leg 2's cite `:406` → `:405` (`segment_of.get(&parent)`, `mutation.rs:405` at `542a30db` and
   `04d92e75`); §5.2 held the only occurrence.
+- **MIN fixes after the rev 3.10.4 re-check (0 CRIT, 0 IMP, 4 MIN).** R-3's K-5 red-cell text (and the umbrella's
+  line) keeps C15 a window pin until N1, whose node clause inverts it (the umbrella's C15 row); §10.11's blind-spot
+  wording matches the Lesson bullet; §6.3's "one verbatim edit set" (M05 is three edits); §5.2's complement names
+  the `use crate::…` / `use super::super::…` forms, with their measured 0. The umbrella §8.2 *Classification* item
+  is held: that paragraph is the registered text of `#11-eh-attrs-creation-time-call-sites`, so it goes to the PM.
 
 ## §11. Open questions
 
