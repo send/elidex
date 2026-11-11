@@ -1,5 +1,10 @@
 //! Interpreter frame state: upvalues, call frames, frame kinds and
 //! exception-handler entries.
+//!
+//! The state is created elsewhere: call frames are pushed in
+//! `vm/interpreter_call.rs` (`call_internal`, `push_js_call_frame`; a
+//! suspended generator frame is re-pushed in `vm/natives_generator.rs`),
+//! and upvalues are allocated by `VmInner::alloc_upvalue` (`vm/shape_ops.rs`).
 
 use std::sync::Arc;
 
