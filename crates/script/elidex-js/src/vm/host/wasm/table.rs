@@ -12,8 +12,8 @@
 //! - `value`: initial entry value (defaults to typed-null per spec).
 //!
 //! `.length`, `.get(idx)`, `.set(idx, val)`, `.grow(delta, val?)` all
-//! consume the engine-indep [`WasmTable`] surface from F1 +
-//! [`WasmTable::element_kind`] from F2.  Element coerce per
+//! consume the engine-indep `WasmTable` surface from F1 +
+//! `WasmTable::element_kind` from F2.  Element coerce per
 //! [`WasmTablePayload::element_kind`] cached at ctor / wrap time so
 //! per-call func-type walks are avoided (F1 F8 lesson).
 

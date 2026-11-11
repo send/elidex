@@ -372,7 +372,7 @@ impl super::super::VmInner {
     /// - Tuple origins serialize via `SecurityOrigin::serialize` (the §7.1.1 ascii
     ///   serialization).
     /// - Opaque origins (sandboxed / `about:blank` / `data:` / `javascript:`) fall
-    ///   back to the per-VM [`HostData::opaque_origin_sentinel`] — an
+    ///   back to the per-VM [`HostData::opaque_origin_sentinel`](crate::vm::host_data::HostData::opaque_origin_sentinel) — an
     ///   IDENTITY-PRESERVING key, **not** the serialized `"null"` (which collapses
     ///   every distinct opaque origin to one string), so two unrelated opaque
     ///   documents never alias into the same bucket or cross-broadcast into each

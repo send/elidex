@@ -83,7 +83,7 @@ use elidex_form::{FormControlState, SelectionDirection};
 use super::super::value::{JsValue, NativeContext, VmError};
 
 /// Verify that `entity`'s [`FormControlState::kind`] supports
-/// selection per [`FormControlKind::supports_selection`].  Returns an
+/// selection per [`FormControlKind::supports_selection`](elidex_form::FormControlKind::supports_selection).  Returns an
 /// `InvalidStateError` DOMException with an interface-specific
 /// message otherwise (matches HTML §4.10.20's "throw an
 /// InvalidStateError" branches).
@@ -135,7 +135,7 @@ pub(super) fn has_selectable_text(ctx: &mut NativeContext<'_>, entity: Entity) -
 }
 
 /// Whether `entity`'s control supports the text-selection IDL attributes
-/// ([`FormControlKind::supports_selection`]).  The non-throwing predicate
+/// ([`FormControlKind::supports_selection`](elidex_form::FormControlKind::supports_selection)).  The non-throwing predicate
 /// for the selection *getters*, which return null (rather than the
 /// [`require_text_control`] `InvalidStateError`) when the attribute does not
 /// apply — HTML §4.10.20 throws only from the setters / `setSelectionRange()`

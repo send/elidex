@@ -1,6 +1,6 @@
 //! `TreeWalker` interface (WHATWG DOM §6.4) — VM thin binding to the
 //! engine-independent
-//! [`elidex_dom_api::traversal::step_with_filter_*`] direction-specific
+//! `elidex_dom_api::traversal::step_with_filter_*` direction-specific
 //! filter walks.
 //!
 //! ## Layering

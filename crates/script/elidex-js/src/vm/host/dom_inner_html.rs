@@ -52,7 +52,7 @@ fn brand_shadow_root(vm: &VmInner, entity: Entity) -> bool {
 /// backing entity has been destroyed in the live DOM ("the node is
 /// detached (invalid entity)"), and for wrappers whose brand does not
 /// match ("Illegal invocation"). The detached / wrong-brand split
-/// mirrors [`event_target::require_receiver`] so debugger messages
+/// mirrors [`event_target::require_receiver`](super::event_target::require_receiver) so debugger messages
 /// line up across the receiver-helper surface.
 // Argument order matches the WebIDL error-message form `Failed to
 // execute '<accessor>' on '<interface>'`: accessor (the member name

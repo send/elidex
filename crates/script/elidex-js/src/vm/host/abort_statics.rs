@@ -5,7 +5,7 @@
 //! project's 1000-line convention.  The functions live as own
 //! methods on the `AbortSignal` constructor function object (not on
 //! `AbortSignal.prototype`), installed by
-//! [`VmInner::register_abort_signal_global`](super::abort::VmInner).
+//! [`VmInner::register_abort_signal_global`](crate::vm::VmInner::register_abort_signal_global).
 //!
 //! The core signal state machine ([`super::abort::abort_signal`])
 //! remains in `abort.rs`; these factories only compose it with

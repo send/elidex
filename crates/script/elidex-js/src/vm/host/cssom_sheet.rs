@@ -13,7 +13,7 @@
 //! ## Wrapper allocators
 //!
 //! - [`VmInner::alloc_or_cached_stylesheet`] — `<style>.sheet` identity
-//!   ([`SameObject`]) per `<style>` Entity.
+//!   (`SameObject`) per `<style>` Entity.
 //! - [`VmInner::alloc_css_rule_list`] — fresh-alloc per `cssRules` access
 //!   (matches WPT identity rules; the rule list is rarely retained).
 //! - [`VmInner::alloc_or_cached_css_style_rule`] — `(<style> Entity, rule_id)`

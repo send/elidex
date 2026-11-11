@@ -4,7 +4,7 @@
 //! ## Layering
 //!
 //! Per CLAUDE.md "Layering mandate", form submission and reset
-//! algorithms live in [`elidex_form::submit`] (`reset_form` /
+//! algorithms live in [`elidex_form::submit`](elidex_form) (`reset_form` /
 //! `read_form_attrs` / `find_form_ancestor`).  This module reflects
 //! content attributes, dispatches the cancelable `reset` event, and
 //! delegates the reset side-effect to elidex-form.
@@ -490,7 +490,7 @@ fn native_form_submit(
 ///    cancelled and `requestSubmit` returns `undefined` without
 ///    firing the `formdata` event.
 /// 4. Construct `FormData` from this form's controls via the same
-///    code path as `new FormData(form)` ([`build_form_data_from_form`]).
+///    code path as `new FormData(form)` ([`build_form_data_from_form`](super::form_data::build_form_data_from_form)).
 /// 5. Dispatch non-cancelable `formdata` event with the FormData.
 ///
 /// Navigation / network submission deferred to slot

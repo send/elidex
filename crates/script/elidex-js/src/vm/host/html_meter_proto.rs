@@ -6,7 +6,7 @@
 //! - `value` / `min` / `max` / `low` / `high` / `optimum` — all
 //!   `double` IDL.  Defaults: min=0, max=1, value=0.  low / high /
 //!   optimum default to the appropriate clamp (low ≥ min, high ≤ max,
-//!   optimum in [min,max]).
+//!   optimum in \[min,max\]).
 //! - `labels` — empty `NodeList` stub.
 //!
 //! Setters route the JS Number through

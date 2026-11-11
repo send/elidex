@@ -19,7 +19,7 @@
 //! A `Worker` object is a `HostObject` backed by a fresh
 //! [`NodeKind::Worker`] entity in the main `EcsDom`, carrying a [`WorkerRef`]
 //! component whose [`WorkerId`] is the brand-check key into the VM's
-//! [`WorkerRegistry`] (the cross-thread transport handles — legitimately
+//! `WorkerRegistry` (the cross-thread transport handles — legitimately
 //! non-ECS, see [`elidex_api_workers::WorkerRegistry`]). Listener state
 //! (`onmessage` / `onerror` / `addEventListener`) lives in the engine-
 //! independent `EventListeners` ECS component on that entity, dispatched
@@ -43,7 +43,7 @@ use super::super::value::{
 use super::super::{NativeFn, VmInner};
 
 /// ECS marker linking a main-side `Worker` `HostObject` entity to its
-/// transport handle in the VM's [`WorkerRegistry`]. Presence of this component
+/// transport handle in the VM's `WorkerRegistry`. Presence of this component
 /// on a [`NodeKind::Worker`] entity is the `Worker` brand check; the contained
 /// [`WorkerId`] routes `postMessage` / `terminate` / the inbound drain to the
 /// matching channel handle.
@@ -400,7 +400,7 @@ fn native_worker_constructor(
 }
 
 /// Map a validated `WorkerOptions.credentials` value (WHATWG HTML §10.2.6.3 /
-/// Fetch RequestCredentials) to the network [`CredentialsMode`]. The input is
+/// Fetch RequestCredentials) to the network [`CredentialsMode`](elidex_net::CredentialsMode). The input is
 /// already validated by [`validate_credentials`] to one of the three values.
 fn credentials_mode(value: &str) -> elidex_net::CredentialsMode {
     match value {

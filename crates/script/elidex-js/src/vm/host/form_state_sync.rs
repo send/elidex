@@ -1,6 +1,6 @@
 //! Shared helpers for form-control attribute setters that route through
-//! the [`EcsDom::set_attribute`] / [`EcsDom::remove_attribute`]
-//! chokepoint (via the VM-layer [`element_attrs::attr_remove`] wrapper
+//! the [`EcsDom::set_attribute`](elidex_ecs::EcsDom::set_attribute) / [`EcsDom::remove_attribute`](elidex_ecs::EcsDom::remove_attribute)
+//! chokepoint (via the VM-layer [`element_attrs::attr_remove`](super::element_attrs::attr_remove) wrapper
 //! for the removal branch).
 //!
 //! ## Why this exists

@@ -112,7 +112,7 @@ pub(crate) fn require_observer_receiver(
 /// disambiguates `(Mutation, 0)` from `(Resize, 0)` etc.
 ///
 /// Both `ObjectId`s are rooted by the keepalive seam's active-observation
-/// predicate ([`super::super::gc::keepalive::keepalive_survivors`], S5-3c) — kept
+/// predicate (`keepalive_survivors`, S5-3c) — kept
 /// iff the observer has ≥1 active observation, OR (MutationObserver only) ≥1
 /// pending undelivered record — so the JS callback + observer wrapper survive any
 /// GC cycle **while the observer observes or still has a record to deliver**, and

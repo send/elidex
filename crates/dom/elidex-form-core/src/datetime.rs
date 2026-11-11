@@ -5,7 +5,7 @@
 //! This is the single canonical date/time conversion layer that every
 //! date-type form-control algorithm depends on — `stepUp()`/`stepDown()`
 //! (the first consumer, via [`crate::input::apply_step`]) plus
-//! value-sanitization (date types, via [`crate::input::sanitize_value`]),
+//! value-sanitization (date types, via [`sanitize_value`](crate::sanitize::sanitize_value)),
 //! `valueAsNumber`/`valueAsDate` (`#11-input-value-as-date`), and constraint
 //! validation (`#11-input-date-validity`).  No stepping-only
 //! shim: parsers/serializers are written once here and reused, never
@@ -504,7 +504,7 @@ pub(crate) fn convert_string_to_number(kind: FormControlKind, s: &str) -> Option
 /// `parse_valid_floating_point`: the value is parsed only if it is a *valid*
 /// `<type>` string (an over-precision time fraction is the error/empty case),
 /// matching the post-value-sanitization state established by
-/// [`crate::input::sanitize_value`] for the date/time states.
+/// [`sanitize_value`](crate::sanitize::sanitize_value) for the date/time states.
 pub(crate) fn convert_valid_string_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
     convert_string_to_number_with(kind, s, FracPrecision::ValidString)
 }
