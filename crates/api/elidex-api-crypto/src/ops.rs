@@ -10,8 +10,6 @@ use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
 use crate::{hkdf, hmac, pbkdf2};
 
-/// The encrypt / decrypt / wrapKey / unwrapKey op-set + its key-algorithm
-/// dispatch (the AES block-cipher modes vs the RSA-OAEP `rsa::oaep` backend).
 mod cipher;
 pub use cipher::{decrypt, encrypt, unwrap_key, wrap_key};
 

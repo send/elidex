@@ -35,15 +35,9 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
-/// RSA-OAEP encrypt / decrypt (WebCrypto §22) on the constant-time aws-lc-rs
-/// backend — the encrypt family of the RSA keys, split from this module's
-/// `rsa`-crate key-management backend (see [`oaep`]).
 mod oaep;
 pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 
-/// RSA `sign` / `verify` (WebCrypto §20.8.1/.2 / §21.4.1/.2) on the `rsa` crate
-/// — the signing vertical, split from this module's key-management backend as a
-/// cohesive op-set (parallel to [`oaep`]); see [`signing`].
 mod signing;
 pub(crate) use signing::{sign, verify};
 

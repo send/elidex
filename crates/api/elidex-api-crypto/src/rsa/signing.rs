@@ -3,7 +3,7 @@
 //! selectors, on the pure-Rust `rsa` crate.
 //!
 //! Split from the key-management backend ([`super`]) as a cohesive vertical
-//! (parallel to the OAEP op-set in [`oaep`]): the signing families are
+//! (parallel to the OAEP op-set in [`super::oaep`]): the signing families are
 //! the only `rsa`-crate consumers of the `Pkcs1v15Sign` / `Pss` EMSA schemes
 //! and the digest OID marker types, so isolating them keeps the parent's key
 //! infrastructure (import / export / generate / reconstruct) clear of the
