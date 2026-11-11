@@ -41,16 +41,16 @@ fn template_in(dom: &mut EcsDom, document: Entity) -> (Entity, Entity) {
 #[test]
 fn u14_template_clone_runs_no_adopt() {
     let mut dom = EcsDom::new();
-    let d = dom.create_document_root();
+    let doc = dom.create_document_root();
     // tpl's contents: a nested template (with a child in its contents) and a
     // clonable shadow host (with a shadow child).
-    let (tpl, f) = template_in(&mut dom, d);
-    let (ntpl, nf) = template_in(&mut dom, d);
-    assert!(dom.append_child(f, ntpl));
-    let p = el_in(&mut dom, "p", d);
-    assert!(dom.append_child(nf, p));
-    let host = el_in(&mut dom, "div", d);
-    assert!(dom.append_child(f, host));
+    let (tpl, contents) = template_in(&mut dom, doc);
+    let (ntpl, nf) = template_in(&mut dom, doc);
+    assert!(dom.append_child(contents, ntpl));
+    let para = el_in(&mut dom, "p", doc);
+    assert!(dom.append_child(nf, para));
+    let host = el_in(&mut dom, "div", doc);
+    assert!(dom.append_child(contents, host));
     let sr = dom
         .attach_shadow_with_init(
             host,
@@ -60,8 +60,8 @@ fn u14_template_clone_runs_no_adopt() {
             },
         )
         .expect("div is a valid shadow host");
-    let i = el_in(&mut dom, "i", d);
-    assert!(dom.append_child(sr, i));
+    let italic = el_in(&mut dom, "i", doc);
+    assert!(dom.append_child(sr, italic));
 
     let adopts = Arc::new(Mutex::new(0));
     let _ = dom.set_mutation_dispatcher(Box::new(AdoptCount(Arc::clone(&adopts))));

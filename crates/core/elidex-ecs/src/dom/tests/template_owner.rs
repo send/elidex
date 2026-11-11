@@ -157,34 +157,34 @@ fn u8_clone_copies_neither_link_nor_marker() {
 #[test]
 fn u9_adopt_maps_contents_to_the_targets_inert_document() {
     let mut dom = EcsDom::new();
-    let d = dom.create_document_root();
-    let x = dom.create_document_node();
-    // Light tree: tpl > host_l (shadow root sr_l > s_l).
-    let (tpl, f) = template_in(&mut dom, d);
-    let host_l = el_in(&mut dom, "div", d);
-    assert!(dom.append_child(tpl, host_l));
-    let sr_l = dom.attach_shadow(host_l, ShadowRootMode::Open).unwrap();
-    let s_l = el_in(&mut dom, "span", d);
-    assert!(dom.append_child(sr_l, s_l));
-    // Contents: nested template (contents nf > p) and a shadow host h
-    // (sr > span).
-    let (ntpl, nf) = template_in(&mut dom, d);
-    assert!(dom.append_child(f, ntpl));
-    let p = el_in(&mut dom, "p", d);
-    assert!(dom.append_child(nf, p));
-    let h = el_in(&mut dom, "div", d);
-    assert!(dom.append_child(f, h));
-    let sr = dom.attach_shadow(h, ShadowRootMode::Open).unwrap();
-    let span = el_in(&mut dom, "span", d);
-    assert!(dom.append_child(sr, span));
+    let doc = dom.create_document_root();
+    let target = dom.create_document_node();
+    // Light tree: tpl > light_host (shadow root light_root > light_span).
+    let (tpl, contents) = template_in(&mut dom, doc);
+    let light_host = el_in(&mut dom, "div", doc);
+    assert!(dom.append_child(tpl, light_host));
+    let light_root = dom.attach_shadow(light_host, ShadowRootMode::Open).unwrap();
+    let light_span = el_in(&mut dom, "span", doc);
+    assert!(dom.append_child(light_root, light_span));
+    // Contents: nested template (contents nf > para) and a shadow host `host`
+    // (shadow_root > span).
+    let (ntpl, nf) = template_in(&mut dom, doc);
+    assert!(dom.append_child(contents, ntpl));
+    let para = el_in(&mut dom, "p", doc);
+    assert!(dom.append_child(nf, para));
+    let host = el_in(&mut dom, "div", doc);
+    assert!(dom.append_child(contents, host));
+    let shadow_root = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let span = el_in(&mut dom, "span", doc);
+    assert!(dom.append_child(shadow_root, span));
 
-    dom.adopt(tpl, x);
-    let ix = dom.appropriate_template_contents_owner_document(x);
-    for n in [tpl, host_l, sr_l, s_l] {
-        assert_eq!(dom.node_document(n), Some(x), "light {n:?}");
+    dom.adopt(tpl, target);
+    let target_inert = dom.appropriate_template_contents_owner_document(target);
+    for n in [tpl, light_host, light_root, light_span] {
+        assert_eq!(dom.node_document(n), Some(target), "light {n:?}");
     }
-    for n in [f, ntpl, nf, p, h, sr, span] {
-        assert_eq!(dom.node_document(n), Some(ix), "contents {n:?}");
+    for n in [contents, ntpl, nf, para, host, shadow_root, span] {
+        assert_eq!(dom.node_document(n), Some(target_inert), "contents {n:?}");
     }
 }
 
@@ -274,30 +274,33 @@ fn u11_entry_inside_contents_answers_the_inert_document() {
 #[test]
 fn u13_adopt_creates_the_targets_inert_document_lazily() {
     let mut dom = EcsDom::new();
-    let d = dom.create_document_root();
-    let x = dom.create_document_node();
-    let y = dom.create_document_node();
-    let (tpl, f) = template_in(&mut dom, d);
-    let c = el_in(&mut dom, "i", d);
-    assert!(dom.append_child(f, c));
+    let doc = dom.create_document_root();
+    let target = dom.create_document_node();
+    let other = dom.create_document_node();
+    let (tpl, contents) = template_in(&mut dom, doc);
+    let child = el_in(&mut dom, "i", doc);
+    assert!(dom.append_child(contents, child));
     let before = marked(&dom);
-    dom.adopt(tpl, x);
-    let ix = dom
+    dom.adopt(tpl, target);
+    let target_inert = dom
         .world()
-        .get::<&AssociatedInertTemplateDocument>(x)
+        .get::<&AssociatedInertTemplateDocument>(target)
         .map(|l| l.0)
         .expect("the adopt linked X to an inert document");
-    assert!(dom.is_inert_template_document(ix));
+    assert!(dom.is_inert_template_document(target_inert));
     assert_eq!(marked(&dom), before + 1);
-    assert_eq!([f, c].map(|n| dom.node_document(n)), [Some(ix); 2]);
+    assert_eq!(
+        [contents, child].map(|n| dom.node_document(n)),
+        [Some(target_inert); 2]
+    );
     // No template: the target stays unlinked.
-    let div = el_in(&mut dom, "div", d);
-    let span = el_in(&mut dom, "span", d);
+    let div = el_in(&mut dom, "div", doc);
+    let span = el_in(&mut dom, "span", doc);
     assert!(dom.append_child(div, span));
-    dom.adopt(div, y);
+    dom.adopt(div, other);
     assert!(dom
         .world()
-        .get::<&AssociatedInertTemplateDocument>(y)
+        .get::<&AssociatedInertTemplateDocument>(other)
         .is_err());
     assert_eq!(marked(&dom), before + 1);
 }
