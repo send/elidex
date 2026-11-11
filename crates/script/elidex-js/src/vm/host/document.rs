@@ -395,7 +395,7 @@ const DOCUMENT_METHODS_POST_LIVE_COLLECTION: &[(&str, super::super::NativeFn)] =
 ];
 
 /// Seam-1c of the A1 Web-API core/compat gate: the `Document` live-collection
-/// getters, extracted from [`DOCUMENT_METHODS`] so their JS-property **install**
+/// getters, extracted from `DOCUMENT_METHODS` so their JS-property **install**
 /// can be gated by one [`installs_dom`](super::super::VmInner::installs_dom)
 /// guard (the install seam is the *property-absence* lever — these getters
 /// allocate a live `HTMLCollection`/`NodeList` directly and have no
@@ -471,7 +471,7 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 ];
 
 /// Read/write Document accessors.  `title` is WHATWG-backed.  (`document.cookie`
-/// was extracted into [`DOCUMENT_COOKIE_RW_ACCESSOR`] for the A1 core/compat gate
+/// was extracted into `DOCUMENT_COOKIE_RW_ACCESSOR` for the A1 core/compat gate
 /// — seam-1b.)
 const DOCUMENT_RW_ACCESSORS: &[(&str, super::super::NativeFn, super::super::NativeFn)] = &[(
     "title",

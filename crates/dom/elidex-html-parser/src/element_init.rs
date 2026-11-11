@@ -17,7 +17,7 @@
 //!   HTML §4.13.3 "Core concepts". HTML-namespace only: custom element
 //!   names are HTML-namespace-scoped, so a hyphenated foreign
 //!   (SVG / MathML) local name must not be marked.
-//! - [`IframeData`] — WHATWG HTML §4.8.5 `<iframe>`. HTML-namespace only.
+//! - [`IframeData`](elidex_ecs::IframeData) — WHATWG HTML §4.8.5 `<iframe>`. HTML-namespace only.
 //!
 //! `FormControlState` is intentionally NOT derived here: it lives in
 //! `elidex-form`, which sits above this crate (cycle: elidex-form →

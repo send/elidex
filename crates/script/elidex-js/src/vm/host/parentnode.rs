@@ -9,7 +9,7 @@
 //! installs run on `Element.prototype` and `DocumentFragment.prototype`
 //! (ShadowRoot inherits via the latter); Document is installed once on
 //! `Document.prototype`, which gets the four RO accessors via
-//! [`super::document::DOCUMENT_RO_ACCESSORS`] and keeps its existing
+//! `DOCUMENT_RO_ACCESSORS` and keeps its existing
 //! `native_document_query_selector*` prototype methods.
 //!
 //! The mutation methods are **thin dispatchers** (B1.2b convergence): they

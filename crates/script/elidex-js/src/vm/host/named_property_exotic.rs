@@ -2,8 +2,8 @@
 //!
 //! Wrapper types like `DOMStringMap` (`HTMLElement.dataset`) and
 //! `Storage` (`localStorage` / `sessionStorage`) implement the named-
-//! property exotic protocol: a string-keyed [[Get]] / [[Set]] /
-//! [[Delete]] / [[HasProperty]] / [[OwnPropertyKeys]] trap that maps
+//! property exotic protocol: a string-keyed \[\[Get\]\] / \[\[Set\]\] /
+//! \[\[Delete\]\] / \[\[HasProperty\]\] / \[\[OwnPropertyKeys\]\] trap that maps
 //! supported names to backing storage (data attributes / origin
 //! storage / etc.).  The mechanical pieces — string-key coercion that
 //! falls through for Symbol keys, prototype-chain shadowing per

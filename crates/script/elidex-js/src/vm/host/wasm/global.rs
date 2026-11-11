@@ -13,8 +13,8 @@
 //! - `v`: initial value (defaults per spec — i32/i64 → 0, f32/f64 →
 //!   +0, ref → typed-null).
 //!
-//! `.value` accessor pair reads/writes via [`WasmGlobal::get`] /
-//! [`WasmGlobal::set`]; `.valueOf()` is an alias of `.value` getter
+//! `.value` accessor pair reads/writes via `WasmGlobal::get` /
+//! `WasmGlobal::set`; `.valueOf()` is an alias of `.value` getter
 //! per IDL `[[ToPrimitive]]` impl convention.
 
 use elidex_wasm_runtime::{

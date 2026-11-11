@@ -442,7 +442,7 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
 ///    here as a defensive rule (call sites that ToString-coerce
 ///    first feed `prepare_arg` a `JsValue::String` and never trip
 ///    this arm).
-/// 2. **Dual-borrow** — inside [`HostData::with_session_and_dom`],
+/// 2. **Dual-borrow** — inside [`HostData::with_session_and_dom`](crate::vm::host_data::HostData::with_session_and_dom),
 ///    materialize each `PreVal` (allocating a [`JsObjectRef`] for
 ///    `Entity` args via `IdentityMap::get_or_create`), invoke the
 ///    handler, and (for object returns) resolve the returned

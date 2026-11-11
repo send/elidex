@@ -13,7 +13,7 @@
 //! (touch-time cohesion seam — the dialog/open group is self-contained).
 //!
 //! The natives are installed into `WINDOW_METHODS` by
-//! [`super::window::register_window_prototype`].
+//! [`register_window_prototype`](crate::vm::VmInner::register_window_prototype).
 
 #![cfg(feature = "engine")]
 

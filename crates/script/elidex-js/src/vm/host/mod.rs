@@ -227,7 +227,6 @@ pub(super) mod html_slot_proto;
 pub(super) mod html_template_proto;
 #[cfg(feature = "engine")]
 pub(crate) mod indexeddb;
-/// `MediaQueryList` interface + `window.matchMedia` (CSSOM-View §4.2).
 #[cfg(feature = "engine")]
 pub(crate) mod media_query;
 #[cfg(feature = "engine")]

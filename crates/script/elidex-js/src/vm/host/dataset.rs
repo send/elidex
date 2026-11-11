@@ -7,7 +7,7 @@
 //! `dataset.keys`).  The `data-*` ↔ camelCase conversion lives in
 //! the handler crate (`camel_to_data_attr` / `data_attr_to_camel`);
 //! this file only routes the named-property exotic
-//! [[Get]] / [[Set]] / [[Delete]] / [[OwnPropertyKeys]] traps to the
+//! \[\[Get\]\] / \[\[Set\]\] / \[\[Delete\]\] / \[\[OwnPropertyKeys\]\] traps to the
 //! handler dispatch.
 //!
 //! ## Backing state
@@ -132,7 +132,7 @@ pub(crate) fn try_has(
 /// attribute — `dataset.fooBar` with `data-foo-bar` set.  Returns
 /// `None` for Symbol keys, non-string non-numeric keys, and string
 /// keys that miss the `data-*` set, so the dispatch site falls
-/// through to the ordinary [[Get]] / prototype-chain walk.
+/// through to the ordinary \[\[Get\]\] / prototype-chain walk.
 ///
 /// This matches WebIDL: a non-`[LegacyOverrideBuiltIns]` named
 /// property exotic provides the supported-name → value mapping, but

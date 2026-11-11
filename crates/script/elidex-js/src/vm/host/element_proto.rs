@@ -7,7 +7,7 @@
 //! and the `ChildNode` mixin method `remove()`.  The ParentNode
 //! mixin's read surface (`children`, `firstElementChild`,
 //! `querySelector`, …) is installed via
-//! [`super::parentnode::VmInner::install_parent_node_readers`] and so
+//! [`install_parent_node_readers`](crate::vm::VmInner::install_parent_node_readers) and so
 //! reaches Element / DocumentFragment / ShadowRoot uniformly.
 //!
 //! Node-common members — `parentNode`, `parentElement`,
@@ -393,7 +393,7 @@ fn native_element_closest(
 ///
 /// Scope is **descendants of the receiver only**; the receiver is
 /// never a match candidate.  Shares
-/// [`collect_descendants_by_tag_name`] with the Document-level form
+/// `collect_descendants_by_tag_name` with the Document-level form
 /// so `*` handling and ASCII case-folding cannot drift.
 pub(super) fn native_element_get_elements_by_tag_name(
     ctx: &mut NativeContext<'_>,

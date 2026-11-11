@@ -2,7 +2,7 @@
 //! interface (HR-Time §5).
 //!
 //! Implemented:
-//! - [`performance.now()`] — monotonic ms since `Vm::new`, real value.
+//! - `performance.now()` — monotonic ms since `Vm::new`, real value.
 //!
 //! Deferred — surface installed for feature-detection compatibility,
 //! but the real semantics ship later:

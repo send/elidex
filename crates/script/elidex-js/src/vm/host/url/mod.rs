@@ -560,7 +560,7 @@ pub(super) fn rebuild_linked_search_params(vm: &mut VmInner, url_id: ObjectId) {
 
 /// Shared body for every URL-component getter: borrow the URL's
 /// state, run `extract` to assemble the output string, intern the
-/// result.  Mirror of [`super::location::url_component`] — the
+/// result.  Mirror of `super::location::url_component` — the
 /// `extract` closure produces an owned `String` so the borrow on
 /// `url_states` ends before `intern` takes `&mut self.strings`.
 ///
@@ -601,7 +601,7 @@ pub(super) fn require_url_state_mut(
 
 /// Brand check — every `URL.prototype.*` native rejects receivers
 /// whose `ObjectKind` is not `URL` with a `TypeError`.  Mirror of
-/// [`super::url_search_params::require_usp_this`].
+/// `super::url_search_params::require_usp_this`.
 pub(super) fn require_url_this(
     ctx: &NativeContext<'_>,
     this: JsValue,

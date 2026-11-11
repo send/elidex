@@ -48,7 +48,7 @@
 //!
 //! `style.color = "red"` ↔ `style.setProperty("color", "red")` and
 //! `style.color` ↔ `style.getPropertyValue("color")` (CSSOM §6.6.1 named
-//! getter / setter).  Named-exotic [[Set]] routes to the `setProperty`
+//! getter / setter).  Named-exotic \[\[Set\]\] routes to the `setProperty`
 //! handler, which implements the full §6.6.1 algorithm — the value is
 //! parsed for the property and stored in canonical longhand-expanded
 //! form; an unsupported property name or unparseable value is a no-op
@@ -565,7 +565,7 @@ pub(crate) fn try_indexed_get(
 /// both `CSSStyleDeclaration` (Inline / Computed) and
 /// `CSSRuleStyleDeclaration` (Rule) variants.  Returns `None` when the
 /// receiver is neither (so the named-property exotic falls through to
-/// ordinary [[Get]]).
+/// ordinary \[\[Get\]\]).
 fn decode_receiver(vm: &VmInner, id: ObjectId) -> Option<StyleReceiver> {
     match vm.get_object(id).kind {
         ObjectKind::CSSStyleDeclaration { source, key_bits } => {

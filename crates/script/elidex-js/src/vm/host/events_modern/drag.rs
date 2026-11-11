@@ -1,7 +1,7 @@
 //! `DragEvent` constructor + prototype (HTML DnD §6.4).
 //!
 //! `DragEvent.prototype` chains to `MouseEvent.prototype`.  The
-//! constructor accepts a [`DragEventInit`] dictionary; instances
+//! constructor accepts a `DragEventInit` dictionary; instances
 //! carry the 13 mouse-event own slots PLUS the `dataTransfer`
 //! own slot (a `DataTransfer?` reference; the IDL coercion accepts
 //! a DataTransfer brand OR null/undefined and throws TypeError on
