@@ -632,7 +632,7 @@ are C0b's (C0 draft D-10, D-11, D-17, D-20, §4.4; PM decisions 223 O-2 / 227). 
 entry's value inside template contents is INV-C's, because D-C3 stamps the contents fragment with `f(..)` (D-C4). Rev 3's constraint
 on C0's Q-2 (a tolerant value threaded from the template's level, as `convert.rs:284-286` did at `593aa314`, would stamp
 contents' children with D) is met by construction: Q-2 is decided per node and the threaded owner is deleted (C0 draft
-D-20). The tolerant legs of T3, T12, T19 and U12 still kill that form (§6.3).
+D-20). U12's tolerant leg (the walk counter) kills that form (§6.3; rev 3.10.3, PM 657).
 
 ### §4.4 Clone (D-C6), on D14
 
@@ -1718,8 +1718,13 @@ observed change. A focused reviewer re-check of these items follows.
 - **§6.3 M12 / M13 rows** (`73eefe26`, 17 of 17 mutants run). The tolerant-threading mutant is killed by U12 only:
   insertion adoption at each link re-homes the children into I (the blind spot U14 has for T10 / T24), so T3, T12's
   attachShadow variant and T19 stay green. The segment-`new` mutant is killed by T25 and T28, which read the pair; U9
-  reads stamps only. Not changed: §4.3's sentence "The tolerant legs of T3, T12, T19 and U12 still kill that form" is
-  in §4, outside this erratum's scope; it is reported to the PM, not edited.
+  reads stamps only. §4.3's observation sentence "The tolerant legs of T3, T12, T19 and U12 still kill that form",
+  false by the same run, now reads "U12's tolerant leg (the walk counter) kills that form" (PM 657: an observation
+  placed in §4, not a mechanism statement; no other §4 text changes).
+- **Lesson (PM 657).** A tolerant-tier T cell (a script reading `ownerDocument`) cannot serve as a mutation killer for
+  how the tolerant parser threads a document into contents: insertion adoption at each link re-homes the node into I,
+  so the read is the same with or without the mutant (the blind spot U14 covers for clone). Name a walk-counter or
+  stamp-at-creation cell (U12-shaped) as the killer instead.
 - **§8 R-3.** The umbrella §1.4 sentence counts "three of its windows, each where the node document N1 reads is a
   DOMParser document's, with dispatch equal to HEAD's": window (iv) meets neither clause (its node document is an
   inert template document, and HEAD ran the handler), so R-3 now rewrites the count and the closure record too.
