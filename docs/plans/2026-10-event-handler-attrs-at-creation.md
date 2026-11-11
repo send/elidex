@@ -461,16 +461,16 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
 - **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands. From N1, N1's compile-gate node clause changes
   the getter in three of its windows, each where the node document N1 reads is a DOMParser document's, with dispatch
-  equal to HEAD's (nothing runs) in each: (i) the K-2 / K-3 residual's subset whose value is a callback at that insertion (an IDL
+  equal to HEAD's (nothing runs) in each, and from C1 in a fourth: (i) the K-2 / K-3 residual's subset whose value is a callback at that insertion (an IDL
   write, or a `setAttribute` value compiled by a read or a dispatch before it), at a first insertion into a
   DOMParser document (or of a DOMParser document's element into a detached subtree of the bound document, which
   insertion does not adopt), reads null where HEAD compiled the attribute and the spec returns the callback,
   away from the spec (N1 memo §5.4 NR8 (a); O5, PM decision 90); (ii) W-K5's DOMParser half reads null where HEAD
   compiled the attribute, the spec's outcome (K-5); (iii) X-W's element-targeted pairs (a Window-reflecting name on a
   `<body>` / `<frameset>`, or a WindowEventHandlers name on a `<frameset>`, which HEAD targets at the element) in a
-  DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h); (iv) W-K5's template-contents half reads null from C1, the spec's outcome (K-5).
-  **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iii) are its defects (1), (5) and
-  (7) respectively).
+  DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h); (iv) from C1, W-K5's template-contents half, where the node document N1 reads is the contents' inert template document (C1 memo INV-C, §4.6 item 1), reads null where HEAD compiled the attribute and dispatch runs nothing where HEAD ran the handler, the spec's outcome (K-5; cell C14).
+  **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iv) are its defects (1), (5), (7) and
+  (5)'s template-contents half respectively).
 - **Closing path (visible):** slice a lands → N1 → C0 → C1 → T3 (this program's PR, slot `#11-event-handler-target-determination`) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2, x9, x10; rev 8.4, PM decision 153; until rev 8.4: "slice a lands → T3 (…; N1 lands independently) → C1's handling decided (PM) → slice b").
 
 ### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, §1.4; slice b closes them)
