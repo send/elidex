@@ -163,7 +163,7 @@ is stated in P0a-1 and implemented with its first producer in PR-1, with PR-1's 
 - **PM 557 (R5: the P0a-1 plan-review at `34a6ae8f`; Axis 1 CRIT 0 / IMP 0 / MIN 3; Axis 2 CRIT 0 / IMP 2 /
   MIN 2, terminator on IMP-1). Superseded by PM 590 (below): the mark, the entry wrapper and `NotStarted`
   are gone, nothing is reverted (§4 C-4; P0a-1 §4.2 "What β removed"); kept as history.** IMP-1: the async start consumes a once listener whose step never ran
-  (`interpreter.rs:630-660` pushes no frame; `natives_generator.rs:520-522` rejects the wrapper and the
+  (`interpreter.rs:630-660` — pre-split line numbers, at `34a6ae8f`; since #615: `interpreter_call.rs:367-397` — pushes no frame; `natives_generator.rs:520-522` rejects the wrapper and the
   call returns `Ok`). IMP-2: the wasm adapter runs user `valueOf` in its argument coercion before its own
   check (`exported_func.rs:284-289`), so a later failure was `NotStarted` → revert → the listener runs
   twice. Root: the mark was set at a hand-enumerated list of first-effect sites; an effect not in the list
