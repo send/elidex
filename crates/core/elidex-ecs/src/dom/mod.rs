@@ -23,6 +23,7 @@ mod geometry;
 mod mutation_event;
 mod node_document;
 pub mod shadow;
+mod template_owner;
 mod text_data;
 mod text_util;
 mod tree;
@@ -451,8 +452,8 @@ impl EcsDom {
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
     ///
     /// Eagerly attaches [`DocumentBaseUrl`] initialised to
-    /// [`about_blank_url`](crate::about_blank_url) pending the
-    /// `#11-document-url-real-navigation` slot landing.
+    /// [`about_blank_url`](crate::about_blank_url): for a browsing-context
+    /// Document that is pending slot `#11-document-base-url`.
     /// `elidex_dom_api::BaseUrlMaintainer` mutates it as `<base>`
     /// elements enter / leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
@@ -466,11 +467,15 @@ impl EcsDom {
     ///
     /// For transient / throwaway documents that must not clobber the
     /// persistent [`document_root()`](Self::document_root) cache — e.g. the
-    /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
-    /// (step 4), which exists only to own the fragment's nodes during the
+    /// WHATWG HTML §13.4 *HTML fragment parsing algorithm*'s throwaway document
+    /// (step 1), which exists only to own the fragment's nodes during the
     /// parse and is despawned afterwards. Sharing the spawn with
     /// [`create_document_root`](Self::create_document_root) keeps the
     /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
+    /// For the inert template document (HTML §4.12.3) `about:blank` is the
+    /// spec's document base URL while it has no `<base href>`: HTML §2.4.3
+    /// *document base URL* steps 1–3 → *fallback base URL* steps 1–2 (its URL
+    /// is DOM §4.5's default "about:blank", its about base URL is null).
     pub fn create_document_node(&mut self) -> Entity {
         self.world.spawn((
             TreeRelation::default(),
@@ -591,8 +596,8 @@ impl EcsDom {
         self.spawn_node((TreeRelation::default(), NodeKind::DocumentFragment), owner)
     }
 
-    /// HTML §4.12.3: give `template` its associated **template contents**
-    /// `DocumentFragment`, returning the fragment entity.
+    /// HTML §4.12.3 establishing steps 1–3: give `template` its associated
+    /// **template contents** `DocumentFragment`, returning the fragment entity.
     ///
     /// Spawns a fresh detached [`NodeKind::DocumentFragment`] and forward-links
     /// it via a [`TemplateContents`] component on `template`. Every
@@ -603,14 +608,15 @@ impl EcsDom {
     /// *redirect plumbing* (strict `template_content_targets` map vs tolerant
     /// `template_contents` recursion) differs.
     ///
-    /// `owner_doc` is the fragment's node document. Per §4.12.3 the faithful
-    /// value is a separate inert *"template contents owner document"* (one per
-    /// real document); this ships the **C2 approximation** `owner_doc =
-    /// template's own node document` — the faithful inert owner document is
-    /// deferred to slot `#11-template-contents-owner-document`. Every caller
-    /// passes [`node_document_for_new_nodes(template)`](Self::node_document_for_new_nodes)
-    /// (the clone post-pass: the clone operation's document), so the
-    /// fragment's `ownerDocument` is uniform across tiers.
+    /// `owner_doc` carries the template's node document. Step 1 maps it through
+    /// [`Self::appropriate_template_contents_owner_document`] here, the one
+    /// place a contents' node document is computed; step 2 creates the fragment
+    /// with that node document (its *host* is not modelled,
+    /// `#11-template-contents-host-link`); step 3 links it. A `None` owner (a
+    /// documentless context, an orphan clone) gives an orphan fragment. The
+    /// parser tiers and `createElement` pass
+    /// [`node_document_for_new_nodes(template)`](Self::node_document_for_new_nodes),
+    /// the clone post-pass the document its copy was made with.
     pub fn attach_template_contents(
         &mut self,
         template: Entity,
@@ -625,7 +631,11 @@ impl EcsDom {
             "attach_template_contents called twice on the same <template> \
              (would orphan the prior content fragment)"
         );
-        let fragment = self.create_document_fragment_with_owner(owner_doc);
+        let owner = owner_doc.document().map_or(owner_doc, |document| {
+            let inert = self.appropriate_template_contents_owner_document(document);
+            self.node_document_for_new_nodes(inert)
+        });
+        let fragment = self.create_document_fragment_with_owner(owner);
         let _ = self
             .world
             .insert_one(template, TemplateContents { fragment });

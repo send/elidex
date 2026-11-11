@@ -115,10 +115,10 @@ impl TreeBuilder {
     /// appropriate-place redirect (HTML §4.12.3). Shared by the ordinary-template
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
-    /// identical at both sites (One-issue-one-way). The contents are created in
-    /// the template's node document (HTML §4.12.3 *template contents*, C2),
-    /// through [`EcsDom::node_document_for_new_nodes`], as in the tolerant
-    /// backend.
+    /// identical at both sites (One-issue-one-way). The helper is given the
+    /// template's node document, through [`EcsDom::node_document_for_new_nodes`]
+    /// as in the tolerant backend, and creates the contents in its appropriate
+    /// template contents owner document (HTML §4.12.3 establishing step 1).
     fn attach_ordinary_template_contents(&mut self, template: Entity) {
         let owner = self.dom.node_document_for_new_nodes(template);
         let fragment = self.dom.attach_template_contents(template, owner);

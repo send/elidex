@@ -358,6 +358,16 @@ impl EcsDom {
     /// `find_roots` starts from `document_root()`, not this method, so it is
     /// unaffected either way.) A shadow root is never parentless
     /// (`attach_shadow` parents it to its host), so it too is unaffected.
+    ///
+    /// Also excludes the inert template document (HTML §4.12.3, the
+    /// [`InertTemplateDocument`](crate::InertTemplateDocument) marker), for the
+    /// same reason: a script can give it children
+    /// (`tpl.content.ownerDocument.append(…)`), and HTML §4.12.3 creates it with
+    /// a null browsing context "so that they aren't in a browsing context and
+    /// thus remain inert". The exclusion is a list, so the next kind of
+    /// Document without a browsing context is a root by default; the positive
+    /// fact (the roots are the Documents that have a browsing context) belongs
+    /// to `#11-browsing-context-state-ecs-components`.
     #[must_use]
     pub fn root_entities(&self) -> Vec<Entity> {
         let mut roots: Vec<Entity> = self
@@ -367,6 +377,7 @@ impl EcsDom {
             .filter(|&entity| {
                 self.get_parent(entity).is_none()
                     && !matches!(self.node_kind(entity), Some(NodeKind::DocumentFragment))
+                    && !self.is_inert_template_document(entity)
             })
             .collect();
         roots.sort_by_key(|e| e.to_bits());

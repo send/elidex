@@ -239,13 +239,6 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     // own node document).
     let document = dom.node_document_for_new_nodes(src);
     let cloned = clone_recording(dom, src, deep, document, &mut pairs)?;
-    // The one document threaded through the spec recursion (steps 5, 6.7)
-    // to every pass: the light tree (the ECS cloner), template contents
-    // (pass 3) and shadow subtrees (pass 4). For a Document clone it is the
-    // clone itself — deriving from a *source* child would stamp the original
-    // document onto a cloned Document's shadow contents. Read from the clone,
-    // it is that for a Document and the stamp the cloner just wrote otherwise.
-    let document = dom.node_document_for_new_nodes(cloned);
     // Index-based worklist: passes 3 and 4 append pairs while we iterate
     // (`replicate_template_contents` pushes the content fragment's deep-clone
     // pairs; the shadow-replication block pushes the shadow children's).
@@ -253,6 +246,16 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     while idx < pairs.len() {
         let (s, d) = pairs[idx];
         idx += 1;
+        // The document this pair's copy was made with, read back from the
+        // copy (`pair_owner`): the operation's document for the root pair and
+        // the light tree the ECS cloner copied with it (a Document clone: the
+        // clone itself, DOM §4.4 *clone a single node* step 7), and for a pair
+        // inside copied template contents the copy's contents' node document
+        // (HTML §4.12.3 template *cloning steps* step 2). Every later pass for
+        // the pair (its own contents, its shadow children) creates its nodes
+        // in that document, so nothing is created in one document and adopted
+        // into another at its link.
+        let pair_owner = dom.node_document_for_new_nodes(d);
         propagate_ce_identity(s, d, dom);
         // Form-control cloning steps (HTML §4.10.5 / §4.10.11): record the
         // src→dst link on `<input>` / `<textarea>` clones so the engine-indep
@@ -269,7 +272,7 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         // pairs onto this same worklist, so templates nested inside template
         // content converge here too.
         let subtree = deep || d != cloned;
-        replicate_template_contents(s, d, dom, subtree, document, &mut pairs);
+        replicate_template_contents(s, d, dom, subtree, pair_owner, &mut pairs);
         // Pass 4 (DOM §4.4 "clone a node" step 6): a clonable shadow host's
         // shadow root is replicated onto the clone. Pushes the shadow children's
         // pairs onto this same worklist, so nested shadow trees converge here.
@@ -284,15 +287,16 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
             continue;
         };
         // The replicated shadow root takes its host's node document at
-        // attach (*attach a shadow root* step 5), and the cloned host
-        // carries the operation's document from the cloner, so the shadow
-        // tree shares the one threaded document.
+        // attach (*attach a shadow root* step 5), and the cloned host was
+        // made with `pair_owner`, so the shadow tree shares the pair's
+        // document.
         let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
         for child in source_shadow_children {
             // Step 6.7: shadow children clone with subtree **true** (the
-            // spec's literal, at every pair), threading the operation's
-            // document.
-            let Some(child_clone) = clone_recording(dom, child, true, document, &mut pairs) else {
+            // spec's literal, at every pair) and the same document: the
+            // pair's.
+            let Some(child_clone) = clone_recording(dom, child, true, pair_owner, &mut pairs)
+            else {
                 continue;
             };
             let _ = dom.append_child(cloned_shadow, child_clone);
@@ -401,8 +405,14 @@ fn mark_cloned_form_control(src: Entity, dst: Entity, dom: &mut EcsDom) {
 /// cannot alias it). The contents are cloned **only when the clone-children
 /// flag is set** (`subtree`): a shallow `cloneNode(false)` of a template still
 /// gets a *fresh empty* fragment, while a deep clone deep-copies the source
-/// fragment's children into it (threading the clone's node document, the C2
-/// owner-doc approximation). `subtree` is the *pair's* flag (see the loop in
+/// fragment's children into it. The fragment is established with the pair's
+/// document (`pair_owner`, the document `dst` was made with): HTML §4.12.3
+/// establishing steps map it to its *appropriate template contents owner
+/// document* inside [`EcsDom::attach_template_contents`]. Cloning steps
+/// step 2 clones each child "with document set to copy's template
+/// contents's node document", so the children, and every pass for their
+/// pairs, use the new fragment's node document, not the operation's.
+/// `subtree` is the *pair's* flag (see the loop in
 /// [`clone_node_with_shadow_honor`]), not always the operation's.
 ///
 /// No-op when `src` is not a template (no `TemplateContents` link). Cloned
@@ -414,22 +424,21 @@ fn replicate_template_contents(
     dst: Entity,
     dom: &mut EcsDom,
     subtree: bool,
-    clone_doc: NewNodeOwner,
+    pair_owner: NewNodeOwner,
     pairs: &mut Vec<(Entity, Entity)>,
 ) {
     let Some(src_fragment) = dom.template_contents_fragment(src) else {
         return;
     };
-    // The clone's content fragment's node document is the *operation's* node
-    // document (`clone_doc` — the source's, or the clone itself for a
-    // Document clone), the one value threaded to every pass (C2 owner-doc
-    // approximation).
-    let new_fragment = dom.attach_template_contents(dst, clone_doc);
+    // Establishing steps with the pair's document (mapped inside the helper).
+    let new_fragment = dom.attach_template_contents(dst, pair_owner);
     if !subtree {
         return;
     }
+    // Cloning steps step 2: document = copy's template contents's node document.
+    let contents_owner = dom.node_document_for_new_nodes(new_fragment);
     for child in dom.children(src_fragment) {
-        if let Some(child_clone) = clone_recording(dom, child, subtree, clone_doc, pairs) {
+        if let Some(child_clone) = clone_recording(dom, child, subtree, contents_owner, pairs) {
             let _ = dom.append_child(new_fragment, child_clone);
         }
     }

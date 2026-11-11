@@ -69,7 +69,9 @@ pub enum CloneScope {
 /// node document — a nested *adopt*, whose oldDocument is the contents' own
 /// node document, not the root's. `documents` is `(oldDocument, document)`
 /// of that nested adopt: `old` read before the walk writes the fragment,
-/// `new` the document it writes. It is `None` when `old` is `None` (a silent
+/// `new` the appropriate template contents owner document of the adopt's
+/// target (never the target itself), which the walk writes on the fragment
+/// and every node of its tree. It is `None` when `old` is `None` (a silent
 /// re-home) or the template lies in a `None` segment.
 ///
 /// A fragment whose nested adopt would not run (step 3's guard, "If document

@@ -263,9 +263,9 @@ impl DomApiHandler for CreateElement {
         // `DocumentFragment` "created when the template element is created", so
         // `createElement('template')` gets an (empty) fragment up front — the
         // same eager attach the parser tiers do, via the one shared helper
-        // (One-issue-one-way). `this` is the receiver document = the fragment's
-        // owner document (C2 approximation; faithful inert owner document is
-        // slot `#11-template-contents-owner-document`).
+        // (One-issue-one-way). The helper maps the element's node document to
+        // its appropriate template contents owner document (establishing
+        // step 1).
         if is_template {
             let _ = dom.attach_template_contents(entity, dom.node_document_for_new_nodes(entity));
         }

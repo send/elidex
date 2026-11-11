@@ -30,6 +30,14 @@ impl EcsDom {
     /// the shadow root's `ShadowRoot` component is removed. This prevents
     /// stale cross-references after destruction.
     ///
+    /// Inert template document cleanup: destroying a Document destroys its
+    /// associated inert template document (HTML §4.12.3, linked by
+    /// [`AssociatedInertTemplateDocument`](crate::AssociatedInertTemplateDocument)),
+    /// so the rule never returns a destroyed one while its Document lives. A
+    /// node whose node document was that inert document reads `None` through
+    /// [`Self::node_document`]'s liveness check. No spec counterpart (the
+    /// spec's lifetime is garbage collection).
+    ///
     /// # Mutation dispatch contract
     ///
     /// Fires [`MutationEvent::Remove`](super::super::MutationEvent::Remove)
@@ -53,6 +61,8 @@ impl EcsDom {
         if !self.contains(entity) {
             return false;
         }
+        // Read before the despawn takes the link with `entity`.
+        let inert_template_document = self.linked_inert_template_document(entity);
 
         // Clean up shadow DOM cross-references before despawn.
         // Extract references first to avoid borrow conflicts.
@@ -146,6 +156,10 @@ impl EcsDom {
         // Bump version on parent after successful removal.
         if let Some(p) = parent {
             self.rev_version(p);
+        }
+
+        if let Some(inert) = inert_template_document {
+            let _ = self.destroy_entity(inert);
         }
 
         true

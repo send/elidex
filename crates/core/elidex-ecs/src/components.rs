@@ -357,8 +357,10 @@ pub struct SlottedMarker;
 /// ([`despawn_subtree`](crate::EcsDom::despawn_subtree) /
 /// [`adopt`](crate::EcsDom::adopt)'s walk) reaches the fragment
 /// out-of-band (like a shadow root) so teardown leaves no orphan and DOM
-/// §4.5 *adopt* re-homes the contents with the template (its adopting
-/// steps, HTML §4.12.3). `clone a node`
+/// §4.5 *adopt* step 3.4 runs the template's adopting steps: HTML §4.12.3
+/// template *adopting steps* 1–2 adopt the contents into the *appropriate
+/// template contents owner document* of the template's new node document,
+/// not into that document itself. `clone a node`
 /// (DOM §4.4 + §4.12.3 cloning steps) relinks a freshly-cloned fragment —
 /// this component is in the deliberate-non-copy row, so a shallow clone
 /// never aliases the source fragment.
@@ -367,6 +369,29 @@ pub struct TemplateContents {
     /// The associated content `DocumentFragment` entity.
     pub fragment: Entity,
 }
+
+/// Forward-link from a Document to its **associated inert template
+/// document** (HTML §4.12.3 *associated inert template document*,
+/// `#associated-inert-template-document`): the Document that owns the
+/// template contents of every `<template>` whose node document is this one.
+///
+/// Set once, by
+/// [`appropriate_template_contents_owner_document`](crate::EcsDom::appropriate_template_contents_owner_document)
+/// on first need (step 1.1.3). Its target carries [`InertTemplateDocument`].
+/// No back-link: the spec defines no query from the inert document to its
+/// document, and the lifetime runs from this side (destroying the Document
+/// destroys its inert document, [`destroy_entity`](crate::EcsDom::destroy_entity)).
+/// Not copied by a clone (a cloned Document gets its own on first need).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AssociatedInertTemplateDocument(pub Entity);
+
+/// Marks a Document "created by this algorithm" (HTML §4.12.3 *appropriate
+/// template contents owner document* step 1.1.1): an inert template document,
+/// whose browsing context is null. Read through
+/// [`is_inert_template_document`](crate::EcsDom::is_inert_template_document).
+/// Not copied by a clone (a clone of it is an ordinary Document).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InertTemplateDocument;
 
 /// Marker set on `<dialog>` entities by `dialog.showModal()`, cleared
 /// by `dialog.close()` (HTML §4.11.4, slot `#11-tags-T2d-interactive`).
