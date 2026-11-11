@@ -30,7 +30,7 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *C1-pre row* (carried by C1's PR; missing since C1-pre's PR, #616, PM 604): §1.2's C1-pre row landed with #616 (c7cce8c8; C1 memo §8 R-1, §9 item 11). *Rev 8.7* (carried by C1's PR; number assigned at landing, PM 223 O-1 / 232): §1.2 gains the C1 row and §1.3 gains x7 (C0 → C1) and the C1-pre → C1 edge (C1 memo R-1); §1.6's heading "C1's handling (decided by the PM, not here)" → "C1's handling (decided: branch A, PM decision 123)"; §8.1's `#11-template-contents-owner-document` "Owner TBD …" → the Layout lane's owner line; cell C14's expected column, K-5, §8.2 defect (5), §1.4's interim line (window iv) and §1.5's W-K5 bullet carry C1's template-contents half (C1 memo R-3). *Rev 8.6* (2026-11-08; carried by C0c's PR): §1.2's C0 row: "C0c: planned." → "C0c: landed (#611)." (C0 program memo R-3). *Rev 8.5* (2026-11-07; carried by C0b's PR): §1.2's C0 row: "C0b: planned." → "C0b: landed (#608)." (C0 program memo R-3). *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
+**Changelog.** *C1-pre row* (carried by C1's PR; missing since C1-pre's PR, #616, PM 604): §1.2's C1-pre row landed with #616 (c7cce8c8; C1 memo §8 R-1, §9 item 11). *Rev 8.7* (carried by C1's PR; number assigned at landing, PM 223 O-1 / 232): §1.2 gains the C1 row and §1.3 gains x7 (C0 → C1) and the C1-pre → C1 edge (C1 memo R-1); §1.6's heading "C1's handling (decided by the PM, not here)" → "C1's handling (decided: branch A, PM decision 123)"; §8.1's `#11-template-contents-owner-document` "Owner TBD …" → the Layout lane's owner line; cell C14's expected column, K-5, §8.2 defect (5), §1.4's interim line (window iv), §1.5's W-K5 bullet and heading, §1.1's I7 row and §0.5's K-5 red-cell line carry C1's template-contents half (C1 memo R-3). *Rev 8.6* (2026-11-08; carried by C0c's PR): §1.2's C0 row: "C0c: planned." → "C0c: landed (#611)." (C0 program memo R-3). *Rev 8.5* (2026-11-07; carried by C0b's PR): §1.2's C0 row: "C0b: planned." → "C0b: landed (#608)." (C0 program memo R-3). *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
 MIN-2): the header's N1 pointer is rev 4.5; §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2's defect (1) and
 classification name NR8 (a)'s population by its value, a callback at the first insertion (an IDL write, or a
 `setAttribute` value compiled by a read or a dispatch before it), not by the IDL write alone; §8.4 item 4 excepts the
@@ -354,7 +354,7 @@ element event handler set (`onblur`, `onerror`, `onfocus`, `onload`, `onresize`,
   stays after slice b: it is the creation-equivalent point for the pre-bind parse.
 
 Red cells per clause (§6): K-0 guards U5 (ii), U9, E8, C6, C13, C16 (no red: K-0 is HEAD-equality or improvement). X-W:
-C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pins C14, C15). K-6: E1, E2,
+C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pin C15; C14 a window pin until C1, which inverts it to the spec's outcome, C1 memo T17). K-6: E1, E2,
 E4–E7, U7, U10, U11, U12.
 
 ### §0.6 Slice b's invariants (decided; mechanism is slice b's plan)
@@ -408,7 +408,7 @@ how it satisfies each of the following, and its plan-review checks that:
 | I4 freshness (new elements start unprocessed; clone does not copy) | §5.0 | owns it (clone-policy row) | clone processed at creation (S-1) |
 | I5 coverage (every creation path, the pre-bind tree, shadow trees, template contents) | K-4, K-6, G1, G2 | the pre-bind tree, shadow-including, uncapped (D-11); first insertion over HEAD's light walk (D-10) | creation-time coverage (S-1, S-2) |
 | I6 policy | `event_handler_consumer.rs:405`, `:447` | owns it (one `policy.installs` filter on every path) | — |
-| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii)) | owns it (S-1, S-2; needs N1 and C1's handling) |
+| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii); its template-contents half from C1, §1.4 (iv)) | owns it (S-1, S-2; needs N1 and C1's handling) |
 | I8 target determination (step 3) | G3 | not reached: the bind pass walks only the bound, active document, and every Window-delegating pair otherwise takes HEAD's path (X-W; C8, C17–C19) | owns it (needs T3) |
 | I9 layering / re-entry | Layering mandate | owns it for the VM setters and the bind pass | owns it for the creation-time sites |
 
@@ -473,7 +473,7 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
   (5)'s template-contents half respectively).
 - **Closing path (visible):** slice a lands → N1 → C0 → C1 → T3 (this program's PR, slot `#11-event-handler-target-determination`) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2, x9, x10; rev 8.4, PM decision 153; until rev 8.4: "slice a lands → T3 (…; N1 lands independently) → C1's handling decided (PM) → slice b").
 
-### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, §1.4; slice b closes them)
+### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them)
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every

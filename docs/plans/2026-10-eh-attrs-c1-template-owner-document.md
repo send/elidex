@@ -91,7 +91,14 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.10.3* (2026-11-11, PM 652): erratum of observations — §5.2's population is defined by property
+**Changelog.** *Rev 3.10.4* (2026-11-11, PM 659 / 670): erratum of observations after the rev 3.10.3 focused
+re-check (IMP 2, MIN 3) — which test detects a mutant is a measurement output, so no prose names a killer: §6.3's
+table is the unfiltered run at `4b43d0bb` with its command and the pass criterion (each of the 17 detected by ≥1
+test), and §4.3's observation sentence, D-C6, §2.2 A4×A5, U14's cell, §9 items 5 and 9 and §10.11 refer to it;
+§5.2's scan follows `use super::<file>::…` imports and its count sits with its command and head there, the added fns
+classified; R-3 gains three umbrella sentences (§1.5's heading, §1.1's I7 row, §0.5's K-5 red cells), applied;
+`tests_base_href.rs:602`'s reason; C0c U19 leg 2's `:405` (§10.12).
+*Rev 3.10.3* (2026-11-11, PM 652): erratum of observations — §5.2's population is defined by property
 (a template in the fixture), not by memo-cell text or by what changed: the property scan (112 fns at `542a30db`, control
 C0b U5) ∪ the fns whose value changed (21) = 112, both differences written; every fn classified in §5.2; C0b U5, U9 ×2,
 U1's control and C0c T18's control added to "changes" with derived values; C0c U19 leg 2 needs no re-set; §6.3's two
@@ -406,10 +413,11 @@ New in rev 3.7 (re-measured at `c7cce8c8`; each with its evidence):
   *What the per-pair document changes, observably (rev 3.10).* Not the node documents a script reads: each copied
   contents child and each shadow child is linked by `append_child` (`clone.rs:433`, `:298`), which adopts into the
   parent's node document first (`mutation.rs:50` → `adopt_for_insert` `:271` → `adopt_into` `:288`), so a child cloned
-  with the operation-wide document D ends in the copy's contents' node document anyway (T10, T24 read the same values). What it changes is
+  with the operation-wide document D ends in the copy's contents' node document anyway (the node documents read are the same). What it changes is
   that such a child is created in D and then adopted into I: one adopt walk and one `MutationEvent::Adopt` (D, I) per
   child, which the spec's clone, creating every node in its document (DOM §4.4 *clone a node* steps 2, 5, 6.7; HTML
-  §4.12.3 *cloning steps* step 2), never does. Cell U14 is the guard.
+  §4.12.3 *cloning steps* step 2), never does. Cell U14 reads walks and `Adopt` events during a clone; whether a test
+  detects the dropped per-pair document is §6.3's mutation run.
 - **D-C7 — lifetime.** I exists iff D has needed it (lazy, D-C2). Destroying D destroys its linked I
   (`destroy_entity` on a Document follows `AssociatedInertTemplateDocument`). On C1's head no production path destroys
   a Document that has an I (H-C12: only throwaway documents are destroyed, and D-C4 never computes `f` of a throwaway),
@@ -511,7 +519,7 @@ in reverse). The prerequisite 1000-line split is none (§5.3).
 | A3×A7 | no | Nesting creates no further document (A1×A3) |
 | A3×A8 | yes | Nested contents read null and (after T3) target null like outer contents, under INV-C (same I) |
 | A3×A9 | no | The EH contract does not distinguish depth inside contents |
-| A4×A5 | yes | A clonable shadow host inside copied contents: its host, shadow root and shadow children are in the pair's document (the copy's contents' I, INV-C (b)), not the operation's (§4.4 step 3) (T24 reads the values; U14 discriminates the per-pair document, D-C6). D14's subtree-true form is assumed (§4.4) |
+| A4×A5 | yes | A clonable shadow host inside copied contents: its host, shadow root and shadow children are in the pair's document (the copy's contents' I, INV-C (b)), not the operation's (§4.4 step 3) (T24 reads the values; U14 reads the clone's walks and `Adopt` events, D-C6; detection of the dropped per-pair document is §6.3's run). D14's subtree-true form is assumed (§4.4) |
 | A4×A6 | yes | Adopt's walk is shadow-including under each target: a shadow root inside contents goes to `f(X)`, a shadow root of the template's light descendants to X (U9) |
 | A4×A7 | no | Shadow roots create no document |
 | A4×A8 | yes | `shadowRoot.ownerDocument` in contents reads INV-C's value; a handler on a shadow-root-direct child in contents reads null under N1 (no Insert fires there, H2, so it is processed only by slice b's creation path) |
@@ -632,7 +640,7 @@ are C0b's (C0 draft D-10, D-11, D-17, D-20, §4.4; PM decisions 223 O-2 / 227). 
 entry's value inside template contents is INV-C's, because D-C3 stamps the contents fragment with `f(..)` (D-C4). Rev 3's constraint
 on C0's Q-2 (a tolerant value threaded from the template's level, as `convert.rs:284-286` did at `593aa314`, would stamp
 contents' children with D) is met by construction: Q-2 is decided per node and the threaded owner is deleted (C0 draft
-D-20). U12's tolerant leg (the walk counter) kills that form (§6.3; rev 3.10.3, PM 657).
+D-20). That form is detected by §6.3's mutation run.
 
 ### §4.4 Clone (D-C6), on D14
 
@@ -847,19 +855,33 @@ C14 (`crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`, i
 expected value reads a template contents' (or a contents descendant's) node document, or the pair of an adopt segment
 of contents (below). C18's test (`tests_event_handler_attrs_window_delegating.rs`) is **unchanged** at C1 (T18).
 
-*Code-side population (rev 3.10.3, by property; supersedes rev 3.7's grep and its 36 fns, §10.11).* Property: a
+*Code-side population (rev 3.10.3, by property; supersedes rev 3.7's grep and its 36 fns, §10.11; rev 3.10.4 follows
+sibling-file imports, §10.12).* Property: a
 `#[test]` fn whose fixture contains a template, or that observes the contents, the `ownerDocument` or the node
 document of a node in contents. The second clause implies the first (a node in contents exists only under a template
 the fixture built), so the scan tests the first, and reads no observer: how a test sees C1's change (a node document,
 an adopt pair, an entity count, a log, a walk order) does not decide membership. A fn is a hit when it, or a test-side
-`fn` / `const` / `static` of its file that it names (three levels), has a non-comment line that builds or reaches a
+`fn` / `const` / `static` of its file that it names (three levels), or a test-side helper of a sibling file that its
+file imports by `use super::<file>::{…}` / `use super::<file>::<name>` (one hop, rev 3.10.4), has a non-comment line
+that builds or reaches a
 template (`<template` markup, a `"template"` / `'template'` tag name, `attach_template_contents`,
 `template_contents_fragment`, the `TemplateContents` component):
 ```sh
-git ls-files 'crates/*.rs' | xargs /usr/bin/grep -l '#\[test\]' | while read -r f; do
-  awk -v F="$f" '
-    BEGIN { tf = (F ~ /\/tests\/|tests\.rs|\/tests_|test_helpers/) }
+H=$(mktemp)
+scan() { /usr/bin/awk -v F="$1" -v MODE="$2" -v H="$H" '
+    function imp(u,   m, d, p, i, k, s, l, x) {
+      m = u; sub(/^[[:space:]]*(pub[^ ]* )?use super::/, "", m); sub(/::.*/, "", m)
+      d = F; sub(/\/[^\/]*$/, "", d); if (F ~ /\/mod\.rs$/) sub(/\/[^\/]*$/, "", d)
+      sub(/^[^:]*super::[A-Za-z0-9_]+::/, "", u); gsub(/[{};]/, "", u); k = split(u, p, ",")
+      for (i = 1; i <= k; i++) { s = p[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); l = s
+        if (s ~ / as /) { l = s; sub(/^.* as[[:space:]]+/, "", l); sub(/[[:space:]]+as .*$/, "", s) }
+        x = (d "/" m ".rs") SUBSEP s; if (!(x in HT)) x = (d "/" m "/mod.rs") SUBSEP s
+        if (x in HT) { side[l] = 1; T[l] = 1; kind[l] = HT[x]; order[++n] = l } }
+    }
+    BEGIN { tf = (F ~ /\/tests\/|tests\.rs|\/tests_|test_helpers/)
+      if (MODE == "test") while ((getline r < H) > 0) { split(r, q, "\t"); HT[q[1] SUBSEP q[2]] = q[3] } }
     /^[[:space:]]*\/\// { next }
+    MODE == "test" && (ub != "" || /^[[:space:]]*(pub[^ ]* )?use super::[A-Za-z0-9_]+::/) { ub = ub " " $0; if (ub ~ /;/) { imp(ub); ub = "" }; next }
     /^#\[cfg\(test\)\]/ { cfg = NR }
     cfg && NR == cfg + 1 && /^mod [A-Za-z0-9_]+ *\{/ { inmod = 1 }
     /^[[:space:]]*(pub[^ ]* )?(fn|const|static) [A-Za-z0-9_]+/ { it = $0; k = (it ~ /(^|[[:space:]])fn /) ? "fn" : "c"; sub(/^.*(fn|const|static) /, "", it); sub(/[^A-Za-z0-9_].*/, "", it); start[it] = NR; side[it] = tf || inmod; kind[it] = k; if (pt && k == "fn") test[it] = 1; order[++n] = it }
@@ -868,18 +890,28 @@ git ls-files 'crates/*.rs' | xargs /usr/bin/grep -l '#\[test\]' | while read -r 
     /attach_template_contents|template_contents_fragment|TemplateContents([^A-Za-z0-9_]|$)|<template|["\x27]template\\?["\x27]/ { if (it != "") T[it] = 1 }
     END {
       for (r = 0; r < 3; r++) for (i = 1; i <= n; i++) { a = order[i]; for (j = 1; j <= n; j++) { b = order[j]; if (a != b && side[b] && T[b] && body[a] ~ ("(^|[^A-Za-z0-9_])" b (kind[b] == "fn" ? "\\(" : "([^A-Za-z0-9_]|$)"))) T[a] = 1 } }
-      for (i = 1; i <= n; i++) { a = order[i]; if (test[a] && T[a]) printf "%s:%d:%s\n", F, start[a], a }
-    }' "$f"; done | /usr/bin/grep -vE 'tests_template_owner_document\.rs|tests/template_owner\.rs|tests_template_owner\.rs|clone_template_owner\.rs'
+      for (i = 1; i <= n; i++) { a = order[i]
+        if (MODE == "side" && side[a] && T[a] && start[a]) printf "%s\t%s\t%s\n", F, a, kind[a]
+        if (MODE == "test" && test[a] && T[a]) printf "%s:%d:%s\n", F, start[a], a } }' "$1"; }
+FS_=$(git ls-files 'crates/*.rs' | xargs /usr/bin/grep -l '#\[test\]')
+for f in $FS_; do scan "$f" side; done > "$H"
+for f in $FS_; do scan "$f" test; done | /usr/bin/grep -vE 'tests_template_owner_document\.rs|tests/template_owner\.rs|tests_template_owner\.rs|clone_template_owner\.rs'
+rm -f "$H"
 ```
-(`/usr/bin/awk`, version 20200816.) The last filter drops the 68 fns of C1's own NEW cell files (§5.3; 58 + 6 + 3 + 1):
-their values are C1's §6 cells, not existing expectations. At `542a30db` (2026-11-11): 180 hits before the filter,
-**112 after: set (a)**. Control: (a) holds `adopt_on_insert.rs:586:u5_same_document_move_runs_no_walk` (C0b U5; the
-output piped to `/usr/bin/grep -c ':u5_same_document_move_runs_no_walk$'` → 1), which rev ≤ 3.10.2's memo-cell
-population (the `template|content` grep over the C0 memos' §6 cells) does not reach: that grep's C0b output is
-`T5 T23 U1 U8 U11 U12` (piped to `/usr/bin/grep -c '^| *U5 '` → 0), because U5's cell text is "same-document move"
-while its fixture, `x_subtree`, holds a template. Complement: a fixture built by a helper of another file, by a macro
-or from a file read at run time is not seen; a nested `fn` inside a test body ends that test's scanned body; code
-between two items counts for the earlier one (over-inclusion only).
+(`/usr/bin/awk`, version 20200816.) The first loop lists every template-reaching test-side helper, the second
+scans the tests with those helpers as imports. The last filter drops the fns of C1's own NEW cell files (§5.3; 58 + 6 +
+3 + 1 at `04d92e75`): their values are C1's §6 cells, not existing expectations. **Measurement: this command at
+`04d92e75` (2026-11-11) → 208 hits before the filter, 140 after: set (a).** Control: (a) holds
+`adopt_notification.rs:80:u5_same_document_move_fires_no_adopt` (C0c's U5 part), whose fixture `x_subtree` is
+imported from `adopt_on_insert.rs` (`:7`) and which the rev 3.10.3 scan, following no import, does not reach (the output
+piped to `/usr/bin/grep -c ':u5_same_document_move_fires_no_adopt$'` → 1; the rev 3.10.3 script → 0). The same
+command's earlier control, `adopt_on_insert.rs:586:u5_same_document_move_runs_no_walk` (C0b U5), still → 1; rev ≤
+3.10.2's memo-cell population (the `template|content` grep over the C0 memos' §6 cells) does not reach it: that grep's
+C0b output is `T5 T23 U1 U8 U11 U12` (piped to `/usr/bin/grep -c '^| *U5 '` → 0), because U5's cell text is
+"same-document move" while its fixture, `x_subtree`, holds a template. Complement: a fixture built by a helper reached
+only through a glob import (`use super::*`), a `super::super::` path, a two-hop import chain or a file with no
+`#[test]`, by a macro, or from a file read at run time is not seen; a nested `fn` inside a test body ends that test's
+scanned body; code between two items counts for the earlier one (over-inclusion only).
 
 *Set (b): the fns whose expected value changed at C1's head.* The expectations rewritten in `7bcc704b`, read per fn
 from `git show 7bcc704b` (a fn whose diff touches only comments, names or a destructuring is not counted), plus C14's
@@ -892,14 +924,15 @@ elidex-html-parser-strict -p elidex-custom-elements -p elidex-dom-api -p elidex-
 elidex-form -p elidex-style` → 8844 passed; `-p elidex-shell -E 'test(/e[67]_/)'` → 3 passed; 2026-11-11), so no fn
 whose value changed was left unrewritten.
 
-*Population = (a) ∪ (b) = 112 fns.* (b) \ (a) = ∅ (0): every fn whose expectation changed builds a template in its
-fixture, as the property predicts. (a) \ (b) = 91: the "value unchanged" and "not dependent" fns below, each with its
+*Population = (a) ∪ (b), by the command above at `04d92e75`: 140 fns.* (b) \ (a) = ∅ (0): every fn whose expectation
+changed builds a template in its fixture, as the property predicts. (a) \ (b), same command and head: 119, the "value unchanged" and "not dependent" fns below, each with its
 reason. Classes (the rule of rev ≤ 3.10.2, stated per class): **changes** — an expected value depends on the node
 document of the contents or of a node in them, on a contents segment's pair, or on I's existence, and differs at C1's
 head (= (b)); **value unchanged** — the fixture puts a template in a document, so C1 gives its contents I (or may, for
 a declarative-shadow template), and no expected value differs; **not dependent** — the fixture puts no template in a
 document (no template at all, only a shared helper that walks contents, or a template with no node document, for
-which `f` is not applied, INV-C (b)), so nothing the test builds changes. Paths below are short; lines at `542a30db`.
+which `f` is not applied, INV-C (b)), so nothing the test builds changes. Paths below are short; lines at `542a30db`
+(the rev 3.10.4 additions' files are unchanged between `542a30db` and `04d92e75`, so their lines hold at both).
 Each new value is derived from INV-C and the code, then checked against the test:
 - **changes (rewritten in C1's commits), 21:**
   - C0b **T5**, `tests_insertion_adoption.rs:154` `t5_template_contents_adopted_with_the_template`: both legs compare
@@ -948,7 +981,7 @@ Each new value is derived from INV-C and the code, then checked against the test
     created in `X` and appended into `f2`, is adopted into `f(X)`; `a`, created in `X` and put in `e`'s cache
     directly, stays `X`. `adopt(t0, target)` then reaches `f1` with old `f(target)` equal to the segment's new
     `f(target)` (D-C5; `mutation.rs:376`, `:390`), so `f1` is skipped and every node below it inherits the skip
-    (`:401`, `:406`): no segment, stamps `[target, f(target), f(target), f(X), f(X), X]`, no reaction. The leg still
+    (`:401`, `:405`): no segment, stamps `[target, f(target), f(target), f(X), f(X), X]`, no reaction. The leg still
     constructs the skip C0c U19 guards (D-3 (c)): a walk below `f1` would re-stamp `f2`, `e` and `a` with `f(target)`,
     which differs from `f(X)` / `X`. Third leg: both segments `None`, stamps `[target, f(target) ×5]`, no reaction.
   - C0c **U21**, `dom/tests/adopt_notification.rs:336` `u21_contents_cycle_root_is_not_a_segment`: its fixture
@@ -963,8 +996,11 @@ Each new value is derived from INV-C and the code, then checked against the test
     `e`, created in `document`, is appended into them and adopted into `f(dp)` (DOM §4.2.3 *insert* step 7.1; INV-C
     (a)), and `f(dp) ≠ dp`.
   - umbrella **C14**, `tests_event_handler_attrs_once.rs:321` `c14_template_contents_handler_runs`: inverted (T17).
-- **value unchanged, 61** (a template in a document; no expected value differs):
-  - the adopt-pair and stamp checks whose asserted value C1 leaves equal: C0c **T18**, `tests_insertion_adoption.rs:570`
+- **value unchanged, 62** (a template in a document; no expected value differs):
+  - the adopt-pair and stamp checks whose asserted value C1 leaves equal: C0c's U5 part (rev 3.10.4),
+    `dom/tests/adopt_notification.rs:80` `u5_same_document_move_fires_no_adopt` (`x_subtree(D)` is appended into `D`
+    and then moved and adopted within `D`, so *adopt* walks nothing, DOM §4.5 *adopt* step 3, and the log is empty on
+    base and head); C0c **T18**, `tests_insertion_adoption.rs:570`
     (`e`'s segment `new` becomes `f(dp2)`, the logged `n === dp` is `false` either way; C1's T25 discriminates); C0c
     U19's consumer second and third legs, `elidex-custom-elements/src/tests.rs:717`, `:725` (no reaction either way);
     C0b U8's strict control, `tests_node_document.rs:85` (the `<svg>` in the body reads `D`); C0b T5's control,
@@ -977,8 +1013,11 @@ Each new value is derived from INV-C and the code, then checked against the test
   - custom-element state: `elidex-custom-elements/src/tests.rs:642` `u13_control_c_and_l_are_custom`;
     `elidex-html-parser/src/tests.rs:506` (contents' `<my-widget>` carries `CustomElementState`);
     `tests_clone_created.rs:94` (`count=1,true`: the clone of contents gets no upgrade on base and head);
-  - document-derived reads that do not see contents: `tests_base_href.rs:602` (`document.baseURI`; §5.1 P-6's
-    `BaseUrlMaintainer` arms return before reading for a node in contents); `tests_bind.rs:74`, `:94`
+  - document-derived reads that do not see contents: `tests_base_href.rs:602` (`document.baseURI`; the `<base>` is a
+    light child of the template, `t.appendChild(b)`, not a node in its contents, so C1 changes nothing it reads:
+    `b`'s node document is `document` on base and head, and the base-URL walk does not descend into a template element,
+    `elidex-dom-api` `element/document_base.rs:87`, `:138`, on either);
+    `tests_bind.rs:74`, `:94`
     (`elidex-script-session`; the bind skips contents and reaches the shadow tree, on base and head);
   - tree shape, serialization and form state, document or document-context parses (26): `elidex-html-parser-strict`
     `tree_builder/tests.rs:330`, `:347`, `:405`, `:450`, `:482`, `tests_foreign.rs:303`; `elidex-html-parser`
@@ -989,10 +1028,19 @@ Each new value is derived from INV-C and the code, then checked against the test
   - script-created templates in the page, structure and brand only (19): `tests_html_t2d_protos.rs:83`, `:123`,
     `:613`, `:620`, `:627`, `:634`, `:643`, `:654`, `:673`, `:684`, `:699`, `:718`; `tests_inner_html_mixin.rs:151`,
     `:170`, `:188`, `:202`, `:221`, `:638`, `:738`.
-- **not dependent, 30** (no template in a document):
-  - no template in the fixture; the shared serializer `assert_tree` walks contents (13): `elidex-html-parser-strict`
-    `tree_builder/tests.rs:146`, `:159`, `:175`, `:192`, `:209`, `:227`, `:245`, `:261`, `:276`, `:290`, `:308`,
-    `:370`, `:390`;
+- **not dependent, 57** (no template in a document):
+  - no template in the fixture; a shared serializer of `elidex-html-parser-strict` `tree_builder/tests.rs` walks
+    contents, and it outputs structure only and reads no node document (`serialize_document` `:46`,
+    `serialize_fragment` `:58`, both through `serialize_node` `:66`; `assert_tree` `:139` calls the first), so the
+    hit is the helper's, not the fixture's (40):
+    - same file, through `assert_tree` (13): `tree_builder/tests.rs:146`, `:159`, `:175`, `:192`, `:209`, `:227`,
+      `:245`, `:261`, `:276`, `:290`, `:308`, `:370`, `:390`;
+    - imported by `use super::tests::{…}` (rev 3.10.4), `tests_foreign.rs` (17): `:58`, `:68`, `:78`, `:92`, `:108`,
+      `:119`, `:132`, `:147`, `:162`, `:177`, `:192`, `:210`, `:222`, `:235`, `:246`, `:287`, `:347`;
+    - imported likewise, `tests_fragment.rs` (9): `:37`, `:51`, `:67`, `:81`, `:120`, `:129`, `:137`, `:143`, `:149`;
+    - imported likewise, `tests_html5lib_tree.rs:225` `html5lib_tree_construction_corpus` (1): its vectors are the four
+      `include_str!` files of `tests/data/html5lib/tree-construction/`, none holding `<template` (`/usr/bin/grep -c
+      '<template'` on each → 0 at `04d92e75`), and its fragment cases take an ownerless context (`:183`);
   - a UA style keyword, no DOM: `elidex-style/src/ua.rs:419` `template_display_none`;
   - an ownerless template or contents (`NewNodeOwner::NONE` or an ownerless fixture): `dom/tests/destroy.rs:283`;
     `elidex-custom-elements/src/upgrade.rs:459`; `elidex-dom-api` `node_methods/tests/clone.rs:135`, `:182`,
@@ -1193,35 +1241,45 @@ existing scripts unchanged.
 | U11 | red | C0's new-node entry for a `source` in D's template contents (the fragment, a descendant, nested contents, a shadow root in contents) → `f(D)`; and for a template parsed in a fragment build with context in D, its contents fragment's stamp → `f(D)` (never `f(throwaway)`). The entry's own contract (D → D; the fragment-parse root → the context's document) is C0b's cells (its U11), not C1's | as stated |
 | U12 | red (×2) | document parse of `<template><svg></svg><b>t</b><!--c--></template>` into D: after the parse the walk counter reads 0 (`adopt_walk_count()`, `mutation.rs:419`, `fixtures`; the parse builds into a fresh `EcsDom`, whose counter starts at 0), the contents hold 5 nodes (fragment, `svg`, `b`, text, comment) and every one carries `AssociatedDocument == f(D)`. A walk would mean a node was created with another document and re-homed at its link. This is C0b's U8 form (C0b memo §6.2 U8; `crates/dom/elidex-html-parser/src/tests_node_document.rs:56-66` at `8344af2b`). Rev 3.10.2: the counter replaces a recording `MutationDispatcher`, which cannot be installed before a document parse (both tiers build a fresh `EcsDom`: tolerant `parse_html`, `crates/dom/elidex-html-parser/src/lib.rs:48-50`, through `convert_document`; strict `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:101`). The two are equivalent for this cell because an `Adopt` event is emitted only from the adopt walk: the one construction of `MutationEvent::Adopt` is `mutation.rs:299`, in `adopt_into`, after its `adopt_walk` call at `:297` with no return between, so 0 walks means 0 `Adopt` events (the converse does not hold — a walk from an ownerless root fires none — which makes the counter the stronger check). Commands, at `8344af2b`, run 2026-11-11: (1) every `Adopt {` token, construction or pattern: `git grep -nP '\bAdopt\s*\{' 8344af2b -- 'crates/*.rs'` → 11 hits, none in a comment: the variant's definition `crates/core/elidex-ecs/src/dom/mutation_event.rs:392`; the one construction `crates/core/elidex-ecs/src/dom/tree/mutation.rs:299`; match arms `crates/dom/elidex-custom-elements/src/consumer.rs:119`, `crates/dom/elidex-dom-api/src/range/live.rs:161`, and in `crates/core/elidex-ecs/src/dom/tests/` `adopt_notification.rs:32`, `adopt_on_insert.rs:251`, `mutation_hook.rs:149`; a test-local `Rec::Adopt` (`adopt_on_insert.rs:213`, `:252`, `:360`, `:376`). No hit outside the walk constructs the event; the command's control is its own hit on the known site `mutation.rs:299`. (2) no import that could build the variant without the `MutationEvent::` path: `git grep -nP -e 'use .*MutationEvent::[*{A]' -e 'MutationEvent as ' 8344af2b -- 'crates/*.rs'` → 0; control: `git grep -nP -e 'use .*MutationEvent' 8344af2b -- 'crates/*.rs'` hits (e.g. `crates/core/elidex-ecs/src/dom/mod.rs:33`), so the 0 is not a silent one | as stated |
 | U13 | red | `adopt(template, X)` with X carrying no `AssociatedInertTemplateDocument`: afterwards X is linked to one marked I and the contents are stamped I; `adopt(div_subtree, Y)` (no template) into Y with no link: Y stays unlinked | as stated (lazy, D-C7's "iff") |
-| U14 | guard (D-C6's per-pair document; rev 3.10; in `crates/dom/elidex-dom-api/src/node_methods/tests/clone_template_owner.rs`, NEW, §5.3) | template `tpl` in D whose contents hold a nested template (with a child in its contents) and a clonable shadow host (with a shadow child), built before the recorder is installed; then a recording `MutationDispatcher` (counting `MutationEvent::Adopt`) is installed and `adopt_walk_count()` (`mutation.rs:419`, `fixtures`) read; deep clone of `tpl` (`CloneNode` / `clone_node_with_shadow_honor`); the copy's nested contents and shadow tree are checked present. Positive control: afterwards, appending a node of another document into the copy's contents records 1 `Adopt` and 1 walk | 0 `Adopt` events and 0 adopt walks during the clone, on base and C1 (observed on the base, §10.8); with D-C6's per-pair document dropped (the operation's `document` in pass 3's contents-child clone or pass 4's shadow-child clone) one walk and one `Adopt` (D, I) per such child (D-C6) |
+| U14 | guard (D-C6's per-pair document; rev 3.10; in `crates/dom/elidex-dom-api/src/node_methods/tests/clone_template_owner.rs`, NEW, §5.3) | template `tpl` in D whose contents hold a nested template (with a child in its contents) and a clonable shadow host (with a shadow child), built before the recorder is installed; then a recording `MutationDispatcher` (counting `MutationEvent::Adopt`) is installed and `adopt_walk_count()` (`mutation.rs:419`, `fixtures`) read; deep clone of `tpl` (`CloneNode` / `clone_node_with_shadow_honor`); the copy's nested contents and shadow tree are checked present. Positive control: afterwards, appending a node of another document into the copy's contents records 1 `Adopt` and 1 walk | 0 `Adopt` events and 0 adopt walks during the clone, on base and C1 (observed on the base, §10.8) |
 
 ### §6.3 Mutation guards
 
-| mutation | killed by |
-|---|---|
-| a new I per template (no link) | T2, U1 |
-| no marker check (I of I) | T4, T5, U2 |
-| caller passes the template's document unmapped (C2) | T1, T3, T6 |
-| adopt re-homes contents to the target (C0's identity edge kept) | T13, U9 |
-| contents children cloned with the operation's document | U14 (T10 cannot see it: each child is adopted into the copy's contents' node document at its link, D-C6) |
-| shadow pass uses the operation-wide document inside copied contents | U14 (T24 cannot see it, likewise) |
-| no destroy cascade | U7 |
-| `f` of the throwaway computed (root redirect dropped) | U4 |
-| link or marker copied by clone | T11, U8 |
-| `root_entities` not excluding I | U6 |
-| inside contents the entry's value is not I (a creation stamp from the parse / context document; the defect class C0's entry would have if it ignored `source`, here observed through contents) | T19 (strict leg), U11, U12 |
-| tolerant threads the template's document into contents instead of recomputing at the contents fragment (§4.3) | U12 (tolerant leg: the walk counter). Rev 3.10.3, observed at `73eefe26`: T3, T12 (attachShadow variant) and T19's tolerant legs stay green — each child created with the template's document is appended into the contents fragment and adopted into its node document I at its link (DOM §4.2.3 *insert* step 7.1; `convert.rs:65-77`; INV-C (a)), so their `ownerDocument` reads see I either way; the blind spot U14 has for T10 / T24 above, and only a walk count sees it |
-| the contents edge's segment `new` left at the template's target (C2) | T25, T28 (rev 3.10.3, observed at `73eefe26`: both read the logged pair). U9 removed: it reads stamps only, and the mutant changes only the `AdoptedContents.documents` pair (`mutation.rs:391`), not the segment's stamp document (`:396-399`) |
-| the contents edge reads the target's existing link (none on a target with no I) instead of computing `f(target)` | T26, U13 |
-| `f(target)` computed on every adopt, template or not | U13 |
-| C0c's skip compares the contents' old document with the unmapped target | T27, T28 |
-| a contents fragment adopted as the walk's root is mapped to `f(target)` (INV-C (c) dropped: the invariant made universal) | T23 route (v), C0c U21 |
+Seventeen mutants, one per row. **Pass criterion: each of the 17 is detected by ≥1 test in the unfiltered run.** Which
+tests detect a mutant is not part of the criterion: it is a measurement output, which changes with the test filter
+and the head, so no cell is named here, or elsewhere in this memo, as a mutant's required killer (PM 659).
 
-U14 is green on the base and on C1's head, so its kill of the two clone mutants above cannot be shown before C1
-exists: it is confirmed red-first at C1's implementation, by running U14 against each mutant (the per-pair document
-replaced by the operation's `document` in pass 3, then in pass 4) and recording both red runs in the PR description
-(§9 item 5). At plan stage only its premise is verified (§10.8): the recording mechanism exists and the base's deep
-clone of such a template records 0 `Adopt` events and 0 walks.
+*Measurement (rev 3.10.4).* Head `4b43d0bb` (its `crates/` tree is `04d92e75`'s), **no test filter**, `rustc 1.99.1`,
+run once per mutant from the implementation worktree:
+`unset RUSTUP_TOOLCHAIN; cargo test -p elidex-ecs -p elidex-dom-api -p elidex-html-parser -p
+elidex-html-parser-strict -p elidex-custom-elements -p elidex-script-session -p elidex-js --all-features
+--no-fail-fast` (the seven crates of §6.4). Each mutant is one verbatim text edit, applied, run and reverted
+(`git status` clean after each); "edit at" is the line where the edited text starts at `4b43d0bb`, under the crate's
+`src/`. Baseline (unmutated): 0 failures, no build error. "Detected by" lists every test that failed under the mutant,
+as `<crate> <module>::<fn>`. **Result: 17 of 17 detected, 0 survivors.**
+
+| mutation | id | edit at | detected by (count: tests failing in the run) |
+|---|---|---|---|
+| a new I per template (no link) | M01 | `ecs dom/template_owner.rs:57` | 44: `custom_elements tests::u13_adopt_enqueues_contents_before_light_child_each_with_its_pair`, `custom_elements tests::u19_consumer_innermost_segment_pair`, `custom_elements tests::u19_consumer_skipped_contents_no_reaction`, `dom_api clone::clone_node_template_shallow_owner_document_is_inert_template_document`, `ecs adopt_notification::u19_nested_segments_each_carry_their_own_pair`, `ecs adopt_notification::u19_segment_under_a_none_segment_is_none`, `ecs adopt_notification::u19_skipped_contents_are_left_as_they_are`, `ecs adopt_notification::u21_contents_cycle_root_is_not_a_segment`, `ecs adopt_on_insert::u1_control_every_node_reads_x_before_the_link`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs adopt_on_insert::u5_same_document_move_runs_no_walk`, `ecs destroy::adopt_rehomes_template_content_fragment`, `ecs template_owner::u10_adopt_walk_rehomes_past_the_caps`, `ecs template_owner::u11_entry_inside_contents_answers_the_inert_document`, `ecs template_owner::u13_adopt_creates_the_targets_inert_document_lazily`, `ecs template_owner::u1_rule_returns_one_linked_marked_document`, `ecs template_owner::u4_fragment_build_never_links_the_throwaway`, `ecs template_owner::u7_destroying_the_document_destroys_its_inert_document`, `ecs template_owner::u9_adopt_maps_contents_to_the_targets_inert_document`, `html_parser tests::fragment_parsed_template_content_owner_is_context_documents_inert_template_document`, `html_parser tests::template_content_descendant_owner_document`, `html_parser tests_node_document::u8_control_tolerant_template_contents_read_the_inert_template_document`, `html_parser tests_node_document::u8_strict_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u8_tolerant_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u9_strict_fragment_parse_runs_no_walk`, `html_parser tests_node_document::u9_tolerant_fragment_parse_runs_no_walk`, `html_parser tests_template_owner::u12_document_parse_creates_contents_in_the_inert_document`, `html_parser tests_template_owner::u4_fragment_parses_create_only_the_contexts_inert_document`, `html_parser tests_template_owner::u5_strict_rollback_with_a_template_leaves_the_dom_as_it_was`, `js tests_insertion_adoption::t5_template_contents_adopted_with_the_template`, `js tests_template_owner_document::t10_clone_contents_owner`, `js tests_template_owner_document::t10_control`, `js tests_template_owner_document::t13_adopted_template_contents_go_to_the_inert_document`, `js tests_template_owner_document::t14_fragment_parsed_template_strict`, `js tests_template_owner_document::t14_fragment_parsed_template_tolerant`, `js tests_template_owner_document::t23_control`, `js tests_template_owner_document::t23_route_iv_template_cloned`, `js tests_template_owner_document::t25_adopted_callback_pairs_in_contents`, `js tests_template_owner_document::t26_adopt_creates_the_targets_inert_document`, `js tests_template_owner_document::t26_control`, `js tests_template_owner_document::t27_control`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document`, `js tests_template_owner_document::t2_two_templates_share_one_inert_document` |
+| no marker check (I of I) | M02 | `ecs dom/template_owner.rs:42` | 12: `ecs adopt_notification::u21_contents_cycle_root_is_not_a_segment`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs template_owner::u11_entry_inside_contents_answers_the_inert_document`, `ecs template_owner::u2_rule_is_idempotent_over_the_pair`, `js tests_template_owner_document::t10_clone_contents_owner`, `js tests_template_owner_document::t10_control`, `js tests_template_owner_document::t27_control`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t4_control`, `js tests_template_owner_document::t4_nested_contents_strict`, `js tests_template_owner_document::t4_nested_contents_tolerant`, `js tests_template_owner_document::t5_template_created_in_the_inert_document` |
+| caller passes the template's document unmapped (C2) | M03 | `ecs dom/mod.rs:634` | 58: `custom_elements tests::u13_adopt_enqueues_contents_before_light_child_each_with_its_pair`, `custom_elements tests::u19_consumer_innermost_segment_pair`, `custom_elements tests::u19_consumer_skipped_contents_no_reaction`, `dom_api clone::clone_node_template_shallow_owner_document_is_inert_template_document`, `ecs adopt_notification::u19_nested_segments_each_carry_their_own_pair`, `ecs adopt_notification::u19_skipped_contents_are_left_as_they_are`, `ecs adopt_notification::u21_contents_cycle_root_is_not_a_segment`, `ecs adopt_on_insert::u1_control_every_node_reads_x_before_the_link`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs adopt_on_insert::u5_same_document_move_runs_no_walk`, `ecs template_owner::u11_entry_inside_contents_answers_the_inert_document`, `ecs template_owner::u4_fragment_build_never_links_the_throwaway`, `ecs template_owner::u7_destroying_the_document_destroys_its_inert_document`, `html_parser tests::fragment_parsed_template_content_owner_is_context_documents_inert_template_document`, `html_parser tests::template_content_descendant_owner_document`, `html_parser tests_node_document::u8_control_tolerant_template_contents_read_the_inert_template_document`, `html_parser tests_node_document::u8_strict_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u8_tolerant_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u9_strict_fragment_parse_runs_no_walk`, `html_parser tests_node_document::u9_tolerant_fragment_parse_runs_no_walk`, `html_parser tests_template_owner::u12_document_parse_creates_contents_in_the_inert_document`, `html_parser tests_template_owner::u4_fragment_parses_create_only_the_contexts_inert_document`, `js tests_event_handler_attrs_once::c14_template_contents_handler_runs`, `js tests_insertion_adoption::t18_control`, `js tests_insertion_adoption::t5_template_contents_adopted_with_the_template`, `js tests_template_owner_document::t10_clone_contents_owner`, `js tests_template_owner_document::t11_document_clone_contents_owner`, `js tests_template_owner_document::t12_attach_shadow_in_contents_strict`, `js tests_template_owner_document::t12_attach_shadow_in_contents_tolerant`, `js tests_template_owner_document::t12_declarative_shadow_in_contents_strict`, `js tests_template_owner_document::t13_adopted_template_contents_go_to_the_inert_document`, `js tests_template_owner_document::t14_fragment_parsed_template_strict`, `js tests_template_owner_document::t14_fragment_parsed_template_tolerant`, `js tests_template_owner_document::t19_foreign_contents_strict`, `js tests_template_owner_document::t19_foreign_contents_tolerant`, `js tests_template_owner_document::t1_contents_owner_is_a_separate_document`, `js tests_template_owner_document::t20_contents_href_resolves_against_the_inert_document`, `js tests_template_owner_document::t22_contents_raw_handler_reads_null`, `js tests_template_owner_document::t23_route_i_parsed_strict`, `js tests_template_owner_document::t23_route_i_parsed_tolerant`, `js tests_template_owner_document::t23_route_ii_appended`, `js tests_template_owner_document::t23_route_iii_contents_cloned`, `js tests_template_owner_document::t23_route_iv_template_cloned`, `js tests_template_owner_document::t24_cloned_shadow_host_in_contents`, `js tests_template_owner_document::t25_adopted_callback_pairs_in_contents`, `js tests_template_owner_document::t26_adopt_creates_the_targets_inert_document`, `js tests_template_owner_document::t26_control`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document`, `js tests_template_owner_document::t29_domparser_contents_href`, `js tests_template_owner_document::t3_parsed_contents_strict`, `js tests_template_owner_document::t3_parsed_contents_tolerant`, `js tests_template_owner_document::t4_nested_contents_strict`, `js tests_template_owner_document::t4_nested_contents_tolerant`, `js tests_template_owner_document::t6_domparser_contents_owner`, `js tests_template_owner_document::t7_inner_html_into_contents`, `js tests_template_owner_document::t8_append_into_contents`, `js tests_template_owner_document::t9_contents_clone_appended_to_document` |
+| adopt re-homes contents to the target (C0's identity edge kept) | M04 | `ecs dom/tree/mutation.rs:376` | 19: `custom_elements tests::u13_adopt_enqueues_contents_before_light_child_each_with_its_pair`, `custom_elements tests::u19_consumer_innermost_segment_pair`, `custom_elements tests::u19_consumer_skipped_contents_no_reaction`, `ecs adopt_notification::u19_nested_segments_each_carry_their_own_pair`, `ecs adopt_notification::u19_segment_under_a_none_segment_is_none`, `ecs adopt_notification::u19_skipped_contents_are_left_as_they_are`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs destroy::adopt_rehomes_template_content_fragment`, `ecs template_owner::u10_adopt_walk_rehomes_past_the_caps`, `ecs template_owner::u13_adopt_creates_the_targets_inert_document_lazily`, `ecs template_owner::u9_adopt_maps_contents_to_the_targets_inert_document`, `js tests_insertion_adoption::t5_template_contents_adopted_with_the_template`, `js tests_template_owner_document::t13_adopted_template_contents_go_to_the_inert_document`, `js tests_template_owner_document::t25_adopted_callback_pairs_in_contents`, `js tests_template_owner_document::t26_adopt_creates_the_targets_inert_document`, `js tests_template_owner_document::t26_control`, `js tests_template_owner_document::t27_control`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document` |
+| contents children cloned with the operation's document (pass 3) | M05 | `dom-api node_methods/clone.rs:275`, `dom-api node_methods/clone.rs:427`, `dom-api node_methods/clone.rs:442` | 1: `dom_api clone_template_owner::u14_template_clone_runs_no_adopt` |
+| shadow pass uses the operation-wide document inside copied contents (pass 4) | M06 | `dom-api node_methods/clone.rs:298` | 1: `dom_api clone_template_owner::u14_template_clone_runs_no_adopt` |
+| no destroy cascade | M07 | `ecs dom/tree/teardown.rs:161` | 1: `ecs template_owner::u7_destroying_the_document_destroys_its_inert_document` |
+| `f` of the throwaway computed (root redirect dropped) | M08 | `ecs dom/node_document.rs:67` | 11: `ecs adopt_on_insert::u11_fragment_root_is_created_in_the_throwaway`, `ecs adopt_on_insert::u9_fragment_build_runs_no_walk_and_leaves_no_parse_root`, `ecs template_owner::u11_entry_inside_contents_answers_the_inert_document`, `ecs template_owner::u4_fragment_build_never_links_the_throwaway`, `html_parser tests::fragment_parsed_template_content_owner_is_context_documents_inert_template_document`, `html_parser tests::fragment_progressive_returns_detached_nodes_owned_by_context_document`, `html_parser tests_node_document::u9_strict_fragment_parse_runs_no_walk`, `html_parser tests_node_document::u9_tolerant_fragment_parse_runs_no_walk`, `html_parser tests_template_owner::u4_fragment_parses_create_only_the_contexts_inert_document`, `html_parser_strict tests_fragment::all_fragment_node_types_are_created_in_the_context_document`, `html_parser_strict tests_fragment::foreign_element_owner_survives_fragment_teardown` |
+| link or marker copied by clone | M09 | `ecs dom/tree_clone.rs:368` | 3: `ecs template_owner::u8_clone_copies_neither_link_nor_marker`, `js tests_template_owner_document::t11_control`, `js tests_template_owner_document::t11_document_clone_contents_owner` |
+| `root_entities` not excluding I | M10 | `ecs dom/tree/navigation.rs:380` | 1: `ecs template_owner::u6_root_entities_excludes_the_inert_document` |
+| inside contents the entry's value is not I (a creation stamp from the parse / context document; the defect class C0's entry would have if it ignored `source`, here observed through contents) | M11 | `ecs dom/node_document.rs:75` | 51: `ecs adopt_notification::u19_skipped_contents_are_left_as_they_are`, `ecs adopt_on_insert::u1_control_every_node_reads_x_before_the_link`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs adopt_on_insert::u5_same_document_move_runs_no_walk`, `ecs template_owner::u11_entry_inside_contents_answers_the_inert_document`, `ecs template_owner::u7_destroying_the_document_destroys_its_inert_document`, `html_parser tests::fragment_parsed_template_content_owner_is_context_documents_inert_template_document`, `html_parser tests::template_content_descendant_owner_document`, `html_parser tests_node_document::u8_strict_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u8_tolerant_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u9_strict_fragment_parse_runs_no_walk`, `html_parser tests_node_document::u9_tolerant_fragment_parse_runs_no_walk`, `html_parser tests_template_owner::u12_document_parse_creates_contents_in_the_inert_document`, `js tests_event_handler_attrs_once::c14_template_contents_handler_runs`, `js tests_insertion_adoption::t18_control`, `js tests_template_owner_document::t12_attach_shadow_in_contents_strict`, `js tests_template_owner_document::t12_attach_shadow_in_contents_tolerant`, `js tests_template_owner_document::t12_control`, `js tests_template_owner_document::t12_declarative_shadow_in_contents_strict`, `js tests_template_owner_document::t14_control`, `js tests_template_owner_document::t14_fragment_parsed_template_strict`, `js tests_template_owner_document::t14_fragment_parsed_template_tolerant`, `js tests_template_owner_document::t19_control`, `js tests_template_owner_document::t19_foreign_contents_strict`, `js tests_template_owner_document::t19_foreign_contents_tolerant`, `js tests_template_owner_document::t20_contents_href_resolves_against_the_inert_document`, `js tests_template_owner_document::t22_contents_raw_handler_reads_null`, `js tests_template_owner_document::t22_control`, `js tests_template_owner_document::t23_control`, `js tests_template_owner_document::t23_route_i_parsed_strict`, `js tests_template_owner_document::t23_route_i_parsed_tolerant`, `js tests_template_owner_document::t23_route_ii_appended`, `js tests_template_owner_document::t23_route_iii_contents_cloned`, `js tests_template_owner_document::t23_route_iv_template_cloned`, `js tests_template_owner_document::t24_cloned_shadow_host_in_contents`, `js tests_template_owner_document::t25_adopted_callback_pairs_in_contents`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t29_domparser_contents_href`, `js tests_template_owner_document::t3_control`, `js tests_template_owner_document::t3_parsed_contents_strict`, `js tests_template_owner_document::t3_parsed_contents_tolerant`, `js tests_template_owner_document::t4_control`, `js tests_template_owner_document::t4_nested_contents_strict`, `js tests_template_owner_document::t4_nested_contents_tolerant`, `js tests_template_owner_document::t6_control`, `js tests_template_owner_document::t6_domparser_contents_owner`, `js tests_template_owner_document::t7_control`, `js tests_template_owner_document::t7_inner_html_into_contents`, `js tests_template_owner_document::t8_append_into_contents`, `js tests_template_owner_document::t8_control`, `js tests_template_owner_document::t9_contents_clone_appended_to_document` |
+| tolerant threads the template's document into contents instead of recomputing at the contents fragment (§4.3) | M12 | `html-parser convert.rs:65` | 3: `html_parser tests_node_document::u8_tolerant_document_parse_creates_every_node_in_the_document`, `html_parser tests_node_document::u9_tolerant_fragment_parse_runs_no_walk`, `html_parser tests_template_owner::u12_document_parse_creates_contents_in_the_inert_document` |
+| the contents edge's segment `new` left at the template's target (C2) | M13 | `ecs dom/tree/mutation.rs:391` | 5: `custom_elements tests::u13_adopt_enqueues_contents_before_light_child_each_with_its_pair`, `custom_elements tests::u19_consumer_innermost_segment_pair`, `ecs adopt_notification::u19_nested_segments_each_carry_their_own_pair`, `js tests_template_owner_document::t25_adopted_callback_pairs_in_contents`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document` |
+| the contents edge reads the target's existing link (none on a target with no I) instead of computing `f(target)` | M14 | `ecs dom/tree/mutation.rs:376` | 12: `custom_elements tests::u13_adopt_enqueues_contents_before_light_child_each_with_its_pair`, `custom_elements tests::u19_consumer_innermost_segment_pair`, `ecs adopt_notification::u19_nested_segments_each_carry_their_own_pair`, `ecs adopt_notification::u19_segment_under_a_none_segment_is_none`, `ecs adopt_on_insert::u1_insertion_adopts_subtree_shadow_contents_and_attr`, `ecs destroy::adopt_rehomes_template_content_fragment`, `ecs template_owner::u10_adopt_walk_rehomes_past_the_caps`, `ecs template_owner::u13_adopt_creates_the_targets_inert_document_lazily`, `ecs template_owner::u9_adopt_maps_contents_to_the_targets_inert_document`, `js tests_insertion_adoption::t5_template_contents_adopted_with_the_template`, `js tests_template_owner_document::t26_adopt_creates_the_targets_inert_document`, `js tests_template_owner_document::t26_control` |
+| `f(target)` computed on every adopt, template or not | M15 | `ecs dom/tree/mutation.rs:366` | 1: `ecs template_owner::u13_adopt_creates_the_targets_inert_document_lazily` |
+| C0c's skip compares the contents' old document with the unmapped target | M16 | `ecs dom/tree/mutation.rs:390` | 5: `custom_elements tests::u19_consumer_skipped_contents_no_reaction`, `ecs adopt_notification::u19_skipped_contents_are_left_as_they_are`, `js tests_template_owner_document::t27_control`, `js tests_template_owner_document::t27_same_inert_document_segment_is_skipped`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document` |
+| a contents fragment adopted as the walk's root is mapped to `f(target)` (INV-C (c) dropped: the invariant made universal) | M17 | `ecs dom/tree/mutation.rs:366` | 4: `ecs adopt_notification::u21_contents_cycle_root_is_not_a_segment`, `js tests_insertion_adoption::t18_contents_element_gets_its_segments_pair`, `js tests_template_owner_document::t23_route_v_contents_adopted_out`, `js tests_template_owner_document::t28_contents_in_target_go_to_its_inert_document` |
+
+Measured in the same run, not a requirement: M05 and M06 each failed one test, U14
+(`u14_template_clone_runs_no_adopt`). U14 is green on the base (observed, §10.8) and on C1's head.
 
 ### §6.4 Kept green
 
@@ -1342,7 +1400,13 @@ that pmo's application right after that merge always includes — no registratio
   nothing where HEAD ran the handler, the spec's outcome (K-5; cell C14)."; the closure record's "(i) to (iii) are its
   defects (1), (5) and (7) respectively" → "(i) to (iv) are its defects (1), (5), (7) and (5)'s template-contents half
   respectively"; §1.5's W-K5 bullet
-  gains "(from C1, its template-contents half too)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
+  gains "(from C1, its template-contents half too)"; rev 3.10.4: §1.5's heading "(each HEAD-equal until N1 lands, three
+  DOMParser subsets then excepted, §1.4; slice b closes them)" → "(each HEAD-equal until N1 lands, three DOMParser
+  subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them)"; §1.1's I7
+  row "W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii))" → "W-K5 kept, HEAD-equal (its
+  DOMParser half reads null from N1, §1.4 (ii); its template-contents half from C1, §1.4 (iv))"; §0.5's red-cell line
+  "K-5: U8 (window pins C14, C15)" → "K-5: U8 (window pin C15; C14 a window pin until C1, which inverts it to the spec's
+  outcome, C1 memo T17)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
 - **R-4 ledger `#11-ownerless-node-creation`** (pmo, at C1's landing; the close-at-C1 plan is PM 472's, "Re-eval = C1
   landing"; PM 489 gave the row its **Re-eval-date** field, 2027-01-31, as the backstop; PM 607): "**Closed
   by C1** (#<n>, `<sha>`). The `EcsDom` entry and every production creation site, both parser tiers included, landed
@@ -1434,7 +1498,8 @@ that pmo's application right after that merge always includes — no registratio
    by rev 3.7; if main has moved when the implementation branch is cut, §5.1's and §5.2's commands are re-run there and
    any change recorded in the PR; §5.1 P-4 / P-5's base checks re-run; §5.2's population classified per test at the
    red-first run, the classification of each of the 36 fns recorded in C1's PR body (PM 604). Rev 3.10.3: the
-   population is the property scan's 112 fns at `542a30db`, classified in §5.2 itself; C1's PR body carries that list.
+   population is the property scan's (§5.2, its count with its command and head there), classified in §5.2 itself;
+   C1's PR body carries that list.
 2. `appropriate_template_contents_owner_document`, `is_inert_template_document` and both
    components exist in `elidex-ecs` with §4.9's citations; no other site computes a template contents' node document
    (P-1 re-run); C1's diff adds no `owner_document(` call (D-C10). C1's diff adds no new-node entry, no entry branch
@@ -1448,8 +1513,9 @@ that pmo's application right after that merge always includes — no registratio
    (template contents, A10); the residual A11 / A12 are L3 RC-4's sites in the Range program (§4.5, §7); pmo applies
    record R-4's close text.
 5. §6.1 and §6.2 cells present; every red cell run red on the base with its control green, recorded in the PR
-   description; T9 green at the head. U14 (a guard, green on base and head) run red against each of §6.3's two clone
-   mutants (pass 3, pass 4) at C1's implementation, recorded in the PR description (§6.3; rev 3.10).
+   description; T9 green at the head. §6.3's mutation run passes its criterion — each of the 17 mutants is detected
+   by ≥1 test in the unfiltered run — with the command, head and result recorded in the PR description (§6.3; rev
+   3.10.4). Which tests detect a mutant is that run's output, not part of this item.
 6. §5.2 rewrites done; P-7's grep returns no hit in `crates/`. No stale cite (by §5.3 *Stale cites*' property: a § or
    step that moved per §10.5 F2) in the files C1 touches: `dom/mod.rs:469` fixed (the one at `c7cce8c8`, verified
    2026-11-10), and `create_document_root`'s closed-slot pointer (`dom/mod.rs:453-455`) re-pointed (§5.3); the rest of
@@ -1466,8 +1532,8 @@ that pmo's application right after that merge always includes — no registratio
    reading `null` (N1) — and route (v), the control for the condition (contents adopted into `document`: node document
    `document`, the handler compiles) —
    with T19 / T12 (parsed, both tiers, foreign and shadow content), T8 (appended), T9 / T10 (cloned) and T24 (cloned with
-   a shadow host) as the per-route mutation guards, and U14 for the clone routes' per-pair document (D-C6), which
-   T10 / T24 cannot see. T3's target cells for R-A (T-17, EW-13, EW-14, XW-8) are T3's to
+   a shadow host) pinning each route's value, and U14 reading the clone routes' walks and `Adopt` events (D-C6); which
+   test detects each mutant of these routes is §6.3's run's output. T3's target cells for R-A (T-17, EW-13, EW-14, XW-8) are T3's to
    assert on top of these facts (T3 lands after C1).
 10. Records, per §8 *Records*' list, every one with a PM disposition (PM 604 / 607 / 612 / 613 / 618), texts copied by pmo
     from this memo as it stands on C1's merge commit: R-1 and R-3 applied by C1's PR (with item 11); R-2, R-4, R-11
@@ -1715,12 +1781,12 @@ observed change. A focused reviewer re-check of these items follows.
   re-set: `attach_template_contents` maps the fixture's target owner to `f(target)` (D-C3), so the outer contents are
   skipped as before (`mutation.rs:376`, `:390`, `:401`), and the leg still tells a skip from a walk (`f2`, `e`, `a` keep
   `f(X)`, `f(X)`, `X`).
-- **§6.3 M12 / M13 rows** (`73eefe26`, 17 of 17 mutants run). The tolerant-threading mutant is killed by U12 only:
-  insertion adoption at each link re-homes the children into I (the blind spot U14 has for T10 / T24), so T3, T12's
-  attachShadow variant and T19 stay green. The segment-`new` mutant is killed by T25 and T28, which read the pair; U9
-  reads stamps only. §4.3's observation sentence "The tolerant legs of T3, T12, T19 and U12 still kill that form",
-  false by the same run, now reads "U12's tolerant leg (the walk counter) kills that form" (PM 657: an observation
-  placed in §4, not a mechanism statement; no other §4 text changes).
+- **§6.3 M12 / M13 rows** (`73eefe26`, 17 of 17 mutants run, with a test filter). The causes: under the
+  tolerant-threading mutant, insertion adoption at each link re-homes the contents' children into I (the blind spot
+  shared with U14, D-C6), so a read of their `ownerDocument` after the parse is the same with or without it; the
+  segment-`new` mutant changes only the logged `AdoptedContents.documents` pair (`mutation.rs:391`), not the segment's
+  stamp document (`:396-399`). The rows' killer lists and §4.3's observation sentence named the tests the filtered run
+  saw fail; rev 3.10.4 removes those names (§10.12), and the detecting tests are §6.3's table, a measurement.
 - **Lesson (PM 657).** A tolerant-tier T cell (a script reading `ownerDocument`) cannot serve as a mutation killer for
   how the tolerant parser threads a document into contents: insertion adoption at each link re-homes the node into I,
   so the read is the same with or without the mutant (the blind spot U14 covers for clone). Name a walk-counter or
@@ -1728,6 +1794,43 @@ observed change. A focused reviewer re-check of these items follows.
 - **§8 R-3.** The umbrella §1.4 sentence counts "three of its windows, each where the node document N1 reads is a
   DOMParser document's, with dispatch equal to HEAD's": window (iv) meets neither clause (its node document is an
   inert template document, and HEAD ran the handler), so R-3 now rewrites the count and the closure record too.
+
+### §10.12 Rev 3.10.4 (2026-11-11, PM 659 / 670)
+
+Erratum of observations, PM 659, after the focused reviewer re-check of rev 3.10.3 (IMP 2, MIN 3). The mechanism (§4)
+and INV-C (§4.6 item 1) are unchanged; the one §4 edit is §4.3's observation sentence, which PM 659 directed.
+- **Rule (PM 659).** Which test kills a mutant is a measurement output: it changes with the test filter and the head,
+  so prose must not assert it. Rev 3.10.3 did, from a run filtered to `template_owner` / `u21_` (`73eefe26`), and was
+  false twice in a row: in §6.3's unfiltered run at `4b43d0bb` the tolerant-threading mutant (M12) fails 3 tests and
+  the segment-`new` mutant (M13) 5, not "U12 only" and "T25 and T28". Counts are measurement outputs too, each stated
+  next to its command and head. **The PM's own correction:** PM 652 / 657 accepted the filtered run's "U12 only"
+  without checking it.
+- **IMP-1, killers.** §6.3's table is the unfiltered run (head, command, no filter, every failing test listed) with
+  the pass criterion; which tests detect a mutant is not part of it. The run's ids M01–M17 (its driver's) map to
+  §6.3's rows by file:line and edit, in row order, with no ambiguity. Concept sweep of prose that names a mutant's
+  killer (or a cell that cannot see one), each rewritten to refer to §6.3's run: §4.3's observation sentence; D-C6's
+  "(T10, T24 read the same values)" and "Cell U14 is the guard"; §2.2 A4×A5's "U14 discriminates the per-pair
+  document"; §6.2 U14's expected column (its mutant clause); §6.3's killer column, its tolerant / pair notes and the
+  paragraph under the table; §9 item 5 (U14 "run red against each of the two clone mutants"); §9 item 9 ("per-route
+  mutation guards", "which T10 / T24 cannot see"); §10.11's M12 / M13 bullet (the cause kept). U14 failing under
+  both clone mutants is kept only as a measured fact under §6.3's table. Left as history: the header changelog's rev
+  3.10 / 3.10.3 lines, §10.4's Q-5 bullet, §10.8's G2, §10.11's Lesson (PM 657; confirmed accurate by the
+  re-check). Not killer statements: §5.2 T18's "C1's T25 discriminates" (base against head values) and the §6
+  "guard" kinds (a cell's purpose).
+- **IMP-2, population (PM 670).** The rev 3.10.3 scan did not follow a helper imported from a sibling file, so it
+  missed `adopt_notification.rs:80` `u5_same_document_move_fires_no_adopt` (`x_subtree`, imported at `:7`; value
+  unchanged). §5.2's scan now follows `use super::<file>::…` one hop (the scratchpad script and §5.2's copy are
+  identical). PM 659's "113" (112 + 1) was an assumption; the property measurement gives 140 (§5.2; PM 670, option
+  (a)): the extension also reaches the 27 strict-parser tests that import `tree_builder/tests.rs`'s serializers. They
+  are "not dependent" by the class of the 13 same-file `assert_tree` fns, whose reason (the serializer outputs
+  structure only and reads no node document) is now stated once in the class definition. The corpus test reaches
+  contents only through that serializer, and its vectors hold no `<template`.
+- **MIN-1.** R-3 gains the umbrella sentences still pre-C1 — §1.5's heading, §1.1's I7 row, §0.5's K-5 red cells
+  (C14 is inverted by C1, T17) — and C1's PR applies them, with the umbrella's rev 8.7 changelog line.
+- **MIN-2.** `tests_base_href.rs:602`'s reason: its `<base>` is a light child of the template (`t.appendChild(b)`),
+  not a node in contents; the class stays "value unchanged".
+- **MIN-3.** C0c U19 leg 2's cite `:406` → `:405` (`segment_of.get(&parent)`, `mutation.rs:405` at `542a30db` and
+  `04d92e75`); §5.2 held the only occurrence.
 
 ## §11. Open questions
 
