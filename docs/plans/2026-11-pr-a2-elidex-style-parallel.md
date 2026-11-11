@@ -15,15 +15,16 @@ line says otherwise.
 - **PM 605** (C0 ruling): C0 at `b8b4d6f5` found `elidex-style/parallel` and its implicit `rayon` uncovered by I4.
   Kind PR-A2, owner CI/tools, order U0 §4.4 step 6, **due 2026-11-20**.
 - **PM 543**: CI/tools owns the PR (`elidex-style` is L1's file and L1 has no driver). A gate-only fix is CI/tools'
-  call. A shape branch (remove the feature, or make it always on) is PM's ruling, applied by PR-A2′. The plan writes
-  the derivation in the authority order and returns it to PM.
+  call. A shape branch (remove the feature, or make it always on) is PM's ruling, applied by PR-A2′ (superseded:
+  PM 624 / PM 637). The plan writes the derivation in the authority order and returns it to PM.
 - **PM 569**: the stop rule and the deadline are as in U0 §6.
 - **PM 611** (after plan-review R1): (1) the list-counter bake is split out of PR-A2 into
   `#11-list-counter-baking-ua-rule-and-hints` (§7.1); (2) U0 is read narrowly: PR-A2 and PR-A2′ apply only the
   **shape** of `parallel`, and any other returned **site** goes back to PM; (3) the shape is ruled after R2, on two
   axes: one walk (One issue, one way) and the design's phase parallelism (`06-thread-model.md` §6.3). Counter
   differences between the walks are excluded from the shape ruling, because the slot's fix removes them.
-- **PM 614**: under always on, PR-A2′ has its own plan and plan-review; remove stays under this memo.
+- **PM 614**: under always on, PR-A2′ has its own plan and plan-review (superseded: PM 624 / PM 637); remove stays
+  under this memo.
 - **PM 620** (after plan-review R2): the slot text states the defect only (§7.1), and PM 611's "hint source is core"
   is withdrawn; the shape is re-derived on axis (i) and cost (§4.5).
 - **PM 624** (after R2): the shape is **remove** (§4.6). PR-A2 applies it (§5.2).
@@ -424,9 +425,9 @@ The output goes in the PR body, as U0 §6 requires.
 - **PR-A2 landing before PR-M1**: the job does not exist yet, and the rustdoc column with
   `--document-private-items` exists only as PR-M1's column.
   - **Ruled**: U0's pre-matrix evidence rule (§6, PM 558 (1)) is decided by property, not by name (PM 630), and it
-    is not applied to PR-A2 (PM 631), because (a) `elidex-style` keeps no feature other than `parallel` and (b) no
-    workspace dependent enables `elidex-style` features or sets `default-features = false`; both are false at
-    `54ee71ab`. The evidence is §6.3's PM 631 list.
+    is not applied to PR-A2 (PM 631), because neither of its triggers holds: (a) `elidex-style` keeps a feature other
+    than `parallel`; (b) a workspace dependent enables `elidex-style` features or sets `default-features = false`.
+    Both are false at `54ee71ab`. The evidence is §6.3's PM 631 list.
 - **PR-A2 landing after PR-M1**: the job's run on the PR head (every row, `elidex-style`'s `default` and doc
   row included).
 
@@ -458,8 +459,8 @@ processing × render × engine modes). **Exit criterion**: a target of the paydo
 (c), "本番で黙って誤る slot を 0 に" (no silent-wrong-in-production slot) (PM 620).
 
 **Defect.** List counters come from the post-cascade bake `apply_implicit_list_counters_from_dom`
-(`crates/css/elidex-style/src/counter.rs:376`; body `apply_implicit_list_counters`, `:296-365`; called at
-`crates/css/elidex-style/src/walk.rs:362`). HTML §15.3.7 defines them through the UA rule
+(`crates/css/elidex-style/src/counter.rs`; body `apply_implicit_list_counters`; called from
+`resolve_and_attach_style` in `crates/css/elidex-style/src/walk.rs`). HTML §15.3.7 defines them through the UA rule
 `ol, ul, menu { counter-reset: list-item; }` and the list presentational hints (`ol[start]` / `[reversed]` →
 'counter-reset', `li[value]` → 'counter-set'). The bake also writes CSS Lists 3 §4.6's implicit increment into the
 computed `counter-increment`, which §4.6 says it "does not affect". Cases:
@@ -471,54 +472,56 @@ computed `counter-increment`, which §4.6 says it "does not affect". Cases:
 - `reversed` without `start` bakes an integer `li_count + 1` into the computed `counter_reset`. The hint yields
   `reversed(list-item)` with no integer, and CSS Lists 3 §4.4.2 defines the initial value of a counter instantiated
   without one: the user agent calculates it at layout time;
-- `menu` is missing (the bake matches `"ol"`, `"ul"`, `"li"` only, `counter.rs:303`, `:333`, `:341`);
+- `menu` is missing (the bake matches `"ol"`, `"ul"`, `"li"` only: the `"ol"` / `"ul"` / `"li"` arms of
+  `counter.rs` `apply_implicit_list_counters`);
 - author-override precedence is wrong for the reset and the set (the bake's `already_has` guards are not cascade
   semantics);
 - on a reversed counter, `CounterState::process_element` negates every increment, explicit ones included
-  (`counter.rs:115`); §4.6 makes only the implicit increment -1 (code-read);
-- `CounterState::process_element` runs reset → set → increment (`counter.rs:79` comment, `:84-125`); CSS Lists 3 §4
-  orders reset → increment → set (steps 2–4), so author `x { counter-set: c 5; counter-increment: c }` gives 6 where
-  the spec gives 5 (code-read);
+  (`counter.rs`, the `top.reversed` negation in its counter-increment phase); §4.6 makes only the implicit
+  increment -1 (code-read);
+- `CounterState::process_element` runs reset → set → increment (`counter.rs`, its doc comment and body); CSS Lists 3
+  §4 orders reset → increment → set (steps 2–4), so author `x { counter-set: c 5; counter-increment: c }` gives 6
+  where the spec gives 5 (code-read);
 - `counter-reset` without an integer cannot be represented: `CounterResetEntry.value` is an `i32` with no absent
-  state (`crates/core/elidex-plugin/src/computed_style/mod.rs:121-128`), and `resolve_counter_reset` fills 0
-  (`unwrap_or(0)`, `crates/css/elidex-style/src/resolve/box_model/mod.rs:512`), so author
+  state (`crates/core/elidex-plugin/src/computed_style/mod.rs` `CounterResetEntry`), and `resolve_counter_reset`
+  fills 0 (its `unwrap_or(0)`, `crates/css/elidex-style/src/resolve/box_model/mod.rs`), so author
   `counter-reset: reversed(foo)` also gets 0 (code-read);
-- the bake runs inside shadow trees and for slotted nodes (`walk.rs:570`, `:599`, `:622`);
-- `li` is counted by tag (the `"li"` arm, `counter.rs:341`), not by `display: list-item` (§4.6 "every list item"):
-  `li{display:block}` still increments, and a non-`li` `display: list-item` element does not. The pre-layout
-  counter pass is gated by tag too (`is_list_tag` = `ol` / `ul` / `li` by `TagType`,
-  `crates/css/elidex-style/src/generated_content.rs:124-127`; gate `:139`), so it skips `process_element` for a
-  non-`li` `display: list-item` element without counter properties (code-read). This is what master
-  plan §10 (c) records (`memory/render-layout-inline-convergence-plan.md:246`; Copilot #273 R1), deferred there with
-  no slot. This slot bundles it with the bake as **one decision surface**.
-- (PM 637, 2026-11-11) bake の重複。style の walk が要素ごとに implicit list counter を bake する (`crates/css/elidex-style/src/walk.rs:194`)。その後、resolve_tree (`crates/css/elidex-style/src/generated_content.rs:142`) と render の paged walk (`crates/core/elidex-render/src/builder/walk.rs:134`) が、どちらも `apply_implicit_list_counters_from_dom` (`crates/css/elidex-style/src/counter.rs:376`) をもう一度呼ぶ。ol / ul / li ごとに style と Attributes を clone し、ol では li を数え直す。しかし already_has の guard でその結果は捨てられる。出典 @ e1a72d3d (PR-A2 branch、未 merge)。PR-A2 の merge 時に merge commit の行番号へ付け替える。
+- `li` is counted by tag (the `"li"` arm of `counter.rs` `apply_implicit_list_counters`), not by `display: list-item`
+  (§4.6 "every list item"): `li{display:block}` still increments, and a non-`li` `display: list-item` element does
+  not. The pre-layout counter pass is gated by tag too (`is_list_tag` = `ol` / `ul` / `li` by `TagType`, and the `if
+  is_list_tag || has_counter_props` gate, both in `resolve_tree` of
+  `crates/css/elidex-style/src/generated_content.rs`), so it skips `process_element` for a non-`li` `display:
+  list-item` element without counter properties (code-read). This is what master plan §10 (c) records
+  (`memory/render-layout-inline-convergence-plan.md`; Copilot #273 R1), deferred there with no slot. This slot bundles
+  it with the bake as **one decision surface**.
+- (PM 637, 2026-11-11) bake の重複。style の walk が要素ごとに implicit list counter を bake する (`crates/css/elidex-style/src/walk.rs` `resolve_and_attach_style`)。その後、resolve_tree (`crates/css/elidex-style/src/generated_content.rs` `resolve_tree`) と render の paged walk (`crates/core/elidex-render/src/builder/walk.rs` `walk` の `if ctx.paged` block) が、どちらも `apply_implicit_list_counters_from_dom` (`crates/css/elidex-style/src/counter.rs`) をもう一度呼ぶ。ol と li では Attributes を clone し (ul は default)、ol では li を数え直す。しかし already_has / already_set の guard でその結果は捨てられる。
 
 **Observable symptoms** (the numbering cases are code-read, not rendered): master §10 (c)'s mis-numbering; author
 overrides of the reset and the set; `menu`; `display: list-item`; reversed numbering; and `getComputedStyle`
 returning `"initial"` (facet below).
 
-**Facts (R1 Axis 2, PR-A2 plan review).** UA sheet: `crates/css/elidex-style/src/ua.rs:53-61` has margins,
+**Facts (R1 Axis 2, PR-A2 plan review).** UA sheet: `crates/css/elidex-style/src/ua.rs` `UA_CSS` has margins,
 padding, `li { display: list-item; }` and `ol { list-style-type: decimal; }`, and no `counter-*`. No hint source
 produces `counter-*` (`crates/dom/elidex-dom-compat/src/presentational.rs` has none). So the bake is the only source
-of the reset and set values. The bake is re-applied at `crates/css/elidex-style/src/generated_content.rs:139-145`
-(the pre-layout counter pass) and `crates/core/elidex-render/src/builder/walk.rs:121-141` (the paged path only,
-`if ctx.paged`).
+of the reset and set values. The bake is re-applied in `crates/css/elidex-style/src/generated_content.rs`
+`resolve_tree` (the pre-layout counter pass, its `if is_list_tag || has_counter_props` block) and in
+`crates/core/elidex-render/src/builder/walk.rs` `walk` (the paged path only, its `if ctx.paged` block).
 
 **Facet: `getComputedStyle` for `counter-*`.** `getComputedStyle(x).getPropertyValue('counter-increment')` (and
-`counter-reset`, `counter-set`) returns `"initial"` for every element, author values included: no
-`CssPropertyHandler` registers a `counter-*` name, so `get_computed_with_registry` falls back to `get_initial_value`
-(`crates/css/elidex-style/src/resolve/mod.rs:70-73`) → `CssValue::Initial`. That fallback is general: any property
-without a handler gets `CssValue::Initial` there. The spec's resolved value is the computed value (CSSOM-1 §9,
-`webref heading cssom-1 9`). Of the three, only `counter-increment` resolves to `none` on a list item with no author
-value (§4.6 keeps the implicit increment out of it; initial value `none`, `webref css css-lists-3
-counter-increment`); `counter-reset` on `ol` / `ul` / `menu` and `counter-set` on `li[value]` carry the §15.3.7 UA
-rule and hints. Neighbouring slots: `#11-cssvalue-list-separator-fidelity`, `#11-computed-style-enumeration`.
+`counter-reset`, `counter-set`) returns `"initial"` for every element, author values included: no `CssPropertyHandler`
+registers a `counter-*` name, so `get_computed_with_registry` falls back to `get_initial_value` (its last statement,
+`crates/css/elidex-style/src/resolve/mod.rs`) → `CssValue::Initial`. That fallback is general: any property without a
+handler gets `CssValue::Initial` there. The spec's resolved value is the computed value (CSSOM-1 §9, `webref heading
+cssom-1 9`). Of the three, only `counter-increment` resolves to `none` on a list item with no author value (§4.6 keeps
+the implicit increment out of it; initial value `none`, `webref css css-lists-3 counter-increment`); `counter-reset`
+on `ol` / `ul` / `menu` and `counter-set` on `li[value]` carry the §15.3.7 UA rule and hints. Neighbouring slots:
+`#11-cssvalue-list-separator-fidelity`, `#11-computed-style-enumeration`.
 
 **Hint placement.** Where hints sit (core/compat) is an undecided decision that spans E0
-(`docs/plans/2026-06-e0-shell-style-compat-mode.md:95`; `StyleCompatPolicy`,
-`crates/core/elidex-plugin/src/spec_level.rs:203-230`) and L2's IBP plan
-(`docs/plans/2026-09-inline-box-predicate.md:280-282`); the slot's plan-review takes them up together; a conclusion
-that overturns E0 returns to E0's ratifier. PM 611's "hint source is core" is withdrawn (PM 620).
+(`docs/plans/2026-06-e0-shell-style-compat-mode.md` §1, its "Note on `registry`"; `StyleCompatPolicy`,
+`crates/core/elidex-plugin/src/spec_level.rs`) and L2's IBP plan (`docs/plans/2026-09-inline-box-predicate.md`
+Revision 38, item (1)); the slot's plan-review takes them up together; a conclusion that overturns E0 returns to E0's
+ratifier. PM 611's "hint source is core" is withdrawn (PM 620).
 
 **Why.** The fix changes cascade inputs in every engine mode, so it is not a gate fix and not CI/tools' (PM 543,
 PM 611). It is edge-dense, and its owner (L1) is parked.
@@ -534,7 +537,7 @@ values of counter-increment"); `body css-lists-3 instantiating-counters` ("When 
 initial value, the user agent must dynamically calculate the initial value at layout-time"); `body html lists` (the
 UA rule and the two hint paragraphs).
 
-**Owed by PM/pmo**: a back-pointer from master plan §10 (c) (`memory/render-layout-inline-convergence-plan.md:246`)
+**Owed by PM/pmo**: a back-pointer from master plan §10 (c) (`memory/render-layout-inline-convergence-plan.md`)
 to `#11-list-counter-baking-ua-rule-and-hints`. That file is in memory, not the repo, so PR-A2 does not edit it.
 
 <!-- END slot-text #11-list-counter-baking-ua-rule-and-hints -->
