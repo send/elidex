@@ -1,9 +1,0 @@
-# outer-inner-module-doc allowlist — sites that violate the wire's property today and
-# are owned by a lane that has not fixed them yet.
-# Format: <path>\t<mod name>\t<owner>\t<reason>      (all four columns required)
-#   path     = the declaring file, repo-relative (the file holding the `mod <name>;` line)
-#   mod name = the declared module
-# The wire FAILS on an entry whose site no longer violates (stale): the lane that fixes
-# the site removes its row in the SAME change. No line numbers in the key, so an
-# unrelated edit above the site does not churn this file.
-crates/script/elidex-js/src/vm/host_data/mod.rs	effect_queues	VM P4	pending the VM P4 lane's own doc fix
