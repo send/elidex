@@ -9,7 +9,6 @@ pub mod origin_manager;
 pub mod quota;
 pub mod sqlite;
 pub mod util;
-// Feature-gated: see the module doc and the `web-storage` entry in Cargo.toml [features].
 #[cfg(feature = "web-storage")]
 pub mod web_storage;
 
