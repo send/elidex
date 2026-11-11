@@ -146,7 +146,7 @@ each with its rule-12 code at landing; the classification re-derives them, §6):
   `mod.rs` 410 / 639 (stream error / cancel rejection, C-4 non-re-entry); `vm/host/service_worker/container.rs`
   109 / 218; `vm/host/wasm/namespace.rs:578`; `vm/natives_generator.rs:472` (wrapper rejection; residual P0
   umbrella §6 item 5); `vm/natives_promise.rs` 648 / 689 / 747; `vm/natives_timer.rs:370`. After P0a-1:
-  `engine.rs:275` and `vm/natives_promise.rs:591` (`channel:report`), and `vm/interpreter.rs:894`
+  `engine.rs:275` and `vm/natives_promise.rs:591` (`channel:report`), and `vm/interpreter_call.rs:631`
   (`push_js_call_frame` → `make_async_coroutine_and_drive`, the wrapper is settled inside the callee:
   `channel`, moved from N).
 - **S (2):** `vm/coerce.rs:246` (`to_display_string`, console display); `vm/host/custom_elements/flush.rs:70`
@@ -162,7 +162,7 @@ each with its rule-12 code at landing; the classification re-derives them, §6):
   (`thread-entry`); shell: `content/event_loop.rs:284`, `content/iframe/render.rs:93`,
   `content/iframe/thread.rs:100`, `lib.rs:310`, `pipeline.rs` 357 / 359 (`top-only`, `EvalResult.outcome`
   discarded at the event-loop top). `vm/ops_element.rs:134` leaves the population by the legibility rewrite
-  (§7.4); `vm/interpreter.rs:894` moves to R.
+  (§7.4); `vm/interpreter_call.rs:631` moves to R.
 - **X (2):** `engine.rs` 63 / 78 (embedder-test helpers, `test-support`). `vm/host/subtle_crypto/differential.rs`
   32 / 36 are in a `#[cfg(test)] mod differential;` file (`subtle_crypto/mod.rs:62-63`), excluded by rule 1:
   not members.
