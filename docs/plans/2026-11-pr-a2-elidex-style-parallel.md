@@ -27,6 +27,9 @@ line says otherwise.
 - **PM 620** (after plan-review R2): the slot text states the defect only (§7.1), and PM 611's "hint source is core"
   is withdrawn; the shape is re-derived on axis (i) and cost (§4.5).
 - **PM 624** (after R2): the shape is **remove** (§4.6). PR-A2 applies it (§5.2).
+- **PM 630**: U0's pre-matrix evidence rule is decided by property, not by name (§6.2).
+- **PM 631**: the rule is not applied to PR-A2 (§6.2); the evidence is listed in §6.3.
+- **PM 637**: PR-A2′ is closed by the U0 erratum in this PR.
 
 **Outcome of this plan, stated first.** The derivation (§4) lands on a **shape change**, so under the stop rule the
 branch was **returned to PM**, and PM ruled **remove** (PM 624, §4.6). **Connect** fails axis (i). **Remove** and
@@ -420,18 +423,10 @@ The output goes in the PR body, as U0 §6 requires.
 
 - **PR-A2 landing before PR-M1**: the job does not exist yet, and the rustdoc column with
   `--document-private-items` exists only as PR-M1's column.
-  - **Question for PM (answered after R2)**: does U0's pre-matrix evidence rule (§6, PM 558 (1)) apply to PR-A2?
-    Its population is "PR-A1, PR-A1′, PR-T0…, PR-T0′", which does not name it, so this memo does not assume it.
-    The steps below are what PR-A2 does if PM extends the rule; if PM does not, PM names the evidence.
-  - A scratch commit adds, as a temporary step of the `check` job, the two compile-column commands for
-    `elidex-style`'s `default` row:
-    - `cargo clippy -p elidex-style -- -D warnings`
-    - `RUSTDOCFLAGS="-D warnings" cargo doc -p elidex-style --no-deps --document-private-items`
-  - A later commit removes the step. PM checks conditions (i)–(iii) at merge (no `.github/` change in the merge diff,
-    the two heads differ only under `.github/`, run id and sha in the body).
-  - The `check` job's normal `--all-features` steps provide the test evidence. If PM extends the rule, PR-A2
-    edits no ci.yml line that stays in the merge, and decision 150 (3) does not order it after Python-pin PR-2; that
-    consequence is part of the same question.
+  - **Ruled**: U0's pre-matrix evidence rule (§6, PM 558 (1)) is decided by property, not by name (PM 630), and it
+    is not applied to PR-A2 (PM 631), because (a) `elidex-style` keeps no feature other than `parallel` and (b) no
+    workspace dependent enables `elidex-style` features or sets `default-features = false`; both are false at
+    `54ee71ab`. The evidence is §6.3's PM 631 list.
 - **PR-A2 landing after PR-M1**: the job's run on the PR head (every row, `elidex-style`'s `default` and doc
   row included).
 
@@ -440,6 +435,8 @@ The output goes in the PR body, as U0 §6 requires.
 - On PR-A2's head, §6.1's output shows `elidex-style`'s `[features]` empty. The output is recorded in the PR body.
 - The shape is ruled (PM 624) and applied by PR-A2. Other returned sites (§7) are not applied by PR-A2; they go back
   to PM (PM 611).
+- Evidence (PM 631), in the PR body: the (a)(b) results of §6.2 with their commands and the control script; green
+  normal `check` and `doc` jobs; and the `ratchet: ok` line.
 
 ## §7. Condition (3): the `elidex-style` site list (for PM to record)
 
@@ -448,7 +445,7 @@ The output goes in the PR body, as U0 §6 requires.
 | S1 | `crates/css/elidex-style/Cargo.toml:28`, `:30-31`; root `Cargo.toml:289` (workspace `rayon`); `src/lib.rs:19-20`; `src/parallel.rs:1-181`; `src/walk.rs:65-84`, `:119-122`, `:130-133`, `:135-146`, `:149-281`; comment `src/generated_content.rs:133-137`; doc `docs/architecture/css.md:29-35` | shape of `parallel` | **ruled remove** (PM 624, §4.6). Applied by PR-A2 (§5.2) |
 | S2 | the list-counter bake and its compensations (F-1) | behaviour, not this PR's | **routed to `#11-list-counter-baking-ua-rule-and-hints`** (PM 611). Slot text: §7.1. Not in PR-A2's acceptance or stop rule |
 | S3 | `.github/workflows/ci.yml:90`, `:93` (`--all-features` is the only test configuration) | record, not a fix | the sequential walk is untested in CI (F-2). Remove (PM 624) closes it: the `--all-features` steps then run the sequential walk, which is the shipped walk (§5.2) |
-| S4 | `docs/design/ja/06-thread-model.md` §6.3.1 `:281-306`, §6.3.2 `:312`, §6.3.3 `:318-331` vs the global pool | implementation home missing for a settled design (OPEN-015) | §10 Q2, for PM |
+| S4 | `docs/design/ja/06-thread-model.md` §6.3.1 `:281-306`, §6.3.2 `:312`, §6.3.3 `:318-331` vs the global pool | implementation home missing for a settled design (OPEN-015) | §10 Q2: answered, PM 624, no slot; re-introduction goes together with the design doc 06 §6.3 renderer pool (§4.6) |
 
 ### §7.1 Slot text: `#11-list-counter-baking-ua-rule-and-hints` (PM 611, PM 620; pmo registers the text between the BEGIN and END markers, including the back-pointer item)
 
@@ -457,7 +454,7 @@ The output goes in the PR body, as U0 §6 requires.
 **`#11-list-counter-baking-ua-rule-and-hints`** — owner **L1** (parked, no driver); at Re-eval, PM assigns an owner:
 a free lane, or a driver for L1. **Re-eval 2026-12-15.** **Trigger**: L1 gets a driver, or a lane frees up.
 **Edge-dense: plan-review is mandatory before work starts** (cascade origin × presentational hints × counter
-processing × both style paths × render × engine modes). **Exit criterion**: a target of the paydown exit criterion
+processing × render × engine modes). **Exit criterion**: a target of the paydown exit criterion
 (c), "本番で黙って誤る slot を 0 に" (no silent-wrong-in-production slot) (PM 620).
 
 **Defect.** List counters come from the post-cascade bake `apply_implicit_list_counters_from_dom`
@@ -486,8 +483,7 @@ computed `counter-increment`, which §4.6 says it "does not affect". Cases:
   state (`crates/core/elidex-plugin/src/computed_style/mod.rs:121-128`), and `resolve_counter_reset` fills 0
   (`unwrap_or(0)`, `crates/css/elidex-style/src/resolve/box_model/mod.rs:512`), so author
   `counter-reset: reversed(foo)` also gets 0 (code-read);
-- the bake runs inside shadow trees and for slotted nodes (`walk.rs:570`, `:599`, `:622`) and not in the parallel
-  path's light tree (`walk.rs:230-265`), so at `b8b4d6f5`, with `parallel` on, one document gets two answers;
+- the bake runs inside shadow trees and for slotted nodes (`walk.rs:570`, `:599`, `:622`);
 - `li` is counted by tag (the `"li"` arm, `counter.rs:341`), not by `display: list-item` (§4.6 "every list item"):
   `li{display:block}` still increments, and a non-`li` `display: list-item` element does not. The pre-layout
   counter pass is gated by tag too (`is_list_tag` = `ol` / `ul` / `li` by `TagType`,
@@ -495,6 +491,7 @@ computed `counter-increment`, which §4.6 says it "does not affect". Cases:
   non-`li` `display: list-item` element without counter properties (code-read). This is what master
   plan §10 (c) records (`memory/render-layout-inline-convergence-plan.md:246`; Copilot #273 R1), deferred there with
   no slot. This slot bundles it with the bake as **one decision surface**.
+- (PM 637, 2026-11-11) bake の重複。style の walk が要素ごとに implicit list counter を bake する (`crates/css/elidex-style/src/walk.rs:194`)。その後、resolve_tree (`crates/css/elidex-style/src/generated_content.rs:142`) と render の paged walk (`crates/core/elidex-render/src/builder/walk.rs:134`) が、どちらも `apply_implicit_list_counters_from_dom` (`crates/css/elidex-style/src/counter.rs:376`) をもう一度呼ぶ。ol / ul / li ごとに style と Attributes を clone し、ol では li を数え直す。しかし already_has の guard でその結果は捨てられる。出典 @ e1a72d3d (PR-A2 branch、未 merge)。PR-A2 の merge 時に merge commit の行番号へ付け替える。
 
 **Observable symptoms** (the numbering cases are code-read, not rendered): master §10 (c)'s mis-numbering; author
 overrides of the reset and the set; `menu`; `display: list-item`; reversed numbering; and `getComputedStyle`
@@ -503,10 +500,9 @@ returning `"initial"` (facet below).
 **Facts (R1 Axis 2, PR-A2 plan review).** UA sheet: `crates/css/elidex-style/src/ua.rs:53-61` has margins,
 padding, `li { display: list-item; }` and `ol { list-style-type: decimal; }`, and no `counter-*`. No hint source
 produces `counter-*` (`crates/dom/elidex-dom-compat/src/presentational.rs` has none). So the bake is the only source
-of the reset and set values. Its outcome reaches the screen only through compensations:
-`crates/css/elidex-style/src/generated_content.rs:139-145` (the pre-layout counter pass re-applies the bake; comment
-`:133-137` calls it "load-bearing", recorded at #273's landing, `memory/m4-12-landings-ledger.md:201`) and
-`crates/core/elidex-render/src/builder/walk.rs:121-141` (re-applies it on the paged path only, `if ctx.paged`).
+of the reset and set values. The bake is re-applied at `crates/css/elidex-style/src/generated_content.rs:139-145`
+(the pre-layout counter pass) and `crates/core/elidex-render/src/builder/walk.rs:121-141` (the paged path only,
+`if ctx.paged`).
 
 **Facet: `getComputedStyle` for `counter-*`.** `getComputedStyle(x).getPropertyValue('counter-increment')` (and
 `counter-reset`, `counter-set`) returns `"initial"` for every element, author values included: no
@@ -569,12 +565,12 @@ code up to PR-A2, so the gap has zero length.
 - **Q1** (answered in R1, Axis 4): no script-visible reader exposes the walk's `counter-*` fields. `getComputedStyle`
   returns `"initial"` for every `counter-*` property, whatever the field holds, on both paths. PM 611 made this a
   facet of the slot (§7.1). It does not bear on the shape.
-- **Q2** (PM): the settled pool design (OPEN-015; `06-thread-model.md` §6.3.1 cores−2 renderer pool, §6.3.2 subtree
+- **Q2** (answered, PM 624): the settled pool design (OPEN-015; `06-thread-model.md` §6.3.1 cores−2 renderer pool, §6.3.2 subtree
   unit, §6.3.3 main-thread join) has **no implementation home**. Defect: the main thread does not take part in the
   style phase's parallel work (it blocks while `par_iter` runs; §6.3.3), and the pool is rayon's global
   pool, sized to all cores and shared with wasmtime's compile, not the cores−2 renderer pool (§6.3.1) (F-4). No
-  `#11-*` slot carries it (R1 Axis 5's ledger check) and no lane owns it. This memo returns it as a PM item to home,
-  with a slot or a lane. The design is not reopened. Under remove (PM 624) it stays latent.
+  `#11-*` slot carries it (R1 Axis 5's ledger check) and no lane owns it. Answered, PM 624, no slot; re-introduction goes
+  together with the design doc 06 §6.3 renderer pool (§4.6). The design is not reopened. Under remove (PM 624) it stays latent.
 - **Out of scope**: the design's per-subtree parallelism and renderer pool (F-4, Q2); parallel layout; the list
   counters (§7.1); any change to `elidex-style` beyond §5.2; the matrix mechanisms themselves (PR-M1, PR-M2a,
   PR-M2b).

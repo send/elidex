@@ -29,4 +29,4 @@
 ## elidex-style
 
 - **Strategy**: the style walk (`walk.rs`) is sequential: per element, `resolve_and_attach_style` is the only resolve step.
-- **Future work**: parallel styling is future work tied to the renderer pool of design doc 06 §6.3.
+- **Future work**: parallel styling is future work tied to the renderer pool of design doc 06 §6.3 (decided in `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §4.6, PM 624).
