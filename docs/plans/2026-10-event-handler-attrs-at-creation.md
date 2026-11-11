@@ -893,7 +893,7 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > with the same outcome or a wider population, except that once N1 lands its compile gate changes the getter outcome,
 > with dispatch equal, of three DOMParser subsets: (1)'s subset whose value is a callback at the insertion (away from
 > the spec, PM decision 90), the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at
-> the element (both to the spec's `null`); slice a
+> the element (both to the spec's `null`); and from C1 in a fourth, (5)'s template-contents half, whose getter reads `null` where HEAD compiled the attribute and whose dispatch changes too, since HEAD ran the handler (the spec's outcome; §1.4 (iv)); slice a
 > narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's

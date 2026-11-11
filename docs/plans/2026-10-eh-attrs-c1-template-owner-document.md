@@ -1412,7 +1412,10 @@ that pmo's application right after that merge always includes — no registratio
   row "W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii))" → "W-K5 kept, HEAD-equal (its
   DOMParser half reads null from N1, §1.4 (ii); its template-contents half from C1, §1.4 (iv))"; §0.5's red-cell line
   "K-5: U8 (window pins C14, C15)" → "K-5: U8 (C15 a window pin until N1, whose node clause inverts it; C14 a window pin
-  until C1, which inverts it to the spec's outcome, C1 memo T17)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
+  until C1, which inverts it to the spec's outcome, C1 memo T17)"; PM 678: §8.2's slot text, its *Classification*
+  sentence, "(both to the spec's `null`); slice a" → "(both to the spec's `null`); and from C1 in a fourth, (5)'s
+  template-contents half, whose getter reads `null` where HEAD compiled the attribute and whose dispatch changes too,
+  since HEAD ran the handler (the spec's outcome; §1.4 (iv)); slice a"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
 - **R-4 ledger `#11-ownerless-node-creation`** (pmo, at C1's landing; the close-at-C1 plan is PM 472's, "Re-eval = C1
   landing"; PM 489 gave the row its **Re-eval-date** field, 2027-01-31, as the backstop; PM 607): "**Closed
   by C1** (#<n>, `<sha>`). The `EcsDom` entry and every production creation site, both parser tiers included, landed
@@ -1842,6 +1845,9 @@ and INV-C (§4.6 item 1) are unchanged; the one §4 edit is §4.3's observation 
   wording matches the Lesson bullet; §6.3's "one verbatim edit set" (M05 is three edits); §5.2's complement names
   the `use crate::…` / `use super::super::…` forms, with their measured 0. The umbrella §8.2 *Classification* item
   is held: that paragraph is the registered text of `#11-eh-attrs-creation-time-call-sites`, so it goes to the PM.
+- **PM 678.** Approves the held item: R-3 gains the old → new text for umbrella §8.2's *Classification* sentence (a
+  fourth subset from C1, (5)'s template-contents half, whose dispatch changes too), applied to the umbrella; it is
+  R-3's edit of that slot text, as defect (5)'s, and no facet is added elsewhere.
 
 ## §11. Open questions
 
