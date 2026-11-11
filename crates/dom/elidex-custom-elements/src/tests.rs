@@ -652,6 +652,9 @@ fn u13_control_c_and_l_are_custom() {
 // `t0` in `D0`; its contents `f1` hold `t1`, whose contents `f2` hold the
 // custom `e`.
 
+/// One queued `Adopted` reaction: (element, old document, new document).
+type AdoptedReaction = (elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity);
+
 /// `f1_owner` / `f2_owner`: 0 = the target, 1 = `X`, 2 = `Y`, `None` =
 /// ownerless. Returns the queued `Adopted` reactions after `adopt(t0, target)`
 /// and the document table.
@@ -659,7 +662,7 @@ fn u19_adopted(
     f1_owner: Option<usize>,
     f2_owner: usize,
 ) -> (
-    Vec<(elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity)>,
+    Vec<AdoptedReaction>,
     elidex_ecs::Entity,
     [elidex_ecs::Entity; 3],
     EcsDom,
