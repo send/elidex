@@ -540,11 +540,17 @@ fn template_content_custom_element_derived_strict_and_tolerant() {
 
 #[test]
 fn template_content_descendant_owner_document() {
-    // Codex PR380 (P2): a parsed `<template>` content descendant is created
-    // in the document (C0b: the stored node document, no fallback through the
-    // DocumentFragment root), so `content.firstChild.ownerDocument` is the
-    // document, matching `content.ownerDocument` — not null.
-    let result = parse_html("<template><p>x</p></template>");
+    // Codex PR380 (P2): a parsed `<template>` content descendant has a node
+    // document (C0b: the stored node document, no fallback through the
+    // DocumentFragment root), so `content.firstChild.ownerDocument` matches
+    // `content.ownerDocument` — not null. Since C1 both are the document's
+    // inert template document (HTML §4.12.3 *appropriate template contents
+    // owner document*), not the document.
+    let mut result = parse_html("<template><p>x</p></template>");
+    let inert = result
+        .dom
+        .appropriate_template_contents_owner_document(result.document);
+    assert_ne!(inert, result.document);
     let dom = &result.dom;
     let template = find_tag(dom, result.document, "template").expect("template");
     let fragment = dom
@@ -557,22 +563,24 @@ fn template_content_descendant_owner_document() {
         .expect("<p> present in template content");
     assert_eq!(
         dom.owner_document(p),
-        Some(result.document),
-        "template content descendant ownerDocument resolves to the document, not null"
+        Some(inert),
+        "template content descendant ownerDocument resolves to the inert template document, not null"
     );
     assert_eq!(
         dom.owner_document(fragment),
-        Some(result.document),
-        "the content fragment's own ownerDocument is the document (C2 approximation)"
+        Some(inert),
+        "the content fragment's own ownerDocument is the document's inert template document"
     );
 }
 
 #[test]
-fn fragment_parsed_template_content_owner_is_context_document() {
+fn fragment_parsed_template_content_owner_is_context_documents_inert_template_document() {
     // Codex PR380 R2 (P2): fragment-parsed `<template>` content fragments
     // are stamped with the *context's* node document, not the throwaway
     // fragment document (which is destroyed by `finish_detached_fragment`) —
-    // otherwise the content's ownerDocument dangles. The context is created
+    // otherwise the content's ownerDocument dangles; since C1 that stamp is
+    // the context document's inert template document (HTML §4.12.3
+    // *appropriate template contents owner document*). The context is created
     // in `doc` (an ownerless fixture context would only read `doc` through
     // the append's adoption).
     let mut dom = EcsDom::new();
@@ -600,10 +608,11 @@ fn fragment_parsed_template_content_owner_is_context_document() {
     let fragment = dom
         .template_contents_fragment(template)
         .expect("content fragment");
+    let inert = dom.appropriate_template_contents_owner_document(doc);
     assert_eq!(
         dom.owner_document(fragment),
-        Some(doc),
-        "fragment-parsed template content fragment ownerDocument is the context document"
+        Some(inert),
+        "fragment-parsed template content fragment ownerDocument is the context document's inert template document"
     );
     let p = dom
         .children(fragment)
@@ -612,8 +621,8 @@ fn fragment_parsed_template_content_owner_is_context_document() {
         .expect("<p> in content");
     assert_eq!(
         dom.owner_document(p),
-        Some(doc),
-        "content descendant inherits the context document, not a dangling throwaway doc"
+        Some(inert),
+        "content descendant inherits the context's inert template document, not a dangling throwaway doc"
     );
 }
 

@@ -179,14 +179,20 @@ fn u19_stamps(f: &U19) -> [Option<Entity>; 6] {
 
 // ---- U19 (guard; D-3 (c), D-6): nested contents segments ----
 
-/// First leg: `t0` in `D0`, `f1` in `Y`, `f2` in `X` (three distinct
-/// documents). Each fragment is its own segment with its own old document;
-/// `e`'s innermost segment is `f2`'s, `(X, target)`.
+/// First leg: `t0` in `D0`, `f1` in `f(Y)`, `f2` in `f(X)` (the contents'
+/// owner documents of two distinct documents, HTML §4.12.3). Each fragment is
+/// its own segment with its own old document; every segment's new document is
+/// `f(target)` (C1 D-C5); `e`'s innermost segment is `f2`'s, `(f(X), f(target))`.
 #[test]
 fn u19_nested_segments_each_carry_their_own_pair() {
     let (mut f, [target, x, y]) = u19_fixture(Some(2), 1);
     let log = install_adopt_log(&mut f.dom);
+    let (f_x, f_y) = (
+        f.dom.appropriate_template_contents_owner_document(x),
+        f.dom.appropriate_template_contents_owner_document(y),
+    );
     f.dom.adopt(f.t0, target);
+    let f_target = f.dom.appropriate_template_contents_owner_document(target);
     assert_eq!(
         take(&log),
         vec![AdoptRec {
@@ -195,26 +201,39 @@ fn u19_nested_segments_each_carry_their_own_pair() {
             contents: vec![
                 AdoptedContents {
                     fragment: f.f1,
-                    documents: Some((y, target)),
+                    documents: Some((f_y, f_target)),
                 },
                 AdoptedContents {
                     fragment: f.f2,
-                    documents: Some((x, target)),
+                    documents: Some((f_x, f_target)),
                 },
             ],
         }]
     );
-    assert_eq!(u19_stamps(&f), [Some(f.target); 6]);
+    assert_eq!(
+        u19_stamps(&f),
+        [
+            Some(f.target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target)
+        ]
+    );
 }
 
-/// Second leg: `f1` already in the target, `f2` (with `e` and `a`) in `X`.
-/// `f1`'s nested adopt does not run (its old equals new), so neither does
-/// `f2`'s: no segment for either, and `f2`, `e` and `a` still read `X` (the
+/// Second leg: `f1` already in `f(target)` (the new document of a contents
+/// segment, C1 D-C5), `f2` (with `e`) in `f(X)`, `a` in `X`. `f1`'s nested
+/// adopt does not run (its old equals new), so neither does `f2`'s: no segment
+/// for either, and `f2`, `e` and `a` still read what they read before (the
 /// skip gates the Attr re-home too).
 #[test]
 fn u19_skipped_contents_are_left_as_they_are() {
     let (mut f, [target, x, _]) = u19_fixture(Some(0), 1);
     let log = install_adopt_log(&mut f.dom);
+    let f_target = f.dom.appropriate_template_contents_owner_document(target);
+    let f_x = f.dom.appropriate_template_contents_owner_document(x);
     f.dom.adopt(f.t0, target);
     assert_eq!(
         take(&log),
@@ -228,23 +247,25 @@ fn u19_skipped_contents_are_left_as_they_are() {
         u19_stamps(&f),
         [
             Some(target),
-            Some(target),
-            Some(target),
-            Some(x),
-            Some(x),
+            Some(f_target),
+            Some(f_target),
+            Some(f_x),
+            Some(f_x),
             Some(x)
         ]
     );
 }
 
 /// Third leg (fixture): `f1` ownerless (a silent re-home), `f2` in `X`, not
-/// the target. Both segments are recorded with `None` (the inner one because
-/// its template lies in a `None` segment), and everything is stamped.
+/// the target (its contents' owner document `f(X)` is not `f(target)`). Both
+/// segments are recorded with `None` (the inner one because its template lies
+/// in a `None` segment), and everything is stamped `f(target)`.
 #[test]
 fn u19_segment_under_a_none_segment_is_none() {
     let (mut f, [target, _, _]) = u19_fixture(None, 1);
     let log = install_adopt_log(&mut f.dom);
     f.dom.adopt(f.t0, target);
+    let f_target = f.dom.appropriate_template_contents_owner_document(target);
     assert_eq!(
         take(&log),
         vec![AdoptRec {
@@ -262,7 +283,17 @@ fn u19_segment_under_a_none_segment_is_none() {
             ],
         }]
     );
-    assert_eq!(u19_stamps(&f), [Some(target); 6]);
+    assert_eq!(
+        u19_stamps(&f),
+        [
+            Some(target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target),
+            Some(f_target)
+        ]
+    );
 }
 
 // ---- U22 (guard; D-13): `adopt(attr, D)` re-homes only the Attr. *Adopt*
@@ -312,13 +343,16 @@ fn u21_contents_cycle_root_is_not_a_segment() {
     );
     let f = dom.attach_template_contents(tpl, dom.node_document_for_new_nodes(docs.x));
     assert!(dom.append_child(f, tpl), "the primitive allows the cycle");
+    // `attach_template_contents` stamps `f` with the contents' owner document
+    // of `docs.x` (C1 D-C3), so the root record's old document is `f(docs.x)`.
+    let inert_x = dom.appropriate_template_contents_owner_document(docs.x);
     let log = install_adopt_log(&mut dom);
     dom.adopt(f, docs.d);
     assert_eq!(
         take(&log),
         vec![AdoptRec {
             node: f,
-            documents: Some((docs.x, docs.d)),
+            documents: Some((inert_x, docs.d)),
             contents: Vec::new(),
         }]
     );

@@ -624,11 +624,15 @@ fn take_adopted(
 #[test]
 fn u13_adopt_enqueues_contents_before_light_child_each_with_its_pair() {
     let mut f = u13_fixture();
+    // C's segment pair is « f(old), f(new) » (HTML §4.12.3 *appropriate
+    // template contents owner document*, C1 D-C5); L's is the root's.
+    let f_y = f.dom.appropriate_template_contents_owner_document(f.y);
     f.dom.adopt(f.tpl, f.d);
+    let f_d = f.dom.appropriate_template_contents_owner_document(f.d);
     let adopted = take_adopted(&f.queue);
     assert_eq!(
         adopted,
-        vec![(f.c, f.y, f.d), (f.l, f.x, f.d)],
+        vec![(f.c, f_y, f_d), (f.l, f.x, f.d)],
         "C (its segment's pair) before L (the root's pair)"
     );
 }
@@ -658,6 +662,7 @@ fn u19_adopted(
     Vec<(elidex_ecs::Entity, elidex_ecs::Entity, elidex_ecs::Entity)>,
     elidex_ecs::Entity,
     [elidex_ecs::Entity; 3],
+    EcsDom,
 ) {
     use elidex_ecs::Attributes;
 
@@ -693,22 +698,24 @@ fn u19_adopted(
         .unwrap();
     f.dom.adopt(t0, target);
     let adopted = take_adopted(&f.queue);
-    (adopted, e, docs)
+    (adopted, e, docs, f.dom)
 }
 
-/// First leg (`f1` in `Y`, `f2` in `X`): `e` gets its innermost segment's
-/// pair `(X, target)`.
+/// First leg (`f1` in `f(Y)`, `f2` in `f(X)`): `e` gets its innermost
+/// segment's pair `(f(X), f(target))`.
 #[test]
 fn u19_consumer_innermost_segment_pair() {
-    let (adopted, e, [target, x, _]) = u19_adopted(Some(2), 1);
-    assert_eq!(adopted, vec![(e, x, target)]);
+    let (adopted, e, [target, x, _], mut dom) = u19_adopted(Some(2), 1);
+    let f_x = dom.appropriate_template_contents_owner_document(x);
+    let f_target = dom.appropriate_template_contents_owner_document(target);
+    assert_eq!(adopted, vec![(e, f_x, f_target)]);
 }
 
 /// Second leg (`f1` already in the target): both contents are skipped, no
 /// segment, so `e` gets no reaction (not the root's `(D0, target)`).
 #[test]
 fn u19_consumer_skipped_contents_no_reaction() {
-    let (adopted, _, _) = u19_adopted(Some(0), 1);
+    let (adopted, _, _, _) = u19_adopted(Some(0), 1);
     assert_eq!(adopted, Vec::new());
 }
 
@@ -716,6 +723,6 @@ fn u19_consumer_skipped_contents_no_reaction() {
 /// gets no reaction (its own pair would give `(X, target)`).
 #[test]
 fn u19_consumer_segment_under_none_no_reaction() {
-    let (adopted, _, _) = u19_adopted(None, 1);
+    let (adopted, _, _, _) = u19_adopted(None, 1);
     assert_eq!(adopted, Vec::new());
 }
