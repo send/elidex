@@ -48,6 +48,15 @@ row has no rustdoc output at all. The engine-less configuration is a declared ro
   行 rustdoc の PR is 25 again (PM 655 (1); set-compared, §5.3); the timer surface in a host-less row is already
   decided and A1-10 is interim (PM 655 (2a)); two three-OS rules (§5.2); multiset compares; run B tied to its base
   sha; the A1-10 reader list completed.
+- **Rev 1.4 (2026-11-11), focused re-review of Rev 1.3 (`0ebb118a`) + PM 661 + PM 662**: A1-11 added, deleting the
+  inert `allow` at `vm/natives_promise.rs:633` (PM 661 (1)); §7.2 item 6's other three members become facets on
+  `#11-elidex-js-no-default-features-support` (PM 661 (2)); A1-7 also fixes `vm/natives_json/stringify.rs:3` (statement,
+  PM 661 (3)) and `:36` (a pointer A1-7's gate breaks; PM 655's rule, "whatever PR-A1 itself breaks, PR-A1 fixes"),
+  so PR-A1 fixes the 3 sites it breaks itself (verified 2026-11-11, §5.3 set comparison). The default 行 rustdoc の PR is defined by its population, not by a
+  number (PM 662): measured 23 (VM P4 19, L3 4) at `bea9ef19` + the probe, where Rev 1.3 had 25 and PM 661's
+  count, before `:36` was taken in, was 24 (§5.3). focused-r3 MIN-1…MIN-6: what §4 M×G measured; 0 target-cfg sites and "macOS only"
+  (§2.1 reason 5, §5.2); the force-warn re-run on PR-A1's head (§5.1, §5.6, §9); the two same-class statements
+  `vm/globals.rs:106` and `vm/mod.rs:2641-2642` (§1.2); "792 diagnostic spans" (§7.2 item 6, §1.3).
 
 ### §0.2 Premises re-measured
 
@@ -85,28 +94,40 @@ Toolchain `rustc 1.99.1 (58cf8f9c3 2026-10-13)` (`env -u RUSTUP_TOOLCHAIN rustc 
 ### §1.1 In scope
 
 The 17 diagnostics of §0.2, the 7 that surface behind them (§1.3), the suppressions PR-A1's own diff removes
-(A1-2's `cfg_attr` at `vm/init.rs:162`, and A1-10's `allow` at `vm/natives_timer.rs:242`, which R1 took in; PM 656),
-and the doc statements that these fixes make false (§2: A1-3, A1-9, and A1-10, which includes the
-`vm/natives_timer.rs:6` module doc, PM 655 (1)). Every fix is a `cfg` fix (kind (b)). The full list is §2's fix
-table. Pre-existing suppressions that hide diagnostics only in `default` are measured (§2.1 reason 5) but not fixed
-here. They go to PM as a table (§7.2 item 6, PM 656).
+(A1-2's `cfg_attr` at `vm/init.rs:162`; A1-10's `allow` at `vm/natives_timer.rs:242`, which R1 took in, PM 656; and
+A1-11's inert `allow` at `vm/natives_promise.rs:633`, PM 661 (1)), and the doc text that these fixes break (§2: A1-3,
+A1-9; A1-10's `vm/natives_timer.rs:6` module doc, PM 655 (1); A1-7's `vm/natives_json/stringify.rs:3` and `:36`,
+PM 661 (3) and PM 655's rule). Every fix is a `cfg` fix (kind (b)). The full list is §2's fix table. The other
+pre-existing suppressions that hide diagnostics only in `default` are measured (§2.1 reason 5) but not fixed here.
+They are facets on `#11-elidex-js-no-default-features-support` (§7.2 item 6, PM 661 (2)).
 
 ### §1.2 Out of scope
 
 - **The crate split (F1-c).** It is a separate program, owned by VM P4 and not planned here (U0 §5). §6 records,
   for that program, the items this PR gates. They are core items that exist only for the host.
 - **`HostData`'s decomposition** (`#11-host-data-full-decomposition`): PR-A1 moves nothing (§4).
-- **Rustdoc warnings in the `default` row.** They are listed (§5.3) and go to the default 行 rustdoc の PR (VM P4,
-  L3's 4 included; after PR-A1, before PR-M1; due 11-25; PM 650), not to PR-D…. There are 25 (§5.3). PR-A1 fixes doc
-  *statements* that its own code change makes false. It does not fix link forms. §5.3 gives the reason.
-  - Re-checked in Rev 1.3 against A1-10's `vm/natives_timer.rs:6` (PM 655 (1)). The exception still holds. The old
-    sentence ("The host drives execution by calling [`VmInner::drain_timers`] …") is false in `default`, where
-    nothing drives the heap. The new sentence says which configurations drive it and names no item compiled out of
-    `default`. So it carries no link, and PR-A1 picks no link form.
-  - The re-check found one site of the same kind still in the 25: `vm/natives_json/stringify.rs:3`, "Also hosts
-    [`stringify_for_structured_shortcut`]". A1-7's gate makes this sentence false in `default`. `:36` is different:
-    it is a pure pointer ("see [`…`]") inside a sentence that stays true, so it is a link-form site. PM 655 fixed the
-    count at 25, so `:3` stays in the 25 and the question goes to PM (§7.2 item 3).
+- **Rustdoc warnings in the `default` row.** They go to the default 行 rustdoc の PR (VM P4, L3's sites included;
+  after PR-A1, before PR-M1; due 11-25; PM 650), not to PR-D…. That PR is defined by its population (PM 662):
+  **default 行 rustdoc PR の母集団 = PR-A1 の head で default 行だけに出る rustdoc 診断の集合.** The count is a
+  measurement, with its sha and command, in §5.3 (23 at `bea9ef19` + the probe). PR-A1 does not fix that population.
+  It fixes only what its own change breaks (PM 655's rule): 3 sites (verified 2026-11-11, §5.3), each without choosing a link form.
+  - `vm/natives_timer.rs:6` (A1-10, PM 655 (1)). The old sentence ("The host drives execution by calling
+    [`VmInner::drain_timers`] …") is false in `default`, where nothing drives the heap. The new sentence says which
+    configurations drive it and names no item compiled out of `default`.
+  - `vm/natives_json/stringify.rs:3` (A1-7, PM 661 (3)), "Also hosts [`stringify_for_structured_shortcut`]". A1-7's
+    gate makes the sentence false in `default`. It is restated to say the entry point exists with `engine`, without
+    naming the item.
+  - `vm/natives_json/stringify.rs:36` (A1-7, PM 655's rule). A pure pointer ("— see [`…`]") inside a sentence that
+    stays true. A1-7's gate leaves it unresolved in `default`, so PR-A1 breaks it and PR-A1 fixes it. The pointer is
+    dropped and the sentence kept. Dropping it chooses no link form for the remaining population (§5.3).
+  - **Two non-rustdoc statements of the same class** (focused-r3 MIN-5). Each says the shell drives the timers, which
+    is false in `default`. Neither is a rustdoc diagnostic, and PR-A1's diff does not make either one false (both were
+    false in `default` at the base).
+    - `vm/globals.rs:106`, a comment inside the timer registrations. L3's brand-check PR-1b deletes it: its deletion
+      range is `vm/globals.rs:100-110` (§8). PR-A1 leaves it.
+    - `vm/mod.rs:2641-2642`, the doc of `VmInner::timer_queue` ("driven by the shell on each event-loop tick"). PR-A1
+      leaves it. Touching `vm/mod.rs` (2797 lines) would trigger the touch-time split. It goes to L3's surface
+      collapse, the same hand-off as A1-10 (§9 item 7).
 - **The `default` row's tests** (PR-T, PR-T0…). PR-A1 checks only that the row's lib test target still compiles
   (§5.1). This is not PR-T's census.
 - **CI**. The row's gate is PR-M1's `feature-profiles` job. PR-A1 adds no trip-wire (§5.4).
@@ -145,8 +166,10 @@ N1–N6 were measured with D1–D17 fixed. N7 was measured with N1–N6 fixed as
 clippy-clean (§5.2).
 
 Behind a suppression, a diagnostic does not appear at all, so the 24 do not include what an `allow` hides. Those
-sites come from §2.1 reason 5's force-warn measurement instead. A1-10 is the one such site PR-A1 fixes (PM 656), and
-removing its `allow` brings up diagnostics N8–N10, which are listed here so the PR body names them too:
+sites come from §2.1 reason 5's force-warn measurement instead. PR-A1 removes three suppressions (A1-2's `cfg_attr`,
+A1-10's `allow`, A1-11's `allow`). A1-10 is the one whose removal surfaces new diagnostics: A1-2's removal goes with
+fixing N6, and A1-11's `allow` is inert (`default` clippy rc 0 with it removed, §5.2). A1-10's removal brings up
+N8–N10, which are listed here so the PR body names them too:
 
 | # | Diagnostic (`default` row, with the `allow` at `vm/natives_timer.rs:242` removed) | Group |
 |---|---|---|
@@ -176,8 +199,9 @@ not grow.** The stub (`vm/host_data/mod.rs:680-704`) offers `new`, `unbind`, `is
 and those are the only `HostData` items that ungated core code may name. Everything else on `HostData` is
 engine-only, and only engine-gated code names it. The same rule applies to Class II: a core item whose readers are
 all engine-gated becomes engine-gated itself, together with every site in that configuration that names it.
-PR-A1's diff adds no suppression. It removes two: A1-2's `cfg_attr` and A1-10's `allow` (reason 5). The pre-existing
-suppressions that hide diagnostics only in `default` are measured, and they go to PM (reason 5; §7.2 item 6; PM 656).
+PR-A1's diff adds no suppression. It removes three: A1-2's `cfg_attr`, A1-10's `allow` and A1-11's inert `allow`
+(reason 5). The other pre-existing suppressions that hide diagnostics only in `default` are measured, and they are
+facets on `#11-elidex-js-no-default-features-support` (reason 5; §7.2 item 6; PM 656, PM 661 (2)).
 
 Reasons, in the authority order of CLAUDE.md's 至上命題:
 
@@ -207,8 +231,9 @@ Reasons, in the authority order of CLAUDE.md's 至上命題:
    is kind (c), which PM 584 rules out. Stand-ins would be an API that claims a DOM exists where none can.
 5. **One issue, one way, within PR-A1's diff.** The form PR-A1's diff introduces is one: the gate, as in
    `#[cfg(feature = "engine")] use super::bit_get;` (`vm/gc/collect.rs:15-16`) and the engine-gated `GcRoots`
-   fields. PR-A1's diff adds no suppression, and it removes two (A1-2's `cfg_attr`, A1-10's `allow`). The
-   pre-existing exceptions are in the §7.2 item 6 table (PM 656). This memo does not claim that the crate has one way.
+   fields. PR-A1's diff adds no suppression, and it removes three (A1-2's `cfg_attr`, A1-10's `allow`, A1-11's
+   `allow`). The pre-existing exceptions that stay are in the §7.2 item 6 table, as facets (PM 656, PM 661 (2)). This
+   memo does not claim that the crate has one way.
    The crate does not: the measurement below finds pre-existing suppressions that hide diagnostics only in
    `default`.
 
@@ -229,9 +254,13 @@ Reasons, in the authority order of CLAUDE.md's 至上命題:
      force-warned by name, in a second run with the eight added (`float_cmp` … `debug_assert_with_mut_call`): its
      totals grow (`default` 1821, `app` 3310), and its `default` minus `app` is the same 792, line for line. So
      leaving the other groups out loses no member.
-   - **Not covered** (named, not claimed): the test target. Only the lib target was run, which is the row's U0
-     compile column. A suppression that hides a diagnostic only in `default` + `test` is outside this measurement,
-     and the row's test census is PR-T's (§1.2).
+   - **Not covered** (named, not claimed):
+     - The test target. Only the lib target was run, which is the row's U0 compile column. A suppression that hides a
+       diagnostic only in `default` + `test` is outside this measurement, and the row's test census is PR-T's (§1.2).
+     - Other OS: macOS only. elidex-js has 0 target-cfg sites (§5.2 gives the command), so per-OS variance can come
+       only through dependencies or the toolchain.
+     - Later code: the derivation is one-shot at pre-split `bea9ef19`. It is re-run on PR-A1's head at PR time
+       (§5.1, §5.6).
    - **Diff the rows.** Each diagnostic is keyed by (file, line, lint) for every primary span, because rustc groups
      dead fields into one diagnostic with many spans. The keys are counted as a multiset per row, and the candidate
      population is `default` minus `app`. Result: `default` 1810, `app` 3298, and **792 in `default` minus `app`**.
@@ -248,10 +277,10 @@ Reasons, in the authority order of CLAUDE.md's 至上命題:
    |---|---|---|
    | `vm/natives_timer.rs:242` `#[allow(dead_code)] impl VmInner` | `dead_code` ×5: `:26`, `:259`, `:276`, `:298`, `:418` (the positive control) | **fixed: A1-10** (R1 took it in; PM 656's exception) |
    | `vm/init.rs:162` `cfg_attr(not(feature = "engine"), allow(unused_variables))` | compiled only under `not(engine)`; it hides N6's parameters | **fixed: A1-2** (removed by PR-A1's diff; the row needs N6 fixed) |
-   | `vm/well_known.rs:60` `#[allow(dead_code)] struct WellKnownStrings` | `dead_code` ×780 field spans (`default` 860, `app` 80) | pre-existing → §7.2 item 6 |
-   | `lib.rs:37` `#[allow(clippy::unnecessary_wraps)] pub mod vm` | `clippy::unnecessary_wraps` ×5: the three `cfg(not(engine))` `EventTarget` stubs `vm/host/event_target.rs:83`, `:530`, `:634`; `collect_own_keys_es_order` `vm/coerce_format.rs:21`; `try_delete_property` `vm/ops_property.rs:305` | pre-existing → §7.2 item 6 |
-   | `Cargo.toml:324` `must_use_candidate = "allow"` (workspace `[lints]`) | `clippy::must_use_candidate` ×7: the stub's `new` / `is_bound` `vm/host_data/mod.rs:690`, `:696`; `vm/vm_api.rs:69`, `:75`, `:86`, `:103`, `:765` | pre-existing → §7.2 item 6 |
-   | `vm/natives_promise.rs:633` `#[allow(clippy::needless_pass_by_value)]` on the `cfg(not(engine))` stub `dispatch_unhandled_rejection_event` (`:632-640`) | nothing: force-warned, the lint does not fire on the stub (its by-value parameters are `Copy`: `JsValue`, `vm/value.rs:113-115`). Member only because it compiles only under `not(engine)` | pre-existing → §7.2 item 6 |
+   | `vm/well_known.rs:60` `#[allow(dead_code)] struct WellKnownStrings` | `dead_code` ×780 field spans (`default` 860, `app` 80) | pre-existing → facet (PM 661), §7.2 item 6.1 |
+   | `lib.rs:37` `#[allow(clippy::unnecessary_wraps)] pub mod vm` | `clippy::unnecessary_wraps` ×5: the three `cfg(not(engine))` `EventTarget` stubs `vm/host/event_target.rs:83`, `:530`, `:634`; `collect_own_keys_es_order` `vm/coerce_format.rs:21`; `try_delete_property` `vm/ops_property.rs:305` | pre-existing → facet (PM 661), §7.2 item 6.2 |
+   | `Cargo.toml:324` `must_use_candidate = "allow"` (workspace `[lints]`) | `clippy::must_use_candidate` ×7: the stub's `new` / `is_bound` `vm/host_data/mod.rs:690`, `:696`; `vm/vm_api.rs:69`, `:75`, `:86`, `:103`, `:765` | pre-existing → facet (PM 661), §7.2 item 6.3 |
+   | `vm/natives_promise.rs:633` `#[allow(clippy::needless_pass_by_value)]` on the `cfg(not(engine))` stub `dispatch_unhandled_rejection_event` (`:632-640`) | nothing: force-warned, the lint does not fire on the stub (its by-value parameters are `Copy`: `JsValue`, `vm/value.rs:113-115`). Member only because it compiles only under `not(engine)` | **fixed: A1-11** (PM 661 (1)); the stub stays (PM 583) |
 
    780 + 5 + 7 = 792, so every diagnostic in the difference maps to a member. Rev 1.2 put `well_known.rs:60` at 779,
    computed from a different count (`app` 81). The figure here is the force-warn multiset's.
@@ -291,10 +320,11 @@ below is (b). No fix combines kinds.
 | **A1-4** | D2–D14. The `if hd.is_bound() { … }` block of `Vm::unbind` (`vm/lifecycle.rs:30-67`) names `elidex_api_observers` and engine-only `HostData` API. Owners: the `EcsDom` (mutation-dispatcher hook), the bound world (`MutationObservedBy` components), and `HostData` (per-bind fields). The base has 2 homes and 4 concerns (U0 hand-off contract 2). | (b). Mechanism decision §2.1, reasons 2–4. | `vm/lifecycle.rs:30`, `Vm::unbind`. The `if` statement gets `#[cfg(feature = "engine")]` (cfg on a statement). It stays where it is, before `hd.unbind()` at `:68`. Homes stay 2 and concerns stay 4. Nothing moves (§4). | `default` clippy (D2–D14 gone). Engine rows: a positive `cfg` is the identity in `engine`, so the compiled block is unchanged, and `app` / `browser` clippy and rustdoc are unchanged (§5.2). That is the guard. Pre-existing gap: no engine test asserts the `:30` block's clears (the `tests_mutation_observer` lifecycle / transient tests check no panic, bindings and drain only; `vm/tests/tests_shadow_dom/events.rs:577` covers the `:90` block, A1-8's). The U0 hand-off does not require a test for a (b) fix, so PR-A1 adds none. |
 | **A1-5** | (none: the order contract). The order contract is A1-4's invariant, not a separate fix. §2.3 states it. | — | — | §2.3 |
 | **A1-6** | D15. The `cfg(not(feature = "engine"))` branch of `collect_garbage` (`vm/gc/collect.rs:45-49`) builds an empty `HashMap<elidex_ecs::Entity, HashSet<u64>>`. Its only reader is engine-gated (`vm/gc/roots.rs:206-208`, `vm/gc/collect.rs:1141-1142`). Owner: the bound session's CSSOM (`SessionCore`, engine). | (b), the degenerate form: in the `default` configuration the branch names nothing that is read, so it is removed and the engine branch (`:40-44`) stays as it is. | `vm/gc/collect.rs:45-49` deleted, in `VmInner::collect_garbage` (`:25`). Split decision: §1.2. | `default` clippy (D15 gone, no unused variable) |
-| **A1-7** | D16–D17, N1, N2, N7. `parse_json_str` (`vm/natives_json/parse.rs:501`) and `stringify_for_structured_shortcut` (`vm/natives_json/stringify.rs:423`) are JSON helpers in core, and their only readers are in `vm/host/` (§0.2). `stringify_to_string` keeps a core reader (`vm/natives_json/stringify.rs:368`). Owner: the language core's JSON module (ECMA-262 §25.5). Readers: `parse_json_str` (the deserialize side, HTML §2.7.7 StructuredDeserialize) is read by IndexedDB (`vm/host/indexeddb/value.rs:463`), service-worker delivery (`vm/host/service_worker/deliver.rs:359`), the worker scope (`vm/host/worker_scope.rs:277`) and the structured-serialize shortcut (`vm/host/structured_serialize.rs:97`). `stringify_for_structured_shortcut` (the serialize side, HTML §2.7.4) is read by `vm/host/structured_serialize.rs:78` and `vm/host/worker_scope.rs:386`. | (b). The parse helper is a core algorithm used by the host. `stringify_for_structured_shortcut` is a host-semantics mode inside the shared core serializer (the `reject_date` field of `JsonSerializer` `vm/natives_json/stringify.rs:38`, its Date check in `serialize_property` `:61-63` and `stringify_impl`'s `reject_date` parameter `:435` stay ungated), and that is pre-existing (§6). PR-A1 adds no call and moves nothing. In `default` neither has a reader, so both are gated. | `vm/natives_json/mod.rs:13-16`: the re-exports split, with `native_json_parse` / `native_json_stringify` ungated, and `parse_json_str`, `stringify_for_structured_shortcut` and `stringify_to_string` re-exported under `engine`. `vm/natives_json/parse.rs:501` (`parse_json_str`) and its import `:13` (`VmInner`); `vm/natives_json/stringify.rs:423` (`stringify_for_structured_shortcut`) — each gated. | `default` clippy (5 gone); JSON behaviour: `vm/tests/tests_json.rs`, `vm/tests/tests_json_shortcut_date.rs` under `--all-features` |
+| **A1-7** | D16–D17, N1, N2, N7. `parse_json_str` (`vm/natives_json/parse.rs:501`) and `stringify_for_structured_shortcut` (`vm/natives_json/stringify.rs:423`) are JSON helpers in core, and their only readers are in `vm/host/` (§0.2). `stringify_to_string` keeps a core reader (`vm/natives_json/stringify.rs:368`). Owner: the language core's JSON module (ECMA-262 §25.5). Readers: `parse_json_str` (the deserialize side, HTML §2.7.7 StructuredDeserialize) is read by IndexedDB (`vm/host/indexeddb/value.rs:463`), service-worker delivery (`vm/host/service_worker/deliver.rs:359`), the worker scope (`vm/host/worker_scope.rs:277`) and the structured-serialize shortcut (`vm/host/structured_serialize.rs:97`). `stringify_for_structured_shortcut` (the serialize side, HTML §2.7.4) is read by `vm/host/structured_serialize.rs:78` and `vm/host/worker_scope.rs:386`. | (b). The parse helper is a core algorithm used by the host. `stringify_for_structured_shortcut` is a host-semantics mode inside the shared core serializer (the `reject_date` field of `JsonSerializer` `vm/natives_json/stringify.rs:38`, its Date check in `serialize_property` `:61-63` and `stringify_impl`'s `reject_date` parameter `:435` stay ungated), and that is pre-existing (§6). PR-A1 adds no call and moves nothing. In `default` neither has a reader, so both are gated. | `vm/natives_json/mod.rs:13-16`: the re-exports split, with `native_json_parse` / `native_json_stringify` ungated, and `parse_json_str`, `stringify_for_structured_shortcut` and `stringify_to_string` re-exported under `engine`. `vm/natives_json/parse.rs:501` (`parse_json_str`) and its import `:13` (`VmInner`); `vm/natives_json/stringify.rs:423` (`stringify_for_structured_shortcut`) — each gated. **The doc text the gate breaks** (§1.2): the module doc `vm/natives_json/stringify.rs:3-5` ("Also hosts [`stringify_for_structured_shortcut`]: …") is a statement fix (PM 661 (3)), restated as "With the `engine` feature, it also hosts the entry point of the structured-serialize shortcut mode behind worker / SW `postMessage` and `history.state`, which fails on a `Date` instead of flattening it through `toJSON`."; the `reject_date` field doc `:35-37` loses its pointer "— see [`stringify_for_structured_shortcut`]" and keeps its sentence (PM 655's rule). Neither names an item compiled out of `default`, so no link form is chosen. Measured: both warnings gone (§5.3). | `default` clippy (5 gone); `default` rustdoc (`stringify.rs:3`, `:36` gone, §5.3); JSON behaviour: `vm/tests/tests_json.rs`, `vm/tests/tests_json_shortcut_date.rs` under `--all-features` |
 | **A1-8** | N3. `Microtask::NotifyMutationObservers` (`vm/natives_promise.rs:59`) is the DOM's "notify mutation observers" microtask (WHATWG DOM §4.3). Only `vm/host/` constructs it (`vm/host/html_slot_proto.rs:68`, `vm/host/mutation_observer.rs:464`). Owner: the host's mutation-observer machinery. | (b), on the diff fact: PR-A1 adds no call, no variant and no dependency, and removes the variant from `default`. The existing core→host calls of the drain arm (`vm/host/html_slot_proto.rs`'s two functions, called at `vm/natives_promise.rs:346-347` and `:352`) are already under the engine gate at `:339`. Kind (a) needs an existing seam, and the core `Microtask` enum has no host-microtask extension point. Creating one is the split's decision (§6). Provisionally (b), PM 649. Re-examine A1-8 when the slot is ruled (`#11-vm-inbound-host-call-membership-test`, §2.2 "The membership test"). | `vm/natives_promise.rs:59` (variant, in `enum Microtask` `:31`); `vm/natives_promise.rs:333` (its arm in `drain_queue_pass` `:311`, gated as a whole, so the inner `#[cfg(feature = "engine")]` block at `:339` becomes redundant and is removed — one gate per site); `vm/gc/roots.rs:440` (its arm in `mark_roots` `:266`). The third site that names it, `vm/lifecycle.rs:353`, is already inside `Vm::unbind`'s engine block (`:90`). | `default` clippy (N3 gone); `vm/tests/tests_shadow_dom/events.rs:577` (`unbind_clears_pending_notify_mutation_observers_microtask`) under `--all-features` |
 | **A1-9** | N4, N5. `create_illegal_constructor_function` (`vm/shape_ops.rs:322`) and `native_illegal_constructor_unreachable` (`vm/value.rs`, cited by name: the prereq split moves lines, not this function) build Web IDL interface objects that have no constructor operation (Web IDL §3.7.1). Every caller is in `vm/host/` (`git grep -n -e create_illegal_constructor_function -e native_illegal_constructor_unreachable -- crates/script/elidex-js/src`). The doc at `vm/shape_ops.rs:320-321` says "Not engine-gated (sibling parity with [`Self::create_constructor_only_function`])", which the gate makes false. | (b). The sibling `create_constructor_only_function` (`:299`) has a core reader and stays ungated, so the parity the doc claims never held in `default`. | `vm/shape_ops.rs:322` and, on the post-split `vm/value.rs`, `native_illegal_constructor_unreachable`, each gated; `vm/shape_ops.rs:320-321` rewritten to state the gate and why. `CallShape::IllegalConstructor` and the admission gate stay ungated: no `default` diagnostic names them. | `default` clippy (2 gone); `.claude/tools/native-ctor-guard-trip-wire.sh` unaffected (it matches guard idioms, not these items); illegal-constructor tests under `--all-features` |
 | **A1-10** | The suppression at `vm/natives_timer.rs:242` (§2.1 reason 5), and N8–N10 behind it. `#[allow(dead_code)] impl VmInner { next_timer_deadline, drain_timer_fire_checkpoint, drain_timers, fire_current_timer }` (`:243-…`). Readers of `drain_timers`: `engine.rs:344`, `vm/sw_thread.rs:474`, `vm/worker_thread.rs:227` (all engine); `vm/tests/tests_abort_statics.rs:80`, `:206` (file `#![cfg(feature = "engine")]`, `:7`); `tests_engine_s1a.rs` through `ScriptEngine::drain_timers` (`lib.rs:54-56`, `cfg(test)` + `engine`); and `vm/tests/tests_timer.rs` (ungated, so a `default` test reader; its interval tests `:183`, `:207` read `repeat` through `drain_timers`). `next_timer_deadline`'s readers are `engine.rs:539` and, through it, `tests_engine_s1d.rs` (`lib.rs:63-65`, `cfg(test)` + `engine`). `TimerEntry`'s `repeat` field (`:26`) is read only by `drain_timers` (`:388`). The constant `MIN_INTERVAL_REPEAT_MS` (`:66`) and `schedule_timer`'s `repeat` parameter (`:102`) feed only that field. Owner: the VM's timer heap (HTML §8.7 timers; the host's event loop drives it). | (b). The gate follows the readers: `cfg(any(test, feature = "engine"))` where `tests_timer` reads, and `cfg(feature = "engine")` where only engine reads. The `allow` is removed. | `vm/natives_timer.rs`: `:242` `allow` → `#[cfg(any(test, feature = "engine"))]` on the `impl`, and `#[cfg(feature = "engine")]` on `next_timer_deadline` (`:259`). `cfg(any(test, feature = "engine"))` goes on the import `:12`, the field `:26`, the constant `:66`, `schedule_timer`'s parameter `:102`, its `let interval_repeat` (`:143`), the struct-literal field `:155`, and the argument at each of the two call sites (`native_set_timeout` `:167`, `native_set_interval` `:176`; cfg on a call argument). The comment `:239-241` is rewritten to state the gate and its readers. That is 10 attributes in one file. **The module doc `:5-7`** is a statement fix (PM 655 (1)), like A1-3 / A1-9: "The host drives execution by calling [`VmInner::drain_timers`] on each event-loop tick" holds only with `engine` or `test`, so it is rewritten to say that, without naming an item compiled out of `default` (§1.2). Measured: the sentence "With the `engine` feature (and in this crate's tests), the host drives execution on each event-loop tick through the drain methods of the `impl VmInner` block below, which compile only in those configurations. Without either, nothing drains the heap: callbacks are scheduled and never fire." removes `:6`'s warning (§5.3). In `default` without `test`, an entry no longer records whether it repeats. That is unobservable, because nothing fires any entry there, and that is pre-existing. L3's removal of the timer surface ends it (§6). **Interim** (PM 655 (2a)): L3 removes the timer surface from the host-less row (brand-check PR-1b, Q-10), and these gates then collapse into that single surface gate (§6). | `default` clippy (N8–N10 gone; rc 0); `default` `test --lib --no-run` rc 0 (`tests_timer` compiles); `app` / `browser` clippy rc 0 and rustdoc sets unchanged (§5.2). Timer behaviour: `vm/tests/tests_timer.rs` under `--all-features` |
+| **A1-11** | The inert suppression at `vm/natives_promise.rs:633` (§2.1 reason 5; §7.2 item 6.4). `#[allow(clippy::needless_pass_by_value)]` on the `cfg(not(feature = "engine"))` stub `dispatch_unhandled_rejection_event` (`:632-640`, called at `:400`). Force-warned, the lint does not fire, because the by-value parameters are `Copy` (`JsValue`, `vm/value.rs:113-115`). The `allow` hides nothing, and it compiles only under `not(engine)`. Owner: the VM's unhandled-rejection report; the stub exists because there is no host to dispatch to. | (b), the degenerate form (PM 661 (1)): the attribute is deleted. The stub stays as it is (PM 583: it is live, U0 PR-T row); its signature and body do not change. | `vm/natives_promise.rs:633`, the attribute on `dispatch_unhandled_rejection_event` (the `cfg(not(feature = "engine"))` stub). | `default` clippy `-D warnings` rc 0 with the attribute deleted (§5.2), so it hid nothing; the engine rows do not compile the stub |
 
 **Layering check** (U0 hand-off), one line per fix:
 - A1-1, A1-2, A1-3: (b). No relocation. They are not calls into `vm/host/`.
@@ -306,6 +336,7 @@ below is (b). No fix combines kinds.
 - A1-9: (b). Web IDL helpers in core, read by `vm/host/`.
 - A1-10: (b). Core timer-heap code, read by `engine.rs`, the worker / service-worker threads and `tests_timer`. It
   adds no call and moves nothing.
+- A1-11: (b). It deletes an attribute on a core stub and adds nothing.
 - No fix relocates an algorithm, so no engine-independent API needed checking (PM 578 (iii)).
 
 **The membership test.** The slot `#11-vm-inbound-host-call-membership-test` is **undecided**
@@ -317,8 +348,9 @@ Boundary 1 is the slot's own scope: directory, core `vm/` → `vm/host/` calls
 (`docs/plans/2026-07-vm-p4-slot-ledger.md:311`).
 - Reached: only A1-8's drain arm. Provisionally (b), PM 649. Re-examine A1-8 when the slot is ruled. It is (b) on
   the diff fact (A1-8's row): no call, variant or dependency is added.
-- Not reached: A1-1, A1-2, A1-3, A1-4, A1-6, A1-7, A1-9 and A1-10. These are imports, parameters, a `HostData` /
-  external-crate cleanup, a dead branch, the timer heap, and core items called *from* `vm/host/`.
+- Not reached: A1-1, A1-2, A1-3, A1-4, A1-6, A1-7, A1-9, A1-10 and A1-11. These are imports, parameters, a
+  `HostData` / external-crate cleanup, a dead branch, the timer heap, an attribute on a core stub, and core items
+  called *from* `vm/host/`.
 
 Boundary 2 is design invariant I-5's: "the **`engine` feature gate + host-binding dependency**, not directory name"
 (`docs/plans/2026-07-vm-p4-design-invariants.md:102-104`).
@@ -411,7 +443,7 @@ One more axis, from R1:
 | O×R | `Vm::unbind`'s engine block strips queued `NotifyMutationObservers` tasks (`vm/lifecycle.rs:350-355`), and `mark_roots` marks the microtask queue. Both name the variant only under `engine` after A1-8, so in `default` neither can disagree with the other. |
 | O×H | The order contract spans `Vm` (the bridge clear and field clears) and `HostData::unbind` (`dom_ptr` zeroing). PR-A1 keeps that two-home split as it is (contract 2), and consolidating it is the decomposition slot's job. |
 | R×H | The stub's `gc_root_object_ids` (an empty iterator) is the only `HostData` rooting `default` sees, and it is unchanged. |
-| M×G | Every fix is attribute-only in the engine rows, apart from `Vm::new`'s statement form (A1-2), the doc sentences (A1-3, A1-9, A1-10) and the redundant inner gate (A1-8). Measured: app and browser clippy rc 0 before and after, and their rustdoc warnings are equal as multisets of (file, line, message) (§5.2). |
+| M×G | Every fix is attribute-only in the engine rows, apart from `Vm::new`'s statement form (A1-2), the doc text (A1-3, A1-7, A1-9, A1-10) and the redundant inner gate (A1-8). A1-11's attribute is on a stub the engine rows do not compile. Measured (§5.2): `app` and `browser` clippy rc 0 before and after. Their rustdoc warnings are equal as (file, message) multisets, base vs fixed: the fixes shift lines in the touched files (A1-2 / A1-3 in `vm/init.rs`), so (file, line, message) is not compared across base and fixed. Equal as (file, line, message) multisets: the A1-1…A1-9 run vs the A1-1…A1-10 run (Rev 1.3). In Rev 1.4 (A1-7's doc text, A1-11), equal as (file, message) multisets to Rev 1.3's run; the one (file, line) change is `vm/natives_json/stringify.rs:403` → `:404`, the shift from the module doc's extra line. |
 | M×O, M×R, M×H, M×L | Each follows from G×X row by row. In the engine rows every gate is the identity (M×G), so the order, roots, `HostData` and Layering facts of G×O, G×R, G×H and G×L hold unchanged there. In `default`, those rows already state what exists. |
 | M×S | Two touched files are over 1000 lines (§5.1's table). `vm/gc/collect.rs` (2078): its split is umbrella 7b's (§1.2), and PR-A1 shrinks it. `vm/value.rs` (1176): prereq: value.rs split (PM 651, PM 586 root 4 seam), lands first. PR-A1 touches the post-split file (about 967). Every other touched file, `vm/natives_timer.rs` (440) included, is under 1000. |
 | T×G | A1-3 narrows `cfg(test)` to `cfg(all(test, feature = "engine"))`, because every caller of `new_with_mode` is engine-gated. A1-10 uses `cfg(any(test, feature = "engine"))`, because `tests_timer` is a `default`-row test reader of `drain_timers`. `next_timer_deadline` has no test reader in `default`, so it gets `cfg(feature = "engine")`. Each gate follows that item's measured reader set. Measured: `default` `test --lib --no-run` rc 0 with A1-1…A1-10 (§5.2). The `default` row's test *census* stays PR-T's (§1.2). Coupling for L3 (PM 655 (2a)): the `any(test, feature = "engine")` predicate rests on `tests_timer` being a `default` + `test` reader (`vm/tests/tests_timer.rs:183`, `:207`). When L3 removes the timer surface from the host-less row (brand-check PR-1b), `tests_timer` has to go engine-only with it, and A1-10's gates collapse into that single surface gate. |
@@ -449,7 +481,7 @@ file.
   | `vm/natives_json/mod.rs` | 63 | A1-7 | no |
   | `vm/natives_json/parse.rs` | 568 | A1-7 | no |
   | `vm/natives_json/stringify.rs` | 586 | A1-7 | no |
-  | `vm/natives_promise.rs` | 961 | A1-8 | no |
+  | `vm/natives_promise.rs` | 961 | A1-8, A1-11 | no |
   | `vm/shape_ops.rs` | 619 | A1-9 | no |
   | `vm/value.rs` | 1176 → about 967 after the prereq (measured at the prereq) | A1-9 | **yes** at the base. Prereq: value.rs split (PM 651, PM 586 root 4 seam), lands first |
   | `vm/natives_timer.rs` | 440 | A1-10 | no |
@@ -465,6 +497,11 @@ file.
   workspace `[lints]` table (`Cargo.toml:316-326`). The `not(engine)`-only walk visits every
   `git grep -n 'not(feature = "engine")'` hit at the base and reads its attribute stack, its enclosing block and,
   for a `mod x;` item, its file.
+- **PR-time re-run of the force-warn population** (focused-r3 MIN-4). The population above is a one-shot derivation
+  at pre-split `bea9ef19`, and a derived population can shrink in silence. On PR-A1's head (post `vm/value.rs`
+  split), the driver re-runs the force-warn command above in `default` and `app` and records in the PR body the row
+  totals and the `default` minus `app` count. Any (file, lint) key in the difference that is not among the 792
+  (after the line shifts of the split and of PR-A1's own diff) is sent to the PM before landing.
 
 ### §5.2 Results at `8344af2b`, and with the fix table applied (macOS)
 
@@ -486,17 +523,29 @@ The fix table was applied as a scratch probe in this worktree and then reverted.
 `git status --porcelain` → empty):
 - every clippy column, `browser` `--all-targets` and `default` `test --lib --no-run`: rc 0, 0 warnings;
 - every rustdoc build: rc 0;
-- `default` rustdoc: 50 distinct triples, 26 own (§5.3; the 26th was A1-10's, fixed in Rev 1.3, below);
+- `default` rustdoc: 50 distinct triples; the own set gained one triple, `vm/natives_timer.rs:6`, A1-10's (fixed in
+  Rev 1.3, below; counts by revision: §0.1);
 - `app` / `browser` rustdoc: 78 / 78 distinct triples. Both sets are identical, line for line, to Rev 1.1's
   re-measurement with A1-1…A1-9 at `bea9ef19`. So A1-10 adds nothing to the engine rows.
 
 **Rev 1.3, with A1-1…A1-10 and A1-10's module-doc statement fix, at `bea9ef19`'s code** (same probe procedure; then
 `git checkout -- crates` and `git status --porcelain` → empty):
 - `default` clippy `-D warnings`: rc 0. `cargo fmt -p elidex-js --check`: rc 0.
-- `default` rustdoc: 49 distinct triples, **25 own**. The own set is equal, as a set and line for line, to the 25
-  measured with A1-1…A1-9 at `bea9ef19` in the same session (§5.3). This is a set comparison, not a subtraction.
-- `app` / `browser` rustdoc: 78 / 78, equal as multisets to the A1-1…A1-9 run.
+- `default` rustdoc: 49 distinct triples. The own set is equal, as a set and line for line, to the own set
+  measured with A1-1…A1-9 at `bea9ef19` in the same session. This is a set comparison, not a subtraction.
+- `app` / `browser` rustdoc: 78 / 78, equal as (file, line, message) multisets to the A1-1…A1-9 run.
 - The force-warn population run and its controls: §2.1 reason 5.
+
+**Rev 1.4, with A1-1…A1-11 and A1-7's doc text (`stringify.rs:3-5`, `:35-37`), at `bea9ef19`'s code** (the Rev 1.3
+probe plus the Rev 1.4 hunks; same procedure, then `git checkout -- crates` and `git status --porcelain` → empty):
+- every clippy column (`default`, `app`, `browser`, `browser` `--all-targets`) `-D warnings`: rc 0;
+  `default` `test --lib --no-run`: rc 0; `cargo fmt -p elidex-js --check`: rc 0. So A1-11's attribute hid nothing.
+- every rustdoc build: rc 0. `default`: 47 distinct triples, 24 shared with `app` / `browser`, **23 own**. The own
+  set equals, as a set and line for line, Rev 1.3's own set (measured at `bea9ef19` with A1-1…A1-10; itself equal
+  to the A1-1…A1-9 set) minus exactly `vm/natives_json/stringify.rs:3` and `:36`. No triple is extra and none is
+  missing (§5.3). `vm/natives_timer.rs:6` is in neither set (Rev 1.3 fixed it).
+- `app` / `browser` rustdoc: 78 / 78, equal as (file, message) multisets to Rev 1.3's run. The one line change is
+  `vm/natives_json/stringify.rs:403` → `:404` (`unresolved link to Serializable`), the module doc's extra line.
 
 Intermediate probes, which give each class its control:
 - With D1–D17 fixed and nothing else, the `default` row reports exactly N1–N6.
@@ -532,7 +581,7 @@ clippy column.
     statement, and the listing measures it directly.
 - **Comparison.** Lists are keyed by (file, line, message) and compared against macOS's at the same head:
   - **`default`.** Linux's and Windows's run-H sets are compared with macOS's run-H set. macOS's set is §5.3's
-    25, re-checked against the local measurement.
+    population (PM 662), re-checked against the local measurement.
   - Owners of a per-OS increment follow the rule of PM 649/650: a site outside `vm/host/` is VM P4's, a site
     inside it is L3's. Both go to the default 行 rustdoc の PR.
   - **`app` / `browser`.** On each OS, run H's list must equal run B's **as a multiset** of (file, message),
@@ -542,9 +591,10 @@ clippy column.
     and outside PR-A1. U0 left Linux / Windows unmeasured in the PR-D… population. Such a triple goes to PM under
     the C0 rule (U0 §4.4 step 2). PR-A1 does not fix it.
   - A triple in run H but not run B is PR-A1's own, and PR-A1 fixes it before landing.
-- **Two rules for Linux / Windows** (focused re-review IMP-4). The touched files have no per-OS code, but the
-  untouched files do, and CI's `check` job has never built the `default` row, nor the `app` row alone, on Linux or
-  Windows.
+- **Two rules for Linux / Windows** (focused re-review IMP-4). elidex-js has 0 target-cfg sites
+  (`git grep -nE 'target_os|target_family|target_arch|target_env|target_pointer_width|cfg\(unix|cfg\(windows|any\(unix|any\(windows|not\(unix|not\(windows' -- crates/script/elidex-js`
+  → no output, at `bea9ef19`), so per-OS variance can come only through dependencies or the toolchain. CI's `check`
+  job has never built the `default` row, nor the `app` row alone, on Linux or Windows.
   - **(i) A new `default` diagnostic on Linux or Windows only** (a clippy error, a test-build error, or a rustdoc
     build failure in run H that macOS does not have) is named in the PR body and fixed in PR-A1, with its kind. If
     its only fix is kind (c), it goes to PM under U0's returned-site rule (the hand-off's (c) clause, §7.1), and PR-A1
@@ -556,32 +606,31 @@ clippy column.
 - **PR body.** It records run B's and run H's ids and head shas, and the per-OS sets of all three rows with their
   increments over macOS, split by owner.
 - At merge, PM checks (i)–(iii) of U0 §6.
-- The touched files contain no `cfg(target_os)` / `cfg(unix)` / `cfg(windows)` site (`/usr/bin/grep -c` on each →
-  0). Their per-OS results can differ only through code they do not touch, and the three-OS run is what covers that.
+- No file of elidex-js contains a target-cfg site (the `git grep` above). Per-OS results can differ only through
+  dependencies or the toolchain, and the three-OS run is what covers that.
 - Engine behaviour (A1-4, A1-7, A1-8, A1-9, A1-10) on three OS is the `check` job's `--all-features` test run, which the
   PR runs anyway.
 
-### §5.3 The `default` row's rustdoc warnings (handed to the default 行 rustdoc の PR, PM 650)
+### §5.3 The `default` row's rustdoc warnings (handed to the default 行 rustdoc の PR, PM 650, PM 662)
 
-There are 49 distinct (file, line, message) warnings. 24 also occur in the `app` or `browser` row at the same code
-and are already PR-D… population. The other **25 are the `default` row's own**, all `unresolved link` warnings in
-24 doc lines over 11 files (verified 2026-11-11: the set difference of the three rows' warning lists, §5.1).
+**Population** (PM 662): **default 行 rustdoc PR の母集団 = PR-A1 の head で default 行だけに出る rustdoc 診断の集合.**
+A diagnostic is a (file, line, message) triple, and "only in `default`" is the set difference of §5.1's three
+rustdoc listings: the `default` triples whose (file, message) occurs in neither `app` nor `browser`. The number is
+a measurement of that set, not its definition. The PR body records it again at PR-A1's actual head (§5.6).
 
-**Re-measured at `bea9ef19`** (PM 649; current main, including #622), with the fix table applied by the same probe
-(apply, measure, `git checkout -- crates`, `git status --porcelain` → empty): the same 49, and the same 25 own
-warnings, line for line. #622 removed the 4 `vm/host/mod.rs:230` warnings, which belong to the `app` / `browser`
-population, not to these 25; the 4 at `vm/host/mod.rs:53-68` remain.
+**Measured at `bea9ef19` + the Rev 1.4 probe (A1-1…A1-11): 23 (VM P4 19 + L3 4).** Command: §5.1's rustdoc listing
+(`env -u RUSTUP_TOOLCHAIN CARGO_TARGET_DIR=<scratch>/pra1-target cargo doc --no-deps --document-private-items <row>`
+for each of `default`, `app`, `browser`, each logged to a file), then the set difference above. The `default`
+listing has 47 distinct triples; 24 also occur in `app` or `browser` and are PR-D… population. The 23 are all
+`unresolved link` warnings, in 22 doc lines over 10 files (verified 2026-11-11, the table below).
 
-**Rev 1.2, with A1-10** (§5.2): the same 25, plus one created by A1-10's gate, `vm/natives_timer.rs:6`
-(`unresolved link to VmInner::drain_timers`), 26 in all. **Rev 1.3** (PM 655 (1)): A1-10 now also rewrites the
-module doc whose sentence is false in `default` (§2.2 A1-10), so `:6` is fixed inside PR-A1. With A1-1…A1-10 and
-that rewrite, the `default` own set is again 25. It was compared as a set, triple by triple, with the 25 measured
-with A1-1…A1-9 at `bea9ef19` in the same session, and the two are identical (§5.2). The count is not obtained by
-subtracting 1 from 26.
+**Set comparison** (Rev 1.4). The 23 equal, triple by triple, the set expected from PM 655's rule: Rev 1.3's own set
+at `bea9ef19` (which already excluded `vm/natives_timer.rs:6`) minus `vm/natives_json/stringify.rs:3` and `:36`. No
+triple is extra and none is missing. The count was not obtained by subtraction. Earlier counts are history (§0.1).
 
 They are listed here and, per U0 §6, go in PR-A1's body (§5.6). PM 650 takes them out of PR-D…. They go to one
 separate PR, the default 行 rustdoc の PR:
-- owner: VM P4, L3's 4 included (One issue, one way; the PM tells L3);
+- owner: VM P4, L3's sites included (One issue, one way; the PM tells L3);
 - order: PR-A1 → that PR → U0 PR-M1;
 - due: 11-25.
 The owner split by site (PM 649) is kept as the table's column: a site outside `vm/host/` is VM P4's, a site in
@@ -597,36 +646,33 @@ The owner split by site (PM 649) is kept as the table's column: a site outside `
 | `vm/host/mod.rs` | `:53` `node_proto`, `:59` `node_methods_extras`, `:62` `element_proto`, `:68` `dom_bridge` | 4 | L3 DOM/form |
 | `vm/init.rs` | `:26` `EngineMode::BrowserCompat`, `:162` `elidex_plugin::SpecLevelPolicy` | 2 | VM P4 |
 | `vm/inner.rs` | `:14` `super::VmInner::remove_listener_and_prune_back_ref` | 1 | VM P4 |
-| `vm/natives_json/stringify.rs` | `:3` and `:36` `stringify_for_structured_shortcut` | 2 | VM P4 |
 | `vm/ops_element.rs` | `:25` `…::write_element_raw`, `:26` `…::read_element_raw`, `:36` `classify_typed_array_number_key`, `:37` `classify_typed_array_string_key` | 4 | VM P4 |
 | `vm/shape_ops.rs` | `:495` `Self::install_bound_accessor_pair` | 1 | VM P4 |
 | `vm/temp_root.rs` | `:15` (2: `VmInner::push_temp_root`, `VmTempRoot`), `:131`, `:134`, `:151`, `:154`, `:170` | 7 | VM P4 |
 
-Totals: 25 warnings over 11 files. They were verified 2026-11-11 at `8344af2b`, again at `bea9ef19`, and in Rev 1.3
-at `bea9ef19` with A1-1…A1-10 (set comparison, above). Owners: VM P4 21, L3 4 (PM 650). All 25 go to the default 行
-rustdoc の PR.
+Totals of this measurement (verified 2026-11-11): 23 warnings over 10 files; VM P4 19, L3 4 (PM 650). All go to the default 行 rustdoc の
+PR.
 
 **The window** (PM 650). From PR-A1's merge until the default 行 rustdoc の PR lands, the `default` row's rustdoc
-column is red (these 25). That PR lands before PR-M1, so the red column never meets PR-M1's `feature-profiles` job.
-PM 649 said "no CI job runs the row before PR-M1". That holds only because PR-M1 lands after the fix, and PM 650
-corrects it on that basis.
+column is red (this population). That PR lands before PR-M1, so the red column never meets PR-M1's
+`feature-profiles` job. PM 649 said "no CI job runs the row before PR-M1". That holds only because PR-M1 lands after
+the fix, and PM 650 corrects it on that basis.
 
 **Provenance.**
-- 23 of the 25 are inherent to the row: the link target is compiled out of `default` at the base too.
-- 2 are created by PR-A1's own gate: `vm/natives_json/stringify.rs:3`, `:36` link to
-  `stringify_for_structured_shortcut`, which A1-7 gates. `:3` is the same kind of site as `:6`: its sentence
-  becomes false in `default`. PM 655 fixed the count at 25, so `:3` stays here, and the question goes to PM
-  (§1.2, §7.2 item 3).
-- A1-10's gate created a third in Rev 1.2, `vm/natives_timer.rs:6`. Rev 1.3 fixes it inside PR-A1 as a statement
-  fix (PM 655 (1); §2.2 A1-10).
+- All 23 are inherent to the row: each link target is compiled out of `default` at the base too.
+- PR-A1's own gates break 3 sites (verified 2026-11-11: the Rev 1.2 and Rev 1.4 set differences), and PR-A1 fixes all 3 (PM 655's rule, "whatever PR-A1 itself breaks, PR-A1
+  fixes"; PM 661):
+  - `vm/natives_timer.rs:6` (A1-10's gate): a statement fix (PM 655 (1));
+  - `vm/natives_json/stringify.rs:3` (A1-7's gate): a statement fix (PM 661 (3));
+  - `vm/natives_json/stringify.rs:36` (A1-7's gate): a pointer inside a true sentence; the pointer is dropped.
+  None of the 3 is in the population, because PR-A1's head does not have them.
 
-PR-A1 hands the 25 to the default 行 rustdoc の PR and does not fix them itself. All 25 have one shape: an
-ungated doc comment that links to an item compiled out of `default`. The form that fixes that shape, for example a plain code span
-instead of a link, or an engine-only doc attribute, is one decision for the whole population. If PR-A1 picked a form
-for those two, the program would have two forms (One issue, one way). PR-A1 fixes only doc *statements* that its own
-change makes false (A1-3, A1-9, A1-10). Those are content, not link form. `vm/natives_timer.rs:6` is one of these.
-Its rewritten sentence names no item compiled out of `default`, so the warning goes away because the content
-changed, and no link form is chosen (§1.2).
+**One shape, one decision, for the population that stays.** All 23 have one shape: an ungated doc comment that links
+to an item compiled out of `default` at the base. The form that fixes that shape, for example a plain code span
+instead of a link, or an engine-only doc attribute, is one decision for the whole population, and it is the default
+行 rustdoc の PR's. PR-A1 does not pick it. Its 3 fixes set no precedent for it: the two statement fixes rewrite the
+content so that no compiled-out item is named, and the `:36` fix removes a pointer whose sentence stands without it.
+None of the 3 keeps a reference to a compiled-out item in any form, so none is a link form (§1.2).
 
 ### §5.4 Keeping the row green: what PR-A1 relies on from PR-M1
 
@@ -652,7 +698,7 @@ belong to the CI/tools lane under U0 (PR-M1 retires `check-default`), and U0 §4
 
 - `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-elidex-js-default-row-pra1.md` →
   rc 0, no hard-fail; K=4, M=8, SPLIT-RECOMMENDED (answered under §3's breadth note); grep-pass 0 hard, 6 soft (Rev
-  1.3). The 6 soft are "symbol not found in codebase" for `clippy::all`, `clippy::pedantic`, `clippy::nursery`,
+  1.4). The 6 soft are "symbol not found in codebase" for `clippy::all`, `clippy::pedantic`, `clippy::nursery`,
   `clippy::restriction`, `clippy::cargo` and `clippy::must_use_candidate`. These are lint and lint-group names used
   as command arguments in §2.1 reason 5 and §5.1, not code symbols (`must_use_candidate` appears unprefixed at
   `Cargo.toml:324`), so no `(NEW)` annotation applies.
@@ -661,17 +707,21 @@ belong to the CI/tools lane under U0 (PR-M1 retires `check-default`), and U0 §4
 ### §5.6 PR body requirements
 
 The PR body carries:
-- every fix with its kind (U0 §6 acceptance): A1-1, A1-2, A1-3, A1-4, A1-6, A1-7, A1-8, A1-9, A1-10, each (b); no
-  (a), no (c) (§7.1). A1-5 is the order contract, not a fix;
+- every fix with its kind (U0 §6 acceptance): A1-1, A1-2, A1-3, A1-4, A1-6, A1-7, A1-8, A1-9, A1-10, A1-11, each
+  (b); no (a), no (c) (§7.1). A1-5 is the order contract, not a fix;
 - the later-phase diagnostics N1–N7 (§0.3 item 3, §1.3), and N8–N10 behind A1-10's suppression (§1.3), each named;
 - run B's and run H's ids and head shas, run B's base sha (run B is re-run whenever the base changes), and the
   per-OS rustdoc lists with their increments by owner (§5.2);
 - every Linux- or Windows-only `default` diagnostic with its kind and fix (§5.2 rule (i)), or "none"; and every
   pre-existing run-B red in `app` / `browser` on Linux or Windows, with the PM ruling it went to (§5.2 rule (ii)), or
   "none";
-- §5.3's 25 warnings, by owner;
-- the line: "default 行の rustdoc は 25 件 → default 行 rustdoc の PR (PR-A1 の後、PR-M1 の前、11-25、PM 650)".
-  PR-A1 が自分で壊す `vm/natives_timer.rs:6` は PR-A1 で直す (PM 655).
+- the force-warn population re-run on PR-A1's head (§5.1): the `default` and `app` totals and the `default` minus
+  `app` count, and every key not among the 792, with the PM's ruling, or "none";
+- §5.3's population, measured at PR-A1's actual head with §5.3's command, listed by owner;
+- the line: "default 行 rustdoc の PR (PR-A1 の後、PR-M1 の前、11-25、PM 650/655/661/662) — 母集団 = PR-A1 の head で
+  default 行だけに出る rustdoc 診断の集合 (measured: N at <sha>)", with N and `<sha>` filled in from that head
+  (at plan time: 23 at `bea9ef19` + the probe, §5.3). PR-A1 が自分で壊す 3 件 (`vm/natives_timer.rs:6`,
+  `vm/natives_json/stringify.rs:3`, `:36`) は PR-A1 で直す (PM 655, PM 661).
 
 ## §6. Observation for the split umbrella (F1-c)
 
@@ -699,7 +749,10 @@ lives:
   engine-only with it, and A1-10's gates collapse into that single surface gate;
 - the well-known string table (`vm/well_known.rs:60`): 780 of its fields are read only by engine code (force-warn
   multiset, §2.1 reason 5; Rev 1.2's 779 came from a different count). The `allow` that covers them is a pre-existing
-  member (§7.2 item 6). The facet goes to this slot, written by the PMO (PM 655 (2b)).
+  member (§7.2 item 6.1). The facet goes to this slot, written by the PMO (PM 655 (2b), PM 661 (2));
+- the other two pre-existing members that stay: `lib.rs:37`'s module-wide `allow(clippy::unnecessary_wraps)` on
+  `mod vm` (5 `default`-only spans) and the workspace `must_use_candidate = "allow"` (7). Each is a facet on this slot
+  (§7.2 items 6.2, 6.3; PM 661 (2)).
 
 `engine_mode` (A1-2): its readers are engine-only today. `EngineMode` itself is the whole-engine core/compat
 authority (`crates/core/elidex-plugin/src/spec_level.rs:78-81`), so where the parameter lives is the split's
@@ -730,7 +783,7 @@ Each candidate the brief and U0 name has a kind (b) fix, so none has (c) as its 
 
 So **PR-A1′ is not needed** unless PM rules otherwise.
 
-### §7.2 Items for PM (items 1–3 ruled by PM 649; item 3 re-ruled by PM 650 and PM 655; item 5 by PM 655; item 6 scoped by PM 656)
+### §7.2 Items for PM (items 1–3 ruled by PM 649; item 3 re-ruled by PM 650, PM 655 and PM 662; item 5 by PM 655; item 6 scoped by PM 656 and ruled by PM 661)
 
 1. **`#11-vm-inbound-host-call-membership-test`** (raised per the Layering check, PM 585, PM 588): Provisionally (b),
    PM 649. Re-examine A1-8 when the slot is ruled. Under the slot's directory scope (ledger `:311`), A1-8's drain
@@ -738,16 +791,16 @@ So **PR-A1′ is not needed** unless PM rules otherwise.
    No other fix is reached ((b) for each). PR-A1 does not wait.
 2. **`#11-host-data-full-decomposition` record** (contract 3): "PR-A1 moved nothing" (§4). The slot has no Owner;
    the record goes to a facet on the PM-side ledger, written by the PMO (PM 649).
-3. **The `default` row's rustdoc warnings** → default 行 rustdoc の PR (PR-A1 の後、PR-M1 の前、11-25、PM 650),
-   owner VM P4, L3's 4 included: **25** (§5.3, set-compared). PR-A1 が自分で壊す 1 件は PR-A1 で直す (PM 655):
-   `vm/natives_timer.rs:6`, inside A1-10. The window is stated in §5.3. For PM:
-   - (a) The §1.2 re-check found `vm/natives_json/stringify.rs:3` ("Also hosts [`stringify_for_structured_shortcut`]")
-     to be the same kind of site as `:6`: A1-7's gate makes the sentence false in `default`. If PM rules it in, it
-     becomes a statement fix in A1-7, and the PR's count becomes 24. `:36` stays either way, because it is a link-form
-     site. PM 655 fixed 25, so the memo keeps 25 until PM rules.
-   - (b) Per-OS increments: any Linux- or Windows-only `default` rustdoc warning found by run H (§5.2) changes the
-     default 行 rustdoc の PR's size, which PM rules. The driver names each increment, with its owner, to PM before
-     PR-A1 lands.
+3. **The `default` row's rustdoc warnings** → default 行 rustdoc の PR (PR-A1 の後、PR-M1 の前、11-25、PM
+   650/655/661/662), owner VM P4, L3's sites included. 母集団 = PR-A1 の head で default 行だけに出る rustdoc 診断の集合
+   (PM 662). Measured: 23 (VM P4 19 + L3 4) at `bea9ef19` + the probe, set-compared (§5.3, with the command). PR-A1
+   が自分で壊す 3 件は PR-A1 で直す (PM 655's rule; PM 661): `vm/natives_timer.rs:6` (A1-10),
+   `vm/natives_json/stringify.rs:3` and `:36` (A1-7). The window is stated in §5.3. For PM:
+   - (a) Settled (PM 661, PM 662): `stringify.rs:3` is a statement fix (PM 661 (3)), and `:36` falls under PM 655's
+     rule, so both are fixed in A1-7. The PM accepts the measured 23. No question remains.
+   - (b) Per-OS increments: a Linux- or Windows-only `default` rustdoc warning found by run H (§5.2) is in the
+     population by its definition. The driver names each increment, with its owner, to PM before PR-A1 lands, and the
+     PR body records the per-OS sets.
 4. **Order contract**: unchanged (§2.3). The PM 640 condition does not apply, and the bound-dispatch slot's premise
    is untouched.
 5. **The timer surface and the well-known table** (PM 655 (2a), (2b); not a PM question any more):
@@ -755,18 +808,20 @@ So **PR-A1′ is not needed** unless PM rules otherwise.
      interim gate on that surface, and the coupling is recorded for L3 (§6).
    - (b) `vm/well_known.rs:60`'s 780 `default`-only dead fields: a facet on `#11-elidex-js-no-default-features-support`,
      written by the PMO (§9 item 5). The suppression itself is in item 6's table.
-6. **Pre-existing suppressions that hide diagnostics only in `default`** (PM 656). They are measured by force-warn
-   (§2.1 reason 5) and PR-A1 does not fix them. PM decides, for each, whether it goes to a slot or into PR-A1. A1-2's
-   `cfg_attr` and A1-10's `allow` are not in this table, because PR-A1 fixes them.
+6. **Pre-existing suppressions that hide diagnostics only in `default`** (PM 656, ruled by PM 661). They are measured
+   by force-warn (§2.1 reason 5). PM 661: 6.1–6.3 are facets on `#11-elidex-js-no-default-features-support`, written
+   by the PMO, and PR-A1 does not fix them; 6.4 is fixed in PR-A1 (A1-11). A1-2's `cfg_attr` and A1-10's `allow` are
+   not in this table, because PR-A1 fixes them as part of the row's fixes.
 
    | # | Suppression | Lint | Hides only in `default` | Notes |
    |---|---|---|---|---|
-   | 6.1 | `vm/well_known.rs:60` `#[allow(dead_code)] struct WellKnownStrings` | `dead_code` | 780 field spans (`default` 860, `app` 80) | The `allow` is also needed in `app` (80). Gating per field changes the generated table. Facet: PM 655 (2b) |
-   | 6.2 | `lib.rs:37` `#[allow(clippy::unnecessary_wraps)] pub mod vm` | `clippy::unnecessary_wraps` | 5: `vm/host/event_target.rs:83`, `:530`, `:634` (the three `cfg(not(engine))` `EventTarget` stubs); `vm/coerce_format.rs:21` `collect_own_keys_es_order`; `vm/ops_property.rs:305` `try_delete_property` | The module-wide `allow` states the fixed native signature as its reason, which fits the three stubs. The other two are core functions whose `Err` path exists only under `engine` |
-   | 6.3 | `Cargo.toml:324` `must_use_candidate = "allow"` (workspace `[lints]`) | `clippy::must_use_candidate` | 7: the stub's `new` / `is_bound` `vm/host_data/mod.rs:690`, `:696`; `vm/vm_api.rs:69`, `:75`, `:86`, `:103`, `:765` | A workspace-wide policy entry, not a per-site suppression. Why the five `vm_api.rs` methods fire only in `default` is not established here |
-   | 6.4 | `vm/natives_promise.rs:633` `#[allow(clippy::needless_pass_by_value)]` on the `cfg(not(feature = "engine"))` stub `dispatch_unhandled_rejection_event` (`:632-640`; called at `:400`) | `clippy::needless_pass_by_value` | 0: inert. Force-warned, the lint does not fire, because the by-value parameters are `Copy` (`JsValue`, `vm/value.rs:113-115`). Member because it compiles only under `not(engine)` | PM 583 makes the stub live (U0 PR-T row). Options, not decided here: (1) delete the inert `allow` (the stub stays; nothing else changes); (2) consume the argument; (3) gate the call at `:400` and drop the stub, which changes the stub's existence and is PM 583's; (4) keep it for signature parity with the engine function |
+   | 6.1 | `vm/well_known.rs:60` `#[allow(dead_code)] struct WellKnownStrings` | `dead_code` | 780 field spans (`default` 860, `app` 80) | The `allow` is also needed in `app` (80). Gating per field changes the generated table. **Facet (PM 661), not fixed in PR-A1** (PM 655 (2b)) |
+   | 6.2 | `lib.rs:37` `#[allow(clippy::unnecessary_wraps)] pub mod vm` | `clippy::unnecessary_wraps` | 5: `vm/host/event_target.rs:83`, `:530`, `:634` (the three `cfg(not(engine))` `EventTarget` stubs); `vm/coerce_format.rs:21` `collect_own_keys_es_order`; `vm/ops_property.rs:305` `try_delete_property` | The module-wide `allow` states the fixed native signature as its reason, which fits the three stubs. The other two are core functions whose `Err` path exists only under `engine`. **Facet (PM 661), not fixed in PR-A1** |
+   | 6.3 | `Cargo.toml:324` `must_use_candidate = "allow"` (workspace `[lints]`) | `clippy::must_use_candidate` | 7: the stub's `new` / `is_bound` `vm/host_data/mod.rs:690`, `:696`; `vm/vm_api.rs:69`, `:75`, `:86`, `:103`, `:765` | A workspace-wide policy entry, not a per-site suppression. Why the five `vm_api.rs` methods fire only in `default` is not established here. **Facet (PM 661), not fixed in PR-A1.** The workspace `[lints]` table belongs to the CI/tools lane |
+   | 6.4 | `vm/natives_promise.rs:633` `#[allow(clippy::needless_pass_by_value)]` on the `cfg(not(feature = "engine"))` stub `dispatch_unhandled_rejection_event` (`:632-640`; called at `:400`) | `clippy::needless_pass_by_value` | 0: inert. Force-warned, the lint does not fire, because the by-value parameters are `Copy` (`JsValue`, `vm/value.rs:113-115`). Member because it compiles only under `not(engine)` | **Fixed in PR-A1 (A1-11)**, PM 661 (1): option (1), delete the inert `allow`. The stub stays (PM 583 makes it live, U0 PR-T row). The options not taken: consume the argument; gate the call at `:400` and drop the stub (PM 583's); keep it for signature parity |
 
-   Count: 4 suppressions, 792 hidden diagnostics (780 + 5 + 7 + 0).
+   Count: 4 suppressions, 792 diagnostic spans hidden only in `default` (780 + 5 + 7 + 0). After PR-A1, 3
+   suppressions stay, as facets, hiding the same 792 spans.
 
 ## §8. Touched functions (PM 626 overlap list; `file:line` at `8344af2b`)
 
@@ -781,8 +836,9 @@ So **PR-A1′ is not needed** unless PM rules otherwise.
 | `vm/gc/roots.rs` | `mark_roots` (`:266`; arm `:440`) | A1-8 |
 | `vm/natives_json/mod.rs` | the re-exports (`:13-16`; no function) | A1-7 |
 | `vm/natives_json/parse.rs` | import `:13`; `parse_json_str` (`:501`) | A1-7 |
-| `vm/natives_json/stringify.rs` | `stringify_for_structured_shortcut` (`:423`) | A1-7 |
+| `vm/natives_json/stringify.rs` | module doc (`:3-5`); `JsonSerializer` field `reject_date` (doc `:35-37`; no code change); `stringify_for_structured_shortcut` (`:423`) | A1-7 |
 | `vm/natives_promise.rs` | `enum Microtask` (`:31`; variant `:59`); `drain_queue_pass` (`:311`; arm `:333`, inner gate `:339`) | A1-8 |
+| `vm/natives_promise.rs` | `dispatch_unhandled_rejection_event`, the `cfg(not(feature = "engine"))` stub (`:632-640`; attribute `:633` deleted; signature and body unchanged) | A1-11 |
 | `vm/shape_ops.rs` | `create_illegal_constructor_function` (doc `:320-321`, fn `:322`) | A1-9 |
 | `vm/value.rs` (post-split) | `native_illegal_constructor_unreachable` (by name; the prereq split moves lines) | A1-9 |
 | `vm/natives_timer.rs` | module doc (`:5-7`); import `:12`; `TimerEntry` field `repeat` (`:26`); `MIN_INTERVAL_REPEAT_MS` (`:66`); `schedule_timer` (`:99`; parameter `:102`, `let` `:143`, field `:155`); `native_set_timeout` (`:162`; call `:167`); `native_set_interval` (`:171`; call `:176`); `impl VmInner` (comment `:239-241`, attribute `:242`); `next_timer_deadline` (`:259`) | A1-10 |
@@ -795,6 +851,10 @@ the copy this memo already cites in §1.2):
   `native_set_timeout` and `native_set_interval`, at the call argument (`:167`, `:176`). That is a function-level
   overlap with PR-1b's subjects, not with its file list, and it goes to PM (§9 item 7).
 - No other touched function is on PR-1b's list. The module doc `:5-7` and the `impl VmInner` comment are not on it.
+  `vm/natives_json/stringify.rs` and A1-11's stub in `vm/natives_promise.rs` are not on it either
+  (`natives_promise.rs` keeps its algorithms, and the stub is not a registration).
+- Not touched by PR-A1, named for the same class (§1.2): `vm/globals.rs:106` (inside PR-1b's deletion range
+  `:100-110`) and `vm/mod.rs:2641-2642` (`VmInner::timer_queue`'s doc).
 
 **Not touched**:
 - `HostData::unbind` (`vm/host_data/engine_feature/bind.rs:118`) and `HostData::bind` (`:80`);
@@ -816,16 +876,28 @@ default 行 rustdoc の PR (11-25) → U0 PR-M1 (11-27).
    PM 649). The landing action is to repoint its source anchor (§4 @ `13400790`) to the merge commit. No new facet.
 3. `#11-vm-typed-array-family-layering-and-gate` (VM P4): its "Until then" premise ends when PR-A1 lands (U0 §8.1).
    PM routes it.
-4. The default 行 rustdoc の PR: §5.3's 25 warnings (VM P4 21, L3 4), due 11-25, after PR-A1 and before PR-M1
-   (PM 650). The PM tells L3 that its 4 are in VM P4's PR.
-5. `#11-elidex-js-no-default-features-support`: a pointer to §6 of this memo, as the split's input, and the facet
-   for `vm/well_known.rs:60`'s 780 `default`-only fields (PM 655 (2b), written by the PMO). The timer globals in a
-   host-less row are not this slot's question: 決定済み: PM 616 (3) / 617。実施は brand-check (L3).
+4. The default 行 rustdoc の PR (PM 650/655/661/662), due 11-25, after PR-A1 and before PR-M1. 母集団 = PR-A1 の head
+   で default 行だけに出る rustdoc 診断の集合. Measured: 23 (VM P4 19 + L3 4) at `bea9ef19` + the probe (§5.3, with
+   the command); the PR body records the count at PR-A1's actual head. The PM tells L3 that its sites (`vm/host/mod.rs`,
+   4 in this measurement) are in VM P4's PR.
+5. `#11-elidex-js-no-default-features-support`: a pointer to §6 of this memo, as the split's input, and three facets
+   written by the PMO (PM 655 (2b), PM 661 (2)), one per §7.2 item 6 member that stays:
+   - 6.1 `vm/well_known.rs:60`'s `allow(dead_code)`: 780 `default`-only field spans;
+   - 6.2 `lib.rs:37`'s `allow(clippy::unnecessary_wraps)` on `mod vm`: 5;
+   - 6.3 the workspace `must_use_candidate = "allow"` (`Cargo.toml:324`): 7. The workspace `[lints]` table belongs
+     to the CI/tools lane, so a change to it is that lane's.
+   The timer globals in a host-less row are not this slot's question: 決定済み: PM 616 (3) / 617。実施は brand-check
+   (L3).
 6. `#11-vm-inbound-host-call-membership-test`: §7.2 item 1's site list, as input for whenever the slot is decided:
    A1-8's drain arm (directory scope and I-5), and A1-4's block (reached under I-5).
 7. L3 (brand-check PR-1b, Q-10), told by PM: A1-10 is an interim
    gate on the timer surface PR-1b removes from the host-less row. Its `any(test, feature = "engine")` gates rest on
    `vm/tests/tests_timer.rs` being a `default` + `test` reader (`:183`, `:207`). When PR-1b removes the surface, they
    collapse into that single surface gate (§6). A1-10 also touches the bodies of `native_set_timeout` /
-   `native_set_interval` (`vm/natives_timer.rs:167`, `:176`), which are PR-1b's install subjects (§8).
-8. §7.2 item 6's table goes to PM for the per-suppression ruling (PM 656).
+   `native_set_interval` (`vm/natives_timer.rs:167`, `:176`), which are PR-1b's install subjects (§8). The same hand-off
+   carries `vm/mod.rs:2641-2642` (`VmInner::timer_queue`'s doc, "driven by the shell on each event-loop tick"), which
+   PR-A1 leaves (§1.2): it goes with L3's surface collapse. `vm/globals.rs:106` is inside PR-1b's deletion range
+   (`:100-110`) and goes with it.
+8. §7.2 item 6: ruled by PM 661 (item 5 above for 6.1–6.3; 6.4 is A1-11). No landing action beyond item 5.
+9. PR-time: the force-warn population re-run on PR-A1's head (§5.1). Its totals are in the PR body, and any key not
+   among the 792 goes to the PM before landing.
