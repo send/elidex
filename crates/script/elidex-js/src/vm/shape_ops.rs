@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use super::value::{self, JsValue, NativeContext, Object, ObjectId, ObjectKind, StringId, VmError};
-use super::{coerce, shape, VmInner};
+use super::{coerce, frame, shape, VmInner};
 use crate::bytecode::compiled::CompiledFunction;
 use value::{FuncId, NativeFunction, UpvalueId};
 
@@ -244,7 +244,7 @@ impl VmInner {
     // -- Upvalues ------------------------------------------------------------
 
     /// Allocate an upvalue, returning its `UpvalueId`.
-    pub(crate) fn alloc_upvalue(&mut self, uv: super::frame::Upvalue) -> UpvalueId {
+    pub(crate) fn alloc_upvalue(&mut self, uv: frame::Upvalue) -> UpvalueId {
         if let Some(idx) = self.free_upvalues.pop() {
             self.upvalues[idx as usize] = uv;
             UpvalueId(idx)
