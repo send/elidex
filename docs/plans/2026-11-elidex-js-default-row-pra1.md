@@ -24,6 +24,9 @@ row has no rustdoc output at all. The engine-less configuration is a declared ro
   this memo was re-run for it (§5.1 gives the commands).
 - U0 is not edited. U0's text does not ask for a link from its PR-A1 row or hand-off to this memo (U0 `:671-674`
   says only that "PR-A1's own plan" decides the destinations), so no pointer is added.
+- **Rev 1.1 (2026-11-11), PM 649**: A1-8 / §7.2 item 1 provisionally (b); the `#11-host-data-full-decomposition`
+  record goes to a PM-side ledger facet (PMO); §5.3 re-measured at `bea9ef19` (25, unchanged), owners VM P4 21 /
+  L3 4; the window and the §5.6 PR-body line added.
 
 ### §0.2 Premises re-measured
 
@@ -68,8 +71,9 @@ false (§2, A1-3 and A1-9). Every fix is a `cfg` fix (kind (b)). The full list i
 - **The crate split (F1-c).** It is a separate program, owned by VM P4 and not planned here (U0 §5). §6 records,
   for that program, the items this PR gates. They are core items that exist only for the host.
 - **`HostData`'s decomposition** (`#11-host-data-full-decomposition`): PR-A1 moves nothing (§4).
-- **Rustdoc warnings in the `default` row.** They are listed (§5.3) and handed to PR-D… (U0 §6, PM 561/634). PR-A1
-  fixes doc *statements* that its own code change makes false. It does not fix link forms. §5.3 gives the reason.
+- **Rustdoc warnings in the `default` row.** They are listed (§5.3) and handed to VM P4's PR-D… (U0 §6,
+  PM 561/634/649). PR-A1 fixes doc *statements* that its own code change makes false. It does not fix link
+  forms. §5.3 gives the reason.
 - **The `default` row's tests** (PR-T, PR-T0…). PR-A1 checks only that the row's lib test target still compiles
   (§5.1). This is not PR-T's census.
 - **CI**. The row's gate is PR-M1's `feature-profiles` job. PR-A1 adds no trip-wire (§5.4).
@@ -182,7 +186,7 @@ below is (b). No fix combines kinds.
 | **A1-5** | (none: the order contract). The order contract is A1-4's invariant, not a separate fix. §2.3 states it. | — | — | §2.3 |
 | **A1-6** | D15. The `cfg(not(feature = "engine"))` branch of `collect_garbage` (`vm/gc/collect.rs:45-49`) builds an empty `HashMap<elidex_ecs::Entity, HashSet<u64>>`. Its only reader is engine-gated (`vm/gc/roots.rs:206-208`, `vm/gc/collect.rs:1141-1142`). Owner: the bound session's CSSOM (`SessionCore`, engine). | (b), the degenerate form: in the `default` configuration the branch names nothing that is read, so it is removed and the engine branch (`:40-44`) stays as it is. | `vm/gc/collect.rs:45-49` deleted, in `VmInner::collect_garbage` (`:25`). Split decision: §1.2. | `default` clippy (D15 gone, no unused variable) |
 | **A1-7** | D16–D17, N1, N2, N7. `parse_json_str` (`vm/natives_json/parse.rs:501`) and `stringify_for_structured_shortcut` (`vm/natives_json/stringify.rs:423`) are JSON helpers in core, and their only readers are in `vm/host/` (§0.2). `stringify_to_string` keeps a core reader (`vm/natives_json/stringify.rs:368`). Owner: the language core's JSON module (ECMA-262 §25.5). The helpers serve HTML's structured-serialize shortcut and worker messages. | (b). They are core algorithms used by the host, which is the outbound direction the Layering mandate allows, so they stay in core. In `default` they have no reader, so they are gated. | `vm/natives_json/mod.rs:13-16`: the re-exports split, with `native_json_parse` / `native_json_stringify` ungated, and `parse_json_str`, `stringify_for_structured_shortcut` and `stringify_to_string` re-exported under `engine`. `vm/natives_json/parse.rs:501` (`parse_json_str`) and its import `:13` (`VmInner`); `vm/natives_json/stringify.rs:423` (`stringify_for_structured_shortcut`) — each gated. | `default` clippy (5 gone); JSON behaviour: `vm/tests/tests_json.rs`, `vm/tests/tests_json_shortcut_date.rs` under `--all-features` |
-| **A1-8** | N3. `Microtask::NotifyMutationObservers` (`vm/natives_promise.rs:59`) is the DOM's "notify mutation observers" microtask (WHATWG DOM §4.3). Only `vm/host/` constructs it (`vm/host/html_slot_proto.rs:68`, `vm/host/mutation_observer.rs:464`). Owner: the host's mutation-observer machinery. | (b). Kind (a) needs an existing seam, and the core `Microtask` enum has no host-microtask extension point. Creating one is the split's decision (§6). | `vm/natives_promise.rs:59` (variant, in `enum Microtask` `:31`); `vm/natives_promise.rs:333` (its arm in `drain_queue_pass` `:311`, gated as a whole, so the inner `#[cfg(feature = "engine")]` block at `:339` becomes redundant and is removed — one gate per site); `vm/gc/roots.rs:440` (its arm in `mark_roots` `:266`). The third site that names it, `vm/lifecycle.rs:354`, is already inside `Vm::unbind`'s engine block (`:90`). | `default` clippy (N3 gone); `vm/tests/tests_shadow_dom/events.rs:577` (`unbind_clears_pending_notify_mutation_observers_microtask`) under `--all-features` |
+| **A1-8** | N3. `Microtask::NotifyMutationObservers` (`vm/natives_promise.rs:59`) is the DOM's "notify mutation observers" microtask (WHATWG DOM §4.3). Only `vm/host/` constructs it (`vm/host/html_slot_proto.rs:68`, `vm/host/mutation_observer.rs:464`). Owner: the host's mutation-observer machinery. | (b). Kind (a) needs an existing seam, and the core `Microtask` enum has no host-microtask extension point. Creating one is the split's decision (§6). Provisionally (b), PM 649. Re-examine A1-8 when the slot is ruled (`#11-vm-inbound-host-call-membership-test`, §2.2 "The membership test"). | `vm/natives_promise.rs:59` (variant, in `enum Microtask` `:31`); `vm/natives_promise.rs:333` (its arm in `drain_queue_pass` `:311`, gated as a whole, so the inner `#[cfg(feature = "engine")]` block at `:339` becomes redundant and is removed — one gate per site); `vm/gc/roots.rs:440` (its arm in `mark_roots` `:266`). The third site that names it, `vm/lifecycle.rs:354`, is already inside `Vm::unbind`'s engine block (`:90`). | `default` clippy (N3 gone); `vm/tests/tests_shadow_dom/events.rs:577` (`unbind_clears_pending_notify_mutation_observers_microtask`) under `--all-features` |
 | **A1-9** | N4, N5. `create_illegal_constructor_function` (`vm/shape_ops.rs:322`) and `native_illegal_constructor_unreachable` (`vm/value.rs:749`) build Web IDL interface objects that have no constructor operation (Web IDL §3.7.1). Every caller is in `vm/host/` (`git grep -n -e create_illegal_constructor_function -e native_illegal_constructor_unreachable -- crates/script/elidex-js/src`). The doc at `vm/shape_ops.rs:320-321` says "Not engine-gated (sibling parity with [`Self::create_constructor_only_function`])", which the gate makes false. | (b). The sibling `create_constructor_only_function` (`:299`) has a core reader and stays ungated, so the parity the doc claims never held in `default`. | `vm/shape_ops.rs:322` and `vm/value.rs:749`, each gated; `vm/shape_ops.rs:320-321` rewritten to state the gate and why. `CallShape::IllegalConstructor` and the admission gate stay ungated: no `default` diagnostic names them. | `default` clippy (2 gone); `.claude/tools/native-ctor-guard-trip-wire.sh` unaffected (it matches guard idioms, not these items); illegal-constructor tests under `--all-features` |
 
 **Layering check** (U0 hand-off), one line per fix:
@@ -197,9 +201,10 @@ below is (b). No fix combines kinds.
 
 **The membership test.** The slot `#11-vm-inbound-host-call-membership-test` is **undecided**
 (`docs/plans/2026-07-vm-p4-slot-ledger.md:311`, "has **no membership test**"). Per the hand-off (PM 585, PM 588),
-this plan raises it to PM and does not wait for it (§7.2). For each site, here is whether the slot's scope (core
-`vm/` → `vm/host/` calls) reaches it, and the provisional class:
-- Reached: only A1-8's drain arm. Provisional: (b), because the call already exists and is already gated.
+this plan raised it to PM and does not wait for it (§7.2). For each site, here is whether the slot's scope (core
+`vm/` → `vm/host/` calls) reaches it, and the class:
+- Reached: only A1-8's drain arm. Provisionally (b), PM 649. Re-examine A1-8 when the slot is ruled. (b) because
+  the call already exists and is already gated.
 - Not reached: A1-1, A1-2, A1-3, A1-4, A1-6, A1-7, A1-9. These are imports, parameters, a `HostData` / external
   crate cleanup, a dead branch, and core items called *from* `vm/host/`.
 
@@ -290,7 +295,7 @@ or stub item changes place or shape. The only `HostData`-related change is the `
 `Vm::unbind`, and it does not change which function clears which `HostData` field. Record for the slot, via PM: "PR-A1
 moved nothing. The unbind cleanup is still 2 homes (`Vm::unbind`, `HostData::unbind`) carrying 4 concerns, and
 its engine-only block is now `#[cfg(feature = "engine")]` at `vm/lifecycle.rs:30`." The slot still has no Owner
-(U0 §8; ledger), so who receives the record is PM's to name (§7.2).
+(U0 §8; ledger), so the record goes to a facet on the PM-side ledger, written by the PMO (PM 649).
 
 ## §5. Tests and measurements
 
@@ -352,25 +357,35 @@ There are 49 distinct (file, line, message) warnings. 24 also occur in the `app`
 and are already PR-D… population. The other **25 are the `default` row's own**, all `unresolved link` warnings in
 24 doc lines over 11 files (verified 2026-11-11: the set difference of the three rows' warning lists, §5.1).
 
-They are listed here and, per U0 §6, go in PR-A1's body and are handed to PR-D… by owner (PM 561). An owner marked
-"PM" is a file absent from `list-lanes.tsv`, so PM assigns it with the PR-D… ruling. Line numbers are with the fix
+**Re-measured at `bea9ef19`** (PM 649; current main, including #622), with the fix table applied by the same probe
+(apply, measure, `git checkout -- crates`, `git status --porcelain` → empty): the same 49, and the same 25 own
+warnings, line for line. #622 removed the 4 `vm/host/mod.rs:230` warnings, which belong to the `app` / `browser`
+population, not to these 25; the 4 at `vm/host/mod.rs:53-68` remain.
+
+They are listed here and, per U0 §6, go in PR-A1's body (§5.6) and are handed to PR-D… by owner (PM 561). Owners
+(PM 649): every site outside `vm/host/` is VM P4; the sites in `vm/host/` are L3. PR-A1 does not fix them. They are
+added to VM P4's PR-D… (due 12-04) after PR-A1 lands. Line numbers are with the fix
 table applied. They differ from `8344af2b` only in `vm/init.rs` (+2 lines above `:26`, +1 above `:162`).
 
 | File | Lines (message: `unresolved link to …`) | Count | Owner |
 |---|---|---|---|
-| `vm/coerce.rs` | `:376` `enforce_range_unsigned_short` | 1 | PM (VM P4 by file) |
-| `vm/coerce_format.rs` | `:18` `super::host::dataset::collect_keys` | 1 | PM (VM P4 by file) |
+| `vm/coerce.rs` | `:376` `enforce_range_unsigned_short` | 1 | VM P4 |
+| `vm/coerce_format.rs` | `:18` `super::host::dataset::collect_keys` | 1 | VM P4 |
 | `vm/gc/mod.rs` | `:23` `keepalive` | 1 | VM P4 |
-| `vm/gc/roots.rs` | `:46` `super::super::VmInner::subclass_array_ctors` | 1 | PM (VM P4 by file) |
+| `vm/gc/roots.rs` | `:46` `super::super::VmInner::subclass_array_ctors` | 1 | VM P4 |
 | `vm/host/mod.rs` | `:53` `node_proto`, `:59` `node_methods_extras`, `:62` `element_proto`, `:68` `dom_bridge` | 4 | L3 DOM/form |
 | `vm/init.rs` | `:26` `EngineMode::BrowserCompat`, `:162` `elidex_plugin::SpecLevelPolicy` | 2 | VM P4 |
-| `vm/inner.rs` | `:14` `super::VmInner::remove_listener_and_prune_back_ref` | 1 | PM (VM P4 by file) |
+| `vm/inner.rs` | `:14` `super::VmInner::remove_listener_and_prune_back_ref` | 1 | VM P4 |
 | `vm/natives_json/stringify.rs` | `:3` and `:36` `stringify_for_structured_shortcut` | 2 | VM P4 |
-| `vm/ops_element.rs` | `:25` `…::write_element_raw`, `:26` `…::read_element_raw`, `:36` `classify_typed_array_number_key`, `:37` `classify_typed_array_string_key` | 4 | PM (VM P4 by file) |
+| `vm/ops_element.rs` | `:25` `…::write_element_raw`, `:26` `…::read_element_raw`, `:36` `classify_typed_array_number_key`, `:37` `classify_typed_array_string_key` | 4 | VM P4 |
 | `vm/shape_ops.rs` | `:495` `Self::install_bound_accessor_pair` | 1 | VM P4 |
-| `vm/temp_root.rs` | `:15` (2: `VmInner::push_temp_root`, `VmTempRoot`), `:131`, `:134`, `:151`, `:154`, `:170` | 7 | PM (VM P4 by file) |
+| `vm/temp_root.rs` | `:15` (2: `VmInner::push_temp_root`, `VmTempRoot`), `:131`, `:134`, `:151`, `:154`, `:170` | 7 | VM P4 |
 
-Totals: 25 warnings over 11 files (verified 2026-11-11, the table above). Owners: L3 4, VM P4 6, PM-assigned 15 (proposed VM P4).
+Totals: 25 warnings over 11 files (verified 2026-11-11 at `8344af2b` and again at `bea9ef19`, the table above).
+Owners: VM P4 21, L3 4 (PM 649).
+
+**The window.** From PR-A1's merge until PR-D… lands, the `default` row's rustdoc column stays red (these 25).
+CI does not go red: no CI job runs the `default` row before U0 PR-M1 (§5.4).
 
 **Provenance.**
 - 23 of the 25 are inherent to the row: the link target is compiled out of `default` at the base too.
@@ -404,6 +419,14 @@ not land over the row. What PR-A1 relies on from PR-M1:
 - `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-elidex-js-default-row-pra1.md` →
   rc 0, no hard-fail; K=4, M=6, SPLIT-RECOMMENDED (answered under §3's breadth note); grep-pass 0 hard, 0 soft.
 - `python3 .claude/tools/ecs_mission_ratchet.py` → 0 new.
+
+### §5.6 PR body requirements
+
+The PR body carries:
+- the seven later-phase diagnostics N1–N7, each named (§0.3 item 3, §1.3);
+- the three-OS run id and that head's sha (§5.2);
+- §5.3's 25 warnings, by owner;
+- the line: "default 行の rustdoc は 25 件 (→ PR-D…、PM 649)".
 
 ## §6. Observation for the split umbrella (F1-c)
 
@@ -443,16 +466,15 @@ Each candidate the brief and U0 name has a kind (b) fix, so none has (c) as its 
 
 So **PR-A1′ is not needed** unless PM rules otherwise.
 
-### §7.2 Items for PM (no ruling taken here)
+### §7.2 Items for PM (items 1–3 ruled by PM 649)
 
-1. **`#11-vm-inbound-host-call-membership-test` is undecided.** Per the Layering check (PM 585, PM 588), raised:
-   - A1-8's drain arm is the one site its scope reaches. Provisional: (b).
-   - It does not reach A1-1, A1-2, A1-3, A1-4, A1-6, A1-7 or A1-9. Provisional: (b) for each.
-   - PR-A1 does not wait.
-2. **`#11-host-data-full-decomposition` record** (contract 3): "PR-A1 moved nothing" (§4). The slot has no Owner, so
-   PM names who receives the record (U0 §8 PM item).
-3. **PR-D… for the `default` row**: the 25 warnings of §5.3. PM assigns the six files absent from `list-lanes.tsv`
-   (15 warnings; §5.3 table) and names the PR and date (U0 §6 PR-D… row: "when PR-A1 lands, the driver raises it to PM").
+1. **`#11-vm-inbound-host-call-membership-test`** (raised per the Layering check, PM 585, PM 588): Provisionally (b),
+   PM 649. Re-examine A1-8 when the slot is ruled. A1-8's drain arm is the one site the slot's scope reaches; it does
+   not reach A1-1, A1-2, A1-3, A1-4, A1-6, A1-7 or A1-9 ((b) for each). PR-A1 does not wait.
+2. **`#11-host-data-full-decomposition` record** (contract 3): "PR-A1 moved nothing" (§4). The slot has no Owner;
+   the record goes to a facet on the PM-side ledger, written by the PMO (PM 649).
+3. **PR-D… for the `default` row**: the 25 warnings of §5.3, owners VM P4 21 and L3 4 (PM 649). They are added to
+   VM P4's PR-D… (due 12-04) after PR-A1 lands. The window is stated in §5.3.
 4. **Order contract**: unchanged (§2.3). The PM 640 condition does not apply, and the bound-dispatch slot's premise
    is untouched.
 
@@ -487,10 +509,11 @@ So **PR-A1′ is not needed** unless PM rules otherwise.
 1. `#11-elidex-js-default-features-build-broken`: no close at PR-A1 (U0 §8: it closes when PR-M1 lands with every
    row-fixing PR landed). Note on the slot: "PR-A1 landed `<sha>`. The `default` row is clippy-clean on three OS
    (run `<id>`)."
-2. `#11-host-data-full-decomposition`: the "moved nothing" record of §4, to the owner PM names.
+2. `#11-host-data-full-decomposition`: the "moved nothing" record of §4, to a facet on the PM-side ledger, written
+   by the PMO (PM 649).
 3. `#11-vm-typed-array-family-layering-and-gate` (VM P4): its "Until then" premise ends when PR-A1 lands (U0 §8.1).
    PM routes it.
-4. PR-D… (`default` row share): §5.3's 25 warnings, by owner, raised to PM at landing for a PR and a date
-   (U0 §6).
+4. PR-D… (`default` row share): §5.3's 25 warnings (VM P4 21, L3 4), added to VM P4's PR-D… (due 12-04) when
+   PR-A1 lands (PM 649).
 5. `#11-elidex-js-no-default-features-support`: a pointer to §6 of this memo, as the split's input.
 6. `#11-vm-inbound-host-call-membership-test`: §7.2 item 1's site list, as input for whenever the slot is decided.
