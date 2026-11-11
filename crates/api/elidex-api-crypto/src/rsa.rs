@@ -1,5 +1,7 @@
-//! RSA key import / export + RSASSA-PKCS1-v1_5 / RSA-PSS sign / verify
-//! (WebCrypto §20 RSASSA-PKCS1-v1_5 / §21 RSA-PSS), reached only through
+//! RSA key import / export / key-management backend, on the `rsa` crate.
+//! The op-sets split from it: [`signing`] holds sign / verify (WebCrypto §20
+//! RSASSA-PKCS1-v1_5 / §21 RSA-PSS) and [`oaep`] holds RSA-OAEP (§22) on the
+//! constant-time aws-lc-rs backend.  Reached only through
 //! [`crate::ops`] (which runs the §14.3.x name / usage / extractable gates),
 //! so the rsa-typed APIs are `pub(crate)` — not a public surface.
 //!
