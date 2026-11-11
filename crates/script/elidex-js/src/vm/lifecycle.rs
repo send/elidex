@@ -27,6 +27,7 @@ impl Vm {
             // == 1` (HostData's clone is the sole owner).
             // Skip cleanup if HostData was never bound (e.g. test
             // path that constructed but never bound the VM).
+            #[cfg(feature = "engine")]
             if hd.is_bound() {
                 // `clear_mutation_hook` returns the displaced hook
                 // (currently `()`); we don't read the result — Drop

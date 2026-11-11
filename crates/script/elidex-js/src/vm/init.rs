@@ -8,6 +8,7 @@
 
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+#[cfg(feature = "engine")]
 use elidex_plugin::EngineMode;
 
 use super::pools::{BigIntPool, StringPool};
@@ -28,7 +29,11 @@ impl Vm {
     /// core storage (`#11-async-core-storage-cookiestore`) lands — see
     /// `Vm::new_with_mode` (test-only, `#[cfg(test)]`).
     pub fn new() -> Self {
-        Self::new_with_scope(super::GlobalScopeKind::Window, EngineMode::BrowserCompat)
+        #[cfg(feature = "engine")]
+        let vm = Self::new_with_scope(super::GlobalScopeKind::Window, EngineMode::BrowserCompat);
+        #[cfg(not(feature = "engine"))]
+        let vm = Self::new_with_scope();
+        vm
     }
 
     /// Create a new main-thread (Window) VM under an explicit [`EngineMode`].
@@ -44,7 +49,7 @@ impl Vm {
     /// before then yields a session with *no* storage API). Production embedders use
     /// [`Vm::new`] (BrowserCompat); the `#[cfg(test)]` gate enforces the precondition
     /// by construction rather than by doc warning. The async-core PR removes the gate.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "engine"))]
     #[must_use]
     pub fn new_with_mode(engine_mode: EngineMode) -> Self {
         Self::new_with_scope(super::GlobalScopeKind::Window, engine_mode)
@@ -155,12 +160,14 @@ impl Vm {
     /// VM), so the scope kind **and** the engine mode must be threaded in here
     /// rather than flipped afterwards — the install seams consult the derived
     /// [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) at install time, so a
-    /// mode that arrived later could not *prevent* an install. In non-`engine`
-    /// builds the scope kind / mode are unused (no DOM / worker / Web-API
-    /// surface exists) but accepted to keep one shared construction body.
+    /// mode that arrived later could not *prevent* an install. The scope kind
+    /// and the mode are parameters only under the `engine` feature: without it
+    /// no DOM / worker / Web-API surface exists, so there is nothing to select.
     #[allow(clippy::too_many_lines)]
-    #[cfg_attr(not(feature = "engine"), allow(unused_variables))]
-    fn new_with_scope(global_scope_kind: super::GlobalScopeKind, engine_mode: EngineMode) -> Self {
+    fn new_with_scope(
+        #[cfg(feature = "engine")] global_scope_kind: super::GlobalScopeKind,
+        #[cfg(feature = "engine")] engine_mode: EngineMode,
+    ) -> Self {
         let mut strings = StringPool::new();
 
         let well_known = WellKnownStrings::intern_all(&mut strings);

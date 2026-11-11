@@ -438,6 +438,7 @@ pub(super) fn mark_roots(
         // `VmInner::pending_slot_change_signals` (entity bits, not
         // ObjectIds) via the dispatch path, not via the queued
         // task itself.
+        #[cfg(feature = "engine")]
         Microtask::NotifyMutationObservers => {}
     };
     for task in roots.microtask_queue {

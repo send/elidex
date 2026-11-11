@@ -746,6 +746,7 @@ pub enum CallShape {
 /// would otherwise be 16 identical per-interface `unreachable!()` stubs —
 /// the unification's true endpoint (see the regression trip-wire
 /// `.claude/tools/native-ctor-guard-trip-wire.sh`).
+#[cfg(feature = "engine")]
 pub(crate) fn native_illegal_constructor_unreachable(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
