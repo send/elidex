@@ -5,10 +5,8 @@ use super::coerce::{get_property, to_boolean, to_number, to_string, PropertyResu
 use super::coerce_ops::{
     abstract_relational, op_bitwise, op_numeric_binary, BitwiseOp, NumericBinaryOp,
 };
-use super::value::{
-    FuncId, JsValue, ObjectKind, PropertyKey, PropertyValue, Upvalue, UpvalueState, VmError,
-    VmErrorKind,
-};
+use super::frame::{Upvalue, UpvalueState};
+use super::value::{FuncId, JsValue, ObjectKind, PropertyKey, PropertyValue, VmError, VmErrorKind};
 use super::VmInner;
 use crate::bytecode::compiled::Constant;
 

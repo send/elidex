@@ -30,7 +30,8 @@ fn with_call_mode_truncates_frame_stack_on_panic() {
             // Forge a pushed frame, then panic — the helper
             // must truncate the frames Vec back to
             // `entry_frames` before resume_unwind.
-            use super::super::value::{CallFrame, FrameKind, FuncId};
+            use super::super::frame::{CallFrame, FrameKind};
+            use super::super::value::FuncId;
             use std::sync::Arc;
             vm.frames.push(CallFrame {
                 func_id: FuncId(0),
@@ -112,7 +113,8 @@ fn with_call_mode_truncates_value_stack_on_panic() {
 /// D-17b-r1 code review.
 #[test]
 fn with_call_mode_closes_open_upvalues_on_panic() {
-    use super::super::value::{CallFrame, FrameKind, FuncId, Upvalue, UpvalueId, UpvalueState};
+    use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
+    use super::super::value::{FuncId, UpvalueId};
     use std::sync::Arc;
 
     let mut vm = Vm::new();

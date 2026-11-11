@@ -8,10 +8,11 @@
 //! `.return()` / `.throw()` and full `yield*` support land with PR2.5
 //! (generator spec completion).
 
+use super::frame::UpvalueState;
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     FrameCompletion, GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind,
-    PropertyKey, PropertyStorage, PropertyValue, SuspendedFrame, UpvalueState, VmError,
+    PropertyKey, PropertyStorage, PropertyValue, SuspendedFrame, VmError,
 };
 use super::VmInner;
 
@@ -32,7 +33,7 @@ use super::VmInner;
 /// - Rebase frame-relative handler depths.
 /// - Mark the generator `SuspendedYield` with the built [`SuspendedFrame`].
 ///
-/// Generator frames are [`super::value::FrameKind::Function`], so the
+/// Generator frames are [`super::frame::FrameKind::Function`], so the
 /// body's `Op::PopCompletion` / `Op::ReturnUndefined` arms never touch
 /// `VmInner::completion_value` — the caller's value is preserved
 /// invariantly across the yield without an explicit save/restore.

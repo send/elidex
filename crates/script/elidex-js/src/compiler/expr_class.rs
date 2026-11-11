@@ -60,7 +60,7 @@ fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> Class
 /// thread `CallFrame::home_class` for `super()` resolution ([C16]
 /// ClassDefinitionEvaluation). The function/ctor body's implicit
 /// fall-through return goes through
-/// [`crate::vm::value::FrameKind::Function`]'s `Op::ReturnUndefined`
+/// [`crate::vm::frame::FrameKind::Function`]'s `Op::ReturnUndefined`
 /// arm (returns literal Undefined regardless of `is_class_ctor`); the
 /// [[Construct]]-observable substitution (§10.2.2 step 12-13/15-17)
 /// happens in `construct_synchronous` / `do_new` after that Undefined

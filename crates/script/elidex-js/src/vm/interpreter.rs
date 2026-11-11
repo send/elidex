@@ -10,7 +10,8 @@ use crate::bytecode::compiled::CompiledScript;
 
 use std::sync::Arc;
 
-use super::value::{FrameKind, FuncId, JsValue, ObjectId, VmError, VmErrorKind};
+use super::frame::FrameKind;
+use super::value::{FuncId, JsValue, ObjectId, VmError, VmErrorKind};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ impl VmInner {
     ///   invocation. For `completion_value` this **is** the save /
     ///   restore (no inner pair after D-17b-r2
     ///   `#11-frame-completion-disentanglement`): the
-    ///   [`super::value::FrameKind`] split makes Function-kind frames
+    ///   [`super::frame::FrameKind`] split makes Function-kind frames
     ///   leave `completion_value` invariant, so the only writes are
     ///   Eval-kind frames inside a `with_call_mode` boundary, and
     ///   this outer restore preserves the caller's value across the
@@ -173,7 +174,7 @@ impl VmInner {
         // this wraps the NativeFunction arm's per-call save/restore
         // (`saved_gc` / `saved_bound_key`), guarding against panics
         // that skip the inner restore. For `completion_value` this
-        // **is** the save/restore — the [`super::value::FrameKind`]
+        // **is** the save/restore — the [`super::frame::FrameKind`]
         // split makes Function-kind frames invariant under
         // `completion_value`, so this boundary preserves the
         // caller's value across any Eval body re-entered inside the
@@ -285,7 +286,7 @@ impl VmInner {
     /// save/restore boundary for `completion_value`, so nested
     /// `Vm::eval` / native re-entry preserves the outer Eval frame's
     /// script-completion value across the inner body's
-    /// [`super::value::FrameKind::Eval`] writes (ECMA-262 §16.1.6
+    /// [`super::frame::FrameKind::Eval`] writes (ECMA-262 §16.1.6
     /// step 13.a + 17 / §19.2.1.1 step 29.a + 33). Mirrors `Vm::call`
     /// / `Vm::call_construct_native`'s panic-safety contract for the
     /// Eval entry path.

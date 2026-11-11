@@ -1,5 +1,5 @@
 //! Tests for D-17b-r2 `#11-frame-completion-disentanglement` — the
-//! [`super::super::value::FrameKind`] split that confines script /
+//! [`super::super::frame::FrameKind`] split that confines script /
 //! `eval` completion-value semantics (ECMA-262 §16.1.6
 //! ScriptEvaluation step 13.a + 13.b + 17 / §19.2.1.1 PerformEval
 //! step 29.a + 30.a + 33) to `Eval` frames and makes function /

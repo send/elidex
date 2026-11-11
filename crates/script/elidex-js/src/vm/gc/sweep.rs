@@ -7,8 +7,9 @@
 //! [`super::trace::trace_work_list`] and recycle / invalidate state
 //! against them.
 
+use super::super::frame::{Upvalue, UpvalueState};
 use super::super::ic;
-use super::super::value::{JsValue, Object, Upvalue, UpvalueState};
+use super::super::value::{JsValue, Object};
 use super::bit_get;
 use crate::bytecode::compiled::CompiledFunction;
 

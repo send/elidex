@@ -7,8 +7,9 @@ use crate::bytecode::opcode::Op;
 
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
+use super::frame::FrameKind;
 use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
-use super::value::{FrameKind, JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
+use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
 /// ECMA-262 §13.5.1.2 Runtime Semantics: Evaluation, `UnaryExpression : delete
@@ -757,7 +758,7 @@ impl VmInner {
                         |ip: u16| -> Option<u32> { (ip != 0xFFFF).then_some(u32::from(ip)) };
                     let stack_depth = self.stack.len();
                     let frame = self.frames.last_mut().unwrap();
-                    frame.exception_handlers.push(super::value::HandlerEntry {
+                    frame.exception_handlers.push(super::frame::HandlerEntry {
                         catch_ip: decode(catch_ip),
                         finally_ip: decode(finally_ip),
                         stack_depth,

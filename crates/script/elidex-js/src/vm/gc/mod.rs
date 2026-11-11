@@ -46,7 +46,8 @@ mod trace;
 #[cfg(test)]
 mod tests;
 
-use super::value::{JsValue, ObjectId, Upvalue, UpvalueId, UpvalueState};
+use super::frame::{Upvalue, UpvalueState};
+use super::value::{JsValue, ObjectId, UpvalueId};
 
 // ---------------------------------------------------------------------------
 // Bit-vector helpers
