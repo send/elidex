@@ -130,9 +130,10 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // increment, but only clone the style when there is actual counter influence —
     // an explicit counter-* property or an implicit list counter (ol/ul/li). For
     // everything else the empty counter vecs make `process_element` a no-op, so the
-    // clone is skipped. `apply_implicit_list_counters_from_dom` is applied here; its
-    // `already_has` guard makes it idempotent when the walk already baked the implicit
-    // counters. No fragmentation continuation pre-layout (paged continuation, which
+    // clone is skipped. After `resolve_styles` the walk has already baked the implicit
+    // counters, so `apply_implicit_list_counters_from_dom` is a no-op there (its
+    // `already_has` guard); it does the work for callers that attach `ComputedStyle`
+    // themselves, such as this module's fixtures. No fragmentation continuation pre-layout (paged continuation, which
     // suppresses re-increment, is handled by render's per-fragment walk).
     if is_list_tag || has_counter_props {
         if let Ok(s) = dom.world().get::<&ComputedStyle>(entity) {
