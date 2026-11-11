@@ -8,7 +8,7 @@ use elidex_ecs::{
     Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowHost, ShadowRoot,
     SlotAssignment, TagType, TextContent, MAX_ANCESTOR_DEPTH,
 };
-use elidex_plugin::{ComputedStyle, Display, Overflow, ViewportOverflow};
+use elidex_plugin::{ComputedStyle, CssValue, Display, Overflow, ViewportOverflow};
 
 use crate::cascade::{collect_and_cascade, get_inline_declarations, ShadowCascade};
 use crate::pseudo::{generate_pseudo_entity, remove_pseudo_entities};
@@ -42,7 +42,9 @@ pub(crate) struct WalkState<'a> {
 ///
 /// Returns `Some(AnimStyle)` when at least one animation/transition property was found
 /// in the winners map, `None` otherwise (to avoid inserting empty ECS components).
-fn build_anim_style(winners: &crate::resolve::helpers::PropertyMap<'_>) -> Option<AnimStyle> {
+fn build_anim_style_from_winners(
+    winners: &std::collections::HashMap<&str, &CssValue>,
+) -> Option<AnimStyle> {
     let mut style = AnimStyle::default();
     let mut found = false;
 
@@ -196,7 +198,7 @@ fn resolve_and_attach_style(
 
     // Attach AnimStyle if any animation/transition properties are set,
     // or remove stale AnimStyle so transition detection stops running.
-    if let Some(anim_style) = build_anim_style(&winners) {
+    if let Some(anim_style) = build_anim_style_from_winners(&winners) {
         let _ = dom.world_mut().insert_one(entity, anim_style);
     } else {
         let _ = dom

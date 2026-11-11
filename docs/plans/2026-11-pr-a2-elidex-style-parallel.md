@@ -375,7 +375,8 @@ Scope is WHAT and contracts. Code shape is the implementation's.
 ### §5.2 Contract: remove (PM 624), applied by PR-A2
 
 PR-A2 is deletion only and stays under this memo (PM 614).
-- Delete the optional dependency, `[features]`, `mod parallel`, `parallel.rs`, `build_anim_style_from_owned` and
+- Delete the optional dependency (and the workspace entry `rayon = "1"` in the root `Cargo.toml`, which then has no
+  user), `[features]`, `mod parallel`, `parallel.rs`, `build_anim_style_from_owned` and
   `walk_children_parallel`, and collapse `walk_children` to its sequential body. `resolve_and_attach_style` is then
   the only per-element resolve step of the style walk (A4), and the depth bound is the base product's.
 - Update the comments and docs that describe the feature: `generated_content.rs:133-137`, `walk.rs:119-122`,
@@ -444,7 +445,7 @@ The output goes in the PR body, as U0 §6 requires.
 
 | Id | Sites (`b8b4d6f5`) | Kind | Disposition |
 |---|---|---|---|
-| S1 | `crates/css/elidex-style/Cargo.toml:28`, `:30-31`; `src/lib.rs:19-20`; `src/parallel.rs:1-181`; `src/walk.rs:65-84`, `:119-122`, `:130-133`, `:135-146`, `:149-281`; comment `src/generated_content.rs:133-137`; doc `docs/architecture/css.md:29-35` | shape of `parallel` | **ruled remove** (PM 624, §4.6). Applied by PR-A2 (§5.2) |
+| S1 | `crates/css/elidex-style/Cargo.toml:28`, `:30-31`; root `Cargo.toml:289` (workspace `rayon`); `src/lib.rs:19-20`; `src/parallel.rs:1-181`; `src/walk.rs:65-84`, `:119-122`, `:130-133`, `:135-146`, `:149-281`; comment `src/generated_content.rs:133-137`; doc `docs/architecture/css.md:29-35` | shape of `parallel` | **ruled remove** (PM 624, §4.6). Applied by PR-A2 (§5.2) |
 | S2 | the list-counter bake and its compensations (F-1) | behaviour, not this PR's | **routed to `#11-list-counter-baking-ua-rule-and-hints`** (PM 611). Slot text: §7.1. Not in PR-A2's acceptance or stop rule |
 | S3 | `.github/workflows/ci.yml:90`, `:93` (`--all-features` is the only test configuration) | record, not a fix | the sequential walk is untested in CI (F-2). Remove (PM 624) closes it: the `--all-features` steps then run the sequential walk, which is the shipped walk (§5.2) |
 | S4 | `docs/design/ja/06-thread-model.md` §6.3.1 `:281-306`, §6.3.2 `:312`, §6.3.3 `:318-331` vs the global pool | implementation home missing for a settled design (OPEN-015) | §10 Q2, for PM |
