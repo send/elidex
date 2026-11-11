@@ -595,7 +595,7 @@ fn value_to_js(v: FormDataValue) -> JsValue {
 }
 
 /// Same shape + GC contract as
-/// [`super::headers::wrap_in_array_iterator`] / the URLSearchParams
+/// `super::headers::wrap_in_array_iterator` / the URLSearchParams
 /// counterpart.  See those modules' rationale for the temp-root
 /// bookkeeping; duplicated here because the helper is `fn`-private
 /// to its module.

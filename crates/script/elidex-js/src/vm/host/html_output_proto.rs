@@ -13,7 +13,7 @@
 //!   the assigned value and writes it directly to the `for` content
 //!   attribute — equivalent to `output.htmlFor.value = ToString(v)`.
 //!   Mirrors the `<link>.sizes` setter precedent
-//!   ([`super::html_link_proto::link_set_sizes`]).
+//!   (`super::html_link_proto::link_set_sizes`).
 //! - `form` — form-owner accessor (descendant-of-form lookup, same
 //!   resolution path as `<input>.form`).
 //! - `name` — DOMString reflect of the `name` content attribute.
@@ -150,7 +150,7 @@ fn output_get_html_for(
 /// assigning to `output.htmlFor` is equivalent to
 /// `output.htmlFor.value = ToString(v)`, which writes the `for`
 /// content attribute directly.  Mirrors the
-/// [`super::html_link_proto::link_set_sizes`] precedent.
+/// `super::html_link_proto::link_set_sizes` precedent.
 fn output_set_html_for(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

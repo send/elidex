@@ -20,6 +20,7 @@ mod dispatch_ic;
 mod dispatch_iter;
 mod dispatch_objects;
 mod error;
+pub mod frame;
 pub(crate) mod gc;
 mod globals;
 mod globals_async;
@@ -92,10 +93,11 @@ mod tests;
 
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
+use frame::CallFrame;
 use pools::{BigIntPool, StringPool};
 use value::{
-    CallFrame, JsValue, NativeContext, NativeFunction, Object, ObjectId, StringId, SymbolId,
-    SymbolRecord, VmError,
+    JsValue, NativeContext, NativeFunction, Object, ObjectId, StringId, SymbolId, SymbolRecord,
+    VmError,
 };
 use well_known::{WellKnownStrings, WellKnownSymbols};
 
@@ -193,7 +195,7 @@ pub(crate) struct VmInner {
     pub(crate) objects: Vec<Option<Object>>,
     pub(crate) free_objects: Vec<u32>,
     pub(crate) compiled_functions: Vec<CompiledFunction>,
-    pub(crate) upvalues: Vec<value::Upvalue>,
+    pub(crate) upvalues: Vec<frame::Upvalue>,
     pub(crate) free_upvalues: Vec<u32>,
     pub(crate) globals: HashMap<StringId, JsValue>,
     /// Symbol table: indexed by `SymbolId`.

@@ -26,7 +26,7 @@
 //! mirror of `worker.rs:400` cache_wrapper call). The context wrapper's
 //! *identity* (`oc.getContext('2d') === …`) is interned via the
 //! wrapper-identity seam under
-//! [`WrapperKind::OffscreenCanvas2dContext`](super::super::wrapper_intern::WrapperKind::OffscreenCanvas2dContext)
+//! [`WrapperKind::OffscreenCanvas2dContext`]
 //! — a 1-variant seam extension parallel to D-21's `Canvas2dContext`. Brand
 //! checks read `NodeKind::OffscreenCanvas` from the entity (mirror of
 //! `worker.rs::require_worker`).
@@ -221,7 +221,7 @@ impl VmInner {
 /// Resolve `this` to the backing `OffscreenCanvas` entity if it brands as one
 /// (a `HostObject` over a [`NodeKind::OffscreenCanvas`] entity); a `TypeError`
 /// ("Illegal invocation") otherwise. Mirror of the
-/// [`super::worker::require_worker`] shape (D-18 precedent — brand-check via
+/// `super::worker::require_worker` shape (D-18 precedent — brand-check via
 /// `NodeKind` on the entity, no dedicated component needed because `OC` has no
 /// per-entity transport handle like Worker does).
 fn require_offscreen_canvas(

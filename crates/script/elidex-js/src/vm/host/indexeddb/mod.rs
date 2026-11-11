@@ -155,7 +155,7 @@ pub(crate) struct IdbTransactionState {
     pub(crate) db: Option<ObjectId>,
     /// Open backend SQLite transaction handle.  `None` once committed /
     /// aborted.  Has no `Drop` rollback (backend `IdbTransaction` exposes
-    /// only an explicit `abort`), so [`super::super::VmInner::unbind`] must
+    /// only an explicit `abort`), so [`Vm::unbind`](crate::vm::Vm::unbind) must
     /// explicitly abort any still-open handle (plan §4.5).
     pub(crate) backend_txn: Option<elidex_indexeddb::IdbTransaction>,
     /// §5.6 "transaction's request list" — request `ObjectId`s in issue
@@ -317,7 +317,7 @@ impl VmInner {
     /// The request states are RETAINED — a held wrapper then resolves to
     /// `done` + `request.error` instead of hanging at `pending` forever, and
     /// GC reaps the entries with their wrappers.  Used when the backend is
-    /// replaced out from under in-flight requests ([`Vm::install_idb_backend`]).
+    /// replaced out from under in-flight requests ([`Vm::install_idb_backend`](crate::vm::Vm::install_idb_backend)).
     pub(crate) fn abort_pending_idb_requests(&mut self, message: &str) {
         let pending: Vec<ObjectId> = self
             .idb_request_states

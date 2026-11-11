@@ -62,27 +62,6 @@ fn build_anim_style_from_winners(
     }
 }
 
-/// Variant for the parallel path that takes `OwnedPropertyMap` directly,
-/// avoiding an intermediate `HashMap<&str, &CssValue>` allocation.
-#[cfg(feature = "parallel")]
-fn build_anim_style_from_owned(owned: &super::parallel::OwnedPropertyMap) -> Option<AnimStyle> {
-    let mut style = AnimStyle::default();
-    let mut found = false;
-
-    for &name in ANIM_LONGHAND_NAMES {
-        if let Some(value) = owned.get(name) {
-            resolve_anim_property(name, value, &mut style);
-            found = true;
-        }
-    }
-
-    if found {
-        Some(style)
-    } else {
-        None
-    }
-}
-
 /// Build a child `ResolveContext` from a resolved entity style.
 ///
 /// Updates `em_base` from the entity's font-size and `root_font_size`
@@ -114,12 +93,7 @@ fn should_skip_child(dom: &EcsDom, entity: Entity) -> bool {
 
 /// Walk children of `parent`, resolving styles with `walk_tree`.
 ///
-/// Filters out pseudo-element and template entities.
-///
-/// When the `parallel` feature is enabled, the cascade phase runs
-/// sequentially (requires `&EcsDom`), then `build_computed_style` runs
-/// in parallel across siblings via rayon, and finally the results are
-/// applied and children recursed sequentially.
+/// Filters out pseudo-element entities (see `should_skip_child`).
 fn walk_children(
     dom: &mut EcsDom,
     parent: Entity,
@@ -127,156 +101,14 @@ fn walk_children(
     parent_style: &ComputedStyle,
     state: &mut WalkState<'_>,
 ) {
-    #[cfg(feature = "parallel")]
-    {
-        walk_children_parallel(dom, parent, stylesheets, parent_style, state);
-    }
-
-    #[cfg(not(feature = "parallel"))]
-    {
-        let children = dom.children(parent);
-        for child in children {
-            if should_skip_child(dom, child) {
-                continue;
-            }
-            state.depth += 1;
-            walk_tree(dom, child, stylesheets, parent_style, state);
-            state.depth -= 1;
-        }
-    }
-}
-
-/// Parallel sibling resolution: cascade sequentially, resolve in parallel,
-/// then apply and recurse sequentially.
-#[cfg(feature = "parallel")]
-// Three cascade-resolve-recurse phases sharing intermediate state vectors.
-fn walk_children_parallel(
-    dom: &mut EcsDom,
-    parent: Entity,
-    stylesheets: &[&Stylesheet],
-    parent_style: &ComputedStyle,
-    state: &mut WalkState<'_>,
-) {
-    use crate::parallel::{par_resolve_siblings, to_owned_map, OwnedPropertyMap};
-
-    if state.depth > MAX_WALK_DEPTH {
-        return;
-    }
-
     let children = dom.children(parent);
-    let walkable: Vec<Entity> = children
-        .into_iter()
-        .filter(|&c| !should_skip_child(dom, c))
-        .collect();
-
-    if walkable.is_empty() {
-        return;
-    }
-
-    // Check for shadow hosts — they need special handling, fall back to sequential.
-    let has_shadow_hosts = walkable
-        .iter()
-        .any(|&c| dom.world().get::<&ShadowHost>(c).is_ok());
-
-    if has_shadow_hosts {
-        // Fall back to sequential walk_tree for shadow DOM subtrees.
-        for child in walkable {
-            state.depth += 1;
-            walk_tree(dom, child, stylesheets, parent_style, state);
-            state.depth -= 1;
-        }
-        return;
-    }
-
-    // Separate elements from non-elements. Non-elements get parent_style.clone()
-    // (matching the sequential path in resolve_and_attach_style).
-    // Elements go through cascade + parallel build_computed_style.
-    let mut child_entries: Vec<(Entity, Option<usize>)> = Vec::with_capacity(walkable.len());
-    let mut cascade_inputs: Vec<OwnedPropertyMap> = Vec::new();
-
-    // Phase 1: Sequential cascade (requires &EcsDom).
-    for &child in &walkable {
-        let is_element = dom.world().get::<&TagType>(child).is_ok();
-        if !is_element {
-            child_entries.push((child, None));
+    for child in children {
+        if should_skip_child(dom, child) {
             continue;
         }
-
-        set_link_state(dom, child);
-
-        remove_pseudo_entities(dom, child);
-
-        let inline_decls = get_inline_declarations(child, dom);
-        let extra_decls = (state.hint_generator)(child, dom);
-        let winners = collect_and_cascade(
-            child,
-            dom,
-            stylesheets,
-            &inline_decls,
-            &extra_decls,
-            &ShadowCascade::Outer,
-            &state.media_env,
-        );
-        let idx = cascade_inputs.len();
-        cascade_inputs.push(to_owned_map(&winners));
-        child_entries.push((child, Some(idx)));
-    }
-
-    // Phase 2: Parallel build_computed_style (elements only).
-    let element_ctx = state.ctx.with_em_base(parent_style.font_size);
-    let styles = par_resolve_siblings(&cascade_inputs, parent_style, &element_ctx);
-
-    // Phase 3: Sequential apply + pseudo + recurse.
-    for &(child, cascade_idx) in &child_entries {
-        let style: &ComputedStyle = if let Some(idx) = cascade_idx {
-            // Element: attach parallel-resolved style (single clone).
-            let _ = dom.world_mut().insert_one(child, styles[idx].clone());
-
-            // Attach AnimStyle if any animation/transition properties exist.
-            let owned_map = &cascade_inputs[idx];
-            if let Some(anim_style) = build_anim_style_from_owned(owned_map) {
-                let _ = dom.world_mut().insert_one(child, anim_style);
-            } else {
-                let _ = dom
-                    .world_mut()
-                    .remove_one::<elidex_css_anim::style::AnimStyle>(child);
-            }
-
-            if styles[idx].display != Display::None {
-                generate_pseudo_entity(
-                    dom,
-                    child,
-                    stylesheets,
-                    &styles[idx],
-                    &element_ctx,
-                    &state.media_env,
-                    PseudoElement::Before,
-                );
-                generate_pseudo_entity(
-                    dom,
-                    child,
-                    stylesheets,
-                    &styles[idx],
-                    &element_ctx,
-                    &state.media_env,
-                    PseudoElement::After,
-                );
-            }
-            &styles[idx]
-        } else {
-            // Non-element: inherit parent style without attaching ComputedStyle
-            // (matches resolve_and_attach_style, which returns early for non-elements
-            // without inserting a component — CSSOM getComputedStyle is element-only).
-            parent_style
-        };
-
-        let child_ctx = child_context(dom, child, style, &state.ctx);
-        let saved_ctx = state.ctx;
-        state.ctx = child_ctx;
         state.depth += 1;
-        walk_children(dom, child, stylesheets, style, state);
+        walk_tree(dom, child, stylesheets, parent_style, state);
         state.depth -= 1;
-        state.ctx = saved_ctx;
     }
 }
 

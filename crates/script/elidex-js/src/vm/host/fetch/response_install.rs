@@ -1,6 +1,6 @@
 //! Materialise a broker [`elidex_net::Response`] into a VM
 //! `Response` object.  Called from
-//! [`super::super::fetch_tick::settle_fetch`] once the broker
+//! `super::super::fetch_tick::settle_fetch` once the broker
 //! reply lands during `vm.tick_network()`.
 
 use super::super::super::value::{JsValue, Object, ObjectId, ObjectKind, PropertyStorage};

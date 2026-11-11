@@ -353,7 +353,7 @@ pub(super) fn dispatch_vm_event(
 /// `on<type>` handlers + capture/bubble all fire from one event object.
 ///
 /// Generalizes the proven IDB seam
-/// ([`super::indexeddb::dispatch::fire_idb_event_with_props`]) so
+/// (`super::indexeddb::dispatch::fire_idb_event_with_props`) so
 /// `AbortSignal` (plain), `WebSocket` (MessageEvent / CloseEvent /
 /// plain) and `EventSource` (MessageEvent / plain) all share one
 /// construction-and-dispatch path. (IDB keeps its own constructor this

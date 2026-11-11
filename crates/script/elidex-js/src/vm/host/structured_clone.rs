@@ -719,8 +719,8 @@ fn alloc_wrapper(vm: &mut VmInner, kind: ObjectKind, proto: Option<ObjectId>) ->
 ///
 /// Memo-threaded: two TypedArray / DataView views over the same
 /// underlying ArrayBuffer must clone to two views over the SAME
-/// cloned ArrayBuffer (HTML §2.7.3 step 2: "If memory[value] exists,
-/// then return memory[value]").  Callers insert `(src → new_id)` into
+/// cloned ArrayBuffer (HTML §2.7.3 step 2: "If `memory[value]` exists,
+/// then return `memory[value]`").  Callers insert `(src → new_id)` into
 /// the memo after construction — this function does it once, so
 /// later siblings hit the memo lookup in `clone_recursive`.
 ///

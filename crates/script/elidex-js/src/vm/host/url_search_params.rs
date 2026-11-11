@@ -47,7 +47,7 @@
 //! (`application/x-www-form-urlencoded;charset=UTF-8`) and the body
 //! bytes are agreed on by [`super::request_response::extract_body_bytes`]
 //! and [`super::request_response::content_type_for_body`] via the
-//! [`serialize`] helper here, so the `Request` / `Response` /
+//! `serialize` helper here, so the `Request` / `Response` /
 //! `fetch()` paths cannot drift from the JS-visible `toString()`
 //! output.
 
@@ -270,7 +270,7 @@ fn parse_init_entries(
 
 /// Extract `[name, value]` from an inner pair — fast-path on Array,
 /// fall back to the iterator protocol for any other iterable.
-/// Mirror of [`super::headers::collect_header_pair_values`] —
+/// Mirror of `super::headers::collect_header_pair_values` —
 /// arity-2 contract is identical, only the validation differs.
 fn validate_pair_entry(
     ctx: &mut NativeContext<'_>,
@@ -697,7 +697,7 @@ fn take_name_arg(
 
 /// Wrap a snapshot `Vec<JsValue>` in an `ArrayIterator` (kind=0 =
 /// Values).  Same shape + GC rooting contract as
-/// [`super::headers::wrap_in_array_iterator`]; duplicated here
+/// `super::headers::wrap_in_array_iterator`; duplicated here
 /// because the helper is `fn`-private to its module.  See that
 /// module's docstring for the GC rationale.
 fn wrap_in_array_iterator(ctx: &mut NativeContext<'_>, elements: Vec<JsValue>) -> JsValue {

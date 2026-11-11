@@ -6,7 +6,8 @@
 //! `natives_generator`).  `value.rs` re-exports everything here so
 //! external `vm::value::X` paths continue to work.
 
-use super::value::{CallFrame, JsValue, ObjectId, UpvalueId};
+use super::frame::CallFrame;
+use super::value::{JsValue, ObjectId, UpvalueId};
 
 /// `[[GeneratorState]]` internal slot.  Tracks where in its lifecycle the
 /// generator is, so `.next()` can reject invalid re-entry (running into

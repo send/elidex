@@ -11,7 +11,7 @@
 //! light DOM), a shadow root is attached to the host (the open element it
 //! appears in), and the template's "template contents" is bound to that shadow
 //! root so subsequent children route into it. The only `EcsDom` API shared
-//! with the compat path is [`EcsDom::attach_shadow_with_init`]; host-tag
+//! with the compat path is [`EcsDom::attach_shadow_with_init`](elidex_ecs::EcsDom::attach_shadow_with_init); host-tag
 //! validation lives inside it.
 
 use elidex_ecs::{Attributes, Entity, ShadowInit, ShadowRootMode, SlotAssignmentMode};
@@ -116,7 +116,8 @@ impl TreeBuilder {
     /// arm and the declarative-shadow graceful fallback (a failed DSD template
     /// becomes ordinary), so the fragment / owner-doc / redirect semantics stay
     /// identical at both sites (One-issue-one-way). The helper is given the
-    /// template's node document, through [`EcsDom::node_document_for_new_nodes`]
+    /// template's node document, through
+    /// [`EcsDom::node_document_for_new_nodes`](elidex_ecs::EcsDom::node_document_for_new_nodes)
     /// as in the tolerant backend, and creates the contents in its appropriate
     /// template contents owner document (HTML §4.12.3 establishing step 1).
     fn attach_ordinary_template_contents(&mut self, template: Entity) {

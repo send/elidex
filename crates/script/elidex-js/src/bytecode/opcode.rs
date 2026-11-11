@@ -333,11 +333,11 @@ pub enum Op {
     /// Operand: u8 (argc). `[arg0..argN -- this]`
     ///
     /// `new.target` is NOT a stack operand — the dispatcher reads it
-    /// from the active [`super::super::vm::value::CallFrame::mode`]
+    /// from the active [`super::super::vm::frame::CallFrame::mode`]
     /// (a [`super::super::vm::value::CallMode::Construct`] variant
     /// carries the `new_target`; threaded through
     /// `construct_synchronous`); the super class is resolved via
-    /// [`super::super::vm::value::CallFrame::home_class`]'s
+    /// [`super::super::vm::frame::CallFrame::home_class`]'s
     /// `[[Prototype]]` per ECMA-262 §13.3.7.2 GetSuperConstructor.
     SuperCall,
     /// `[args_array -- this]`

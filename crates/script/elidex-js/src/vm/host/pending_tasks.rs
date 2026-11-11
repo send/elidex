@@ -3,7 +3,7 @@
 //!
 //! The HTML event loop's *task queue* (§8.1.7.1 "Task"), restricted to
 //! the single JavaScript realm that Phase 2 supports.  The only
-//! producer currently implemented is [`Window::postMessage`]; future
+//! producer currently implemented is `Window::postMessage`; future
 //! producers include `Worker.postMessage`, `MessageChannel` /
 //! `MessagePort`, `BroadcastChannel`, and `fetch()` once the async
 //! refactor lands.  A task is drained at the end of every top-level

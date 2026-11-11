@@ -1,7 +1,7 @@
 //! WHATWG HTML §13.2.6.1 / §13.2.6.5 foreign-content name adjustments.
 //!
 //! Pure data + transforms applied to a start-tag token *before* it is
-//! marshalled into an [`EcsDom`] element (the marshalling itself lives in
+//! marshalled into an [`EcsDom`](elidex_ecs::EcsDom) element (the marshalling itself lives in
 //! [`super::insert`]). Three spec adjustments are folded into one entry
 //! point, [`adjust_foreign_start_tag`], keyed on the namespace the element
 //! will be created in:

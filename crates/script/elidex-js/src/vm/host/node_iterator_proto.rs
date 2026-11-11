@@ -1,5 +1,5 @@
 //! `NodeIterator` interface (WHATWG DOM §6.1) — VM thin binding to
-//! [`elidex_dom_api::traversal::step_with_filter_node_iterator_*`].
+//! `elidex_dom_api::traversal::step_with_filter_node_iterator_*`.
 //!
 //! ## Layering
 //!
@@ -13,7 +13,7 @@
 //!
 //! - [`super::super::host_data::HostData::node_iterator_states_shared`]
 //!   — `Arc<Mutex<HashMap<u64, NodeIteratorState>>>` shared with
-//!   [`elidex_dom_api::MutationBridge`] so the hook fire-path can
+//!   `elidex_dom_api::MutationBridge` so the hook fire-path can
 //!   apply §6.1 pre-removing-steps synchronously.
 //! - [`super::super::host_data::HostData::node_iterator_instances`]
 //!   — reverse lookup table for GC sweep.

@@ -2337,7 +2337,6 @@ dependencies = [
  "elidex-css-transform",
  "elidex-ecs",
  "elidex-plugin",
- "rayon",
 ]
 
 [[package]]

@@ -56,7 +56,7 @@
 //!   silently discard the transmission BUT still increment
 //!   `bufferedAmount` by the encoded byte length (per WHATWG §9.3.4
 //!   step 2-3).
-//! - `close(code?, reason?)` — code u16 ∈ {1000} ∪ [3000,4999]
+//! - `close(code?, reason?)` — code u16 ∈ {1000} ∪ \[3000,4999\]
 //!   (`InvalidAccessError` otherwise), reason ≤ 123 UTF-8 bytes
 //!   (`SyntaxError` otherwise), idempotent if CLOSING/CLOSED.
 //! - `binaryType` getter+setter — WebIDL `enum BinaryType { "blob",

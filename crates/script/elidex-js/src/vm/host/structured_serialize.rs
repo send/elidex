@@ -46,7 +46,7 @@ use super::super::VmInner;
 ///   renders a Date through `toJSON` as an ISO String (ECMA-262 §21.4.4.37), so a
 ///   traversal would silently restore a **String** where structured clone restores
 ///   a Date. Caught **inside** the walk by
-///   [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
+///   [`stringify_for_structured_shortcut`]
 ///   (before the `toJSON` hook, so an accessor-returned Date is caught too) and
 ///   degraded to `None` here — the same policy as BigInt / cyclic, for the same
 ///   CR-3 reason (a `pushState` browsers accept must not start throwing).

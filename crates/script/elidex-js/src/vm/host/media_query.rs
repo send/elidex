@@ -371,7 +371,7 @@ impl VmInner {
     /// scopes the pass to MQLs whose document is the target) against the current
     /// [`Self::media_environment`] and, for each whose result has **flipped**
     /// since its last delivery, updates `last_matches` and fires a trusted
-    /// `change` ([`MediaQueryListEvent`]) at the MQL.
+    /// `change` (`MediaQueryListEvent`) at the MQL.
     ///
     /// Mirrors the `deliver_resize_observations` / `deliver_sw_client_update`
     /// host→VM delivery shape: a no-op while unbound (no JS context to fire

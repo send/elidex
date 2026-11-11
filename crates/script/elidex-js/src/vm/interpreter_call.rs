@@ -7,9 +7,8 @@
 
 use std::sync::Arc;
 
-use super::value::{
-    CallFrame, FrameKind, FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueId, VmError,
-};
+use super::frame::{CallFrame, FrameKind};
+use super::value::{FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueId, VmError};
 use super::VmInner;
 
 impl VmInner {

@@ -29,12 +29,12 @@ use elidex_script_session::{apply_set_attribute, DomApiError, DomApiHandler, Ses
 /// Resolve `entity`'s effective base URL for `href` resolution.
 ///
 /// - `<base>` receivers: the document's FALLBACK base URL (currently
-///   [`about_blank_url`] in elidex's stub; will become the document
+///   [`about_blank_url`](elidex_ecs::about_blank_url) in elidex's stub; will become the document
 ///   URL once `#11-document-url-real-navigation` lands).  Per WHATWG
 ///   HTML §4.2.3 IDL `href` getter, `<base>.href` parses the raw href
 ///   against the document's fallback (NOT the document base URL —
 ///   that would be recursive — and NOT the element's own
-///   [`BaseFrozenUrl`] — that would double-resolve relative hrefs
+///   [`BaseFrozenUrl`](elidex_ecs::BaseFrozenUrl) — that would double-resolve relative hrefs
 ///   because the frozen URL is itself already a parse-or-fallback
 ///   result).  Returning the fallback here lets a single
 ///   [`parse_with_base`] in [`href_value_or_raw`] handle both the

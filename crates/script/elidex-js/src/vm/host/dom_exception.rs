@@ -21,7 +21,7 @@
 //! ## Consumers
 //!
 //! Built via [`VmInner::vm_error_to_thrown`] whenever a
-//! [`VmErrorKind::DomException`] bubbles up — callers just do
+//! [`VmErrorKind::DomException`](crate::vm::error::VmErrorKind::DomException) bubbles up — callers just do
 //! `Err(VmError::dom_exception(well_known.dom_exc_syntax_error, msg))`
 //! without assembling any object themselves.
 

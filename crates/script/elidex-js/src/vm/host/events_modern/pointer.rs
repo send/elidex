@@ -1,7 +1,7 @@
 //! `PointerEvent` constructor + prototype (UI Events Pointer §6).
 //!
 //! `PointerEvent.prototype` chains to `MouseEvent.prototype`.  The
-//! constructor accepts a [`PointerEventInit`] dictionary; instances
+//! constructor accepts a `PointerEventInit` dictionary; instances
 //! carry the 13 mouse-event own slots PLUS 12 pointer-specific
 //! own slots (pointerId / width / height / pressure / tangential
 //! Pressure / tiltX / tiltY / twist / altitudeAngle / azimuthAngle /

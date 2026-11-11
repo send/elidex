@@ -39,7 +39,7 @@ impl TreeBuilder {
 
     /// Append `child` to `parent`, asserting success. Strict construction only
     /// ever appends a freshly created node to a live ancestor, so
-    /// [`EcsDom::append_child`] cannot legitimately reject (self-append /
+    /// [`EcsDom::append_child`](elidex_ecs::EcsDom::append_child) cannot legitimately reject (self-append /
     /// cycle / destroyed entity are all impossible here).
     pub(super) fn append(&mut self, parent: Entity, child: Entity) {
         if !self.dom.append_child(parent, child) {

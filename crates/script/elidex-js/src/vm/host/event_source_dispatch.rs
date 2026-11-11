@@ -1,5 +1,5 @@
 //! Realtime event delivery for `EventSource` instances — UA-fire
-//! helpers consumed by [`super::fetch_tick::VmInner::tick_network`]
+//! helpers consumed by [`VmInner::tick_network`](crate::vm::VmInner::tick_network)
 //! through `dispatch_realtime_event`.
 //!
 //! Split out of [`super::event_source`] (which holds the JS-API
@@ -86,7 +86,7 @@ pub(super) fn dispatch_sse_connected(
 ///
 /// Per WHATWG HTML §9.2.6 "Dispatch the event": update sticky
 /// `last_event_id` from the broker's cumulative value
-/// ([`elidex_net::sse::SseParserState::take_event`] always emits the
+/// (`elidex_net::sse::SseParserState::take_event` always emits the
 /// current buffer per §9.2.6), then dispatch a `MessageEvent` named
 /// `event_type` with `data` / `origin` (post-redirect URL origin,
 /// refreshed at each `Connected`) / `lastEventId` (sticky cumulative)

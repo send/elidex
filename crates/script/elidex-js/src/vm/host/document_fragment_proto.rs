@@ -13,7 +13,7 @@
 //! Used by:
 //! - `document.createDocumentFragment()` wrappers
 //! - `<template>.content` wrappers (via
-//!   [`super::html_template_proto::create_fragment_wrapper`])
+//!   `super::html_template_proto::create_fragment_wrapper`)
 //! - `ShadowRoot` wrappers (via the prototype chain set by
 //!   [`super::shadow_root_proto`])
 //!

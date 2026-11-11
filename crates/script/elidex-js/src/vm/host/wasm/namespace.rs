@@ -486,7 +486,7 @@ pub(super) fn native_wasm_compile(
 ///    instance: WebAssembly.Instance}`).  Rejects with `CompileError`
 ///    on parse/compile failure, `LinkError` on import resolution
 ///    failure, `RuntimeError` on initialisation trap.
-/// 2. `instantiate(Module, importObject?)` → Promise<Instance>:
+/// 2. `instantiate(Module, importObject?)` → `Promise<Instance>`:
 ///    instantiate-only.  Resolves with a `WebAssembly.Instance`.
 ///
 /// The overload split is by `args[0]` brand check:

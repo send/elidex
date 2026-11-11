@@ -126,15 +126,17 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
         .get::<&TagType>(entity)
         .is_ok_and(|t| matches!(t.0.as_str(), "ol" | "ul" | "li"));
 
-    // CSS Lists 3 §4.1/§4.2/§4.6: process counter-reset (incl. reversed) → set →
-    // increment, but only clone the style when there is actual counter influence —
-    // an explicit counter-* property or an implicit list counter (ol/ul/li). For
-    // everything else the empty counter vecs make `process_element` a no-op, so the
-    // clone is skipped. `apply_implicit_list_counters_from_dom` is **load-bearing**,
-    // not redundant: the parallel cascade path (`walk::walk_children`, `parallel`
-    // feature) inserts the style WITHOUT baking implicit counters — only the
-    // sequential path bakes them; its `already_has` guard makes this idempotent when
-    // they were. No fragmentation continuation pre-layout (paged continuation, which
+    // The order below is the code's (`CounterState::process_element`): counter-reset
+    // (incl. reversed) → set → increment. CSS Lists 3 §4 orders it reset → increment
+    // → set (steps 2–4); the gap is slot `#11-list-counter-baking-ua-rule-and-hints`.
+    // Only clone the style when there is actual counter influence — an explicit
+    // counter-* property or an implicit list counter (ol/ul/li). For everything else
+    // the empty counter vecs make `process_element` a no-op, so the clone is skipped.
+    // After `resolve_styles` the walk has already baked the implicit counters, so
+    // `apply_implicit_list_counters_from_dom` changes nothing there (its `already_has`
+    // guard; slot `#11-list-counter-baking-ua-rule-and-hints`); it changes the style
+    // only for callers that attach `ComputedStyle` themselves, such as this module's
+    // fixtures. No fragmentation continuation pre-layout (paged continuation, which
     // suppresses re-increment, is handled by render's per-fragment walk).
     if is_list_tag || has_counter_props {
         if let Ok(s) = dom.world().get::<&ComputedStyle>(entity) {

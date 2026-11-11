@@ -1,4 +1,4 @@
-//! Precomputed shape table for [`ObjectKind::Event`] objects.
+//! Precomputed shape table for [`ObjectKind::Event`](crate::vm::value::ObjectKind::Event) objects.
 //!
 //! A single event dispatch builds one JS event object per listener
 //! invocation (see `events.rs` module doc for the per-listener rebuild
@@ -62,7 +62,7 @@ pub(crate) const CORE_KEY_COUNT: usize = 9;
 /// Built once during `register_globals` (after the payload-key
 /// `WellKnownStrings` are interned) and consulted by
 /// `create_event_object` on every dispatch via
-/// [`PrecomputedEventShapes::shape_for`].
+/// `PrecomputedEventShapes::shape_for`.
 pub(crate) struct PrecomputedEventShapes {
     /// Terminal shape for core-9 properties only.  Used for payload
     /// variants that install no extra properties (`None`, `Scroll`)
@@ -241,7 +241,7 @@ fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
 /// Push the UIEvent-prefix slots (`view`, `detail`) for every UA-side
 /// payload writer whose terminal shape extends `ui_event_constructed`.
 ///
-/// Structural mirror of [`super::events_ui::VmInner::build_ui_event_instance`]'s
+/// Structural mirror of [`VmInner::build_ui_event_instance`](crate::vm::VmInner::build_ui_event_instance)'s
 /// `view` / `detail` prepend (slots 9 / 10 of the
 /// `ui_event_constructed` shape transition chain).  Both helpers MUST
 /// emit slots at identical positions — drift between them re-creates
