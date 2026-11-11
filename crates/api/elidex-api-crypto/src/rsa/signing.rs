@@ -1,4 +1,4 @@
-//! RSA signing / verification (WebCrypto §20.8.1/.2 RSASSA-PKCS1-v1_5 /
+//! RSA signing / verification (WebCrypto §20.9.1/.2 RSASSA-PKCS1-v1_5 /
 //! §21.4.1/.2 RSA-PSS) — the `sign` / `verify` op-set + the EMSA padding-scheme
 //! selectors, on the pure-Rust `rsa` crate.
 //!
@@ -25,7 +25,7 @@ use super::{
     operation, reconstruct_private, reconstruct_public, require_public, ENTROPY_PROBE_LEN,
 };
 
-/// RSA `sign` (WebCrypto §20.8.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
+/// RSA `sign` (WebCrypto §20.9.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
 /// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.6), then
 /// apply the family padding — RSASSA-PKCS1-v1_5 (RFC 3447 §8.2) applies the
 /// EMSA-PKCS1-v1_5 encoding (§9.2, deterministic); RSA-PSS (§8.1) applies
@@ -50,7 +50,7 @@ pub(crate) fn sign<F>(
 where
     F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
-    // §20.8.1 / §21.4.1 step 1: the key must be private (reconstruct from the
+    // §20.9.1 / §21.4.1 step 1: the key must be private (reconstruct from the
     // stored PKCS#8 DER, InvalidAccessError if public).
     let privkey = reconstruct_private(key)?;
     // Fail BEFORE the private-key exponentiation if the entropy seam is down.
@@ -111,7 +111,7 @@ where
     }
 }
 
-/// RSA `verify` (WebCrypto §20.8.2 RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS): digest
+/// RSA `verify` (WebCrypto §20.9.2 RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS): digest
 /// `message`, then verify `signature` against the public key.  The §14.3.4 name
 /// / `verify`-usage gate ran in [`crate::ops::verify`]; this enforces step 1
 /// (`[[type]]` must be public) and returns **false** (not an error) on an invalid
@@ -125,7 +125,7 @@ pub(crate) fn verify(
     message: &[u8],
     salt_length: Option<u32>,
 ) -> Result<bool, AlgorithmError> {
-    // §20.8.2 / §21.4.2 step 1: the key must be public.
+    // §20.9.2 / §21.4.2 step 1: the key must be public.
     require_public(key)?;
     let pubkey = reconstruct_public(key)?;
     let digest = hash.digest(message);

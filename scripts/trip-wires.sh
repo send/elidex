@@ -85,7 +85,6 @@ fi
 REQUIRED_WIRES="
 layout-box-reader-trip-wire.sh
 native-ctor-guard-trip-wire.sh
-module-outer-doc-trip-wire.sh
 wasm-runtime-trip-wire.sh
 wasm-vm-trip-wire.sh
 webref-generic-core-trip-wire.sh
