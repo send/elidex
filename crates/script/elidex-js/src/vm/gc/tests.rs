@@ -9,10 +9,10 @@
 
 #![cfg(test)]
 
+use super::super::frame::{Upvalue, UpvalueState};
 use super::super::shape;
 use super::super::value::{
-    FunctionObject, JsValue, Object, ObjectKind, Property, PropertyStorage, PropertyValue, Upvalue,
-    UpvalueState,
+    FunctionObject, JsValue, Object, ObjectKind, Property, PropertyStorage, PropertyValue,
 };
 use super::super::Vm;
 

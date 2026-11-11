@@ -6,7 +6,8 @@
 
 use crate::bytecode::compiled::CompiledFunction;
 
-use super::value::{self, FuncId, JsValue, Object, ObjectId, StringId, UpvalueId, VmError};
+use super::frame::Upvalue;
+use super::value::{FuncId, JsValue, Object, ObjectId, StringId, UpvalueId, VmError};
 use super::{host_data, Vm};
 
 impl Vm {
@@ -105,7 +106,7 @@ impl Vm {
     }
 
     /// Allocate an upvalue, returning its `UpvalueId`.
-    pub fn alloc_upvalue(&mut self, uv: value::Upvalue) -> UpvalueId {
+    pub fn alloc_upvalue(&mut self, uv: Upvalue) -> UpvalueId {
         self.inner.alloc_upvalue(uv)
     }
 

@@ -16,9 +16,10 @@
 //! [`super::mark_object`] / [`super::mark_upvalue`] primitives that
 //! this tracer calls back into.
 
+use super::super::frame::Upvalue;
 #[cfg(feature = "engine")]
 use super::super::value::ObjectId;
-use super::super::value::{Object, ObjectKind, PropertyStorage, PropertyValue, Upvalue};
+use super::super::value::{Object, ObjectKind, PropertyStorage, PropertyValue};
 use super::{mark_object, mark_upvalue, mark_value};
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.

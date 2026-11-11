@@ -10,9 +10,10 @@
 
 use std::collections::HashMap;
 
+use super::super::frame::{CallFrame, Upvalue};
 use super::super::natives_promise::Microtask;
 use super::super::value::StringId;
-use super::super::value::{CallFrame, JsValue, Object, ObjectId, Upvalue};
+use super::super::value::{JsValue, Object, ObjectId};
 #[cfg(feature = "engine")]
 use super::super::wrapper_intern::{MarkAgent, WrapperOwner, WrapperSubkey};
 use super::{mark_object, mark_upvalue, mark_value};
