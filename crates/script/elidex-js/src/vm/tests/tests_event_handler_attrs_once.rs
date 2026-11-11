@@ -318,7 +318,7 @@ fn c13_both_parser_tiers_deliver() {
 // raw value as null (HTML §8.1.8.1 *getting the current value of the event
 // handler* step 3.2) and the dispatch runs nothing.
 #[test]
-fn c14_template_contents_handler_does_not_run() {
+fn c14_template_contents_handler_runs() {
     with_page(|vm| {
         let got = run(
             vm,
