@@ -130,11 +130,9 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // increment, but only clone the style when there is actual counter influence —
     // an explicit counter-* property or an implicit list counter (ol/ul/li). For
     // everything else the empty counter vecs make `process_element` a no-op, so the
-    // clone is skipped. `apply_implicit_list_counters_from_dom` is **load-bearing**,
-    // not redundant: the parallel cascade path (`walk::walk_children`, `parallel`
-    // feature) inserts the style WITHOUT baking implicit counters — only the
-    // sequential path bakes them; its `already_has` guard makes this idempotent when
-    // they were. No fragmentation continuation pre-layout (paged continuation, which
+    // clone is skipped. `apply_implicit_list_counters_from_dom` is applied here; its
+    // `already_has` guard makes it idempotent when the walk already baked the implicit
+    // counters. No fragmentation continuation pre-layout (paged continuation, which
     // suppresses re-increment, is handled by render's per-fragment walk).
     if is_list_tag || has_counter_props {
         if let Ok(s) = dom.world().get::<&ComputedStyle>(entity) {

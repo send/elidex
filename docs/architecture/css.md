@@ -26,10 +26,7 @@
 - **timeline.rs**: `DocumentTimeline` — monotonic time tracker (`current_time`, `advance(dt)`).
 - **detection.rs**: `detect_transitions()` — compares old/new computed values against `AnimStyle.transition_property` list, produces `Vec<DetectedTransition>` with CSS list cycling behavior.
 
-## elidex-style (parallel)
+## elidex-style
 
-- **Feature flag**: `parallel` enables rayon-based sibling parallel style resolution.
-- **Strategy**: Cascade (`collect_and_cascade`) runs sequentially (requires `&EcsDom`), then `build_computed_style` runs in parallel across siblings via rayon, then results applied and children recursed sequentially.
-- **parallel.rs**: `OwnedPropertyMap`, `to_owned_map()`, `par_resolve_siblings()` (threshold 8), `build_computed_style_owned()`.
-- **walk.rs**: `walk_children_parallel()` — 3-phase approach (cascade → parallel resolve → apply+recurse). Falls back to sequential for shadow hosts.
-- **Dependencies**: rayon 1 (optional).
+- **Strategy**: the style walk (`walk.rs`) is sequential: per element, `resolve_and_attach_style` is the only resolve step.
+- **Future work**: parallel styling is future work tied to the renderer pool of design doc 06 §6.3.

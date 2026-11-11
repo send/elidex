@@ -16,8 +16,6 @@ pub mod cascade;
 pub mod counter;
 pub mod generated_content;
 pub mod inherit;
-#[cfg(feature = "parallel")]
-mod parallel;
 mod pseudo;
 pub mod resolve;
 pub mod slot;
