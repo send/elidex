@@ -131,25 +131,41 @@ fn u1_link(dom: &mut EcsDom, docs: &Docs, variant: usize, n: Entity) {
 }
 
 // ---- U1 (red): every visited node, the contents and the cached Attr entity
-// are stamped `D` after the link (adopt 3.1, 3.3.1, 3.4) ----
+// are stamped after the link (adopt 3.1, 3.3.1, 3.4): the document `D` for the
+// nodes of the tree, the template contents' owner document `f(D)` (HTML §4.12.3
+// *appropriate template contents owner document*; C1 INV-C) for the contents
+// and their nodes; the "into D-contents" variant links under a contents
+// fragment, so every node of `n`'s subtree reads `f(D)` ----
 #[test]
 fn u1_insertion_adopts_subtree_shadow_contents_and_attr() {
     // Per variant (append, insert_before, replace_child, into D-contents):
     // whether each of n, child, shadow root, its content, template, contents,
-    // contents child, Attr reads D.
+    // contents child, Attr reads its expected document.
     let mut got = Vec::new();
+    let mut expected = Vec::new();
     for variant in 0..4 {
         let mut dom = EcsDom::new();
         let docs = docs(&mut dom);
         let (n, visited) = x_subtree(&mut dom, docs.x);
         u1_link(&mut dom, &docs, variant, n);
+        let inert = dom.appropriate_template_contents_owner_document(docs.d);
         let reads: Vec<bool> = visited
             .iter()
-            .map(|&node| dom.node_document(node) == Some(docs.d))
+            .enumerate()
+            .map(|(i, &node)| {
+                // indices 5 and 6 are the contents and the contents child
+                let want = if variant == 3 || i == 5 || i == 6 {
+                    inert
+                } else {
+                    docs.d
+                };
+                dom.node_document(node) == Some(want)
+            })
             .collect();
         got.push(reads);
+        expected.push(vec![true; 8]);
     }
-    assert_eq!(got, vec![vec![true; 8]; 4]);
+    assert_eq!(got, expected);
 }
 
 #[test]
@@ -158,11 +174,14 @@ fn u1_control_every_node_reads_x_before_the_link() {
         let mut dom = EcsDom::new();
         let docs = docs(&mut dom);
         let (_n, visited) = x_subtree(&mut dom, docs.x);
-        for node in visited {
+        let inert_x = dom.appropriate_template_contents_owner_document(docs.x);
+        for (i, node) in visited.into_iter().enumerate() {
+            // the contents and the contents child start in `f(X)`
+            let want = if i == 5 || i == 6 { inert_x } else { docs.x };
             assert_eq!(
                 dom.node_document(node),
-                Some(docs.x),
-                "variant {variant}: {node:?} starts in X"
+                Some(want),
+                "variant {variant}: {node:?} starts in its expected document"
             );
         }
     }
@@ -582,8 +601,16 @@ fn u5_same_document_move_runs_no_walk() {
         before,
         "no walk on a same-document move"
     );
-    for node in visited {
-        assert_eq!(dom.node_document(node), Some(docs.d), "{node:?} keeps D");
+    // The contents and the contents child (indices 5 and 6) are in `f(D)`
+    // (HTML §4.12.3; C1 INV-C), and the move leaves that as it was too.
+    let inert = dom.appropriate_template_contents_owner_document(docs.d);
+    for (i, node) in visited.into_iter().enumerate() {
+        let want = if i == 5 || i == 6 { inert } else { docs.d };
+        assert_eq!(
+            dom.node_document(node),
+            Some(want),
+            "{node:?} keeps its document"
+        );
     }
 }
 

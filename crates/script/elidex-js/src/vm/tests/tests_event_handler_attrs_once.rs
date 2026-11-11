@@ -308,9 +308,15 @@ fn c13_both_parser_tiers_deliver() {
     });
 }
 
-// ---- C14 (window pin, W-K5 template): template contents get HEAD's raw value and run ----
+// ---- C14 (spec pin since C1, W-K5 template): a raw value in template contents reads null ----
 // `x` is read as `tpl.content.firstChild`: the VM has no
 // `DocumentFragment.prototype.getElementById`.
+// C1 memo T17 (`docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`
+// §6.1) inverts the slice-a window pin: the contents' node document is the
+// inert template document (HTML §4.12.3 *appropriate template contents owner
+// document*), whose browsing context is null, so N1's compile gate reads the
+// raw value as null (HTML §8.1.8.1 *getting the current value of the event
+// handler* step 3.2) and the dispatch runs nothing.
 #[test]
 fn c14_template_contents_handler_runs() {
     with_page(|vm| {
@@ -321,11 +327,14 @@ fn c14_template_contents_handler_runs() {
              tpl.innerHTML = '<b id=x onclick=\"window.hit = 1\"></b>'; \
              var x = tpl.content.firstChild; \
              r.push(x !== null && x.id === 'x'); \
+             r.push(x.onclick === null); \
              x.dispatchEvent(new Event('click')); \
-             r.push(window.hit === 1);",
+             r.push(window.hit === undefined);",
         );
-        // HEAD's outcome. Spec: does not run; slice b (S-2) inverts this pin.
-        assert_eq!(got, "true,true", "C14: window.hit === 1 (HEAD's)");
+        assert_eq!(
+            got, "true,true,true",
+            "C14: x.onclick === null and the handler does not run"
+        );
     });
 }
 

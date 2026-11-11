@@ -254,3 +254,6 @@ mod tests;
 
 #[cfg(test)]
 mod tests_node_document;
+
+#[cfg(test)]
+mod tests_template_owner;

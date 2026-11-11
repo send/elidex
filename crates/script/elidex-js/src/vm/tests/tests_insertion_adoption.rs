@@ -142,8 +142,10 @@ fn t4_control() {
     assert_eq!(got, "true");
 }
 
-// ---- T5 (C2): a DOMParser template moved to the page — its contents adopt
-// with it (template adopting steps; C1 later moves them to the inert document) ----
+// ---- T5 (C1): a DOMParser template moved to the page — its contents adopt
+// with it (template adopting steps) into the page's inert template document,
+// the owner document `tpl.content` of a page template has (HTML §4.12.3
+// *appropriate template contents owner document*; C1 memo T13's value) ----
 const T5_SETUP: &str =
     "var dp3 = new DOMParser().parseFromString('<template id=t><b></b></template>', 'text/html'); \
      var t = dp3.getElementById('t');";
@@ -152,7 +154,9 @@ const T5_SETUP: &str =
 fn t5_template_contents_adopted_with_the_template() {
     let got = cell(&format!(
         "{T5_SETUP} document.body.append(t); \
-         r.push(t.content.ownerDocument === document, t.content.firstChild.ownerDocument === document);"
+         var tpl = document.createElement('template'); \
+         r.push(t.content.ownerDocument === tpl.content.ownerDocument, \
+                t.content.firstChild.ownerDocument === tpl.content.ownerDocument);"
     ));
     assert_eq!(got, "true,true");
 }
@@ -561,7 +565,7 @@ const T18: &str = "globalThis.t = dp.createElement('template'); dp.body.append(t
     globalThis.e = document.createElement('x-a'); t.content.append(e); document.adoptNode(t.content);";
 
 /// `e`'s pair is its segment's (`old = document`, the contents' node
-/// document; `new = dp2` under C2), not the root's (`dp`, `dp2`).
+/// document; `new = f(dp2)` since C1), not the root's (`dp`, `dp2`).
 #[test]
 fn t18_contents_element_gets_its_segments_pair() {
     let got = ce_cell(&[T18, "log = []; dp2.body.append(t);", "log"]);
@@ -573,7 +577,9 @@ fn t18_control() {
     let got = ce_cell(&[
         "globalThis.t = dp.createElement('template'); dp.body.append(t); \
          globalThis.e = document.createElement('x-a'); t.content.append(e);",
-        "e.ownerDocument === dp",
+        // appended into the contents, `e` reads the contents' node document: the
+        // inert template document of `dp` (C1 INV-C), not `dp`
+        "e.ownerDocument === t.content.ownerDocument && e.ownerDocument !== dp",
     ]);
     assert_eq!(got, "true");
 }

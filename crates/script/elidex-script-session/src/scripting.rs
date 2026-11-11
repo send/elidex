@@ -60,10 +60,11 @@ use elidex_plugin::SandboxingFlagSet;
 /// created ownerless: a fragment parse whose context has none, or creation
 /// on behalf of a non-node source such as a Window / Worker): the node
 /// clause is false (the settings clause has already been evaluated), as it
-/// was for an unresolvable document before. Caveats: detached-iframe
-/// documents = unreachable in the single-BC model; the `<template>` contents
-/// share the template's node document (no inert document yet), which rides
-/// `#11-template-contents-owner-document`.
+/// was for an unresolvable document before. Caveat: detached-iframe
+/// documents = unreachable in the single-BC model. A node in `<template>`
+/// contents has the inert template document as its node document while its
+/// contents fragment does (HTML §4.12.3 *appropriate template contents owner
+/// document*), so the clause is true there.
 ///
 /// Clause (b) applies to objects implementing `Node` only: a Window /
 /// Worker / OffscreenCanvas or other non-DOM entity has no node document

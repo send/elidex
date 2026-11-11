@@ -323,8 +323,12 @@ fn adopt_rehomes_template_content_fragment() {
 
     dom.adopt(root, doc);
 
-    assert_eq!(dom.node_document(fragment), Some(doc));
-    assert_eq!(dom.node_document(content_child), Some(doc));
+    // The contents re-home to the template contents' owner document of the
+    // new document, not to the document itself (HTML §4.12.3 *adopting steps*,
+    // C1 INV-C).
+    let inert = dom.appropriate_template_contents_owner_document(doc);
+    assert_eq!(dom.node_document(fragment), Some(inert));
+    assert_eq!(dom.node_document(content_child), Some(inert));
 }
 
 #[test]

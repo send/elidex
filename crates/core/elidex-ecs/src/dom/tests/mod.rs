@@ -26,6 +26,7 @@ mod namespace;
 mod node_kind;
 mod shadow_dom;
 mod splice_utf16;
+mod template_owner;
 mod traversal;
 mod tree_ops;
 mod version;

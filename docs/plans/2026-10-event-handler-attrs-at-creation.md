@@ -30,7 +30,7 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Rev 8.6* (2026-11-08; carried by C0c's PR): §1.2's C0 row: "C0c: planned." → "C0c: landed (#611)." (C0 program memo R-3). *Rev 8.5* (2026-11-07; carried by C0b's PR): §1.2's C0 row: "C0b: planned." → "C0b: landed (#608)." (C0 program memo R-3). *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
+**Changelog.** *C1-pre row* (carried by C1's PR; missing since C1-pre's PR, #616, PM 604): §1.2's C1-pre row landed with #616 (c7cce8c8; C1 memo §8 R-1, §9 item 11). *Rev 8.7* (carried by C1's PR; number assigned at landing, PM 223 O-1 / 232): §1.2 gains the C1 row and §1.3 gains x7 (C0 → C1) and the C1-pre → C1 edge (C1 memo R-1); §1.6's heading "C1's handling (decided by the PM, not here)" → "C1's handling (decided: branch A, PM decision 123)"; §8.1's `#11-template-contents-owner-document` "Owner TBD …" → the Layout lane's owner line; cell C14's expected column, K-5, §8.2 defect (5), §1.4's interim line (window iv), §1.5's W-K5 bullet and heading, §1.1's I7 row and §0.5's K-5 red-cell line carry C1's template-contents half (C1 memo R-3). *Rev 8.6* (2026-11-08; carried by C0c's PR): §1.2's C0 row: "C0c: planned." → "C0c: landed (#611)." (C0 program memo R-3). *Rev 8.5* (2026-11-07; carried by C0b's PR): §1.2's C0 row: "C0b: planned." → "C0b: landed (#608)." (C0 program memo R-3). *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
 MIN-2): the header's N1 pointer is rev 4.5; §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2's defect (1) and
 classification name NR8 (a)'s population by its value, a callback at the first insertion (an IDL write, or a
 `setAttribute` value compiled by a read or a dispatch before it), not by the IDL write alone; §8.4 item 4 excepts the
@@ -345,15 +345,16 @@ element event handler set (`onblur`, `onerror`, `onfocus`, `onload`, `onresize`,
   template contents: it walks only the bound document's tree, and skips template contents (cells U8 (i), (ii)). Slice
   a's Insert arm keeps HEAD's window **W-K5**, which is HEAD-equal: an unmarked element placed into template contents
   (`tpl.innerHTML`, H22, or a script append into `tpl.content`), or into a DOMParser document after its build, gets HEAD's
-  raw values. They read non-null, and in template contents they run (window pins C14, C15). From N1, the DOMParser half
-  reads null. The spec's outcome everywhere is slice b's (S-1, S-2).
+  raw values. They read non-null, and in template contents they run (window pins C14, C15). From N1, the DOMParser half reads null; from C1, the template-contents half
+  reads null under the C1 memo's INV-C (§4.6 item 1: conditional on the contents fragment's node document; a contents
+  fragment adopted into the bound document is bound, the spec's outcome). The spec's outcome everywhere is slice b's (S-1, S-2).
 - **K-6, bind completeness (G1).** At the first bind of a document, **every** element of its shadow-including tree,
   at any depth and under a parent of any width, is processed before any script of that bind runs. Template contents are
   excluded in slice a. Later binds of the same document process nothing. *From slice a.* This is why the bind pass
   stays after slice b: it is the creation-equivalent point for the pre-bind parse.
 
 Red cells per clause (§6): K-0 guards U5 (ii), U9, E8, C6, C13, C16 (no red: K-0 is HEAD-equality or improvement). X-W:
-C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (window pins C14, C15). K-6: E1, E2,
+C8, C17, C18, C19, C19b, C19c, C20, U2 (guards and window pins). K-1: C1–C3, U1, E3. K-2: C4, C11, U5 (i). K-3: C5. K-4: E1, E2, U7. K-5: U8 (C15 a window pin until N1, whose node clause inverts it; C14 a window pin until C1, which inverts it to the spec's outcome, C1 memo T17). K-6: E1, E2,
 E4–E7, U7, U10, U11, U12.
 
 ### §0.6 Slice b's invariants (decided; mechanism is slice b's plan)
@@ -407,7 +408,7 @@ how it satisfies each of the following, and its plan-review checks that:
 | I4 freshness (new elements start unprocessed; clone does not copy) | §5.0 | owns it (clone-policy row) | clone processed at creation (S-1) |
 | I5 coverage (every creation path, the pre-bind tree, shadow trees, template contents) | K-4, K-6, G1, G2 | the pre-bind tree, shadow-including, uncapped (D-11); first insertion over HEAD's light walk (D-10) | creation-time coverage (S-1, S-2) |
 | I6 policy | `event_handler_consumer.rs:405`, `:447` | owns it (one `policy.installs` filter on every path) | — |
-| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii)) | owns it (S-1, S-2; needs N1 and C1's handling) |
+| I7 inert-document reads | K-5 | the bind pass reaches none (U8); W-K5 kept, HEAD-equal (its DOMParser half reads null from N1, §1.4 (ii); its template-contents half from C1, §1.4 (iv)) | owns it (S-1, S-2; needs N1 and C1's handling) |
 | I8 target determination (step 3) | G3 | not reached: the bind pass walks only the bound, active document, and every Window-delegating pair otherwise takes HEAD's path (X-W; C8, C17–C19) | owns it (needs T3) |
 | I9 layering / re-entry | Layering mandate | owns it for the VM setters and the bind pass | owns it for the creation-time sites |
 
@@ -422,6 +423,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | **slice a** `EH-attrs-at-creation-a` (branch cut from main after the approval PR lands) | D-1 to D-11; K-0 to K-6; X-W; the cells and pins of §6.1–§6.2; the clone-policy row; G1; the G6 docstring | the umbrella-approval PR |
 | **C0** `EH-attrs-at-creation-C0` (owner: Layout lane, this program; PM decisions 143, 244), a program of three PRs in order **C0a** `EH-attrs-at-creation-C0a` (*replace* record order) → **C0b** `EH-attrs-at-creation-C0b` (the node document as the stored fact: creation entry, insertion adoption, one reader) → **C0c** `EH-attrs-at-creation-C0c` (`adoptedCallback` and `document.adoptNode`); program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` | slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node document after a cross-document move (a node moved into another document keeps its old node document, which T3's step 3 would read; edge x9). C0a: landed (#595). C0b: landed (#608). C0c: landed (#611). | IBP-sandbox N1's implementation landed; C0a after D-14 (a); C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585); C0c after C0b and D-14 (b) |
 | **C1-pre** `layout-c1-pre-document-wrapper` (owner: Layout lane; PM 328 / 335 / 339; memo `docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document (one `Document.prototype`, chosen at first allocation) | C0 D-14 (b) and RC-2a landed |
+| **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6); closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed; C1-pre landed |
 | **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off. Its own plan, plan-review and PR | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
 | **slice b** `EH-attrs-at-creation-b` | S-1 to S-7; G2 rest, G5, K2 (§1.5) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
@@ -439,6 +441,8 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x6 | slice a → T3 | scheduling precondition (PM decisions 25, 153) | T3 is started after C1 lands (PM decision 153; until rev 8.4: "once slice a lands"), so x6 holds transitively (slice a → N1 → C0 → C1 → T3). No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close |
 | x9 | C0 → T3 (rev 8.4) | semantic precondition (PM decision 153) | without insertion adoption a node moved into another document keeps its old node document, which T3's step 3 reads; C0b makes the node document a stored fact, kept true at every insertion and read by `EcsDom::node_document` |
 | x10 | N1 → C0 (rev 8.4) | code predecessor (PM decision 153) | C0b rewrites N1's compile-gate clause (b) to read `EcsDom::node_document` (C0 program memo D-7 (a)), so N1's implementation (#580) lands first |
+| x7 | C0 → C1 | semantic precondition (PM decisions 143, 153) | without insertion adoption C1 makes the most common template idiom worse than its base (C1 memo §1) |
+| x<n> | C1-pre → C1 | semantic precondition (PM 328) | I is reachable from script through `ownerDocument`; its wrapper is a Document only through C1-pre's `Document.prototype` (C1 memo edge c-pre) |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 
@@ -457,19 +461,19 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
   remains in branch B is slice b's plan's decision, under S-2 to S-4.
 - **Interim behaviour:** §1.5, all HEAD-equal (K-0) until N1 lands. From N1, N1's compile-gate node clause changes
   the getter in three of its windows, each where the node document N1 reads is a DOMParser document's, with dispatch
-  equal to HEAD's (nothing runs) in each: (i) the K-2 / K-3 residual's subset whose value is a callback at that insertion (an IDL
+  equal to HEAD's (nothing runs) in each, and from C1 in a fourth: (i) the K-2 / K-3 residual's subset whose value is a callback at that insertion (an IDL
   write, or a `setAttribute` value compiled by a read or a dispatch before it), at a first insertion into a
   DOMParser document (or of a DOMParser document's element into a detached subtree of the bound document, which
   insertion does not adopt), reads null where HEAD compiled the attribute and the spec returns the callback,
   away from the spec (N1 memo §5.4 NR8 (a); O5, PM decision 90); (ii) W-K5's DOMParser half reads null where HEAD
   compiled the attribute, the spec's outcome (K-5); (iii) X-W's element-targeted pairs (a Window-reflecting name on a
   `<body>` / `<frameset>`, or a WindowEventHandlers name on a `<frameset>`, which HEAD targets at the element) in a
-  DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h).
-  **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iii) are its defects (1), (5) and
-  (7) respectively).
+  DOMParser document read null where HEAD compiled the attribute, the spec's outcome (N1 memo §5.4 NR8 (b), pin C8h); (iv) from C1, W-K5's template-contents half, where the node document N1 reads is the contents' inert template document (C1 memo INV-C, §4.6 item 1), reads null where HEAD compiled the attribute and dispatch runs nothing where HEAD ran the handler, the spec's outcome (K-5; cell C14).
+  **Closure record:** slot `#11-eh-attrs-creation-time-call-sites` (§8.2; (i) to (iv) are its defects (1), (5), (7) and
+  (5)'s template-contents half respectively).
 - **Closing path (visible):** slice a lands → N1 → C0 → C1 → T3 (this program's PR, slot `#11-event-handler-target-determination`) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2, x9, x10; rev 8.4, PM decision 153; until rev 8.4: "slice a lands → T3 (…; N1 lands independently) → C1's handling decided (PM) → slice b").
 
-### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, §1.4; slice b closes them)
+### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them)
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every
@@ -489,7 +493,7 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
   the last child, so of a parent with n > 10 000 children in a subtree inserted after bind, the **first n − 10 000**
   children (and their subtrees) are never processed in slice a (HEAD-equal). The bind
   walk is uncapped (D-11). Slice b's S-1 covers "any depth and width" at creation.
-- **W-K5.** As K-5 (from N1, its DOMParser half reads null: §1.4 (ii)).
+- **W-K5.** As K-5 (from N1, its DOMParser half reads null: §1.4 (ii); from C1, its template-contents half too).
 - **E-G1.** As K-0.
 
 Rev 4's "depth cap" window is deleted. The bind walk is uncapped (D-11), so no pre-bind element of the bound
@@ -501,7 +505,7 @@ branch A they are covered by S-1's extension to pre-bind template contents, not 
 each at bind and skips it at the re-append (K-1). After slice b in branch A, nothing is processed at the re-append,
 and each row is already processed.
 
-### §1.6 C1's handling (decided by the PM, not here)
+### §1.6 C1's handling (decided: branch A, PM decision 123)
 
 The PM decides, after slice a and N1 land, whether C1 (`#11-template-contents-owner-document`) lands (branch A) or
 not (branch B) (§8.1). Rev 8.4: decided, branch A (PM decision 123); C1 is this program's nested PR, after C0 and before T3 (§1.2). This umbrella decides only what each branch requires of slice b: S-2 in both branches, and S-1's
@@ -738,7 +742,7 @@ VM cells drive the VM through `dispatchEvent(new Event('click'))` (the VM has no
 | C11 | red | `c = createElement('div')`; `c.setAttribute('onclick', A)`; `c.onclick = fn`; `el.append(c)` | first insert raws A over `fn` | `c.onclick === fn` |
 | C12 | guard | clone of `onclick=A`; `c.removeAttribute('onclick')`; insert | — | `c.onclick === null` |
 | C13 | guard | parser tiers: `el.innerHTML = '<button onclick=…>'` (strict) and a foster-parenting `<table>` string (tolerant fallback) | delivered | dispatch runs the body on both |
-| C14 | window pin (W-K5, template) | `tpl.innerHTML = '<b id=x onclick="window.hit=1">'`; `tpl.content.getElementById('x').dispatchEvent(new Event('click'))` | runs | `window.hit === 1` (spec: does not run; slice b inverts it under S-2) |
+| C14 | window pin (W-K5, template) | `tpl.innerHTML = '<b id=x onclick="window.hit=1">'`; `tpl.content.getElementById('x').dispatchEvent(new Event('click'))` | runs | `window.hit === 1` (spec: does not run; C1 inverts it, with N1's compile gate and C0's adoption at the placement) |
 | C15 | window pin (W-K5, DOMParser) | `x` from `dp = parseFromString('<div id=x onclick="A">')` (unmarked, no entry); `x.onclick` (null); `dp2.body.append(x)`; getter | before `null`; after a function | after the append `typeof x.onclick === 'function'` (spec: null; N1's node clause inverts it) |
 | C16 | guard (T-a3, restriction returns) | DOMParser `<div id=d onclick="A" onmouseover="C">`; `d.setAttribute('onclick', 'B')`; `d.onmouseover` | `null` (no `mouseover` entry, H5) | `d.onmouseover === null` (an unrestricted write would raw `C`, and the flag-only gate would compile it) |
 | C17 | guard (X-W at T-a3; window pin; R3 IMP) | `dp = new DOMParser().parseFromString('<body onhashchange="window.hit=1">', 'text/html')`; `b = dp.body` (its only deliverable attribute is `onhashchange`); `window.onhashchange` is null; step 1: `b.onhashchange = fn`; step 2: `el.append(b)`; step 3: dispatch `hashchange` on the Window | step 1: `window.onhashchange === fn` (HEAD's setter has no step 3). Step 2: the Insert re-raws `hit=1` over `fn`; the getter compiles it. Step 3: runs `hit=1`, not `fn` | step 1 and step 2 as HEAD, step 3 as HEAD: `window.onhashchange === fn`, then `typeof window.onhashchange === 'function'` and `!== fn`, then `window.hit === 1` with `fn` not run. **Spec** (not asserted): step 1 the setter returns (null target), step 2 `window.onhashchange === null`, step 3 runs nothing; reached after T3 and slice b (§1.5 X-W). Rev 5 gave `window.onhashchange === fn` at step 2, which matches neither. A write-side entry that processes a Window-delegating pair fails it. K-2 and K-3 do not claim this pair (X-W), so the cell and their qualifiers agree |
@@ -847,8 +851,7 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
   implemented at all, so this is not a handler-specific gap. Since HEAD, no inline script or inline handler passes a CSP
   check. Slice a only adds initial-HTML handlers to that set. `frame-ancestors` is the only CSP directive parsed and
   enforced (`origin.rs:202`). Trigger: IBP-sandbox N3 `IBP-sandbox-csp-list`'s per-PR plan.
-- `#11-template-contents-owner-document`: **marked by the PM as EH's C1** (x5). Owner TBD: the PM decides who and when at
-  the landing of slice a and of N1. The trigger includes those two landings. Re-eval 2026-11-30.
+- `#11-template-contents-owner-document`: **marked by the PM as EH's C1** (x5). Owner: Layout lane (PM decision 123); C1, after C0 (PM decisions 143, 153); plan `docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`. The trigger includes those two landings. Re-eval 2026-11-30.
 - `#11-unbound-attribute-writes-bypass-consumers` (G7): **widened by the PM.** Its population is every DOM write made
   while no dispatcher exists (creation, insertion, attributes), and it is recorded as relied on by D-5. Its trigger
   includes "an unbound path that creates or inserts elements after the bind pass has run". Owner: this program.
@@ -881,8 +884,8 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > shadow tree of a host inserted after bind, is never processed; (5) DOMParser and template-content elements are
 > processed at their first insertion, not at creation, and an unmarked element placed into template contents or into a
 > DOMParser document reads a non-null handler (the DOMParser-document half of this second clause holds only until N1
-> lands, after which such an element reads `null` there, K-5; its template-contents half, and the first clause for
-> both, remain until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
+> lands, after which such an element reads `null` there, K-5; its template-contents half until C1 lands, and the first clause for
+> both until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
 > after bind, the first n − 10 000 children are not reached by the Insert walk (HEAD's `children_iter_rev` cap, which
 > starts at the last child, D-10), so they are never processed; (7) a `<body>` / `<frameset>` handler that delegates
 > to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
@@ -890,7 +893,7 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > with the same outcome or a wider population, except that once N1 lands its compile gate changes the getter outcome,
 > with dispatch equal, of three DOMParser subsets: (1)'s subset whose value is a callback at the insertion (away from
 > the spec, PM decision 90), the DOMParser-document half of (5)'s second clause, and (7)'s pairs that HEAD targets at
-> the element (both to the spec's `null`); slice a
+> the element (both to the spec's `null`); and from C1 in a fourth, (5)'s template-contents half, whose getter reads `null` where HEAD compiled the attribute and whose dispatch changes too, since HEAD ran the handler (the spec's outcome; §1.4 (iv)); slice a
 > narrows (1) and makes nothing worse (K-0). **Registered** when
 > the umbrella-approval PR lands. **Why deferred:** the end state processes at creation. That writes raw values on
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's

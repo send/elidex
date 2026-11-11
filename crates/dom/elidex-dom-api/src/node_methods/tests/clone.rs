@@ -213,11 +213,13 @@ fn clone_node_template_shallow_gets_fresh_empty_fragment() {
 }
 
 #[test]
-fn clone_node_template_shallow_preserves_owner_document() {
+fn clone_node_template_shallow_owner_document_is_inert_template_document() {
     // Codex PR380 R2 (P2): `cloneNode(false)` on a document-owned `<template>`
     // must give the (empty) clone fragment the operation's node document: the
-    // contents are created with the operation's `NewNodeOwner` (the one `dst`
-    // was created with, C0b), so `content.ownerDocument` is not null.
+    // contents are created with the operation's `NewNodeOwner`, so
+    // `content.ownerDocument` is not null. Since C1 it is the document's inert
+    // template document (HTML §4.12.3 *appropriate template contents owner
+    // document*; the clone's contents take `f(document)`, D-C6).
     let (mut dom, mut session) = setup();
     let doc = dom.create_document_root();
     let template = dom.create_element_with_owner(
@@ -241,10 +243,12 @@ fn clone_node_template_shallow_preserves_owner_document() {
     let cloned_fragment = dom
         .template_contents_fragment(cloned)
         .expect("shallow clone has a content fragment");
+    let inert = dom.appropriate_template_contents_owner_document(doc);
+    assert_ne!(inert, doc);
     assert_eq!(
         dom.owner_document(cloned_fragment),
-        Some(doc),
-        "shallow template clone's content fragment ownerDocument is the document, not null"
+        Some(inert),
+        "shallow template clone's content fragment ownerDocument is the document's inert template document, not null"
     );
 }
 
