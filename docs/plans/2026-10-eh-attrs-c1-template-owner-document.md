@@ -91,7 +91,12 @@ S-1/S-2); target determination (T3, after C1; it rewrites umbrella cell C18, §6
 A1–A9 (C0 rev 2 / L3, §7); the template element's `for` attribute and content patching (§7); the DocumentFragment
 *host* of template contents (§7); multi-realm (B1; "given document's relevant realm", §4.1).
 
-**Changelog.** *Rev 3.10.2* (2026-11-11, PM 647): erratum of observations found at implementation — T13 and T25 gain
+**Changelog.** *Rev 3.10.3* (2026-11-11, PM 652): erratum of observations — §5.2's population is defined by property
+(a template in the fixture), not by memo-cell text or by what changed: the property scan (112 fns at `542a30db`, control
+C0b U5) ∪ the fns whose value changed (21) = 112, both differences written; every fn classified in §5.2; C0b U5, U9 ×2,
+U1's control and C0c T18's control added to "changes" with derived values; C0c U19 leg 2 needs no re-set; §6.3's two
+tolerant / pair rows name the killers observed at `73eefe26`; R-3's §1.4 text counts window (iv) (§10.11).
+*Rev 3.10.2* (2026-11-11, PM 647): erratum of observations found at implementation — T13 and T25 gain
 the legs that tell I from `document` (and I_dp from `dp`); U12 reads the walk counter; U5 states its precondition;
 §5.1 P-4 / P-5's base check excludes test code (§10.10).
 *Rev 3.10.1* (2026-11-10, PM 621): final clerical fixes — §2.1 A2 / A5 reference INV-C (b); INV-C (a)
@@ -842,67 +847,167 @@ C14 (`crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`, i
 expected value reads a template contents' (or a contents descendant's) node document, or the pair of an adopt segment
 of contents (below). C18's test (`tests_event_handler_attrs_window_delegating.rs`) is **unchanged** at C1 (T18).
 
-*Code-side population (rev 3.7, by property).* Every `#[test]` fn that, directly or through a test-side helper fn of
-its file (three levels), touches template contents (`attach_template_contents`, `template_contents_fragment`,
-`.content`, `<template`) **and** reads a node document or an adopt pair (`node_document(`, `owner_document(`,
-`ownerDocument`, `get_associated_document`, `AdoptedContents`, `Adopted {`, `documents: Some`):
+*Code-side population (rev 3.10.3, by property; supersedes rev 3.7's grep and its 36 fns, §10.11).* Property: a
+`#[test]` fn whose fixture contains a template, or that observes the contents, the `ownerDocument` or the node
+document of a node in contents. The second clause implies the first (a node in contents exists only under a template
+the fixture built), so the scan tests the first, and reads no observer: how a test sees C1's change (a node document,
+an adopt pair, an entity count, a log, a walk order) does not decide membership. A fn is a hit when it, or a test-side
+`fn` / `const` / `static` of its file that it names (three levels), has a non-comment line that builds or reaches a
+template (`<template` markup, a `"template"` / `'template'` tag name, `attach_template_contents`,
+`template_contents_fragment`, the `TemplateContents` component):
 ```sh
 git ls-files 'crates/*.rs' | xargs /usr/bin/grep -l '#\[test\]' | while read -r f; do
   awk -v F="$f" '
     BEGIN { tf = (F ~ /\/tests\/|tests\.rs|\/tests_|test_helpers/) }
+    /^[[:space:]]*\/\// { next }
     /^#\[cfg\(test\)\]/ { cfg = NR }
     cfg && NR == cfg + 1 && /^mod [A-Za-z0-9_]+ *\{/ { inmod = 1 }
-    /^[[:space:]]*(pub[^ ]* )?fn [A-Za-z0-9_]+/ { fn = $0; sub(/^.*fn /, "", fn); sub(/[^A-Za-z0-9_].*/, "", fn); start[fn] = NR; side[fn] = tf || inmod; if (pt) test[fn] = 1; order[++n] = fn }
+    /^[[:space:]]*(pub[^ ]* )?(fn|const|static) [A-Za-z0-9_]+/ { it = $0; k = (it ~ /(^|[[:space:]])fn /) ? "fn" : "c"; sub(/^.*(fn|const|static) /, "", it); sub(/[^A-Za-z0-9_].*/, "", it); start[it] = NR; side[it] = tf || inmod; kind[it] = k; if (pt && k == "fn") test[it] = 1; order[++n] = it }
     { pt = ($0 ~ /^[[:space:]]*#\[test\]/) ? 1 : (pt && $0 ~ /^[[:space:]]*#\[/) }
-    fn != "" { body[fn] = body[fn] "\n" $0 }
-    /attach_template_contents|template_contents_fragment|\.content[^A-Za-z_]|<template/ { if (fn != "") T[fn] = 1 }
-    /node_document\(|owner_document\(|ownerDocument|get_associated_document|AdoptedContents|Adopted *\{|documents: *Some/ { if (fn != "") D[fn] = 1 }
+    it != "" { body[it] = body[it] "\n" $0 }
+    /attach_template_contents|template_contents_fragment|TemplateContents([^A-Za-z0-9_]|$)|<template|["\x27]template\\?["\x27]/ { if (it != "") T[it] = 1 }
     END {
-      for (it = 0; it < 3; it++) for (i = 1; i <= n; i++) { a = order[i]; for (j = 1; j <= n; j++) { b = order[j]; if (a != b && side[b] && body[a] ~ ("(^|[^A-Za-z0-9_])" b "\\(")) { if (T[b]) T[a] = 1; if (D[b]) D[a] = 1 } } }
-      for (i = 1; i <= n; i++) { a = order[i]; if (test[a] && T[a] && D[a]) printf "%s:%d:%s\n", F, start[a], a }
-    }' "$f"; done
+      for (r = 0; r < 3; r++) for (i = 1; i <= n; i++) { a = order[i]; for (j = 1; j <= n; j++) { b = order[j]; if (a != b && side[b] && T[b] && body[a] ~ ("(^|[^A-Za-z0-9_])" b (kind[b] == "fn" ? "\\(" : "([^A-Za-z0-9_]|$)"))) T[a] = 1 } }
+      for (i = 1; i <= n; i++) { a = order[i]; if (test[a] && T[a]) printf "%s:%d:%s\n", F, start[a], a }
+    }' "$f"; done | /usr/bin/grep -vE 'tests_template_owner_document\.rs|tests/template_owner\.rs|tests_template_owner\.rs|clone_template_owner\.rs'
 ```
-→ **36 fns at `c7cce8c8`**: `elidex-ecs`
-`dom/tests/adopt_on_insert.rs` 13, `dom/tests/adopt_notification.rs` 4 (the U19 trio, U21), `dom/tests/destroy.rs` 1
-(`adopt_rehomes_template_content_fragment`, `:310`); `elidex-custom-elements/src/tests.rs` 5 (U13, the U19 consumer
-trio, U20's control); `elidex-dom-api` `node_methods/tests/clone.rs` 1 (above); `elidex-html-parser` `tests.rs` 3 (the
-two above and `fragment_template_content_documentless_context_is_unstamped_in_both_backends`, `:621`, unchanged: no
-document, no `f`), `tests_node_document.rs` 6 (U8 ×4, U9 ×2); `elidex-js` `vm/tests/tests_insertion_adoption.rs` 3 (T4's
-control, T5, T18's control). Complement: a fixture built by a helper in another file, or a test that reaches contents
-by another spelling, is not counted. Each fn is classified (changes / value unchanged / not dependent) by the rule of
-the memo-cell list below, at C1's red-first run (§9 item 1), and the result goes in C1's PR body (PM 604); the memo cells named there are the ones this list's fn
-names carry (`t5_…`, `u1_…`, `u8_…`, `u11_…`, `u13_…`, `u19_…`, `u21_…`).
+(`/usr/bin/awk`, version 20200816.) The last filter drops the 68 fns of C1's own NEW cell files (§5.3; 58 + 6 + 3 + 1):
+their values are C1's §6 cells, not existing expectations. At `542a30db` (2026-11-11): 180 hits before the filter,
+**112 after: set (a)**. Control: (a) holds `adopt_on_insert.rs:586:u5_same_document_move_runs_no_walk` (C0b U5; the
+output piped to `/usr/bin/grep -c ':u5_same_document_move_runs_no_walk$'` → 1), which rev ≤ 3.10.2's memo-cell
+population (the `template|content` grep over the C0 memos' §6 cells) does not reach: that grep's C0b output is
+`T5 T23 U1 U8 U11 U12` (piped to `/usr/bin/grep -c '^| *U5 '` → 0), because U5's cell text is "same-document move"
+while its fixture, `x_subtree`, holds a template. Complement: a fixture built by a helper of another file, by a macro
+or from a file read at run time is not seen; a nested `fn` inside a test body ends that test's scanned body; code
+between two items counts for the earlier one (over-inclusion only).
 
-*C0 cells C1 changes (by property, not by a "C1 turns" phrase).* Population: every §6.1 / §6.2 cell of the C0a, C0b and
-C0c memos whose script, shape or expected value involves template contents — `for m in <C0a> <C0b> <C0c>; do awk
-'/^## §6/{f=1} /^### §6\.5/||/^## §7/{f=0} f && /^\| *[TU][0-9]+/' "$m" | /usr/bin/grep -iE 'template|content'; done`
-(the program memo has no cells, its §1.1; §6.5 base formulations run at C0's bases, not C1's) — then each is classified
-by whether its expected value depends on the contents' node document or a contents segment's pair. On the landed memos
-at `c7cce8c8` the population is C0b T5, T23, U1, U8, U11, U12 and C0c T18, U13, U18, U19, **U21** (rev ≤ 3.6.1, at
-the frozen C0 frame `a93142c4` / `05142d8c`: the same without U21, which C0c added later):
-- **changes (rewritten in C1's commit)**: C0b **T5** (both legs → the inert document, C1's T13 value); C0b **U1** (the
-  template-with-contents variant: contents stamped `f(D)`; the "append into a contents fragment" variant's fixture, if
-  built through `attach_template_contents`, reads `f(D)`); C0b **U8** (×2; "every node except the Document reads `D`" →
-  nodes in contents read `f(D)`; the walk-counter leg is unchanged, C1's U12); C0b **U11** (the top-level-template and
-  nested-template legs → `f(context's document)`); C0c **U13** (C's segment pair → « `f(old)`, `f(new)` »); C0c **U19**
-  (first leg → `Adopted(X, f(target))`; second leg: the outer contents in the target are no longer skipped, `target ≠
-  f(target)`, so the leg is re-set with the outer contents in `f(target)` to keep constructing the skip; third leg:
-  stamped `f(target)`, its condition `X ≠ f(target)`); C0c **U21** (rev 3.9; `crates/core/elidex-ecs/src/dom/tests/adopt_notification.rs:305-327`,
-  `u21_contents_cycle_root_is_not_a_segment`): its fixture establishes `f` with
-  `attach_template_contents(tpl, node_document_for_new_nodes(docs.x))`, which on C1's head stamps `f` with
-  `I_X = f(docs.x)` (D-C3), so `append_child(f, tpl)` adopts `tpl` into `I_X` (before the log is installed) and
-  `adopt(f, docs.d)` reads `old = I_X`: the logged root record becomes `documents: Some((I_X, docs.d))`, not
-  `(docs.x, docs.d)`. Its other legs are unchanged: no segment for the root (the walk does not treat its own root as a
-  segment, `mutation.rs:339-346`; INV-C (c)) and `[f, tpl]` both read `docs.d`;
-- **value unchanged**: C0c **T18** (its segment's `new` becomes `f(dp2)`, but the logged `n === dp` is `false` either
-  way; its "C1 turns" note is a comment; C1's T25 discriminates); C0c **U18** (`dom/tests/traversal.rs:404-462`): its
-  fixture establishes contents with `node_document_for_new_nodes(doc)`, so on C1's head the fragment and the `<i>`
-  appended into it are stamped `f(doc)`, but both legs assert the `Include` walk's visiting order, which reads no
-  document;
-- **not dependent**: C0b **T23** (`tests_insertion_adoption.rs:331`, `:341`; a Range `extractContents` /
-  `cloneContents` on a DOMParser document with no template — the population's grep matches "Contents") and C0b
-  **U12** (`elidex-dom-api/src/creation_owner_tests.rs:53`, `:145`; DOMParser creation sites, no template — it matches
-  "textContent"): neither establishes template contents nor reads an adopt pair. C0a: no cell in the population.
+*Set (b): the fns whose expected value changed at C1's head.* The expectations rewritten in `7bcc704b`, read per fn
+from `git show 7bcc704b` (a fn whose diff touches only comments, names or a destructuring is not counted), plus C14's
+rewrite in the C1 implementation (`git diff 8344af2b 56d8c2d5 --
+crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_once.rs`), plus every fn rev ≤ 3.10.2 listed as
+"changes" (each is one of those; C0b U11's template legs are carried by the parser crates' U9 fns, and the elidex-ecs
+`u11_fragment_root_is_created_in_the_throwaway` builds no template) → **21 fns**. Closure: at `542a30db` every crate
+that holds an (a) fn passes (`cargo nextest run --all-features -p elidex-ecs -p elidex-html-parser -p
+elidex-html-parser-strict -p elidex-custom-elements -p elidex-dom-api -p elidex-script-session -p elidex-js -p
+elidex-form -p elidex-style` → 8844 passed; `-p elidex-shell -E 'test(/e[67]_/)'` → 3 passed; 2026-11-11), so no fn
+whose value changed was left unrewritten.
+
+*Population = (a) ∪ (b) = 112 fns.* (b) \ (a) = ∅ (0): every fn whose expectation changed builds a template in its
+fixture, as the property predicts. (a) \ (b) = 91: the "value unchanged" and "not dependent" fns below, each with its
+reason. Classes (the rule of rev ≤ 3.10.2, stated per class): **changes** — an expected value depends on the node
+document of the contents or of a node in them, on a contents segment's pair, or on I's existence, and differs at C1's
+head (= (b)); **value unchanged** — the fixture puts a template in a document, so C1 gives its contents I (or may, for
+a declarative-shadow template), and no expected value differs; **not dependent** — the fixture puts no template in a
+document (no template at all, only a shared helper that walks contents, or a template with no node document, for
+which `f` is not applied, INV-C (b)), so nothing the test builds changes. Paths below are short; lines at `542a30db`.
+Each new value is derived from INV-C and the code, then checked against the test:
+- **changes (rewritten in C1's commits), 21:**
+  - C0b **T5**, `tests_insertion_adoption.rs:154` `t5_template_contents_adopted_with_the_template`: both legs compare
+    with a page template's `content.ownerDocument` (I, C1's T13 value).
+  - C0b **U1**, `dom/tests/adopt_on_insert.rs:140` `u1_insertion_adopts_subtree_shadow_contents_and_attr`: after the
+    link the contents and the contents child read `f(D)`, the other six nodes `D`; in the "into D-contents" variant all
+    eight read `f(D)` (`n`'s template is then in `f(D)`, and `f(f(D)) = f(D)`, HTML §4.12.3 *appropriate template
+    contents owner document* step 1).
+  - **C0b U1's control** (rev 3.10.3), `:172` `u1_control_every_node_reads_x_before_the_link`: the contents and the
+    contents child read `f(X)`, the other six `X`. Derivation: `x_subtree(X)` establishes the contents with `X`'s
+    owner, which `attach_template_contents` maps to `f(X)` (D-C3; HTML §4.12.3 establishing steps 1–2); the contents
+    child, created in `X`, is appended into them and adopted into their node document `f(X)` (DOM §4.2.3 *insert* step
+    7.1; INV-C (a)). Base: all eight `X`.
+  - **C0b U5** (rev 3.10.3), `:586` `u5_same_document_move_runs_no_walk`: the walk counter is unchanged by the move,
+    and afterwards the contents and the contents child read `f(D)`, the other six `D`. Derivation: `x_subtree(D)`
+    gives the contents `f(D)` and adopts the contents child into it, as in U1's control, before the counter is read;
+    the move stays in `D`, so *adopt* walks nothing (DOM §4.5 *adopt* step 3, "if document is not oldDocument") and
+    every stamp, `f(D)` included, stays. Base: all eight `D`.
+  - C0b **U8** ×2 and its tolerant control, `tests_node_document.rs:71`, `:78` (the walk counter reads 0; every node
+    in contents reads `f(D)`, every other node except the Document `D`) and `:95`
+    `u8_control_tolerant_template_contents_read_the_inert_template_document` (the contents read `f(D)`, `≠ D`).
+  - **C0b U9 ×2** (rev 3.10.3; they also carry C0b U11's template legs), `tests_node_document.rs:206`
+    `u9_strict_fragment_parse_runs_no_walk`, `:211` `u9_tolerant_fragment_parse_runs_no_walk`: the walk counter is
+    unchanged; the template's contents and their nodes (`<i>`, its text) read `f(D)`, every other returned node `D`;
+    the entity count after the parse is the count before plus the returned nodes **plus 1**. Derivation: each tier
+    creates the template under the fragment-parse root, whose entry redirects to the context's document `D` (C0b),
+    and establishes its contents through `attach_template_contents` (D-C3), which creates D's I on first need (D-C2,
+    D-C7: no I existed, the setup has no template) and never computes `f` for the throwaway (D-C7); the contents'
+    children are created in `f(D)` through the entry (D-C4), so no link walks; root and throwaway are despawned,
+    I stays. The `+ 1` leg pins the count, not which call created I (the test calls the rule on `D` before it reads
+    the count); creation inside a fragment parse is C1's U4 / U11.
+  - parser tests `tests.rs:542` `template_content_descendant_owner_document` (the contents and their `<p>` → I, `≠
+    document`) and `:577` `fragment_parsed_template_content_owner_is_context_documents_inert_template_document` (the
+    contents and their `<p>` → the context document's I); clone test `node_methods/tests/clone.rs:216`
+    `clone_node_template_shallow_owner_document_is_inert_template_document` (the shallow copy's contents → the
+    document's I, `≠ doc`); `dom/tests/destroy.rs:310` `adopt_rehomes_template_content_fragment` (adopting the
+    template into `doc` re-homes the contents and their child to `f(doc)`, HTML §4.12.3 adopting steps 1–2).
+  - C0c **U13**, `elidex-custom-elements/src/tests.rs:625`: C's segment pair is « `f(old)`, `f(new)` », L's the
+    root's.
+  - C0c **U19**, `dom/tests/adopt_notification.rs:187`, `:232`, `:264` and the consumer `elidex-custom-elements`
+    `tests.rs:707`. First leg: segments `(f(Y), f(target))` and `(f(X), f(target))`, stamps `[target, f(target) ×5]`,
+    `e`'s reaction `Adopted(f(X), f(target))`. Second leg (`:232`; **rev 3.10.3: the fixture is not re-set**):
+    `u19_fixture(Some(0), 1)` gives `f1` the target's owner, which `attach_template_contents` maps to `f(target)`
+    (D-C3), so `f1` is in `f(target)` from establishment; `t1`, created in the target and appended into `f1`, is
+    adopted into `f(target)` (DOM §4.2.3 *insert* step 7.1); `f2` is established with `X`'s owner, so `f(X)`; `e`,
+    created in `X` and appended into `f2`, is adopted into `f(X)`; `a`, created in `X` and put in `e`'s cache
+    directly, stays `X`. `adopt(t0, target)` then reaches `f1` with old `f(target)` equal to the segment's new
+    `f(target)` (D-C5; `mutation.rs:376`, `:390`), so `f1` is skipped and every node below it inherits the skip
+    (`:401`, `:406`): no segment, stamps `[target, f(target), f(target), f(X), f(X), X]`, no reaction. The leg still
+    constructs the skip C0c U19 guards (D-3 (c)): a walk below `f1` would re-stamp `f2`, `e` and `a` with `f(target)`,
+    which differs from `f(X)` / `X`. Third leg: both segments `None`, stamps `[target, f(target) ×5]`, no reaction.
+  - C0c **U21**, `dom/tests/adopt_notification.rs:336` `u21_contents_cycle_root_is_not_a_segment`: its fixture
+    establishes `f` with `attach_template_contents(tpl, node_document_for_new_nodes(docs.x))`, which stamps `f` with
+    `I_X = f(docs.x)` (D-C3), so `append_child(f, tpl)` adopts `tpl` into `I_X` (before the log is installed) and
+    `adopt(f, docs.d)` reads `old = I_X`: the logged root record is `documents: Some((I_X, docs.d))`, not
+    `(docs.x, docs.d)`. Its other legs are unchanged: no segment for the root (the walk does not treat its own root as a
+    segment; INV-C (c)) and `[f, tpl]` both read `docs.d`.
+  - **C0c T18's control** (rev 3.10.3), `tests_insertion_adoption.rs:576` `t18_control`: `e.ownerDocument ===
+    t.content.ownerDocument && e.ownerDocument !== dp` → `true` (base `false`; the rev ≤ 3.10.2 control
+    `e.ownerDocument === dp` is `false` at C1). Derivation: `t`, created in `dp`, gets contents in `f(dp)` (D-C3);
+    `e`, created in `document`, is appended into them and adopted into `f(dp)` (DOM §4.2.3 *insert* step 7.1; INV-C
+    (a)), and `f(dp) ≠ dp`.
+  - umbrella **C14**, `tests_event_handler_attrs_once.rs:321` `c14_template_contents_handler_runs`: inverted (T17).
+- **value unchanged, 61** (a template in a document; no expected value differs):
+  - the adopt-pair and stamp checks whose asserted value C1 leaves equal: C0c **T18**, `tests_insertion_adoption.rs:570`
+    (`e`'s segment `new` becomes `f(dp2)`, the logged `n === dp` is `false` either way; C1's T25 discriminates); C0c
+    U19's consumer second and third legs, `elidex-custom-elements/src/tests.rs:717`, `:725` (no reaction either way);
+    C0b U8's strict control, `tests_node_document.rs:85` (the `<svg>` in the body reads `D`); C0b T5's control,
+    `tests_insertion_adoption.rs:165` (the template itself reads `dp3`); umbrella **C18**,
+    `tests_event_handler_attrs_window_delegating.rs:64` (§6 T18);
+  - walk order and root set: C0c **U18**, `dom/tests/traversal.rs:443`, `:454`, and `:359`
+    `w3_template_contents_excluded_or_included_by_mode` (the contents are stamped `f(doc)`, unasserted; the walk reads
+    no document), `:8` `root_entities_excludes_detached_template_content_fragment` (asserts the document in and the
+    contents out of `root_entities`; D-C9 keeps I out too);
+  - custom-element state: `elidex-custom-elements/src/tests.rs:642` `u13_control_c_and_l_are_custom`;
+    `elidex-html-parser/src/tests.rs:506` (contents' `<my-widget>` carries `CustomElementState`);
+    `tests_clone_created.rs:94` (`count=1,true`: the clone of contents gets no upgrade on base and head);
+  - document-derived reads that do not see contents: `tests_base_href.rs:602` (`document.baseURI`; §5.1 P-6's
+    `BaseUrlMaintainer` arms return before reading for a node in contents); `tests_bind.rs:74`, `:94`
+    (`elidex-script-session`; the bind skips contents and reaches the shadow tree, on base and head);
+  - tree shape, serialization and form state, document or document-context parses (26): `elidex-html-parser-strict`
+    `tree_builder/tests.rs:330`, `:347`, `:405`, `:450`, `:482`, `tests_foreign.rs:303`; `elidex-html-parser`
+    `convert.rs:604`, `:628`, `:658`, `tests.rs:423`, `:448`, `:460` (contexts in a document); `elidex-script-session`
+    `mutation/html_fragment.rs:315`, `:349`, `:406`, `:442`, `:485`, `:509`, `:536`, `:575`, `:610` (host in a document);
+    `elidex-shell` `content_eh_attrs_bind_tests.rs:273`, `:288`; `tests_clone_form_state.rs:155`,
+    `tests_dom_parser.rs:758`, `tests_parent_node_mixin.rs:606`;
+  - script-created templates in the page, structure and brand only (19): `tests_html_t2d_protos.rs:83`, `:123`,
+    `:613`, `:620`, `:627`, `:634`, `:643`, `:654`, `:673`, `:684`, `:699`, `:718`; `tests_inner_html_mixin.rs:151`,
+    `:170`, `:188`, `:202`, `:221`, `:638`, `:738`.
+- **not dependent, 30** (no template in a document):
+  - no template in the fixture; the shared serializer `assert_tree` walks contents (13): `elidex-html-parser-strict`
+    `tree_builder/tests.rs:146`, `:159`, `:175`, `:192`, `:209`, `:227`, `:245`, `:261`, `:276`, `:290`, `:308`,
+    `:370`, `:390`;
+  - a UA style keyword, no DOM: `elidex-style/src/ua.rs:419` `template_display_none`;
+  - an ownerless template or contents (`NewNodeOwner::NONE` or an ownerless fixture): `dom/tests/destroy.rs:283`;
+    `elidex-custom-elements/src/upgrade.rs:459`; `elidex-dom-api` `node_methods/tests/clone.rs:135`, `:182`,
+    `clone_shadow.rs:326`, `:356`; `elidex-form/src/clone.rs:247`;
+  - a fragment parse into a context with no node document (8): `elidex-html-parser-strict`
+    `tree_builder/tests_fragment.rs:293`, `:316`, `:492`, `:612`, `:667`; `elidex-html-parser` `tests.rs:352`,
+    `:393`, `:699`;
+  - `elidex-html-parser/src/tests.rs:630` `fragment_template_content_documentless_context_is_unstamped_in_both_backends`
+    (its contents have no node document on base and head; INV-C (b)).
+
+Rev ≤ 3.10.2's memo-cell entries outside the population: C0b **T23** and **U12** (no template; "not dependent", as
+there). Rev 3.7's 36 fns outside (a), 12: `adopt_on_insert.rs`'s `u2_…` ×2, `u3_…`, `u6_…` ×2, `u7_…` ×2, `u9_…`,
+`u10_…`, `u11_…`, `elidex-custom-elements/src/tests.rs:511` `u20_control_…` and `tests_insertion_adoption.rs:140`
+`t4_control` — none builds a template (the old scan counted a helper's trailing doc comment, "a `<template>` with
+contents", as `docs`'s body, and `T5_SETUP`'s text as `t4_control`'s); all are "not dependent", and none changed at C1.
 Re-run at the cut if main moves (§9 item 1).
 Docstrings: P-7's population, plus `components.rs:356-361` (`TemplateContents`' adopt sentence, "DOM §4.5 *adopt*
 re-homes the contents with the template"), `mutation.rs:234-235` (`adopt`'s "into the same document here") and the
@@ -1105,8 +1210,8 @@ existing scripts unchanged.
 | link or marker copied by clone | T11, U8 |
 | `root_entities` not excluding I | U6 |
 | inside contents the entry's value is not I (a creation stamp from the parse / context document; the defect class C0's entry would have if it ignored `source`, here observed through contents) | T19 (strict leg), U11, U12 |
-| tolerant threads the template's document into contents instead of recomputing at the contents fragment (§4.3) | T3, T12 (attachShadow variant), T19, U12 (tolerant legs) |
-| the contents edge's segment `new` left at the template's target (C2) | T25, U9 |
+| tolerant threads the template's document into contents instead of recomputing at the contents fragment (§4.3) | U12 (tolerant leg: the walk counter). Rev 3.10.3, observed at `73eefe26`: T3, T12 (attachShadow variant) and T19's tolerant legs stay green — each child created with the template's document is appended into the contents fragment and adopted into its node document I at its link (DOM §4.2.3 *insert* step 7.1; `convert.rs:65-77`; INV-C (a)), so their `ownerDocument` reads see I either way; the blind spot U14 has for T10 / T24 above, and only a walk count sees it |
+| the contents edge's segment `new` left at the template's target (C2) | T25, T28 (rev 3.10.3, observed at `73eefe26`: both read the logged pair). U9 removed: it reads stamps only, and the mutant changes only the `AdoptedContents.documents` pair (`mutation.rs:391`), not the segment's stamp document (`:396-399`) |
 | the contents edge reads the target's existing link (none on a target with no I) instead of computing `f(target)` | T26, U13 |
 | `f(target)` computed on every adopt, template or not | U13 |
 | C0c's skip compares the contents' old document with the unmapped target | T27, T28 |
@@ -1226,8 +1331,17 @@ that pmo's application right after that merge always includes — no registratio
   "From N1, the DOMParser half reads null." → "From N1, the DOMParser half reads null; from C1, the template-contents half
   reads null under the C1 memo's INV-C (§4.6 item 1: conditional on the contents fragment's node document; a contents
   fragment adopted into the bound document is bound, the spec's outcome)."; §8.2 defect (5)'s "its template-contents half, and the first clause for both, remain until slice b" →
-  "its template-contents half until C1 lands, and the first clause for both until slice b"; §1.4's interim line gains a
-  fourth window "(iv) W-K5's template-contents half reads null from C1, the spec's outcome (K-5)"; §1.5's W-K5 bullet
+  "its template-contents half until C1 lands, and the first clause for both until slice b"; §1.4's interim line (rev 3.10.3: the
+  window count and the dispatch clause change with it, since (iv)'s node document is an inert template document, not a
+  DOMParser document's, and its dispatch is not HEAD's) — "changes the getter in three of its windows, each where the
+  node document N1 reads is a DOMParser document's, with dispatch equal to HEAD's (nothing runs) in each:" → "changes
+  the getter in three of its windows, each where the node document N1 reads is a DOMParser document's, with dispatch
+  equal to HEAD's (nothing runs) in each, and from C1 in a fourth:"; after (iii)'s sentence, before **Closure
+  record**, it gains "(iv) from C1, W-K5's template-contents half, where the node document N1 reads is the contents'
+  inert template document (C1 memo INV-C, §4.6 item 1), reads null where HEAD compiled the attribute and dispatch runs
+  nothing where HEAD ran the handler, the spec's outcome (K-5; cell C14)."; the closure record's "(i) to (iii) are its
+  defects (1), (5) and (7) respectively" → "(i) to (iv) are its defects (1), (5), (7) and (5)'s template-contents half
+  respectively"; §1.5's W-K5 bullet
   gains "(from C1, its template-contents half too)"; C18's *Spec* note "reached after T3 and slice b" is unchanged.
 - **R-4 ledger `#11-ownerless-node-creation`** (pmo, at C1's landing; the close-at-C1 plan is PM 472's, "Re-eval = C1
   landing"; PM 489 gave the row its **Re-eval-date** field, 2027-01-31, as the backstop; PM 607): "**Closed
@@ -1319,7 +1433,8 @@ that pmo's application right after that merge always includes — no registratio
 1. Coordinates re-measured at C1's base (N1 implementation, C0a–C0c, RC-2a with D14, C1-pre landed): done at `c7cce8c8`
    by rev 3.7; if main has moved when the implementation branch is cut, §5.1's and §5.2's commands are re-run there and
    any change recorded in the PR; §5.1 P-4 / P-5's base checks re-run; §5.2's population classified per test at the
-   red-first run, the classification of each of the 36 fns recorded in C1's PR body (PM 604).
+   red-first run, the classification of each of the 36 fns recorded in C1's PR body (PM 604). Rev 3.10.3: the
+   population is the property scan's 112 fns at `542a30db`, classified in §5.2 itself; C1's PR body carries that list.
 2. `appropriate_template_contents_owner_document`, `is_inert_template_document` and both
    components exist in `elidex-ecs` with §4.9's citations; no other site computes a template contents' node document
    (P-1 re-run); C1's diff adds no `owner_document(` call (D-C10). C1's diff adds no new-node entry, no entry branch
@@ -1573,6 +1688,41 @@ observed changes. A focused reviewer re-check of these five follows.
 - **§5.1 P-4 / P-5.** The base check's `git grep` returned 7 (all in test files), not 0; the command now excludes test
   paths (→ 0 at `8344af2b`, 2026-11-11) and keeps the unfiltered 7 as its control.
 - Not changed: §5.3's C14 test name (the implementation's rename is reverted in code).
+
+### §10.11 Rev 3.10.3 (2026-11-11, PM 652)
+
+Erratum of observations, PM 652: the B1 test rewrites (`7bcc704b`) changed fns that §5.2's memo-cell list did not name
+or contradicted, and the B2 mutation runs (`73eefe26`) showed two §6.3 killer lists over-stated. The mechanism, INV-C
+(§4.6 item 1) and every expected C1 value are unchanged; only the populations, their classification and what is
+observed change. A focused reviewer re-check of these items follows.
+- **§5.2 population by property.** Rev ≤ 3.10.2 had two lists: rev 3.7's scan (36 fns), which required a node-document
+  or adopt-pair read and so tied membership to how a test observes C1, and the memo-cell list, a `template|content`
+  grep over the C0 memos' cell text, which missed C0b U5 (fixture `x_subtree`), U9 and the U1 / T18 controls. The new
+  scan tests the property itself (a template in the fixture, through a test-side `fn` / `const` / `static` of the file,
+  comments excluded) — (a) 112 fns, control C0b U5 → 1 hit, the old text grep → 0 — and is unioned with (b), the 21
+  fns whose expectation changed at C1's head (`7bcc704b`, C14's rewrite, rev ≤ 3.10.2's "changes"; closed by the
+  green run of every holding crate at `542a30db`). (b) \ (a) = ∅, (a) \ (b) = 91; §5.2 classifies all 112 by the
+  rule, stated per class. Rev 3.7's scan also counted 12 fns that build no template (a helper's trailing doc comment
+  and a `const`'s text were read as the preceding fn's body) and missed `const`-held fixtures (`t5_control`, T18);
+  §5.2 lists the 12.
+- **§5.2 new "changes".** C0b U5 (contents and their child `f(D)`, walk counter unchanged), C0b U9 ×2 (contents nodes
+  `f(D)`; entity count `+ 1` for D's I, created lazily inside the parse, D-C2 / D-C7 — the leg pins the count, not
+  which call created I), C0b U1's control (contents and their child `f(X)`), C0c T18's control
+  (`e.ownerDocument === t.content.ownerDocument && !== dp`; the cell's value is unchanged, its control is not), and
+  `destroy.rs`'s `adopt_rehomes_template_content_fragment` (`f(doc)`). Each value derived from INV-C, D-C3 / D-C5 and
+  DOM §4.2.3 *insert* step 7.1 / §4.5 *adopt* step 3, then checked against the test: no disagreement.
+- **§5.2 C0c U19 leg 2.** Rev ≤ 3.10.2 said the leg is re-set with the outer contents in `f(target)`. It needs no
+  re-set: `attach_template_contents` maps the fixture's target owner to `f(target)` (D-C3), so the outer contents are
+  skipped as before (`mutation.rs:376`, `:390`, `:401`), and the leg still tells a skip from a walk (`f2`, `e`, `a` keep
+  `f(X)`, `f(X)`, `X`).
+- **§6.3 M12 / M13 rows** (`73eefe26`, 17 of 17 mutants run). The tolerant-threading mutant is killed by U12 only:
+  insertion adoption at each link re-homes the children into I (the blind spot U14 has for T10 / T24), so T3, T12's
+  attachShadow variant and T19 stay green. The segment-`new` mutant is killed by T25 and T28, which read the pair; U9
+  reads stamps only. Not changed: §4.3's sentence "The tolerant legs of T3, T12, T19 and U12 still kill that form" is
+  in §4, outside this erratum's scope; it is reported to the PM, not edited.
+- **§8 R-3.** The umbrella §1.4 sentence counts "three of its windows, each where the node document N1 reads is a
+  DOMParser document's, with dispatch equal to HEAD's": window (iv) meets neither clause (its node document is an
+  inert template document, and HEAD ran the handler), so R-3 now rewrites the count and the closure record too.
 
 ## §11. Open questions
 
