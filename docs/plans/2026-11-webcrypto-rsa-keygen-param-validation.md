@@ -163,7 +163,7 @@ existing test changes expectation (checked by grep at `06bdfbbd`; re-check after
 |---|---|---|
 | M1 | delete the `ml < 4` condition | B1 |
 | M2 | `ml < 4` → `ml <= 4` | B2 |
-| M3 | delete the `e < 3` condition | B3 (B5, B6 still fail through "even") |
+| M3 | delete the `e < 3` condition | B3. (Measured at implementation: with the whole condition deleted, an empty `e` reaches the parity index and panics, so B5/B6 go red by panic rather than through "even". M3b, deleting only the `e.len() == 1 && e[0] < 3` part, keeps B3 red.) |
 | M4 | `e[0] < 3` → `e[0] <= 3` | B4 |
 | M5 | delete the "even" condition | B7, G1–G4 (panic seam) |
 | M6 | `≥` → `>` (drop the all-ones equality branch) | B9, B13 |
