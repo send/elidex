@@ -1,8 +1,9 @@
 //! `JSON.stringify` (ECMA-262 §25.5.4) — the serializer half.
 //!
-//! Also hosts [`stringify_for_structured_shortcut`]: the structured-serialize
-//! shortcut mode behind worker / SW `postMessage` and `history.state`, which
-//! fails on a `Date` instead of flattening it through `toJSON`.
+//! With the `engine` feature, it also hosts the entry point of the
+//! structured-serialize shortcut mode behind worker / SW `postMessage` and
+//! `history.state`, which fails on a `Date` instead of flattening it through
+//! `toJSON`.
 
 use std::fmt::Write;
 
@@ -33,8 +34,8 @@ struct JsonSerializer {
     /// Reusable buffer for array index → string conversion.
     index_buf: String,
     /// Structured-serialize shortcut mode: fail on a `Date` instead of rendering
-    /// it through `toJSON` — see [`stringify_for_structured_shortcut`]. `false`
-    /// for `JSON.stringify` / `Response.json()`, where an ISO String is correct.
+    /// it through `toJSON`. `false` for `JSON.stringify` / `Response.json()`,
+    /// where an ISO String is correct.
     reject_date: bool,
 }
 
@@ -420,6 +421,7 @@ pub(in crate::vm) fn stringify_to_string(
 /// `#11-worker-structured-serialize` /
 /// `#11-history-state-structured-serialize-fidelity`, which replace this shortcut
 /// wholesale.
+#[cfg(feature = "engine")]
 pub(in crate::vm) fn stringify_for_structured_shortcut(
     ctx: &mut NativeContext<'_>,
     value: JsValue,

@@ -317,8 +317,10 @@ impl VmInner {
     /// per-ctor `Err(VmError::type_error("Illegal constructor"))` body
     /// throw.  The collapsed `func` body is `unreachable!` (the gate
     /// throws before the body runs — see `admit_construct` / `call_dispatch`).
-    /// Not engine-gated (sibling parity with
-    /// [`Self::create_constructor_only_function`]).
+    /// Compiled only under the `engine` feature: every caller is in `vm/host/`,
+    /// so without it nothing reads this helper. (The sibling
+    /// `create_constructor_only_function` has a core reader and stays ungated.)
+    #[cfg(feature = "engine")]
     pub(crate) fn create_illegal_constructor_function(
         &mut self,
         name: &str,

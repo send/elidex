@@ -10,10 +10,12 @@ use super::value::VmError;
 mod parse;
 mod stringify;
 
-pub(in crate::vm) use parse::{native_json_parse, parse_json_str};
-pub(in crate::vm) use stringify::{
-    native_json_stringify, stringify_for_structured_shortcut, stringify_to_string,
-};
+pub(in crate::vm) use parse::native_json_parse;
+#[cfg(feature = "engine")]
+pub(in crate::vm) use parse::parse_json_str;
+pub(in crate::vm) use stringify::native_json_stringify;
+#[cfg(feature = "engine")]
+pub(in crate::vm) use stringify::{stringify_for_structured_shortcut, stringify_to_string};
 
 /// Maximum nesting depth shared by the three recursive JSON walkers:
 /// `JSON.parse`'s parser (`parse_array` / `parse_object`), `JSON.stringify`'s

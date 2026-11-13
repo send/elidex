@@ -42,11 +42,6 @@ impl VmInner {
             Some(hd) if hd.is_bound() => hd.session().active_cssom_rule_ids(),
             _ => std::collections::HashMap::new(),
         };
-        #[cfg(not(feature = "engine"))]
-        let active_cssom_rule_ids: std::collections::HashMap<
-            elidex_ecs::Entity,
-            std::collections::HashSet<u64>,
-        > = std::collections::HashMap::new();
 
         // 2. Mark phase — split borrow: mark bits are &mut, everything else is &.
         let roots = GcRoots {

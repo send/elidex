@@ -56,6 +56,7 @@ pub(crate) enum Microtask {
     /// `Vm::deliver_mutation_records`).  Ordering relative to
     /// `Promise.then` reactions matches the spec: the microtask is
     /// enqueued at signal time, not at drain-tail.
+    #[cfg(feature = "engine")]
     NotifyMutationObservers,
 }
 
@@ -330,27 +331,25 @@ fn drain_queue_pass(vm: &mut VmInner) {
             Microtask::Callback { func } => {
                 run_callback(vm, func);
             }
+            #[cfg(feature = "engine")]
             Microtask::NotifyMutationObservers => {
                 // WHATWG DOM §4.3 "notify mutation observers".
                 // Step 1: clear the queued flag BEFORE dispatch so a
                 // signal raised during a callback body (re-entrant
                 // `mo.observe` / `slot.assign()`) enqueues a fresh
                 // microtask for the next checkpoint.
-                #[cfg(feature = "engine")]
-                {
-                    vm.mutation_observer_microtask_queued = false;
-                    // Steps 4–5: snapshot + empty the signal-slots set BEFORE
-                    // the observer callbacks (step 6), so a slotchange signaled
-                    // by a callback body fires from a fresh notify-MO microtask,
-                    // not this one (WHATWG DOM §4.3 ordering; Codex PR379 R2).
-                    let slot_snapshot =
-                        super::host::html_slot_proto::snapshot_pending_slot_change_signals(vm);
-                    // Steps 2–6: deliver each observer's queued records to
-                    // its JS callback.
-                    vm.deliver_pending_mutation_records();
-                    // Step 7: fire the pre-callback slotchange snapshot.
-                    super::host::html_slot_proto::fire_slot_change_signals(vm, slot_snapshot);
-                }
+                vm.mutation_observer_microtask_queued = false;
+                // Steps 4–5: snapshot + empty the signal-slots set BEFORE
+                // the observer callbacks (step 6), so a slotchange signaled
+                // by a callback body fires from a fresh notify-MO microtask,
+                // not this one (WHATWG DOM §4.3 ordering; Codex PR379 R2).
+                let slot_snapshot =
+                    super::host::html_slot_proto::snapshot_pending_slot_change_signals(vm);
+                // Steps 2–6: deliver each observer's queued records to
+                // its JS callback.
+                vm.deliver_pending_mutation_records();
+                // Step 7: fire the pre-callback slotchange snapshot.
+                super::host::html_slot_proto::fire_slot_change_signals(vm, slot_snapshot);
             }
         }
         vm.current_microtask = None;
@@ -630,7 +629,6 @@ fn dispatch_unhandled_rejection_event(
 /// Stub for builds without the `engine` feature — no host means no
 /// listeners, so `false` always; the caller falls back to stderr.
 #[cfg(not(feature = "engine"))]
-#[allow(clippy::needless_pass_by_value)]
 fn dispatch_unhandled_rejection_event(
     _vm: &mut VmInner,
     _promise_id: super::value::ObjectId,

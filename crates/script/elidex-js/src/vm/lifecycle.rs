@@ -26,7 +26,10 @@ impl Vm {
             // is `Arc::strong_count(&node_iterator_states_shared)
             // == 1` (HostData's clone is the sole owner).
             // Skip cleanup if HostData was never bound (e.g. test
-            // path that constructed but never bound the VM).
+            // path that constructed but never bound the VM). Without
+            // `engine` the block is compiled out: the state it clears
+            // exists only under `engine`.
+            #[cfg(feature = "engine")]
             if hd.is_bound() {
                 // `clear_mutation_hook` returns the displaced hook
                 // (currently `()`); we don't read the result — Drop

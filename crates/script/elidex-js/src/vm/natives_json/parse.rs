@@ -10,6 +10,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
+#[cfg(feature = "engine")]
 use super::super::VmInner;
 use super::{depth_exceeded, MAX_JSON_DEPTH};
 
@@ -498,6 +499,7 @@ fn internalize(
 /// every distinct blob permanently → unbounded pool growth. Parsed *string
 /// values* are still interned by the parser (they become live JS strings, which
 /// is correct); only the one-shot wrapper blob is kept out of the pool.
+#[cfg(feature = "engine")]
 pub(in crate::vm) fn parse_json_str(vm: &mut VmInner, source: &str) -> Result<JsValue, VmError> {
     let text: Vec<u16> = source.encode_utf16().collect();
     let mut parser = JsonParser::new(&text);

@@ -2,13 +2,16 @@
 //!
 //! `setTimeout(callback, delay, ...args)` / `setInterval(...)` schedule a
 //! callback on the VM's timer min-heap.  `clearTimeout` / `clearInterval`
-//! cancel a pending entry by id.  The host drives execution by calling
-//! [`VmInner::drain_timers`] on each event-loop tick — typical wiring
-//! lives in the shell (PR6).
+//! cancel a pending entry by id.  With the `engine` feature (and in this
+//! crate's tests), the host drives execution on each event-loop tick
+//! through the drain methods of the `impl VmInner` block below, which compile only
+//! in those configurations.  Without either, nothing drains the heap:
+//! callbacks are scheduled and never fire.
 
 use std::time::{Duration, Instant};
 
 use super::value::{JsValue, NativeContext, ObjectId, VmError};
+#[cfg(any(test, feature = "engine"))]
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
@@ -23,6 +26,7 @@ pub(crate) struct TimerEntry {
     pub callback: ObjectId,
     /// `Some(d)` for `setInterval` — on fire, re-queued with
     /// `deadline + d`.  `None` for `setTimeout` (one-shot).
+    #[cfg(any(test, feature = "engine"))]
     pub repeat: Option<Duration>,
     /// Positional args passed to the callback (WHATWG §8.7 step 13.2).
     pub args: Vec<JsValue>,
@@ -63,6 +67,7 @@ impl Eq for TimerEntry {}
 /// re-armed deadlines would otherwise stay at `<= now` forever.  Full
 /// nesting-level semantics are tracked under phase 4 primitive-wrapper
 /// polish (spec-alignment PR).
+#[cfg(any(test, feature = "engine"))]
 const MIN_INTERVAL_REPEAT_MS: u64 = 4;
 
 /// Upper bound on timer delays — `Instant::now() + delay` must not
@@ -95,11 +100,13 @@ pub(super) fn clamp_delay_to_duration(ms: f64) -> Duration {
 }
 
 /// Core scheduler: allocates an id, pushes a [`TimerEntry`] onto the heap.
-/// `repeat=None` for `setTimeout`, `Some(delay)` for `setInterval`.
+/// `repeat` is `false` for `setTimeout` and `true` for `setInterval`; the entry
+/// records it as `None` / `Some(interval)`. The parameter exists only with the
+/// `engine` feature or in this crate's tests, where something drains the heap.
 fn schedule_timer(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
-    repeat: bool,
+    #[cfg(any(test, feature = "engine"))] repeat: bool,
 ) -> Result<JsValue, VmError> {
     let callback = args.first().copied().unwrap_or(JsValue::Undefined);
     let JsValue::Object(func) = callback else {
@@ -140,6 +147,7 @@ fn schedule_timer(
     // initial `deadline` still respects the caller-requested delay so
     // the first firing is prompt; only the steady-state cadence is
     // clamped.  `setTimeout` (repeat=None) is unaffected.
+    #[cfg(any(test, feature = "engine"))]
     let interval_repeat = if repeat {
         Some(delay.max(Duration::from_millis(MIN_INTERVAL_REPEAT_MS)))
     } else {
@@ -152,6 +160,7 @@ fn schedule_timer(
         id,
         deadline: Instant::now() + delay,
         callback: func,
+        #[cfg(any(test, feature = "engine"))]
         repeat: interval_repeat,
         args: positional,
     });
@@ -164,7 +173,12 @@ pub(super) fn native_set_timeout(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    schedule_timer(ctx, args, false)
+    schedule_timer(
+        ctx,
+        args,
+        #[cfg(any(test, feature = "engine"))]
+        false,
+    )
 }
 
 /// `setInterval(callback, delay, ...args)` — WHATWG §8.7.
@@ -173,7 +187,12 @@ pub(super) fn native_set_interval(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    schedule_timer(ctx, args, true)
+    schedule_timer(
+        ctx,
+        args,
+        #[cfg(any(test, feature = "engine"))]
+        true,
+    )
 }
 
 fn cancel_timer(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue, VmError> {
@@ -236,10 +255,15 @@ pub(super) fn native_clear_interval(
 // Drain — invoked by the event loop on each tick
 // ---------------------------------------------------------------------------
 
-// `drain_timers` is wired into `ScriptEngine::drain_timers` under the
-// `engine` feature + used by `tests_timer` in tests.  Without either,
-// rustc flags it dead — allow explicitly for the no-feature lib build.
-#[allow(dead_code)]
+// Readers: `drain_timers` is wired into `ScriptEngine::drain_timers` and the
+// worker / service-worker threads under `engine`, and `tests_timer` reads it
+// in tests; `next_timer_deadline` is read only under `engine`. The block is
+// gated to those configurations; without either it has no reader. Interim
+// (`#11-elidex-js-no-default-features-support`): when L3's brand-check PR-1b
+// makes the timer surface engine-only, `tests_timer` goes engine-only with it
+// and the `any(test, feature = "engine")` gates in this file collapse into that
+// one surface gate.
+#[cfg(any(test, feature = "engine"))]
 impl VmInner {
     /// The earliest pending timer deadline, or `None` if no live timer is
     /// scheduled — the event-loop scheduler's next-wake hint (WHATWG HTML §8.7),
@@ -256,6 +280,7 @@ impl VmInner {
     /// one of the two holds) yields the deadline of the next timer that will
     /// *actually* fire. Read-only (`&self`): uses `cancelled_timers.contains`,
     /// not `drain_timers`' `&mut` `.remove`.
+    #[cfg(feature = "engine")]
     pub(crate) fn next_timer_deadline(&self) -> Option<Instant> {
         self.timer_queue
             .iter()
