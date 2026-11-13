@@ -31,7 +31,8 @@ slice a's implementation PR (the #541 precedent). "At umbrella approval" means "
 implementation is cut from main after that.
 
 **Changelog.** *Rev 8.<t>* (carried by T3's PR, branch `layout-eh-target-determination-plan`, with the T3 memo
-`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.8; PM decisions 129–131, 153, 168, 359, 699, 705, 711, 713, 714; `<t>` is
+`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 5 and the T3-pre memo
+`docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` rev 1; PM decisions 129–131, 153, 168, 359, 699, 705, 711, 713, 714, 722, 723; `<t>` is
 assigned at landing, as for C1's *Rev 8.7* (PM 223 O-1 / 232; PM decision 699); until T3 memo rev 4.6: "the next number
 after main's when T3 rebases, the C0 program memo D-9's rule"). PM decision 129 (the user's choice for T3 memo
 rev 1 O-1): T3 also ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six Window-reflecting names,
@@ -48,7 +49,14 @@ created (declarative shadow content and template contents included, L3's `WalkSc
 creation event fired inside a dispatcher window (DOMParser's build) is queued and dispatched at the window's close, so
 slice b's S-1 loses the whole fragment path and the DOMParser build (until T3 memo rev 4.8: "loses the fragment path
 except the declarative shadow content and template contents a fragment parse creates (outside the insertion-time
-walk set)"); T3 lands after L3's ecs-entity-lifetime PR (io) (new x12). T3 memo rev 4.8.1: x12 cites L3's split plans by symbol and section (no edge or order change). Edited in place, each with its
+walk set)"); T3 lands after L3's ecs-entity-lifetime PR (io) (new x12). T3 memo rev 4.8.1: x12 cites L3's split plans by symbol and section (no edge or order change). T3 memo rev 5 (PM decisions 722, 723; T3 plan-review R1 on rev 4.8.2): the creation event's generalisation, its
+consumers' migration, the fragment fire and the window queue split out of T3 into the new nested PR **T3-pre** (new §1.2
+row; the Order line gains "(L3's is → ig) → T3-pre ∥ L3's io → T3"; x11 re-pointed RC-2a → T3-pre; x12 narrowed to
+io's `WalkScope`; new x13 L3 ig → T3-pre and x14 T3-pre → T3; this plan PR carries T3-pre's row, edges and order-line
+entry because it lands T3-pre's memo, PM decision 722); §1.5's heading and its K-2 / K-3, G2 rest, post-bind width cap
+and W-K5 bullets and §8.2's defects (1), (4), (5), (6), closing path, trigger and confidence point at T3 memo §8.3 item
+2, the one re-derivation of what T3's grown scope changes (R1 F3); §3's §13.2.6.4.4 row reads step 14 (R1 M13); §0.6
+S-1, §5.1's DOMParser row, x3, §9 N-6 and §11's O9 line cite the T3-pre memo for the event. Edited in place, each with its
 pre-8.<t> wording kept: X-W *Status*; K-0's X-W paragraph and "K-0's wording and X-W"; the K-1 / K-2 qualifiers; §0.6's
 lead, S-1, S-5 and S-6; §1.1 I4; §1.2's T3 and slice b rows (scope); §1.3 x3, x4 (PM decision 711), x6 (closure), new x8 (C1 → T3), new x11 (RC-2a → T3, PM decision 359) and new x12 (L3 io → T3, PM decisions 711, 714); §1.4
 (1) (§1.4's order sentence is C0a's, rev 8.4; T3's version of it was dropped when T3 rebased, T3 memo rev 4.5); §1.5's heading and its K-2 / K-3, G5 / K3, K2, G2 rest and X-W bullets; §2.1 I1×I4 and
@@ -417,9 +425,9 @@ how it satisfies each of the following, and its plan-review checks that:
   shadow-including and template contents included, processed at creation through one session entry point); slice b's
   S-1 covers its other creation paths (until rev 8.<t> the clone was slice b's). PM decisions 699, 705 and 711: the
   **fragment** path is T3's too, whole (T3 memo D-T7, D-T12: every node a fragment parse creates, declarative shadow
-  content and template contents included, every pair class, processed at creation through the creation event of T3
-  memo §4.5), and so is the **DOMParser** build (its event is queued in the build's dispatcher window and dispatched
-  at the window's close, T3 memo §4.5 item 4; raw handlers in a document without a browsing context, compilation
+  content and template contents included, every pair class, processed at creation by T3's arm, T3 memo §4.5, on the
+  creation event of the T3-pre memo §4.2, PM decision 722), and so is the **DOMParser** build (its event is queued in
+  the build's dispatcher window and dispatched at the window's close, the T3-pre memo §4.4; raw handlers in a document without a browsing context, compilation
   null, T3 memo D-T13). Slice b's S-1 keeps the declarative shadow content and template contents of the pre-bind
   document parse. (Until T3 memo rev 4.7: "the fragment path's creation in an active-document context is T3's too (…
   how much of the fragment path and its call site: T3 memo O-11)"; T3 memo rev 4.7: "every element of a fragment's
@@ -482,10 +490,11 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | **C0** `EH-attrs-at-creation-C0` (owner: Layout lane, this program; PM decisions 143, 244), a program of three PRs in order **C0a** `EH-attrs-at-creation-C0a` (*replace* record order) → **C0b** `EH-attrs-at-creation-C0b` (the node document as the stored fact: creation entry, insertion adoption, one reader) → **C0c** `EH-attrs-at-creation-C0c` (`adoptedCallback` and `document.adoptNode`); program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` | slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node document after a cross-document move (a node moved into another document keeps its old node document, which T3's step 3 would read; edge x9). C0a: landed (#595). C0b: landed (#608). C0c: landed (#611). | IBP-sandbox N1's implementation landed; C0a after D-14 (a); C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585); C0c after C0b and D-14 (b) |
 | **C1-pre** `layout-c1-pre-document-wrapper` (owner: Layout lane; PM 328 / 335 / 339; memo `docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document (one `Document.prototype`, chosen at first allocation) | C0 D-14 (b) and RC-2a landed |
 | **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6); closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed; C1-pre landed |
-| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8). **Rev 8.<t> (PM decisions 699, 705, 711):** also S-1's fragment path, whole: every node a fragment parse creates (declarative shadow content and template contents included) processed at its creation, every pair class (T3 memo D-T7, D-T12), and the DOMParser build (queued in its window, dispatched at its close), through `SubtreeCreated`, RC-2a's `CloneCreated` generalised (T3 memo §4.5); T3 lands after L3's ecs-entity-lifetime PR (io) (x12; until T3 memo rev 4.8: "every element of a fragment's insertion-time walk set") | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
+| **T3-pre** `EH-attrs-at-creation-T3-pre` (owner: Layout lane, this program; PM decision 722; memo `docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md`) | the creation event T3 consumes: RC-2a's `MutationEvent::CloneCreated` generalised to `SubtreeCreated { root, cause }` with every consumer migrated, the `FragmentParse` fire in the fragment parse's one return point, and the queue of a dispatcher-take window, flushed at the outermost close of L3's guard (the T3-pre memo §4.2–§4.6); behaviour-neutral at its landing (its §1.1); on L3's surface, so its plan-review takes L3's confirmation through the PM. Rev 8.<t> (PM decision 722: split out of T3, plan-review R1 F1 on T3 memo rev 4.8.2) | L3's PR (is) and PR (ig) landed (x13); RC-2a landed (x11); not ordered against L3's PR (io) |
+| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8). **Rev 8.<t> (PM decisions 699, 705, 711):** also S-1's fragment path, whole: every node a fragment parse creates (declarative shadow content and template contents included) processed at its creation, every pair class (T3 memo D-T7, D-T12), and the DOMParser build (queued in its window, dispatched at its close), through `SubtreeCreated`, RC-2a's `CloneCreated` generalised (from T3 memo rev 5 by **T3-pre**, the row above, PM decision 722; T3 keeps the event-handler consumer's arm, T3 memo §4.5); T3 lands after T3-pre and L3's ecs-entity-lifetime PR (io) (x14, x12; until T3 memo rev 4.8: "every element of a fragment's insertion-time walk set"; until rev 5 the generalisation and the queue were T3's) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed"); T3-pre and L3's PR (io) landed (x14, x12; PM decisions 714, 722) |
 | **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>) and without the fragment path and the DOMParser build (rev 8.<t>, PM decisions 699, 705, 711; until T3 memo rev 4.8: "without the fragment path except the declarative shadow content and template contents it creates"); G2 rest, G5's non-clone half, K2's X-W half (§1.5); slot `#11-event-handler-content-attribute-applicability` facet (2) (rev 8.<t>, T3 memo D-T8; facets (1) and (3) are T3's, PM decision 168) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
-**Order (PM decisions 21, 23, 25, 123, 153, 244; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → **C1-pre** → C1 → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs).
+**Order (PM decisions 21, 23, 25, 123, 153, 244, 714, 722; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → **C1-pre** → C1 → (L3's PR (is) → PR (ig)) → **T3-pre** ∥ L3's PR (io) → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs; rev 8.<t>, PM decisions 714, 722: T3-pre after ig, in either order with io; T3 after both; until rev 8.<t>: "C1 → T3 → slice b").
 
 ### §1.3 Edges
 
@@ -493,7 +502,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 |---|---|---|---|
 | x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at its first processing: T-a1, T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, a callback before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
 | x2 | slice a → slice b | code predecessor + data flow | S-6 |
-| x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a `<body>` whose node document at creation is not the active document (a DOMParser document's, or a fragment's parsed in such a document's context: a fragment's elements are created in the context's node document, HTML §13.4 step 2 and §13.2.6.1 step 6, not in the parser's own Document) would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b); until rev 8.<t>: "a DOMParser or fragment-throwaway `<body>`"). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8). Rev 8.<t> (PM decision 129): T3 itself drops X-W for those pairs (the reflecting six on `<body>`, every name on `<frameset>`); S-5 drops the rest. Rev 8.<t> (PM decision 153): T3 also processes a clone at its creation (S-1's clone path), so slice b's S-1 starts from T3's entry point. Rev 8.<t> (PM decisions 699, 705): T3 also processes a fragment parse's elements at their creation (S-1's fragment path, T3 memo D-T12, through the creation event of T3 memo §4.5) |
+| x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a `<body>` whose node document at creation is not the active document (a DOMParser document's, or a fragment's parsed in such a document's context: a fragment's elements are created in the context's node document, HTML §13.4 step 2 and §13.2.6.1 step 6, not in the parser's own Document) would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b); until rev 8.<t>: "a DOMParser or fragment-throwaway `<body>`"). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8). Rev 8.<t> (PM decision 129): T3 itself drops X-W for those pairs (the reflecting six on `<body>`, every name on `<frameset>`); S-5 drops the rest. Rev 8.<t> (PM decision 153): T3 also processes a clone at its creation (S-1's clone path), so slice b's S-1 starts from T3's entry point. Rev 8.<t> (PM decisions 699, 705): T3 also processes a fragment parse's elements at their creation (S-1's fragment path, T3 memo D-T12, through T3-pre's creation event, the T3-pre memo §4.2, consumed by T3's arm, T3 memo §4.5; PM decision 722) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)). Rev 8.<t> (PM decision 711): T3 writes them (T3 memo D-T13), and N1 precedes T3 in the order (N1 → C0 → C1 → T3, PM decision 153), so the clause holds for T3 too |
 | x5 | C1's handling decided (`#11-template-contents-owner-document`) → slice b | decision precondition; in branch A also C1's landing | S-2 (§9 N-4 (c)) |
 | x6 | slice a → T3 | scheduling precondition (PM decisions 25, 153) | T3 is started after C1 lands (PM decision 153; until rev 8.4: "once slice a lands"), so x6 holds transitively (slice a → N1 → C0 → C1 → T3). No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close (rev 8.<t>: T3 closes it for the pairs HEAD targeted at the element, slice b the rest) |
@@ -502,8 +511,10 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x7 | C0 → C1 | semantic precondition (PM decisions 143, 153) | without insertion adoption C1 makes the most common template idiom worse than its base (C1 memo §1) |
 | x<n> | C1-pre → C1 | semantic precondition (PM 328) | I is reachable from script through `ownerDocument`; its wrapper is a Document only through C1-pre's `Document.prototype` (C1 memo edge c-pre) |
 | x8 | C1 → T3 (rev 8.<t>) | semantic precondition (PM decision 153) | without C1 template contents report the bound document, so T3's step 3 passes there and a Window-reflecting `<body>` / `<frameset>` handler written inside template contents reaches the Window (the T3 memo rev 2's residual R-A) |
-| x12 | L3 ecs-entity-lifetime PR (io) (external) → T3 (rev 8.<t>) | code predecessor + semantic precondition (PM decisions 711, 714) | T3's fragment creation walk passes io's `WalkScope::WithTemplateContents` (NEW: io) to the `pub` `for_each_uncapped_shadow_inclusive` (T3 memo D-T12, §4.5 item 6), and its creation-event queue is flushed at the outermost close of ig's dispatcher-take guard (T3 memo §4.5 item 4); L3's order is is → ig → io → ii (PM decision 714), so x12 implies ig → T3. L3's names are cited by symbol and section from its split plans: the PR (ig) plan (`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md`: `DispatcherTake::close` (NEW: ig), §8 *T3 intersection*), the PR (io) plan (`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md`: `WalkScope::WithTemplateContents`, `for_each_uncapped_shadow_inclusive`) and the L3 umbrella (`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md` §5 *Order*), read at the pre-ratification snapshot T3 memo H-T32 names, and re-pinned to L3's ratified sha before T3 is ratified (T3 memo R7; until T3 memo rev 4.8.1: names from L3's pre-split PR (i) plan) |
-| x11 | L3 RC-2a (external) → T3 (rev 8.<t>) | semantic precondition (PM decision 359) | T3 processes a clone's handler content attributes in a `MutationEvent::CloneCreated` (RC-2a, landed by #596) arm (T3 memo D-T10); without RC-2a no clone fires that event, and its clone walk is RC-2a's uncapped `for_each_clone_created` (PM 367) |
+| x12 | L3 ecs-entity-lifetime PR (io) (external) → T3 (rev 8.<t>) | code predecessor + semantic precondition (PM decisions 711, 714) | T3's fragment creation walk passes io's `WalkScope::WithTemplateContents` (NEW: io) to the `pub` `for_each_uncapped_shadow_inclusive` (T3 memo D-T12, §4.5). L3's order is is → ig → io → ii (PM decision 714). L3's names are cited by symbol and section from the PR (io) plan (`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md`: `WalkScope::WithTemplateContents`, `for_each_uncapped_shadow_inclusive`) and the L3 umbrella (`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md` §5 *Order*), read at the pre-ratification snapshot T3 memo H-T32 names, and re-pinned to L3's ratified sha before T3 is ratified (T3 memo R7). Until T3 memo rev 5 x12 also carried the flush at ig's outermost close, now x13's (until T3 memo rev 4.8.1: names from L3's pre-split PR (i) plan) |
+| x13 | L3 ecs-entity-lifetime PR (ig) (external) → T3-pre (rev 8.<t>) | code predecessor (PM decisions 713, 714, 722) | T3-pre's creation-event queue is flushed at the outermost close of ig's dispatcher-take guard, a change T3-pre makes to `DispatcherTake::close` (NEW: ig), relying on ig's guarantees (a) and (b) (the PR (ig) plan `docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md` §8 *T3 intersection*; the T3-pre memo §4.4, H-P5, cited at the same snapshot and re-pinned the same way, its R-P3). No edge between T3-pre and L3's PR (io): T3-pre does not use `WalkScope` |
+| x11 | L3 RC-2a (external) → T3-pre (rev 8.<t>; until T3 memo rev 5: → T3) | semantic precondition (PM decisions 359, 722) | T3-pre generalises RC-2a's `MutationEvent::CloneCreated` (landed by #596) to `SubtreeCreated`, keeping its `Clone` cause as RC-2a's (the T3-pre memo I-RC1 to I-RC3); T3's clone arm (T3 memo D-T10) consumes it and walks RC-2a's uncapped `for_each_clone_created` (PM 367), so RC-2a precedes T3 through x11 and x14 |
+| x14 | T3-pre → T3 (rev 8.<t>) | code predecessor + semantic precondition (PM decision 722) | T3's consumer arm matches T3-pre's `SubtreeCreated` (T3 memo §4.5), and DOMParser's build reaches it only through T3-pre's queue (T3 memo D-T13); T3 is Layout's next unit after T3-pre (the T3-pre memo DoD item 7) |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 
@@ -536,22 +547,25 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
   (5)'s template-contents half respectively).
 - **Closing path (visible):** slice a lands → N1 → C0 → C1 → T3 (this program's PR, slot `#11-event-handler-target-determination`) → slice b → the PM closes the slot above (§1.3 x6, x3–x5, x2, x9, x10; rev 8.4, PM decision 153; until rev 8.4: "slice a lands → T3 (…; N1 lands independently) → C1's handling decided (PM) → slice b").
 
-### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them, except X-W's part and the clone windows, which T3 closes, rev 8.<t>)
+### §1.5 Windows slice a leaves open (each HEAD-equal until N1 lands, three DOMParser subsets then excepted, and from C1 a fourth, W-K5's template-contents half, §1.4; slice b closes them, except X-W's part and what T3's creation processing covers, the clone, fragment-parse and DOMParser-build windows, which T3 closes; rev 8.<t>, T3 memo rev 5: what T3 changes in each bullet is re-derived once, in T3 memo §8.3 item 2, and the bullets point there; until T3 memo rev 5: "except X-W's part and the clone windows")
 
 - **K-2 / K-3 residual.** A handler write on a post-bind element with **two or more** deliverable handler attributes,
   made before the element's first insertion, is overwritten at that insertion (D-8). HEAD overwrites it at every
   insertion. From N1, such a write whose value is a callback at that insertion (§1.4 (i)), so overwritten at a first
   insertion into a DOMParser document (or of a DOMParser document's element into a detached subtree of the bound
   document), reads null, where HEAD's getter compiles the
-  attribute (N1 memo §5.4 NR8 (a); O5; §1.4 (i)). Rev 8.<t>: not for a clone, which T3 processes and marks at its creation.
+  attribute (N1 memo §5.4 NR8 (a); O5; §1.4 (i)). Rev 8.<t>: not for an element a clone, a fragment parse or a
+  DOMParser build created, which T3 processes and marks at its creation (T3 memo §8.3 item 2 (a); until T3 memo rev 5:
+  "not for a clone").
 - **G5 / K3.** A never-inserted clone reads null. Rev 8.<t> (PM decision 153): **T3** closes it (a clone is processed at
   its creation, T3 memo D-T10); until rev 8.<t> slice b.
 - **K2.** The body-clone cross-origin write is overwritten at the clone's first insertion. Rev 8.<t>: from T3 the
   clone's attributes are written at its creation (as the spec does) and its Window-reflecting names are not re-raw'd;
   what remains is X-W's re-raw of a WindowEventHandlers name at the clone's insertions, which slice b's S-5 closes.
 - **G2 rest.** An element placed directly under a shadow root after bind, or inside a subtree placed there, is not
-  processed. Neither is the shadow content of a host inserted after bind. Rev 8.<t>: a clone's replicated shadow content
-  is processed at the clone's creation by T3 (T3 memo D-T10).
+  processed. Neither is the shadow content of a host inserted after bind. Rev 8.<t>: an element a clone or a fragment
+  parse created is processed at its creation by T3, a clone's replicated shadow tree, `ShadowRoot.innerHTML` and
+  `setHTMLUnsafe`'s declarative shadow content included (T3 memo §8.3 item 2 (d); until T3 memo rev 5: the clone only).
 - **X-W (G3, G4).** A Window-delegating pair keeps HEAD's behaviour after the bind pass: it is re-raw'd at every
   insertion, over any write, and a `<body>` outside an active document delivers it to the page Window (C8, C17–C19,
   U2). From N1, an element-targeted pair in a DOMParser document reads null, where HEAD compiled the attribute: the
@@ -566,8 +580,11 @@ is started after C1 lands (x6, x8; PM decision 153). So the only order that sati
 - **Post-bind width cap.** The Insert arm keeps HEAD's `children_iter_rev` cap (D-10, H10). That iterator starts at
   the last child, so of a parent with n > 10 000 children in a subtree inserted after bind, the **first n − 10 000**
   children (and their subtrees) are never processed in slice a (HEAD-equal). The bind
-  walk is uncapped (D-11). Slice b's S-1 covers "any depth and width" at creation.
+  walk is uncapped (D-11). Slice b's S-1 covers "any depth and width" at creation. Rev 8.<t>: not for a subtree a clone or
+  a fragment parse created, whose creation walks are uncapped (T3 memo §8.3 item 2 (f)).
 - **W-K5.** As K-5 (from N1, its DOMParser half reads null: §1.4 (ii); from C1, its template-contents half too).
+  Rev 8.<t>: not for the elements of a DOMParser build or of template contents a fragment parse or a clone created,
+  which T3 processes and marks at their creation (T3 memo §8.3 item 2 (e)).
 - **E-G1.** As K-0.
 
 Rev 4's "depth cap" window is deleted. The bind walk is uncapped (D-11), so no pre-bind element of the bound
@@ -651,7 +668,7 @@ Count: 36 pairs; 32 intersect and 4 do not (I4×I6, I6×I7, I6×I8, I8×I9). Of 
 | WHATWG HTML §8.1.8.2 Event handlers on elements, Document objects, and Window objects | WindowEventHandlers rows | WEH rows on `<body>` delegated (HEAD) | `EVENT_HANDLER_ATTRS` `event_handler_consumer.rs:61`; cells C8, E4 | ✗ | no |
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4 (*handle attribute changes*) | every attribute present at creation runs the attribute change steps once | D-2's function: the realisation of those per-attribute runs | ✓ | yes |
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 21, "For each attribute of attributes, append attribute to element" (rev 8.<t>, PM decision 711: `webref body html creating-and-inserting-nodes`, 2026-11-13; until rev 8.<t>: "step 17.2, "Append attribute to element"") | parser path: every token attribute is appended at creation | parser bakes `Attributes` at spawn (`crates/dom/elidex-html-parser/src/convert.rs:258`; strict `crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:61`, `:119`, `tree_builder/shadow.rs:162`); a: first bind (pre-bind) or first insertion; b: S-1 | ✓ | yes |
-| WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", step 13 "Keep", sub-step 1 (declarative shadow root) | the shadow root is attached while parsing; its children are parsed into it | strict `tree_builder/shadow.rs:137`, `:162`; a: pre-bind DSD by the bind pass (E7); fragment DSD not processed at host insertion (D-10, HEAD-equal); b: S-1 | ✗ | yes |
+| WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", step 14 "Switch on sanitizerAction", case "Keep", sub-step 1 (declarative shadow root) (rev 8.<t>: `webref body html parsing-main-inhead`, 2026-11-13; until rev 8.<t>: "step 13 "Keep"", step 13 being "If the parser's parser sanitizer configuration is not null …"; T3 memo rev 5, R1 M13) | the shadow root is attached while parsing; its children are parsed into it | strict `tree_builder/shadow.rs:137`, `:162`; a: pre-bind DSD by the bind pass (E7); fragment DSD not processed at host insertion (D-10, HEAD-equal); b: S-1 | ✗ | yes |
 | WHATWG HTML §13.2.6.4.7 The "in body" insertion mode | start tag "html" step 2.2, start tag "body" step 3.2 | an attribute not already present is added to the existing element | no elidex-side writer (§5.0); not a creation-time attribute | ✗ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 1–2 (step 1: the parser's own new `Document`; step 2: the fragment, in target's node document) | fragment elements are created in the context's node document (through §13.2.6.1 *create an element for a token* step 6, after the redirection out of the parser's root `html` element), not in step 1's Document (rev 8.<t>, T3 memo P-T17; until rev 8.<t>: "step 4, the fragment's new `Document` \| fragment elements are created in a throwaway document") | `begin_detached_fragment` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs`, unchanged in a); creation-time processing: T3 (PM decisions 699, 705; T3 memo D-T12, §4.5) | ✗ | yes |
 | WHATWG DOM §4.4 Interface Node | *clone a single node* step 2.5; *clone a node* steps 5 and 6.7 | a clone's attributes are appended at its own creation; children and shadow children are cloned the same way | a: clone-policy table `crates/core/elidex-ecs/src/dom/tree_clone.rs:19-34` (row added: marker non-copy); b: S-1 | ✓ | yes |
@@ -774,7 +791,7 @@ Result:
 |---|---|---|
 | main-document parse, URL-loaded iframe, srcdoc / about:blank iframe (pre-bind; H16/H17) | **first bind** (G1) | same (K-6) |
 | fragment (innerHTML / outerHTML / setHTMLUnsafe) | first insertion (placement, H6); none when placed directly under a shadow root (HEAD) | S-1 (rev 8.<t>: from T3, PM decisions 699, 705, 711; T3 memo D-T12; the declarative shadow content and template contents it creates included; until T3 memo rev 4.8: "stay S-1 / S-2") |
-| DOMParser | first insertion after return (W-K5 when into a DOMParser document) | S-1 (rev 8.<t>: from T3, PM decisions 711, 713; the build's event is queued in its window and dispatched at the close, T3 memo §4.5 item 4, D-T13) |
+| DOMParser | first insertion after return (W-K5 when into a DOMParser document) | S-1 (rev 8.<t>: from T3, PM decisions 711, 713; the build's event is queued in its window and dispatched at the close, the T3-pre memo §4.4; T3 memo D-T13) |
 | `createElement` + `setAttribute` | the write processes and marks (D-8); a Window-delegating pair is not processed at the write (X-W) | same (S-5) |
 | `cloneNode` | first insertion | S-1 (rev 8.<t>: from T3, PM decision 153; T3 memo D-T10) |
 | declarative shadow (parser) | first bind (pre-bind parse); not processed in a fragment parse (D-10) | S-1 (pre-bind parse); in a fragment parse from T3 (rev 8.<t>, PM decision 711; T3 memo D-T12) |
@@ -970,19 +987,22 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > by a read or a dispatch before it), when the insertion is into a DOMParser document or puts a DOMParser document's
 > element into a detached subtree of the bound document, reads `null`, where HEAD's getter compiles the attribute;
 > dispatch runs nothing at both; spec: the callback runs; N1 memo NR8 (a), pin C8g, closed by S-5; rev 8.<t>: since T3
-> not for a clone, which is processed and marked at its creation); (2) a
+> not for an element a clone, a fragment parse or a DOMParser build created, T3 memo §8.3 item 2 (a)); (2) a
 > never-inserted clone of an element with a handler content attribute reads `null` from `on<T>` (rev 8.<t>: closed by
 > T3, which processes a clone at its creation, PM decision 153); (3) after
 > `c = document.body.cloneNode()`, a `window.on<T>` assignment is overwritten by `c`'s attribute at `c`'s first
 > insertion (rev 8.<t>: from T3 only for a WindowEventHandlers name, by X-W at each insertion, the attribute also being
 > written at `c`'s creation as the spec does); (4) an element with a handler content attribute placed directly under a shadow root after bind, or in the
-> shadow tree of a host inserted after bind, is never processed; (5) DOMParser and template-content elements are
+> shadow tree of a host inserted after bind, is never processed (rev 8.<t>: since T3 not for an element a fragment
+> parse or a clone created, T3 memo §8.3 item 2 (d)); (5) DOMParser and template-content elements are
 > processed at their first insertion, not at creation, and an unmarked element placed into template contents or into a
 > DOMParser document reads a non-null handler (the DOMParser-document half of this second clause holds only until N1
 > lands, after which such an element reads `null` there, K-5; its template-contents half until C1 lands, and the first clause for
-> both until slice b); (6) of a parent with n > 10 000 children inside a subtree inserted
+> both until slice b; rev 8.<t>: since T3 not for the elements of a DOMParser build or of template contents a fragment
+> parse or a clone created, T3 memo §8.3 item 2 (e)); (6) of a parent with n > 10 000 children inside a subtree inserted
 > after bind, the first n − 10 000 children are not reached by the Insert walk (HEAD's `children_iter_rev` cap, which
-> starts at the last child, D-10), so they are never processed; (7) a `<body>` / `<frameset>` handler that delegates
+> starts at the last child, D-10), so they are never processed (rev 8.<t>: since T3 not for a subtree a clone or a
+> fragment parse created, T3 memo §8.3 item 2 (f)); (7) a `<body>` / `<frameset>` handler that delegates
 > to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
 > delivers it to the page Window (rev 8.<t>, PM decision 129: **from T3** (7) reads "a `<body>` handler for a
 > WindowEventHandlers name (X-W, narrowed by T3) is re-raw'd onto the Window at every insertion of the element into
@@ -999,9 +1019,9 @@ PR is cut (§1.2), so the slot exists before slice a's PR, which cites it (§10.
 > DOMParser nodes (null-reading only under N1), on DOMParser bodies (needs T3) and on template contents (needs C1's
 > handling). N1 itself needs slice a first (§L). **Closes:** at slice b's landing, which removes the restriction, X-W and
 > processing at insertion (§1.4). If §1.6 branch B leaves a template-contents residue, slice b's plan drafts its slot
-> text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → N1 → C0 → C1 → T3 (this program) → slice b (PM decision 153). **Trigger:** N1, C0, C1 and T3 landed (the ledger
+> text and the PM registers it when that plan passes plan-review (§1.6). **Closing path:** slice a lands → N1 → C0 → C1 → T3-pre → T3 (this program) → slice b (PM decisions 153, 722; T3 memo §8.3 item 2 (i)). **Trigger:** N1, C0, C1, T3-pre and T3 landed (the ledger
 > records each landing's merge commit in this section's Source line). **Re-eval:**
-> 2026-12-31. **Confidence:** medium. The order is fixed (PM decisions 21, 23, 25, 153) and T3 has an owner; T3 starts after C1 lands, and C1's handling is decided (branch A, PM decision 123).
+> 2026-12-31. **Confidence:** medium. The order is fixed (PM decisions 21, 23, 25, 153) and T3 has an owner; T3 starts after C1, T3-pre and L3's PR (io) land (rev 8.<t>, PM decision 722; until then "after C1 lands"), and C1's handling is decided (branch A, PM decision 123).
 
 ### §8.3 Records for existing slots (for the PM)
 
@@ -1085,8 +1105,9 @@ These are evidence that slice b's plan must account for. None of them is decided
   reconcile.
 - **N-6, policy at direct-call sites (R2 A1 MIN).** A direct call needs the `SpecLevelPolicy`, which the VM holds (H19).
   The capable sites (`inert_document.rs:110`, `elidex-dom-api` `node_methods/clone.rs:227`) carry none today. Rev 8.<t>:
-  the clone's site is T3's: an `EventHandlerAttributeConsumer` arm on L3 RC-2a's `MutationEvent::CloneCreated`; the
-  consumer holds the policy (T3 memo D-T10, PM decision 359).
+  the clone's site is T3's: an `EventHandlerAttributeConsumer` arm on L3 RC-2a's `MutationEvent::CloneCreated` (from
+  T3-pre, `SubtreeCreated` with the `Clone` cause, PM decision 722); the consumer holds the policy (T3 memo D-T10, PM
+  decision 359).
 - **N-7, rev 4's slice-b cell shapes** (B1: multi-attribute DOMParser write; B2: never-inserted clone read; B3: body
   clone vs `window.on*`; B4: template contents before and after a move out; B5: DOMParser `<body onpageshow>`; B6:
   shadow-root-direct and post-bind host shadow content; B8: multi-attribute post-bind write). Each pins a §1.5 window.
@@ -1159,9 +1180,9 @@ restrictive than it; none is a restriction escape"); §L classifies NR8 (a) as w
 
 Moved to slice b's plan (not open here): **O9** call-site shape (§9 N-1; rev 8.<t>: decided for the clone path by T3's
 plan, T3 memo D-T10, one session entry point called from the `CloneCreated` arm; and for the fragment path by PM
-decision 705, T3 memo D-T12, the same arm on `SubtreeCreated`, `CloneCreated` generalised, T3 memo §4.5, and by PM
-decision 711 for the DOMParser build, the same event queued in its window, T3 memo §4.5 item 4; slice b decides it for
-its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
+decision 705, T3 memo D-T12, the same arm on `SubtreeCreated`, `CloneCreated` generalised by T3-pre (the T3-pre memo
+§4.2, PM decision 722), and by PM decision 711 for the DOMParser build, the same event queued in its window, the T3-pre
+memo §4.4; slice b decides it for its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
 
 Open:
 - **O4, writer completeness.** Is §5.0 complete for handler state, in particular any VM path that writes

@@ -2,14 +2,15 @@
 
 Nested PR **T3** of the standalone program `EH-attrs-at-creation` (umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md`, approved by #551 `b9122157` at rev 8, carried in place to rev 8.7 on main (#570, then C0a #595, C0b #608, C0c #611
-and C1 #626, each by its own entry); this PR's in-place edits are its *Rev 8.<t>*, PM decisions 129, 131, 153, 168, 699, 705, 711, 713, 714; "the umbrella"). It closes slot
+and C1 #626, each by its own entry); this PR's in-place edits are its *Rev 8.<t>*, PM decisions 129, 131, 153, 168, 699, 705, 711, 713, 714, 722; "the umbrella"). It closes slot
 `#11-event-handler-target-determination` (all four facets) and facets (1) and (3) of
 `#11-event-handler-content-attribute-applicability` (PM decision 168). By PM decision 129 it also takes from slice b's
 S-5 the part that ends X-W for the pairs HEAD targeted at the element, and by PM decision 153 it takes from slice b's
 S-1 the clone path (D-T10), by PM decisions 699, 705 and 711 the fragment path (D-T12; DOMParser's build, declarative
-shadow content and template contents a fragment parse creates included), both through one creation event (§4.5). It
-is the prerequisite x3 of the umbrella's slice b, and lands after L3's ecs-entity-lifetime PR (io) (umbrella x12; PM
-decisions 711, 714). Siblings cited by ID: slice a
+shadow content and template contents a fragment parse creates included), both consumed from one creation event,
+`MutationEvent::SubtreeCreated`, which its prerequisite **T3-pre** provides (`docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md`,
+"the T3-pre memo"; PM decision 722; §4.5). It is the prerequisite x3 of the umbrella's slice b, and lands after T3-pre
+and L3's ecs-entity-lifetime PR (io) (umbrella x14, x12; PM decisions 711, 714, 722). Siblings cited by ID: slice a
 (`docs/plans/2026-10-eh-attrs-slice-a.md`, landed by #563 `3cd84a04`; "the slice-a plan"), IBP-sandbox N1
 (`docs/plans/2026-10-ibp-sandbox-handler-gates.md`, rev 4.5; implementation landed by #580 `27b50dfe`; "the N1 memo"),
 the IBP-sandbox node memo (`docs/plans/2026-09-ibp-sandbox.md`; "the node memo"), and four sibling plans, all landed
@@ -31,8 +32,9 @@ on main (rev 4.5; rev 4.4 read them on their plan branches), cited by their own 
 
 **Placement (evidence).** T3 sits under the **EH-attrs umbrella**, not under IBP-sandbox:
 - umbrella §1.2 nested-PR table, row **T3** `EH-attrs-at-creation-T3` ("owner: Layout lane, this program; PM decision
-  25"); edges x3 (T3 → slice b, semantic precondition), x6 (slice a → T3, scheduling) and x11 (RC-2a → T3, semantic
-  precondition, rev 8.<t>: D-T10) in §1.3; §8.1's first bullet;
+  25"), and from rev 8.<t> row **T3-pre** (PM decision 722); edges x3 (T3 → slice b, semantic precondition), x6 (slice
+  a → T3, scheduling), x12 (L3 io → T3), x14 (T3-pre → T3) and, for T3-pre, x11 (RC-2a → T3-pre, until rev 5: RC-2a →
+  T3) and x13 (L3 ig → T3-pre) in §1.3; §8.1's first bullet;
 - the ledger row (`project_open-defer-slots.md`, section "Event handlers — pre-existing slot", the sub-bullet **"Owner
   re-routed 2026-10-25 (PM decision 25)"**): "the owner is now the EH-attrs-at-creation program (Layout lane). T3 is a
   standalone prerequisite PR of slice b, outside the IBP-sandbox DAG". The row's first paragraph still reads "Owner:
@@ -42,10 +44,14 @@ on main (rev 4.5; rev 4.4 read them on their plan branches), cited by their own 
 
 **Scheduling (PM decision 153, user, 2026-10-31).** Order: **N1's implementation → C0 → C1 → T3 → slice b**; inside C0,
 C0a → C0b → C0c (PM decision 244). The option text the user saw: 「順番を N1 → C0 → C1 → T3 → slice b にして、R-A と R-B は T3 の前に閉じます。R-C（clone）は slice b の S-1 の該当部分を T3 に移して閉じ、R-D（SVG の body）も T3 の中で閉じるかを designer に検討させます。閉じられないものが残ったら、改めて伺います。T3 は大きくなり、入るのも遅くなります。」
-**T3's base** ("the base") is main when T3's implementation branch is cut, after C1 lands: `4fd85f4e` (N1's
-implementation and #585 landed) plus C0a, C0b and C0c with their D-14 splits, RC-2a (also a direct predecessor of T3,
-edge x11, PM decision 359: D-T10), C1-pre0, C1-pre and C1. All of them are on main at `cee74989` (#626, C1), the
-first main commit with the base's content. K-0's
+**Order after C1 (PM decisions 711, 714, 722).** L3's PR (is) → PR (ig) → {**T3-pre** (Layout, after ig: its flush
+sits on ig's guard) ∥ L3's PR (io) (T3-pre does not use `WalkScope`)} → **T3** (after both T3-pre and io) → slice b.
+T3 is Layout's next unit after T3-pre (the T3-pre memo DoD item 7).
+**T3's base** ("the base") is main when T3's implementation branch is cut, after C1, T3-pre and io land: `4fd85f4e` (N1's
+implementation and #585 landed) plus C0a, C0b and C0c with their D-14 splits, RC-2a (PM decision 359: D-T10; from
+rev 5 edge x11 points at T3-pre, which generalises RC-2a's event, and T3 follows it through x14), C1-pre0, C1-pre and
+C1. All of them are on main at `cee74989` (#626, C1); L3's is, ig and io and T3-pre come after it (not yet on main;
+§9 item 1). K-0's
 "HEAD" for T3 is the base (§1.2). This memo's code coordinates are `cee74989`'s (rev 4.5; rev 4.4's were `4fd85f4e`'s)
 and are re-run at the commit the branch is actually cut from (§9 item 1).
 
@@ -77,41 +83,63 @@ and are re-run at the commit the branch is actually cut from (§9 item 1).
 - **PM decision 705 (O-11 → S-i × C-ii):** the **whole fragment path of S-1** — every element a fragment parse
   creates has its handler content attributes processed at its creation, every pair class, through one consumer arm on
   one creation event: `MutationEvent::CloneCreated` generalised to `MutationEvent::SubtreeCreated { root, cause }` (no
-  new variant beside it; all consumers migrate). D-T12; the event: §4.5. (Until rev 4.8: "every element a fragment
-  parse creates, in the insertion-time walk set".)
+  new variant beside it; all consumers migrate). D-T12; the event: the T3-pre memo §4.2 (PM decision 722). (Until rev
+  4.8: "every element a fragment parse creates, in the insertion-time walk set".)
 - **PM decision 711 (overrides rev 4.7's calls 1 and 3; PM decision 713 settles its mechanism).** (1) A creation event
   of a fragment parse that runs while the dispatcher is taken (DOMParser's build) is **queued and dispatched at the
-  outermost dispatcher-take window's close**, not dropped (§4.5 item 4), so DOMParser's build is processed at
+  outermost dispatcher-take window's close**, not dropped (the T3-pre memo §4.4), so DOMParser's build is processed at
   creation too and leaves slice b. (3) The creation-time walk set is **every node the parse created**: shadow-including
   (declarative shadow content) and template contents included, expressed by L3's `WalkScope::WithTemplateContents`
-  (§4.5 item 6; PR (io)). (4) O-12 closes as an L3-owned slot (§10). (5) the umbrella §3 step number. (6) H-T31's census.
-- **PM decision 713 (L3's review of §4.5, with PM rulings):** the queue lives in `DispatcherSlot::Taken` (World-level
-  state), the outermost close restores then flushes in order skipping dead roots, an unwind discards it (§4.5 item 4);
-  the nested flush follows the placement (§4.5 item 3); the fragment walk no longer shares `handle_insert`'s collector
-  (D-T12); flushed creation events set raw uncompiled handlers on elements of documents without a browsing context,
-  and compilation is deferred (D-T13, with `inert_document.rs`'s rustdoc corrected); the O-12 slot names the
-  registry-less side (§8.1 item 5).
+  (§4.5; PR (io)). (4) O-12 closes as an L3-owned slot (§10). (5) the umbrella §3 step number. (6) the census (the
+  T3-pre memo H-P3).
+- **PM decision 713 (L3's review of rev 4.7's §4.5, with PM rulings):** the queue lives in `DispatcherSlot::Taken`
+  (World-level state), the outermost close restores then flushes in order skipping dead roots, an unwind discards it,
+  and the nested flush follows the placement (all now the T3-pre memo §4.4 / §2); the fragment walk no longer shares
+  `handle_insert`'s collector (D-T12); flushed creation events set raw uncompiled handlers on elements of documents
+  without a browsing context, and compilation is deferred (D-T13, with `inert_document.rs`'s rustdoc corrected); the
+  O-12 slot names the registry-less side (§8.1 item 5).
 - **PM decision 714:** L3's PR (i) is split into PR (ig) (the dispatcher-take guard and the four windows) and PR (io)
-  (`OwnedEntity`, `WalkScope`, `owned_entities`), in the order is → ig → io → ii. T3 depends on ig's outermost close
-  (the flush point) and on io's `WalkScope`, so T3 lands after io (umbrella x12).
+  (`OwnedEntity`, `WalkScope`, `owned_entities`), in the order is → ig → io → ii. T3 depends on io's `WalkScope`, so
+  T3 lands after io (umbrella x12); the flush point on ig's guard is T3-pre's (x13).
+- **PM decisions 718–720** (2026-11-13; 721 is another lane's): 718, L3's R3 on its split plans at `6d31ced1`, the
+  snapshot H-T32 reads (L3's plans cited by symbol and section; the changes it announces are not relied on); 719,
+  `#11-custom-element-upgrade-at-fragment-creation` **registered** (owner L3, trigger T3's landing, Re-eval
+  2026-12-31; §8.1 item 5); 720, the flush shape (δ) (the T3-pre memo §4.4, P-P1).
+- **PM decision 722 (R1 F1):** split. **T3-pre** (Layout, on L3's surface; its plan-review takes L3's confirmation
+  through the PM) carries the `CloneCreated` → `SubtreeCreated` generalisation and every consumer migration, the
+  `FragmentParse` fire, the `Taken { pending }` queue with the restore function / flush / discard, cells U-T10 / U-T11
+  and those greps. **T3 keeps** the event-handler consumer's `SubtreeCreated` arm, `process_created_subtree`, D-T12's
+  walk semantics, D-T13, the `inert_document.rs` rustdoc fix and cells T-22 to T-28. T3-pre lands after ig, in
+  parallel with io; T3 after both.
+- **PM decision 723:** L3's Range RC-2b lands after T3-pre, on `SubtreeCreated { cause: Clone(scope) }`; the three
+  properties it relies on are T3-pre's (its §2 I-RC1 to I-RC3). T3 does not touch them.
 
 **Not in scope.** X-W for `body` × WindowEventHandlers names, and the D-8 restriction (both slice b's S-5); the other
 creation paths of S-1 (declarative shadow content and template contents created by the pre-bind document parse, whose
 creation-equivalent point is the first bind, umbrella K-6, S-2; slice b; until rev 4.8 the list also held the DOMParser
 build, and declarative shadow content and template contents created by a fragment parse); the custom-element
-consumer's fragment cause (§8.1 item 5, L3); insertion adoption (C0) and template contents' owner document (C1), both landed before T3; `document.body`'s class
+consumer's fragment cause (§8.1 item 5, L3); the creation event itself, its fire points, its queue and every other consumer's migration (T3-pre, PM decision 722); insertion adoption (C0) and template contents' owner document (C1), both landed before T3; `document.body`'s class
 test (PM decision 133, D-T5); the attribute change steps' step 1 namespace test (applicability facet (2), slice b,
 D-T8); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130); the
 foreign-element interfaces other than `body`'s (§8.1 item 4); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 4.8.2* (2026-11-13): PM 720 decides P-T20 *Residual*, option (δ): the guard's restore is one
-private function (today's `Drop` body), called by `close(mut self)`, which then dispatches the pending list through
-`self.dom` in fire order skipping non-live roots (so `Drop` after it does nothing), and by the unwind `Drop`, which
-discards the list; one restore function, one slot state, one flush point. §4.5 item 4, §0.3 P-T20 (residual
-closed; (α)–(γ) recorded as not chosen), R7 premise 3 and stop condition, §9 item 1, §8.2 and §10 restate it;
-dependency: L3 rewords the PR (ig) plan §4.1 to "the restore function is the only one" (PM 720), re-pinned with the
-other L3 citations before T3 is ratified (§0.1, R7 premise 1). The umbrella's x12 row does not restate the shape and
-is unchanged.
+**Changelog.** *Rev 5* (2026-11-13; structural): PM decisions 722, 723 and plan-review R1 on rev 4.8.2 (`571cd9c8`).
+(722) Split: rev 4.8.2's §4.5 items 1–5 and item 6's other consumers, P-T20, H-T29 to H-T31 and H-T32's PR (ig) half,
+cells U-T10 / U-T11 and their mutants, and DoD 4's event greps move to the new **T3-pre memo** (moved, not
+restated; this memo refers to its sections); §4.5 is now the event-handler consumer's arm and walk only; the header,
+Scheduling (*Order after C1*), §0.1, §0.2, §0.3, §1.3, §2, §3, §4.1–§4.4, §5, §6.4, §8, §9 and §10 follow; T3 lands
+after T3-pre and io (umbrella x12, x14). (723) RC-2b's properties are T3-pre's (header). R1: F2 → the T3-pre memo §2;
+F3 → §8.3 item 2 is the one re-derivation of the landing records and windows the grown scope changes (the umbrella's
+§1.5 and §8.2 point at it), items 1 and 10 follow; M1 → D-T12 / §10's C-i rejection names its grounds; M5 → cell
+T-26b; M6 → §4.3's `[contrast]` tags; M7 / M11 / M20 → §1.3 rewritten for rev 5's scope; M8 → R6's fragment
+analogue (the T3-pre memo §4.3); M9 → cell T-29 (two `frameset` elements of one parse); M10 → §4.4's cross-memo and
+spec prefixes; M12 → §3's footnote steps; M13 → umbrella §3 (step 14); M14 → the O-12 slot is registered (§7, §8.1
+item 5, §9 item 6, §10; PM decisions 718–720, 722, 723 in the header and §8.4); M15 → §8.3 item 8's text agrees with
+D-T8; M16 → the header's *Order after C1*, the umbrella's §1.2 rows, Order line and x11–x14 (the MEMORY Active state is the PM's); M17 → the T3-pre memo §8.2 (RC-2b after T3-pre, PM decision 723); M18 → §8.2's DOM-walker entry; M19 → §5.3; M21 → (δ) stated once, in the T3-pre
+memo §4.4; M2, M3 → the T3-pre memo §4.4.
+*Rev 4.8.2* (2026-11-13): PM 720 decides P-T20 *Residual*, option (δ) (stated once, from rev 5, in the T3-pre
+memo §4.4; rev 4.8.2 restated it at §4.5 item 4, §0.3, R7, §9 item 1, §8.2 and §10, which rev 5 reduces to
+references, R1 M21).
 *Rev 4.8.1* (2026-11-13): re-anchor only, on L3's split (PM decision 714) and PM 718's citation rule.
 L3's names are cited by symbol and section from the PR (ig) plan, the PR (io) plan and the L3 umbrella, read at one
 pre-ratification snapshot (§0.1, H-T32 rewritten); premise added: every L3 citation is re-pinned to L3's ratified
@@ -207,28 +235,25 @@ Symbols written as `Type` + method (`EcsDom::window_entity`, `HostData::window_e
 D-1), `EcsDom::node_document_for_new_nodes` (C0b D-10), `EcsDom::appropriate_template_contents_owner_document`
 (C1) and `MutationEvent::CloneCreated`, `CloneScope` (with `CloneScope::Subtree`, `CloneScope::SelfOnly`) and
 `EcsDom::for_each_clone_created` (RC-2a) are the sibling plans' names, landed (on `cee74989`; rev 4.4 marked them
-NEW). **Naming (rev 4.7, PM decision 705):** T3 replaces `MutationEvent::CloneCreated { root, scope }` by
-`MutationEvent::SubtreeCreated` (NEW) `{ root, cause }` with `cause = CreationCause::Clone(scope)` for a clone and
-`CreationCause::FragmentParse` (NEW) for a fragment parse, fired by `EcsDom::fire_subtree_created` (NEW) (§4.5); where
-this memo names `CloneCreated` or "the `CloneCreated` arm" for T3's own code it means that cause of `SubtreeCreated`.
-`CloneScope` and `for_each_clone_created` keep their names.
-**L3's names (rev 4.8, PM decisions 711, 713, 714).** L3's ecs-entity-lifetime PR (i) is split into PR (is), PR (ig)
-and PR (io), landing is → ig → io → ii (PM decision 714; umbrella §5 *Order*); T3 lands after io. Their names are
-cited by symbol and section from L3's split plans, "the PR (ig) plan"
-(`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md`), "the PR (io) plan"
+NEW). **Naming (rev 4.7, PM decision 705; rev 5, PM decision 722):** T3-pre replaces `MutationEvent::CloneCreated {
+root, scope }` by `MutationEvent::SubtreeCreated` (NEW: T3-pre) `{ root, cause }` with `cause =
+CreationCause::Clone(scope)` for a clone and `CreationCause::FragmentParse` (NEW: T3-pre) for a fragment parse, fired
+by `EcsDom::fire_subtree_created` (NEW: T3-pre); the event's shape, fire points, queue and other consumers are stated
+once, in the T3-pre memo (§4.2–§4.6), and this memo refers there. T3's own code consumes the event (§4.5). Where this
+memo's history names `CloneCreated` or "the `CloneCreated` arm" for T3's own code it means the `Clone` cause of
+`SubtreeCreated`. `CloneScope` and `for_each_clone_created` keep their names.
+**L3's names (rev 4.8, PM decisions 711, 713, 714; rev 5).** L3's ecs-entity-lifetime PR (i) is split into PR (is), PR
+(ig) and PR (io), landing is → ig → io → ii (PM decision 714; L3 umbrella §5 *Order*); T3 lands after io and T3-pre.
+T3 cites, by symbol and section, only "the PR (io) plan"
 (`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md`) and "the L3 umbrella"
 (`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md`), as read at the snapshot H-T32 names (pre-ratification; every
-citation is re-pinned to L3's ratified sha before T3 is ratified, R7): from **ig**, `DispatcherTake` (PR (ig) plan
-§4.1; the one way to take the dispatcher, held by all four take windows) and its consuming `DispatcherTake::close`
-(§4.1, the explicit restore point on a returning path; its `Drop` the unwind backstop and, at the snapshot, the one
-site of the restore, reworded by L3 to "the restore function is the only one" per PM 720, §4.5 item 4); from **io**, `WalkScope` (`ShadowIncludingTree`, `WithTemplateContents`, `LifetimeUnit`), `OwnedEntity::in_scope`
-(NEW: io; its exhaustive match) and `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, which
-replaces `TemplateContentsWalk` (deleted there) (PR (io) plan §4.1, §4.2). Where this memo writes
-`TemplateContentsWalk::Include` for the base, T3's code passes `WalkScope::WithTemplateContents` (NEW: io) (the base's
-`Include`, PR (io) plan §3.1 and §4.2). "ig's close" is `DispatcherTake::close` of the guard that took the dispatcher
-(PR (ig) plan §4.1, *The restore point*); T3 relies on ig's two guarantees stated in the PR (ig) plan §8 *T3
-intersection*, and adds the flush to that close (§4.5 item 4; P-T20). (Until rev 4.8.1: the names were cited from the
-pre-split PR (i) plan.)
+citation is re-pinned to L3's ratified sha before T3 is ratified, R7): from **io**, `WalkScope` (`ShadowIncludingTree`,
+`WithTemplateContents`, `LifetimeUnit`), `OwnedEntity::in_scope` (NEW: io; its exhaustive match) and
+`for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, which replaces `TemplateContentsWalk`
+(deleted there) (PR (io) plan §4.1, §4.2). Where this memo writes `TemplateContentsWalk::Include` for the base, T3's
+code passes `WalkScope::WithTemplateContents` (NEW: io) (the base's `Include`, PR (io) plan §3.1 and §4.2). PR (ig)'s
+names (`DispatcherTake`, its `close`) are the T3-pre memo's (its §0.1, H-P5); T3 relies on ig only through T3-pre.
+(Until rev 5: ig's names and the flush were cited here; until rev 4.8.1: from the pre-split PR (i) plan.)
 
 ### §0.2 Premises re-measured
 
@@ -262,10 +287,10 @@ pre-split PR (i) plan.)
 | H-T26 | No other element-cloning path exists | `git grep -n -i 'importNode' cee74989 -- crates` → none; `sed -n 249,263p` and `sed -n 600,617p crates/dom/elidex-dom-api/src/range/mutation.rs` | `importNode` is not implemented. `Range.cloneContents` is a stub (`clone_contents` returns `None`, slot `#11-range-full-impl`); `extractContents` clones boundary Text only, its partially-contained element clone is deferred (B1.2d-ii plan §11) |
 | H-T27 | (Q-7) A non-bubbling event dispatched at an element runs no handler on the Window | `sed -n 203,221p session/event_dispatch/mod.rs`; `git show cee74989:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 494,504p` | `build_propagation_path` follows `get_parent` only, and `create_window_root` spawns the Window with no `TreeRelation` ("does **not** participate in the DOM tree"), so the Window is on no element's propagation path (`dispatch_script_event` uses the same path builder). So a non-bubbling `focus` / `hashchange` at an element never reaches the Window's handler. Static evidence only (no dynamic run): the cells resting on it say so (§5.2, T-6b). The bubbling case is `#11-event-path-window-missing`, confirmed at runtime 2026-11-05 (`f9cf8c40`); no T3 cell depends on it (§9 item 1) |
 | H-T28 | (Q-8) A DOMParser frameset document's `body` is the `frameset` | `sed -n 22,29p elidex-js/vm/host/dom_parser.rs`; `crates/dom/elidex-html-parser-strict/tests/data/html5lib/tree-construction/tests2.dat:63-80`; `elidex-js/vm/tests/tests_document_methods.rs:505-` | DOMParser builds through `parse_into_inert_document`; html5lib's expectation for `<!DOCTYPE html><frameset>` puts `frameset` under `html` with no `body`; the body getter returns a `frameset` child (`document_body_returns_frameset_when_no_body_present`). Static evidence only: T-6b says so |
-| H-T29 | (rev 4.7) The fragment build takes the dispatcher only during the build; one function returns every fragment parse | `git show cee74989:crates/dom/elidex-html-parser/src/lib.rs \| sed -n 140,160p` and `sed -n 207,247p`; `git show cee74989:crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs \| sed -n 165,245p`; `git grep -n 'parse_fragment_progressive(' cee74989 -- crates` | tolerant: `begin_detached_fragment` takes (`lib.rs:143`), `finish_detached_fragment` (`:155`), restore (`:156-158`); strict: take (`tree_builder/mod.rs:180`), restore on both result arms (`:238-241`, "so the caller's placement of the returned detached nodes fires events"). `parse_fragment_progressive` (`lib.rs:223`) is the one dispatch site of both backends (strict; on reject, tolerant over the pristine dom, `:229-246`) and is called only from `session/mutation/html_fragment.rs` (`:93`, `:174`, `:209`, `:218`, `:235`, `:245`), which places the returned nodes after it returns. So the placement's `Insert` reaches the consumer on the base (the base delivers a fragment-parsed `body`'s Window-delegating pairs there: `ProcessingTiming::Bind \| Insertion`, `session/event_handler_processing/mod.rs:121`), and an event fired after the backend returns and before the placement reaches it too. Entry points: the `innerHTML` setter on Element / ShadowRoot / template (`elidex-js/vm/host/dom_inner_html.rs:146`), `setHTMLUnsafe` (`:419`, `:474`), `outerHTML` (`:361` → `apply_set_outer_html` `html_fragment.rs:143`), `insertAdjacentHTML` (`apply_insert_adjacent_html` `:193`), the queued `Mutation::SetInnerHtml` (`session/mutation/mod.rs:225-226`), DOMParser (H-T30). `Range.createContextualFragment` is a stub that parses nothing (`crates/dom/elidex-dom-api/src/range/mutation.rs:648`); no `document.write`, no `parseHTMLUnsafe` |
-| H-T30 | (rev 4.7) DOMParser's window encloses a fragment parse | `git show cee74989:crates/dom/elidex-form/src/inert_document.rs \| sed -n 108,205p`; `git show cee74989:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 210,232p` | `parse_into_inert_document` takes the dispatcher (`:112`), calls `apply_set_inner_html` (`:142`, so `parse_fragment_progressive`), and restores it (`:202-203`) after its own structural re-runs. Inside, `begin_detached_fragment`'s take finds the slot `Taken` and returns `None` without opening a window (`take_mutation_dispatcher`, `ecs/dom/mod.rs:221-232`), so no restore follows and the slot is still `Taken` when `parse_fragment_progressive` returns there |
-| H-T31 | (rev 4.7; census restated in rev 4.8, PM decision 711 (6)) The `CloneCreated` population | `git grep -n -e CloneCreated -e fire_clone_created cee74989 -- crates \| wc -l` and `git grep -l -e CloneCreated -e fire_clone_created cee74989 -- crates \| wc -l`; `git grep -n CloneCreated cee74989 -- crates \| wc -l` and `git grep -l CloneCreated cee74989 -- crates \| wc -l` | **73 lines in 19 files** (verified 2026-11-13) naming the variant (substring `CloneCreated`, so `CloneCreatedProbe` too) **or** its fire function `fire_clone_created`; of them **50 lines in 18 files** (verified 2026-11-13) contain `CloneCreated` (the other 23 lines name only `fire_clone_created`, and the 19th file, `ecs/dom/tests/dispatch_guard.rs`, names only the fire function). Rev 4.7 wrote "73 lines in 19 files" without saying it counted both names. Match arms: `elidex-custom-elements/src/consumer.rs:116` (`CustomElementReactionConsumer`), `elidex-form/src/reconciler.rs:53` (`FormControlReconciler`), `elidex-dom-api/src/test_util.rs:53` (test probe `CloneCreatedProbe`); ignored-variant list: `elidex-dom-api/src/range/live.rs:160` (`LiveRangeBridge`); fire: definition `ecs/dom/mod.rs:333`, one production call `elidex-dom-api/src/node_methods/clone.rs:305`; the rest are docs and tests. `EventHandlerAttributeConsumer::handle` matches `AttributeChange` and `Insert` only (`session/event_handler_consumer.rs:381-391`). The other three consumers of `ConsumerDispatcher` (`node_iter`, `base_url`, `canvas`; `elidex-js/vm/consumer_dispatcher.rs:157-163`) do not name it |
-| H-T32 | (rev 4.8.1) L3's guard and walk scopes, as planned (pre-ratification snapshot of L3's split plans; PM decisions 711, 713, 714) | `S=6d31ced1; P=docs/plans/2026-11-ecs-entity-lifetime` (the one snapshot read: L3's local plan branch, read only through `git show`), then `git show $S:$P-pr-ig-dispatcher-take-guard.md \| grep -n -e 'pub fn close' -e 'one site of the restore' -e 'does nothing that can panic' -e 'window.close();' -e 'Drop restores' -e '^\*\*T3 intersection' -e 'This PR guarantees only'`; `git show $S:$P-pr-io-owned-entities-walk-scope.md \| grep -n -e 'pub enum WalkScope' -e 'const fn in_scope' -e 'scope: WalkScope, visit' -e 'enum OwnedEntity'`; `git show $S:$P-umbrella.md \| grep -n -e '^\*\*Order\.\*\*' -e 'Layout T3 lands after PR (io)'` | **PR (ig) plan** §4.1: `DispatcherTake<'a> { dom: &'a mut EcsDom, taken: Option<Box<…>> }`, "the one way to take the mutation dispatcher out of an `EcsDom`", held by all four take windows (`despawn_subtree` through `TeardownWindow`, both fragment parses through `begin_detached_fragment`, `parse_into_inert_document`); `DispatcherTake::close(self)`, "the explicit restore point on a returning path (PM 705). It consumes the guard, so its `Drop` runs here; `Drop` stays the unwind backstop and the one site of the restore" (its body is `drop(self)`); `impl Drop` restores the box when the guard holds one, a nested guard holding nothing (*Why it is unwind-safe* item 3), and `Drop` "does nothing that can panic" (item 2); *The restore point*: the outermost guard's close or drop; the two fragment windows and `parse_into_inert_document` call `window.close()` on their returning path (no early return in between), while `despawn_subtree`'s `TeardownWindow` restores by its drop at the end of its block (§4.2, "Drop restores"). §8 *T3 intersection*: T3 adds the queue in the `DispatcherSlot::Taken` state and the flush at the outermost guard's `close` (restore the box, then dispatch in order, skipping non-live roots; on unwind, restore only and discard; no consumer code during unwind); ig guarantees only (a) the restore point is the outermost guard's `close` and (b) the slot state is the single home of take/restore state (no second flag or depth counter in any window). **PR (io) plan** §4.1: `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }` with `OwnedEntity::in_scope(self, scope)`, an exhaustive match: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only; `WalkScope` is `pub`, `OwnedEntity` / `in_scope` are `pub(in crate::dom)`; §4.2: the walker becomes `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, `TemplateContentsWalk` is deleted, `despawn_subtree` passes `WithTemplateContents`, the base's `Include`. **L3 umbrella** §5 *Order*: is → ig → io → ii; "Layout T3 lands after PR (io)" (its `WalkScope`, ig's outermost-close flush point; the §8 Layout T3 hand-off says the same). Announced after the snapshot (PM 718; not in it, so not relied on): `TeardownWindow` gains a consuming close, `is_outermost` is removed, the walker passes an `OwnedEntity` to `visit` and the owned side gains back-links; T3 relies on none of these (§4.5 item 4 does not name `is_outermost`); the type of `visit` is re-pinned with every other citation (R7). Until rev 4.8.1: cited from the pre-split PR (i) plan |
+| H-T29 | (rev 4.7; **moved to the T3-pre memo H-P4**, rev 5) The fragment build's own window; one function returns every fragment parse | the T3-pre memo H-P4 | `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) is the one return point of both backends, called only from `crates/script/elidex-script-session/src/mutation/html_fragment.rs`, which places the returned nodes after it returns; the base delivers a fragment-parsed `body`'s Window-delegating pairs at the placement (`ProcessingTiming::Bind \| Insertion`, `session/event_handler_processing/mod.rs:121`). Entry points and coordinates: the T3-pre memo H-P4 |
+| H-T30 | (rev 4.7; **moved to the T3-pre memo H-P4**, rev 5) DOMParser's window encloses a fragment parse | the T3-pre memo H-P4 | `parse_into_inert_document` holds the dispatcher taken across its `apply_set_inner_html` call, so the slot is still `Taken` when `parse_fragment_progressive` returns there |
+| H-T31 | (rev 4.7; **moved to the T3-pre memo H-P3**, rev 5) The `CloneCreated` population | the T3-pre memo H-P3 | 73 lines in 19 files at `cee74989` (verified 2026-11-13), migrated by T3-pre; at T3's base `EventHandlerAttributeConsumer::handle` matches `AttributeChange` and `Insert` with a catch-all (`session/event_handler_consumer.rs:381-391`), and T3 adds its `SubtreeCreated` arm (§4.5) |
+| H-T32 | (rev 4.8.1; rev 5: the PR (io) half and the order; the PR (ig) half is the T3-pre memo H-P5) L3's walk scopes and order, as planned (pre-ratification snapshot of L3's split plans; PM decisions 711, 713, 714, 718) | `S=6d31ced1; P=docs/plans/2026-11-ecs-entity-lifetime` (the one snapshot read: L3's local plan branch, read only through `git show`), then `git show $S:$P-pr-io-owned-entities-walk-scope.md \| /usr/bin/grep -n -e 'pub enum WalkScope' -e 'const fn in_scope' -e 'scope: WalkScope, visit' -e 'enum OwnedEntity' -e 'dom-walkers-iterative-over-ecs-links'`; `git show $S:$P-umbrella.md \| /usr/bin/grep -n -e '^\*\*Order\.\*\*' -e 'Layout T3 lands after PR (io)' -e 'DOM-walker program'` | **PR (io) plan** §4.1: `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }` with `OwnedEntity::in_scope(self, scope)`, an exhaustive match: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only; `WalkScope` is `pub`, `OwnedEntity` / `in_scope` are `pub(in crate::dom)`; §4.2: the walker becomes `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, `TemplateContentsWalk` is deleted, `despawn_subtree` passes `WithTemplateContents`, the base's `Include`. **L3 umbrella** §5 *Order*: is → ig → io → ii; "Layout T3 lands after PR (io)"; §8 hand-offs: the DOM-walker program's slice 1 (`#11-dom-walkers-iterative-over-ecs-links`) stacks on PR (io) and touches `walkers.rs` (§8.2). Announced after the snapshot (PM 718; not in it, so not relied on): the walker passes an `OwnedEntity` to `visit` and the owned side gains back-links; the type of `visit` is re-pinned with every other citation (R7). Until rev 4.8.1: cited from the pre-split PR (i) plan |
 | H-T33 | (rev 4.8) The spec's attribute change steps do not consult scripting; compilation does | `.claude/tools/webref body html event-handler-attributes`; `webref dfn html 'get the current value of the event handler'`; `webref heading html 8.1.3.4`; `git show cee74989:crates/dom/elidex-form/src/inert_document.rs \| sed -n 64,90p`; `git show cee74989:crates/script/elidex-script-session/src/scripting.rs \| sed -n 40,90p` | HTML §8.1.8.1 Event handlers, the attribute change steps: step 1 (namespace / name test), 2 (determine the target), 3 (null → return), 5.1 (CSP), 5.5 "Set eventHandler's value to the internal raw uncompiled handler value/location", 5.6 "Activate an event handler": no step reads scripting or the browsing context. *Get the current value of the event handler* (§8.1.8.1, `#getting-the-current-value-of-the-event-handler`) step 3.2: "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null" (document = the element's node document, step 3.1). §8.1.3.4 is *Enabling and disabling scripting*. `inert_document.rs:78-84` says the `EventHandlerAttributeConsumer` must stay off for a DOMParser document because "HTML §8.1.3.4 does NOT process event-handler attrs when scripting is disabled": wrong (P-T19). N1's compile gate (landed, #580; clause (b) read through `EcsDom::node_document` since C0b) realises step 3.2 for a node whose node document is not the bound document (`scripting_disabled_for_platform_object`, `scripting.rs:40-90`), consulted by `ensure_event_handler_current` on every read and dispatch (`elidex-js/vm/host/event_handler_attrs.rs:515-560`) |
 
 ### §0.3 Premise errors (reported)
@@ -319,39 +344,18 @@ New in rev 4.7:
   (D-T7), not from an unreachable consumer.
 
 New in rev 4.8:
-- **P-T19 (rev 4.7's own, and the base's rustdoc; PM decisions 711, 713).** Rev 4.7 §4.5 item 4 dropped the fragment
+- **P-T19 (rev 4.7's own, and the base's rustdoc; PM decisions 711, 713).** Rev 4.7 the T3-pre memo §4.4 dropped the fragment
   event inside DOMParser's window because "dropping is that build's intended outcome, since it suppresses the
   script-activation consumers", resting on `inert_document.rs:78-84` ("HTML §8.1.3.4 does NOT process event-handler
   attrs when scripting is disabled … Leaving both off is the CORRECT inert behavior"). The spec's attribute change
   steps set a raw uncompiled handler and activate it without consulting scripting; the null for a document without a
   browsing context is at compile time, *get the current value of the event handler* step 3.2 (H-T33). So a
   DOMParser document's elements carry their handlers from creation, and the base's (and rev 4.7's) "nothing" was a
-  defect, not the inert outcome. T3 queues the event (§4.5 item 4), sets the raw handlers (D-T13) and corrects the
+  defect, not the inert outcome. T3-pre queues the event (the T3-pre memo §4.4; until rev 5 T3 did), T3 sets the raw handlers (D-T13) and corrects the
   rustdoc (§5.3).
-- **P-T20 (PM decision 711's premise; answered by PM decision 713 and the split plans, rev 4.8.1; its flush shape
-  decided by PM 720, rev 4.8.2).** PM decision 711 names the flush point "PR (i)'s consuming close". The pre-split PR (i) plan had no
-  consuming close (rev 4.8's finding). The PR (ig) plan has one: `DispatcherTake::close` consumes the guard and is
-  the explicit restore point on a returning path, and its §8 *T3 intersection* guarantees (a) the restore point is the
-  outermost guard's `close` and (b) the slot state is the single home of take/restore state, with the flush in that
-  `close` assigned to T3 (H-T32). So §4.5 item 4 relies on ig's guarantees and T3's change to `close`, and no longer
-  states a requirement on ig. Every window whose `pending` can be non-empty (DOMParser's, `parse_into_inert_document`)
-  calls `close` on its returning path with no early return before it (H-T32); `despawn_subtree`'s `TeardownWindow`
-  restores by its drop at the end of its block in the snapshot, and nothing fires inside it, so T3 does not rely on
-  it.
-  **The flush shape (decided, PM 720: option (δ); was rev 4.8.1's *Residual*).** The PR (ig) plan §4.1 (snapshot,
-  H-T32) makes `Drop` "the one site of the restore" and gives `close` the body `drop(self)`, and the guard owns the
-  `&'a mut EcsDom` borrow, so "restore in `Drop`, then dispatch from `close`" could not be written as planned.
-  (δ): the restore is one private function of the guard (today's `Drop` body); `close(mut self)` calls it, then
-  dispatches the returned list through `self.dom` (still held) in fire order, skipping non-live roots, then `self`
-  drops with `taken` already `None`, so `Drop` does nothing; `Drop` reached without `close` (unwind) calls the same
-  function and discards the list. One restore function, one slot state, one flush point (the outermost close);
-  §4.5 item 4 states it. L3 rewords the PR (ig) plan §4.1 from "`Drop` is the one site of the restore" to "the
-  restore function is the only one" (PM 720), re-pinned with the other L3 citations before T3 is ratified (R7
-  premise 1). *Not chosen:* (α) restore written in `close` as well as `Drop` — two restore sites; (β) dispatch in
-  `Drop` after a `close` hand-off — `Drop` would run consumer code, so ig's "`Drop` does nothing that can panic"
-  would hold on the unwind path only; (γ) dispatch by each window's caller after `close` returns the list — one
-  flush per window site instead of one flush point. (δ) needs no `is_outermost`: the guard knows whether it took
-  from its own `taken`.
+- **P-T20 (moved to the T3-pre memo P-P1, rev 5; PM decision 722).** PM decision 711's flush point and its shape (δ),
+  decided by PM 720; with it, the T3-pre memo's new P-P2 (the snapshot's restore goes through
+  `set_mutation_dispatcher`, which would drop the queue; R1 M2).
 
 ### §0.4 Decisions (this PR)
 
@@ -427,7 +431,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   153); a fragment parse's elements are processed at their creation, every class (PM decisions 699, 705; D-T12).**
   `process_handler_content_attributes` delivers a pair by class and timing, after D-T8's applicability test:
 
-  | class | Bind (T-a1) | Creation, clone path (T-c, D-T10) | Creation, fragment path (D-T12) | clone-internal Insertion, before `CloneCreated` (D-T10) | Insertion (T-a2) | HandlerWrite (T-a3) | attribute change steps (AttributeChange arm), IDL setter |
+  | class | Bind (T-a1) | Creation, clone path (T-c, D-T10) | Creation, fragment path (D-T12) | clone-internal Insertion, before the clone's `SubtreeCreated` (D-T10) | Insertion (T-a2) | HandlerWrite (T-a3) | attribute change steps (AttributeChange arm), IDL setter |
   |---|---|---|---|---|---|---|---|
   | XW | delivered (X-W) | delivered | delivered (the placement's Insertion re-raws it, X-W) | as Insertion; Creation rewrites it | delivered at every insertion (X-W, until S-5) | not processed | T3's target |
   | EW | delivered, once per document (the bind pass's own once rule, D-5) | delivered | **delivered** | not delivered | **not delivered** | not processed | T3's target |
@@ -436,7 +440,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   Every delivery goes to `determine_event_handler_target`'s result (`None` → nothing). The X-W population is named by
   `is_x_w_pair(dom, element, name)` (NEW, session-private): an HTML `body` and a `HandlerScope::Window` name. Its
   docstring names S-5 as its remover. EW's creation-time attributes on an element created after bind by a **DOMParser
-  build** are processed at its creation, after the build's window closes (§4.5 item 4; PM decision 711), and deliver
+  build** are processed at its creation, after the build's window closes (the T3-pre memo §4.4; PM decision 711), and deliver
   nothing: the element's node document at creation is the DOMParser document, which is not active (cells EW-10,
   T-15b, T-22c); its OR attributes are set raw on the element (D-T13). (Until rev 4.8: "are therefore not processed
   until slice b's S-1; that is the spec's outcome …".)
@@ -489,7 +493,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     `native_node_clone_node` called the entry point after the dom-api call, beside the shim's CE and form post-pass.
     *New:* a `MutationEvent::CloneCreated { root, scope }` arm of `EventHandlerAttributeConsumer::handle` calls
     `process_created_subtree(dom, root, scope, policy, active)` with the consumer's own policy and `ActiveDocument`
-    (D-T3). (Rev 4.7: the arm is the `SubtreeCreated` arm and the call passes the event's `cause`, §4.5, §4.2.) *Why:* on the base the canonical cloner entry fires `CloneCreated` once per clone call, after the whole copy
+    (D-T3). (Rev 4.7: the arm is the `SubtreeCreated` arm and the call passes the event's `cause`, §4.5, §4.2; rev 5: the event is T3-pre's, which keeps RC-2a's clone fire as it is, the T3-pre memo §4.3, I-RC1.) *Why:* on the base the canonical cloner entry fires `CloneCreated` once per clone call, after the whole copy
     exists and before the entry returns, and RC-2a deletes the post-pass (the RC-2a plan §2 A, §4.1, §4.6). It is the
     one clone signal, so T3 consumes it and adds no second hook (one issue, one way). The consumers run in field order
     (`form_control`, `event_handler_attrs`, …, `custom_elements`; `elidex-js/vm/consumer_dispatcher.rs:157-163`), and
@@ -501,7 +505,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     answered by RC-2a, which adds the variant and its match arms (the RC-2a plan §5.2); its other ground (the fragment
     and DOMParser builds detach the dispatcher, N-1) does not hold: the fragment build restores the dispatcher before
     its caller places the nodes (P-T18), DOMParser's window queues the event and dispatches it at its close (rev 4.8,
-    PM decisions 711, 713; §4.5 item 4), and from rev 4.7 the fragment path consumes the same event, generalised (D-T12;
+    PM decisions 711, 713; the T3-pre memo §4.4), and from rev 4.7 the fragment path consumes the same event, generalised (D-T12;
     §4.5; until rev 4.7: "is about slice b's paths, which call the entry point directly"; rev 4.7: "holds for the
     DOMParser build only").
   - **Entry point.** `process_created_subtree(dom, root, cause, policy, active)` (NEW), `pub`, in
@@ -518,9 +522,9 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   - **Canonical writer (PM 377).** The cloner appends each copied child as it goes (`tree_clone.rs:409`; `clone.rs:302`,
     `:442`; rev 4.4 read them on the `rc2a-clone-created` branch), and `fire_after_insert` skips only a shadow-root node or parent
     (`tree/mutation.rs:528-529`), so `handle_insert` processes **every clone element except the root and a shadow root's
-    direct children** (this population: "CI-1's elements") at `ProcessingTiming::Insertion` before `CloneCreated` (the RC-2a plan §2 A × B, C × F; T3 changes neither).
+    direct children** (this population: "CI-1's elements") at `ProcessingTiming::Insertion` before the clone's `SubtreeCreated` (the RC-2a plan §2 A × B, C × F; T3 changes neither).
     For both pieces of handler state, the `EventListeners` entry on D-T1's target and the `HandlerAttrsProcessed` mark,
-    the canonical writer is the `CloneCreated` arm at Creation (the spec's attribute change steps). Creation bypasses
+    the canonical writer is the `SubtreeCreated` arm (`Clone` cause) at Creation (the spec's attribute change steps). Creation bypasses
     the marked shortcut (`mod.rs:85`, kept for Insertion and HandlerWrite), so it delivers every applicable pair
     whatever an internal `Insert` marked. The internal `Insert` is an idempotent no-op on that state, per class: OR (and
     FN, ordinary at T3 where applicable) writes the attribute's source into the element's entry and sets the mark,
@@ -545,7 +549,7 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   - **Fallback.** Slice a's insertion processing still runs for an unmarked element, so a future clone path that
     bypasses the canonical cloner entry is processed at its first insertion for OR and XW (HEAD-equal; umbrella §5.2
     K1); EW has no Insertion delivery (D-T7), so it would stay unprocessed (latent: no such path, H-T26). Range clones
-    reach that entry from RC-2b (the RC-2a plan §3.1), so they fire `CloneCreated`. S-4's detector is slice b's, for its
+    reach that entry from RC-2b (the RC-2a plan §3.1), so they fire `SubtreeCreated` with the `Clone` cause (RC-2b after T3-pre, PM decision 723; the T3-pre memo §8.2). S-4's detector is slice b's, for its
     end state.
 - **D-T11 — `body`'s HTML interface is chosen for an HTML `body` only (R-D1).** The VM gives a `TagType` entity a
   tag-specific HTML prototype by local name alone (H-T18). T3 makes the `body` arm of `tag_specific_t2b_prototype`
@@ -579,20 +583,20 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
     clone and fragment paths, consumed by one arm calling one entry point (`process_created_subtree`).
   - *ECS-native:* the creation is an event on the existing mutation-event queue, consumed by a system (the consumer
     arm) over the created entities; no hook, no registry.
-  - *Layering:* the policy and `ActiveDocument` stay in the consumer (D-T3); the parser fires a policy-free ECS
-    event, and `elidex-script-session`'s mutation layer carries neither.
+  - *Policy-free mutation layer:* the policy and `ActiveDocument` stay in the consumer (D-T3); the parser fires a
+    policy-free ECS event (T3-pre), and `elidex-script-session`'s mutation layer carries neither.
 
   *Scope (S-i; PM decisions 705, 711).* The fragment path leaves slice b's S-1 whole: **every node the parse
   created** is processed at its creation, declarative shadow content (`setHTMLUnsafe`, HTML §13.2.6.4.4 The "in head"
   insertion mode: a `template` start tag with `shadowrootmode` attaches the shadow root and parses its children into
   it) and template contents created by the parse included, and DOMParser's build included (its event is queued and
-  dispatched at its window's close, §4.5 item 4). Each of those elements is created by *create an element for a
+  dispatched at its window's close, the T3-pre memo §4.4). Each of those elements is created by *create an element for a
   token* and gets its attributes by its step 21, so the spec runs the attribute change steps at its creation, with its
   node document: the context's for the light and shadow content, the inert template document I for template contents
   (H-T21), the DOMParser document for its build. At the fragment path's Creation every class is delivered to D-T1's
   target and OR is marked (D-T7's column); where a placement `Insert` then reaches an element (the light tree under a
   non-shadow-root parent), it finds OR marked and re-raws XW (X-W until S-5); EW has no Insertion delivery. The walk is
-  `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` (io; §0.1, H-T32; §4.5 item 6): the
+  `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` (io; §0.1, H-T32; §4.5): the
   scope L3 declares as "the shadow-including tree and each template's contents", uncapped, so no element of a wide
   parent is skipped. `LifetimeUnit` is not used (PM decision 713): from a fragment root it reaches the same set (only a
   Document carries the third owned link, and no fragment root or descendant is a Document, H-T32), but its meaning is
@@ -607,14 +611,17 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   *Call site (C-ii).* `MutationEvent::SubtreeCreated { root, cause: CreationCause::FragmentParse }`, fired by
   `parse_fragment_progressive` once per returned root after the build's dispatcher window has closed; with no
   enclosing window it is dispatched at once, before the caller's placement; inside an enclosing window (DOMParser's) it
-  is queued on the slot and dispatched at that window's close (§4.5 items 3–4). The consumer's `SubtreeCreated` arm
-  calls `process_created_subtree(dom, root, cause, policy, active)`. The event, its fire points, causes, walk sets,
-  the queue, the consumers' migration and what T3 requires of ig and io are stated once, in §4.5.
+  is queued on the slot and dispatched at that window's close (the T3-pre memo §4.3–§4.4). The consumer's `SubtreeCreated` arm
+  calls `process_created_subtree(dom, root, cause, policy, active)` (§4.5). The event, its fire points, causes and
+  queue, and the other consumers' migration, are T3-pre's (the T3-pre memo §4.2–§4.6, PM decision 722); the arm and its
+  walk sets are §4.5's.
   *Rejected (PM decision 705):* (C-i) a direct call from `elidex-script-session` `mutation/html_fragment.rs`:
   `apply_set_inner_html(dom, entity, html, opts)` (`html_fragment.rs:70-74`) receives neither the policy nor a
   document, and the policy lives in `EventHandlerAttributeConsumer { policy }` (`event_handler_consumer.rs:351-353`),
-  out of reach from `EcsDom`, so C-i would route the policy and `ActiveDocument` into the mutation layer (Layering
-  mandate) and add a second call site beside the clone arm; (S-ii) EW only at Creation, XW and OR at the placement's
+  out of reach from `EcsDom`, so C-i would route the policy and `ActiveDocument` into the mutation layer, which today
+  carries neither (the ground above: a policy-free mutation layer, so that the parser and `html_fragment.rs` stay
+  engine-policy-free; CLAUDE.md's "Layering mandate" is about `vm/host/` and is not the ground here, R1 M1), and add a
+  second call site for creation processing beside the clone arm (one issue, one way: one creation event, one arm); (S-ii) EW only at Creation, XW and OR at the placement's
   Insertion: two processing points on one creation path; (S-iii) every class but only for the entry points whose
   context can be active: a scope decided per entry point, a decision surface per caller; (C-iii) the call site left to
   slice b: T-22 / T-22b stay red at T3.
@@ -643,12 +650,14 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
 | A4 global (step 4) | `active.window` (D-T3) |
 | A5 callers | attribute change steps at every timing + AttributeChange arm; getter; setter, both pairs (D-T1, D-T6) |
 | A6 processing timing of Window-delegating pairs | XW: X-W until S-5; EW: bind pass, clone creation, fragment-parse creation (PM decisions 699, 705) and the spec's writers only (D-T7) |
-| A7 creation by clone or fragment parse | every element of a clone (D-T10) or every node a fragment parse created, shadow-including and template contents included (D-T12; `WalkScope::WithTemplateContents`), every class, at creation, through one event (§4.5), queued while a dispatcher window is open and dispatched at its close (§4.5 item 4) |
+| A7 creation by clone or fragment parse | every element of a clone (D-T10) or every node a fragment parse created, shadow-including and template contents included (D-T12; `WalkScope::WithTemplateContents`), every class, at creation, through one event (§4.5), queued while a dispatcher window is open and dispatched at its close (the T3-pre memo §4.4) |
 | A8 `body`'s interface | HTML namespace (D-T11) |
 | A12 applicability (attribute change steps' step 1, local name) | `is_event_handler_content_attribute_of` by namespace (D-T8) |
 
 Coupled from outside: A9 N1's compile-gate node clause (same reader, D-T4); A10 C0's insertion adoption and A11 C1's
-inert template document, both **landed on the base** (H-T8, H-T21).
+inert template document, both **landed on the base** (H-T8, H-T21); A13 T3-pre's creation event and its window queue
+(the T3-pre memo; x14) and A14 io's `WalkScope` (x12), both landed before T3's base; A15 RC-2a's clone walk
+`for_each_clone_created` (landed; x11 through T3-pre).
 
 ### §1.1 Outcome changes at T3 (toward the spec)
 
@@ -669,7 +678,7 @@ inert template document, both **landed on the base** (H-T8, H-T21).
   processed at its creation (D-T12), including one placed directly under a shadow root, which the base does not process at
   the placement (OR-3, T-25), declarative shadow content (OR-5, T-27) and template contents (OR-6, T-28).
 - A DOMParser document's elements are processed at their creation, after the build's window closes (PM decisions 711,
-  713; §4.5 item 4; D-T13): an element target gets its raw handler then (its getter reads null until the element is in
+  713; the T3-pre memo §4.4; D-T13): an element target gets its raw handler then (its getter reads null until the element is in
   the active document, N1's compile gate), and its first insertion into the active document no longer re-raws it over
   a value script wrote meanwhile (OR-4, T-26); Window-delegating pairs deliver nothing (step 3; EW-10, XW-12, T-22c).
 - An initial `<body onload>` (and the other five, and an initial `<frameset>`'s 24) runs on the Window (H-T14; closes
@@ -705,17 +714,24 @@ T3 (PM decision 699).
 
 ### §1.3 Edge density
 
-**Edge-dense** (*verdict*). Nine own axes meet in one algorithm with three spec callers and a creation path, and three
-external couplings (A9–A11) change outcomes at the intersections (§2). So CLAUDE.md "Edge-dense work" applies:
-plan-review is mandatory (rule (b)). **Split: none** — T3 is a narrowly-scoped per-PR slice under the approved EH-attrs
-umbrella (§1.2 row T3, as edited by PM decisions 129, 153 and 168), the rule's base case (c). Splitting by facet or by
-caller would leave two target rules live (content attribute vs IDL, or body vs frameset); splitting D-T7 off would land
-the target change without the timing change (rev 1's W1 / W2, which PM decision 129 rejects); splitting D-T10 off
-would land R-C, D-T11 off R-D1, D-T8 off R-D2, the fragment path off R-E — each worse than the base, and each placed
-in T3 by PM decision 153, 168 or 699. Breadth: `webref coverage-map html 8.1.8.1 html 8.1.8.2 html 7.3.2 html 8.1.3.3.4 dom 4.4 dom 4.9 dom 4.5 html
-16.3.2 SVG2 15.8 mathml-core 2.1.4` → K = 4 specs, "K≥4 or M≥20 → 分割推奨" (rev 3, without D-T8's two branch specs:
-K = 2, "ok"). The re-evaluation the rule asks for is the paragraph above: the SVG2 and MathML Core rows are branches of
-one predicate (D-T8), not separate mechanisms, and separating them re-opens R-D2.
+**Edge-dense** (*verdict*, rev 5 re-evaluated for the narrowed scope). Eight own axes (A1–A8, A12) meet in one
+algorithm with three spec callers and two creation causes, and six external couplings (A9–A11, A13–A15) change
+outcomes at the intersections (§2). So CLAUDE.md "Edge-dense work" applies: plan-review is mandatory (rule (b)).
+**Split: done once (PM decision 722), none further.** The queue / window cluster, itself edge-dense (the T3-pre memo
+§1.3), is T3-pre; what stays is the target algorithm, its callers, the processing timings and the creation walks, which
+form one decision surface: splitting by facet or by caller would leave two target rules live (content attribute vs
+IDL, or body vs frameset); splitting D-T7 off would land the target change without the timing change (rev 1's W1 /
+W2, which PM decision 129 rejects); splitting D-T10 off would land R-C, D-T11 off R-D1, D-T8 off R-D2, the fragment
+path off R-E, each worse than the base, and each placed in T3 by PM decision 153, 168, 699 or 705. T3 is a
+narrowly-scoped per-PR slice under the approved EH-attrs umbrella (§1.2 row T3, as edited by PM decisions 129, 153,
+168, 699, 705, 711 and 722), the rule's base case (c). Breadth (all §3 rows): `webref coverage-map html 8.1.8.1 html
+8.1.8.2 html 7.3.2 html 8.1.3.3.4 html 13.2.6.1 html 13.4 html 13.2.6.4.4 html 8.5.1 html 16.3.2 dom 4.4 dom 4.9 dom
+4.5 SVG2 15.8 mathml-core 2.1.4` → K = 4 specs, 14 unique sections (preflight counts the 18 table rows as M), "K≥4 or M≥20 → 分割推奨" (verified 2026-11-13). The
+re-evaluation the rule asks for: K = 4 comes from the SVG2 and MathML Core rows, which are branches of one predicate
+(D-T8), not separate mechanisms (separating them re-opens R-D2); the html §13.2.6.1, §13.4, §13.2.6.4.4 and §8.5.1 rows
+are the creation causes' spec grounds, consumed by one arm (§4.5), whose event is T3-pre's. External couplings: N1,
+C0, C1 (landed), RC-2a (x11, landed), L3's io (x12), T3-pre (x14). Decisions: PM 129–133, 153, 168, 359, 699, 705,
+711, 713, 714, 718–720, 722, 723.
 
 ## §2. Coupled invariants
 
@@ -753,10 +769,16 @@ one predicate (D-T8), not separate mechanisms, and separating them re-opens R-D2
   set at creation keeps OR from being re-processed at the first insertion (K-1); a clone-internal Insertion before
   creation is a no-op on the same state (D-T10 *Canonical writer*). On the fragment path no Insertion reaches a
   consumer before Creation (the build's window, H-T29; inside DOMParser's window the placement's `Insert`s reach none,
-  §4.5 item 3), and Creation's walk (every node the parse created) contains every element the placement's Insertion
-  visits, so that Insertion finds every OR element it visits marked (D-T12; §4.5 item 6; until rev 4.8: "Creation walks
+  the T3-pre memo §4.3), and Creation's walk (every node the parse created) contains every element the placement's Insertion
+  visits, so that Insertion finds every OR element it visits marked (D-T12; §4.5; until rev 4.8: "Creation walks
   the placement's own insertion-time set").
 - **A7×A12** — a clone's attributes pass the same applicability test at creation (D-T8 inside the process function).
+- **A7×A13** — the arm's Creation precedes every `Insert` of the caller's placement when no window encloses the parse,
+  and follows the placement inside DOMParser's window, whose `Insert`s reach no consumer (the T3-pre memo §2 Q3×Q4); in
+  both the Creation write is the first write any consumer makes to the created elements. A root despawned before the
+  flush is skipped (Q3×Q8), so the arm never walks a dead root.
+- **A7×A14** — the fragment walk's set is `WalkScope::WithTemplateContents`'s (io), and its order the walker's (§4.5,
+  cell T-29); a change to either in io or in the DOM-walker program's slice 1 is re-pulled (§8.2).
 - **A2×A9** — N1's C8h (`dd.body.setAttribute('onfocus', 'A')`) keeps its outcome (getter null, nothing runs) but by
   step 3 now: no entry is written (cell U-T3).
 - **A5×A9** — the getter determines before N1's reconcile (getter step 1 before step 3).
@@ -786,7 +808,7 @@ processing). Verdict: **both** (T3 = base = spec), **spec** (T3 = spec ≠ base)
 | XW-9 | XW | AC, set | X1 ≡ A | Window | Window | Window | both (R-B) | T-18 |
 | XW-10 | XW | AC, set | X2 ≡ P | Window | nothing | nothing | spec | U-T1 |
 | XW-11 | XW | clone, then ins→A | A | nothing at creation; re-raw at the insertion | Window at creation; re-raw at the insertion (X-W) | Window at creation; nothing at the insertion | creation: spec; insertion: base (XW-6) | T-20b |
-| XW-12 | XW | parse, then ins→A | P → A | nothing at creation; re-raw onto the Window at the insertion (†: adopted by C0) | nothing at creation (processed after the window's close, null target, §4.5 item 4); re-raw at the insertion | nothing | creation: both; insertion: base (XW-6) | C17, T-22c |
+| XW-12 | XW | parse, then ins→A | P → A | nothing at creation; re-raw onto the Window at the insertion (†: adopted by C0) | nothing at creation (processed after the window's close, null target, the T3-pre memo §4.4); re-raw at the insertion | nothing | creation: both; insertion: base (XW-6) | C17, T-22c |
 | XW-13 | XW | AC, set | U | Window | Window | Window | both | U-T1 |
 | XW-15 | XW | fragment parse (creation), then the placement's insertion | A | Window at the placement's insertion (X-W) | Window at creation (D-T12); re-raw at the placement's insertion (X-W), with the same source | Window at creation; nothing at the insertion | both (no script runs between creation and placement in one setter call: the Window's value after the call is the spec's) | T-22 |
 | XW-14 | XW | clone, then ins→A | P → A | nothing at creation; re-raw at the insertion | nothing at creation (null target); re-raw at the insertion | nothing | creation: both; insertion: base (XW-6) | U-T7 |
@@ -799,7 +821,7 @@ processing). Verdict: **both** (T3 = base = spec), **spec** (T3 = spec ≠ base)
 | EW-7 | EW | ins→A after an AC / set | any | re-raw onto the element over any write | nothing | nothing | spec | T-14 |
 | EW-8 | EW | ins→A after an AC while in P | P → A | re-raw onto the element | nothing | nothing | spec | T-15 |
 | EW-9 | EW | ins→P | any | re-raw onto the element | nothing | nothing | spec | C19b |
-| EW-10 | EW | parse, then ins→A | P → A | element at the first insertion | nothing (null at creation, processed after the window's close, §4.5 item 4; no EW Insertion delivery) | nothing (null at creation) | spec | T-15b, T-22c |
+| EW-10 | EW | parse, then ins→A | P → A | element at the first insertion | nothing (null at creation, processed after the window's close, the T3-pre memo §4.4; no EW Insertion delivery) | nothing (null at creation) | spec | T-15b, T-22c |
 | EW-11 | EW | clone, then ins→A | P → A | element at the first insertion | nothing (null at creation) | nothing | spec | U-T6, U-T7 |
 | EW-12 | EW | clone | A | Window: untouched. Clone's getter: null, then the attribute's function after its first insertion | Window := the attribute at creation. Clone's getter: the Window's value | Window := the attribute at creation | spec (R-C) | T-16 |
 | EW-13 | EW | AC, set | I | element (†: in I by C1 / C0) | nothing / return | nothing / return | spec (R-A) | T-17 |
@@ -821,7 +843,7 @@ processing). Verdict: **both** (T3 = base = spec), **spec** (T3 = spec ≠ base)
 | OR-1 | OR | every timing except clone, fragment parse and parse | any | element | element where applicable; nothing for a name that is not an event handler content attribute of the element (D-T8) | element, or nothing where step 1 returns | spec for the local-name test; base for a non-null attribute namespace (facet (2), slice b) | U-T1, U-T8 |
 | OR-2 | OR | clone | any | nothing at creation; processed at the first insertion (once) | processed at creation (element; marked); not at the insertion | processed at creation | spec (umbrella G5 / K3; defect (2)) | T-20, C9, C5 (iii), C12 |
 | OR-3 | OR | fragment parse (creation), then the placement's insertion | any | processed at the placement's insertion (once); not processed there when placed directly under a shadow root (no `Insert`, `tree/mutation.rs:528-529`) | processed at creation (element; marked); not at the placement (D-T12) | processed at creation | both (no script runs between creation and placement); spec under a shadow root | T-25, U-T9 |
-| OR-4 | OR | parse (creation, DOMParser build), IDL write in P, then ins→A (rev 4.8, PM decisions 711, 713) | P → A | nothing at creation (the window drops every event); getter in P null (no entry); an IDL write on an element with two handler attributes does not process it (D-8); processed at the first insertion (unmarked), its raw value overwriting the IDL write | processed at creation after the window's close (raw on the element, marked; D-T13); getter in P null (N1's compile gate, step 3.2); the IDL write stays; nothing at the insertion | raw at creation; null in P; the IDL write stays | spec | T-26 |
+| OR-4 | OR | parse (creation, DOMParser build), IDL write in P, then ins→A (rev 4.8, PM decisions 711, 713) | P → A | nothing at creation (the window drops every event); getter in P null (no entry); an IDL write on an element with two handler attributes does not process it (D-8); processed at the first insertion (unmarked), its raw value overwriting the IDL write | processed at creation after the window's close (raw on the element, marked; D-T13); getter in P null (N1's compile gate, step 3.2); the IDL write stays; nothing at the insertion | raw at creation; null in P; the IDL write stays | spec | T-26, T-26b |
 | OR-5 | OR | fragment parse creating declarative shadow content (`setHTMLUnsafe`), A (rev 4.8, PM decision 711) | A | not processed (no placement `Insert` enters a shadow tree; umbrella §5.1 "not processed in a fragment parse") | processed at creation (element; marked; D-T12) | processed at creation | spec | T-27, U-T9 |
 | OR-6 | OR | fragment parse creating template contents, IDL write in I, then the contents moved into A (rev 4.8, PM decision 711) | I → A | nothing at creation (no placement `Insert` enters template contents); getter in I null; processed at the first insertion into A (unmarked), its raw value overwriting the IDL write | processed at creation (raw on the element, marked; D-T12, D-T13); getter in I null (N1's compile gate); the IDL write stays; nothing at the insertion | raw at creation; null in I; the IDL write stays | spec | T-28, U-T9 |
 | CI-1 | XW, EW, OR | clone-internal Insertion (CI-1's elements, D-T10 *Canonical writer*) | the copy's | XW: the page Window (the target rule ignores the document); EW: element; OR: element, marked | XW, OR: Creation's write, made first here (no-op, D-T10); EW: nothing | no step (Creation's outcome) | both for OR and for XW in A; spec otherwise | T-16c, T-16d, T-16b |
@@ -851,10 +873,10 @@ creation, OR-3 is base-equal or on the spec, and OR-4 to OR-6 are on the spec). 
 | WHATWG HTML §7.3.2 Browsing contexts | *active document* | in HEAD's model: the bound document (H-T6, H-T15) | `ActiveDocument` (NEW), constructed only by `HostData::active_document()` (`crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs`, PM 441) and read at `crates/script/elidex-js/src/vm/vm_api.rs:301` and in `event_handler_attrs.rs` (PM 455) | ✗ | no |
 | WHATWG HTML §8.1.3.3.4 Relevant | *relevant global object* of the node document | active document → its Window (navigable's active window, §7.3.1) | `ActiveDocument::window` (NEW) | ✗ | no |
 | WHATWG DOM §4.4 Interface Node | *node document*; *clone a single node* step 2.5 (attributes appended to the copy); *clone a node* steps 5 and 6.7 (light children, then shadow children) | the base's reader (D-T4); a clone's attributes are processed at its creation with the copy's node document, in creation order | `EcsDom::node_document` (C0b D-1, landed); `process_created_subtree` (NEW) from the consumer's `SubtreeCreated` arm (cause `Clone`, §4.5), over `EcsDom::for_each_clone_created` (RC-2a) | ✗ | yes |
-| WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 6 (document = targetParent's node document, after the insertion-location redirection of step 2), step 21 (append each attribute) | a fragment parse's elements are created in the context's node document, their attributes appended at creation | `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) fires `SubtreeCreated` (cause `FragmentParse`) per returned root (§4.5); `process_created_subtree` at Creation from the same arm (D-T12) | ✗ | yes |
+| WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 6 (document = targetParent's node document, after the insertion-location redirection of step 2), step 21 (append each attribute) | a fragment parse's elements are created in the context's node document, their attributes appended at creation | `process_created_subtree` at Creation from the consumer's `SubtreeCreated` arm, cause `FragmentParse` (D-T12, §4.5); the event is fired by `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) per returned root (T3-pre, the T3-pre memo §4.3) | ✗ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 1–2 (the parser's own new `Document`; the fragment in target's node document) | the elements are not created in step 1's Document (P-T17) | C0b's `node_document_for_new_nodes` redirection (landed); T3 reads it through D-T4 | ✗ | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | a `template` start tag with `shadowrootmode` (declarative shadow root) | the shadow root's children are created by *create an element for a token* inside the fragment parse (rev 4.8, PM decision 711) | `process_created_subtree`'s `FragmentParse` walk, `WalkScope::WithTemplateContents` (io; D-T12) | ✗ | yes |
-| WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (a new Document; "Since document does not have a browsing context, scripting is disabled") | the build's elements are created in that Document; their creation event is queued in the build's window and dispatched at its close (rev 4.8, PM decisions 711, 713) | `crates/dom/elidex-form/src/inert_document.rs` (`parse_into_inert_document`, under ig's guard); `EcsDom::fire_subtree_created`'s queue arm (§4.5 item 4) | ✗ | yes |
+| WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (a new Document; "Since document does not have a browsing context, scripting is disabled") | the build's elements are created in that Document; their creation event is queued in the build's window and dispatched at its close (rev 4.8, PM decisions 711, 713) | the arm's Creation processing of the build's elements at the window's close (D-T12, D-T13; the queue is T3-pre's, the T3-pre memo §4.4); the rustdoc of `parse_into_inert_document` (`crates/dom/elidex-form/src/inert_document.rs`, P-T19) | ✗ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | attribute change steps 5.5–5.6 (raw uncompiled value, activate); *get the current value of the event handler* step 3.2 (null while the node document's browsing context is null) | a creation in a document without a browsing context sets the raw handler; compilation reads null there (D-T13) | the Creation timing of `process_handler_content_attributes`; N1's compile gate (`scripting_disabled_for_platform_object`, `crates/script/elidex-script-session/src/scripting.rs`, unchanged) | ✗ | yes |
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4; *handle attribute changes* step 3 | the attribute change steps run for each appended attribute | `ProcessingTiming::Creation` (NEW) in `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:50` | ✗ | yes |
 | WHATWG DOM §4.5 Interface Document | *element interface* (`Element` unless a spec says otherwise) | HTML interfaces for HTML-namespace elements only; `body`'s arm (D-T11) | `crates/script/elidex-js/src/vm/host/elements.rs:294`; `require_body_receiver` `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:418` | ✗ | yes |
@@ -893,7 +915,7 @@ algorithm' → §13.4 `#html-fragment-parsing-algorithm`; `webref dfn dom`: 'cre
 `#concept-create-element`; step texts `webref body html creating-and-inserting-nodes` (steps 2, 6, 17, 21),
 `html-fragment-parsing-algorithm` (steps 1, 2), `webref body dom concept-element-attributes-append` (step 4),
 `handle-attribute-changes` (step 3), `clone-a-single-node` (step 2.5), `concept-create-element` (steps 4.4, 5.2.2).
-Rev 4.8 (2026-11-13): `webref heading html 13.2.6.4.4` (The "in head" insertion mode, `#parsing-main-inhead`), `8.5.1`
+Rev 5 (2026-11-13): `webref heading html 13.2.6.4.7` (The "in body" insertion mode, `#parsing-main-inbody`), `13.2.6.4.18` (The "in frameset" insertion mode, `#parsing-main-inframeset`); step texts `webref body html parsing-main-inbody` (start tag "body"), `parsing-main-inframeset` (start tag "frameset") (§4.5's visit order); `webref body dom concept-node-clone` re-read: the *clone a node* steps this memo cites are 3 (D-T10 *Order*, the cloning steps), 5 and 6.7 (D-T10 *Order*, §3, §4.4); rev 4.8.2's §4.4 row citing step 2 moved to the T3-pre memo with the event (its §3 footnote lists steps 2, 5, 6.7) (R1 M12). Rev 4.8 (2026-11-13): `webref heading html 13.2.6.4.4` (The "in head" insertion mode, `#parsing-main-inhead`), `8.5.1`
 (The DOMParser interface, `#the-domparser-interface`), `8.1.3.4` (Enabling and disabling scripting,
 `#enabling-and-disabling-scripting`); `webref dfn html`: 'get the current value of the event handler' → §8.1.8.1
 `#getting-the-current-value-of-the-event-handler`, 'internal raw uncompiled handler' → §8.1.8.1
@@ -930,14 +952,12 @@ no new delivery target: each delivery is D-T1's. Security boundaries (CSP, sandb
 | applicability (step 1 of the attribute change steps, local name) | `is_event_handler_content_attribute_of` (NEW), session-private, same module | D-T8 |
 | X-W's remaining population | `is_x_w_pair` (NEW), session-private, removed by S-5 | D-T7 |
 | creation processing (clone and fragment paths) | `process_created_subtree` (NEW), `pub`, same module, taking the event's `CreationCause`; `ProcessingTiming::Creation` (NEW); the element marker (D-1, existing); the fragment cause's walk is io's `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` (until rev 4.8: `handle_insert`'s collector) | D-T10, D-T12, D-T13 |
-| the creation event | `MutationEvent::SubtreeCreated { root, cause }` and `CreationCause` (NEW in `elidex-ecs`, replacing `MutationEvent::CloneCreated`); `EcsDom::fire_subtree_created` (replacing `EcsDom::fire_clone_created`); fired by the dom-api cloner and by `parse_fragment_progressive` | §4.5 |
-| the window's pending creation events | `DispatcherSlot::Taken { pending: Vec<Entity> }` (the slot's existing private enum, `ecs/dom/mod.rs:55-59`, gains the payload; World-level state, no component: per-window, not per-entity, as ig's guard, H-T32); pushed by `fire_subtree_created`, flushed by ig's outermost close (T3 adds the flush there) | §4.5 item 4 |
+| the creation event, its fire points and the window's queue | T3-pre's (`MutationEvent::SubtreeCreated`, `CreationCause`, `EcsDom::fire_subtree_created`, `DispatcherSlot::Taken { pending }`; NEW: T3-pre); T3 consumes it | the T3-pre memo §4.1 |
 | `body`'s interface | the `body` arm of `tag_specific_t2b_prototype` and `require_body_receiver`, each adding `EcsDom::is_html_namespace` through `HostData::dom_shared` | D-T11 |
 | deleted | `resolve_handler_target`, `is_body_element`, `EcsDom::window_entity` | D-T1, D-T3, D-T5 |
 
-No component, store, trait or crate edge is added (`elidex-js` already depends on `elidex-script-session`;
-`elidex-html-parser` already depends on `elidex-ecs`). One event variant is replaced, not added, and one existing
-enum variant gains a payload (§4.5).
+No component, store, trait or crate edge is added (`elidex-js` already depends on `elidex-script-session`). T3 adds
+one consumer arm on T3-pre's event (§4.5) and no variant.
 
 ### §4.2 Shape
 
@@ -956,7 +976,7 @@ pub fn determine_event_handler_target(          // (NEW)
 pub fn process_created_subtree(                 // (NEW), D-T10, D-T12; called by the SubtreeCreated arm (§4.5)
     dom: &mut EcsDom, root: Entity, cause: CreationCause, policy: SpecLevelPolicy, active: ActiveDocument,
 ) { /* Clone(scope): for_each_clone_created (RC-2a), then each template's contents;
-       FragmentParse: root + for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents) (io; §4.5 item 6);
+       FragmentParse: root + for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents) (io; §4.5);
        each element: process at Creation, mark */ }
 
 // session/event_handler_consumer.rs, EventHandlerAttributeConsumer::handle (NEW arm):
@@ -1004,15 +1024,15 @@ system run over a freshly created subtree, writing the same component and the ex
 "override the accessor on the subclass prototype" pattern (`HTMLBodyElement.prototype`'s delegation pair) is replaced,
 for the target choice, by one query on the receiver entity; the prototype install remains only as the WebIDL surface,
 now chosen by namespace as well as tag for `body`. "Run the attribute change steps when the clone appends an attribute"
-(an observer on the attribute list in OO engines) → one more consumer arm on the clone's creation event (RC-2a's
-`CloneCreated`), a system over the created entities. "Each element class declares its supported handler attributes"
-(per-class tables in OO engines) → one predicate over the namespace and class components. The fragment path is the same
-system on the same event with another cause (D-T12, §4.5): "the parser runs the attribute change steps as it appends
-each attribute" (a per-element callback inside the parser in OO engines) → one event per created subtree after the
+(an observer on the attribute list in OO engines [contrast]) → one more consumer arm on the clone's creation event (T3-pre's
+`SubtreeCreated`, RC-2a's `CloneCreated` generalised), a system over the created entities. "Each element class declares its supported handler attributes"
+(per-class tables in OO engines [contrast]) → one predicate over the namespace and class components. The fragment path is the same
+system on the same event with another cause (D-T12, §4.5; the event: the T3-pre memo §4.2): "the parser runs the attribute change steps as it appends
+each attribute" (a per-element callback inside the parser in OO engines [contrast]) → one event per created subtree after the
 build, consumed by the same arm. `ActiveDocument` is a
 per-call value, not a store (D-T3, PM
 decision 132). Layering: steps 1–4, D-T7's timing, D-T8's test and both creation walks live in
-`elidex-script-session`; the parser and the cloner only fire the policy-free `elidex-ecs` event; `vm/host/` brand-checks, chooses the prototype, marshals `HostData` and the policy, and executes
+`elidex-script-session`; the parser and the cloner only fire T3-pre's policy-free `elidex-ecs` event; `vm/host/` brand-checks, chooses the prototype, marshals `HostData` and the policy, and executes
 the result on the listener store.
 
 ### §4.4 Docstring citation table (Axis 4)
@@ -1026,185 +1046,46 @@ the result on the listener store.
 | `is_event_handler_content_attribute_of` (NEW) | HTML §8.1.8.1 attribute change steps step 1 (local-name half); §8.1.8.2 (WEH content attributes on body and frameset); SVG2 §15.8; MathML Core §2.1.4 (the `MathMLElement` IDL: GlobalEventHandlers); the namespace half → `#11-event-handler-content-attribute-applicability` facet (2), slice b |
 | `is_x_w_pair` (NEW) | umbrella §0.5 X-W as narrowed by PM decision 129; removed by slice b's S-5; slot `#11-eh-attrs-creation-time-call-sites` defect (7) |
 | `process_created_subtree` (NEW), `ProcessingTiming::Creation` (NEW) | DOM §4.4 *clone a single node* step 2.5; HTML §13.2.6.1 *create an element for a token* step 21; DOM §4.9 *append an attribute* step 4, *handle attribute changes* step 3; umbrella S-1 (clone path, PM decision 153; fragment path, PM decision 705); the entry point slice b's other paths call (S-6) |
-| `native_event_handler_get` / `_set`, body pair | §8.1.8.1 getter steps 1–3 / setter steps 1–4 |
+| `native_event_handler_get` / `_set`, body pair | HTML §8.1.8.1 event handler IDL attribute getter steps 1–3 / setter steps 1–4 |
 | the `body` arm, `require_body_receiver` | DOM §4.5 *element interface*; HTML `HTMLBodyElement`; the foreign-interface defect (§8.1 item 4) |
-| `handle_attribute_change`, `process_handler_content_attributes` | §8.1.8.1 attribute change steps 1–3 (the docstring's "Not realised: step 3" at `mod.rs:64-68` is removed; the X-W paragraph `:70-75` is rewritten for D-T7) |
-| `EventHandlerAttributeConsumer::handle`, the `SubtreeCreated` arm | §4.5 (the event); DOM §4.4 *clone a node* steps 5 and 6.7 (the clone walk's order, D-T10); the fragment walk = every node the parse created, `WalkScope::WithTemplateContents` (D-T12); HTML §8.1.8.1 attribute change steps 5.5–5.6 and *get the current value of the event handler* step 3.2 (D-T13) |
-| `MutationEvent::SubtreeCreated`, `CreationCause`, `EcsDom::fire_subtree_created` (NEW, replacing `CloneCreated` / `fire_clone_created`) | §4.5 items 1–4: DOM §4.4 *clone a node* (steps 2, 5, 6.7 define the clone's created set; RC-2a's text kept for the `Clone` cause); HTML §13.4 *HTML fragment parsing algorithm* and §13.2.6.1 *create an element for a token* step 21 (the `FragmentParse` cause); the D-4 assertion for the `Clone` cause and the `FragmentParse` cause's queue while `Taken` (§4.5 item 4; until rev 4.8: "drop") |
-| `parse_fragment_progressive`'s fire | §4.5 item 3: once per returned root, after both backends' restore; before the caller's placement, or queued until the enclosing window's close |
-| `DispatcherSlot::Taken`'s `pending`, ig's close (the flush) | §4.5 item 4 (PM decisions 711, 713): restore, then dispatch in order skipping dead roots; discarded on unwind |
-| `parse_into_inert_document`'s rustdoc (`inert_document.rs:64-90`, corrected) | HTML §8.1.8.1 attribute change steps (no scripting test) and *get the current value of the event handler* step 3.2; §8.5.1 `parseFromString` step 4's note (scripting disabled because no browsing context); D-T13, P-T19 |
+| `handle_attribute_change`, `process_handler_content_attributes` | HTML §8.1.8.1 attribute change steps 1–3 (the docstring's "Not realised: step 3" at `mod.rs:64-68` is removed; the X-W paragraph `:70-75` is rewritten for D-T7) |
+| `EventHandlerAttributeConsumer::handle`, the `SubtreeCreated` arm | T3 memo §4.5 (the arm) and the T3-pre memo §4.2 (the event); DOM §4.4 *clone a node* steps 5 and 6.7 (the clone walk's order, D-T10); the fragment walk = every node the parse created, `WalkScope::WithTemplateContents` (D-T12); HTML §8.1.8.1 attribute change steps 5.5–5.6 and *get the current value of the event handler* step 3.2 (D-T13) |
+| `parse_into_inert_document`'s rustdoc (`inert_document.rs:64-90`, corrected) | HTML §8.1.8.1 attribute change steps (no scripting test) and *get the current value of the event handler* step 3.2; HTML §8.5.1 `parseFromString` step 4's note (scripting disabled because no browsing context); D-T13, P-T19; the queue: the T3-pre memo §4.4 |
 
-### §4.5 The creation event `SubtreeCreated` (PM decisions 705, 711, 713, 714; for L3's review)
+The event, its fire points and the queue carry their citations in the T3-pre memo §4.8 (moved in rev 5).
 
-The one statement of the event's shape; every other site of this memo refers here. Coordinates are `cee74989`'s
-(H-T29 to H-T31 carry the commands); L3's names are the PR (ig) and PR (io) plans', cited by symbol and section at
-the snapshot H-T32 names (§0.1; re-pinned to L3's ratified sha before T3 is ratified, R7). `MutationEvent::CloneCreated` is RC-2a's (L3's) ratified surface; T3 is the
-event's first new consumer, so the generalisation lands in T3's PR (PM decision 705). Sibling plans that name
-`CloneCreated` (the RC-2a plan, the Range program, the C0 and C1 memos) keep it as the name at their time. **T3 lands
-after io, so after ig** (umbrella x12; PM decisions 711, 714): the queue's flush point is ig's outermost close (item
-4) and the fragment walk's scope is io's `WalkScope` (item 6).
+### §4.5 The event-handler consumer on `SubtreeCreated` (PM decisions 705, 711, 713, 722)
 
-1. **Variant.** `MutationEvent::CloneCreated { root, scope }` is replaced, with no coexistence, by
-   ```rust
-   // crates/core/elidex-ecs/src/dom/mutation_event.rs (re-exported from elidex-ecs's lib.rs, as CloneScope is)
-   #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-   pub enum CreationCause {
-       Clone(CloneScope),   // DOM §4.4 "clone a node"; CloneScope unchanged (RC-2a)
-       FragmentParse,       // HTML §13.4 "HTML fragment parsing algorithm"
-   }
-   // in enum MutationEvent<'a>:
-   SubtreeCreated { root: Entity, cause: CreationCause },
-   ```
-   `root` and every node in its subtree were created by one operation of the cause, and none of them has been
-   observed by script yet. `CloneScope` and `EcsDom::for_each_clone_created(root, scope, …)` stay as they are: the
-   clone's visit set (the RC-2a plan §4.3), which the clone consumers read from the `Clone` cause's scope.
-   `EcsDom::fire_clone_created(root, scope)` is replaced by `EcsDom::fire_subtree_created(root, cause)`.
-2. **Spec ground (both causes).** Each is element creation whose attributes are appended at creation: DOM §4.4 *clone
-   a single node* step 2.5, HTML §13.2.6.1 *create an element for a token* step 21; DOM §4.9 *append an attribute*
-   step 4 → *handle attribute changes* step 3 → the attribute change steps. elidex batches those per-element runs into
-   one event per created subtree, dispatched before script can observe the subtree (RC-2a's precedent for the clone).
-   The attribute change steps run for every created element, also in a document without a browsing context: they
-   do not consult scripting; the null for such a document is at compile time (*get the current value of the event
-   handler* step 3.2; H-T33, D-T13).
-3. **Fire points (two production sites).**
-   - `Clone(scope)`: `clone_node_with_shadow_honor` (`crates/dom/elidex-dom-api/src/node_methods/clone.rs:305-311`),
-     unchanged: once, after the whole copy exists, before the cloning entry returns; scope `Subtree` / `SelfOnly` as
-     on the base.
-   - `FragmentParse`: `elidex_html_parser::parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223-247`),
-     after its backend match: once per returned root, in the returned order (a Text root too; consumers ignore what
-     they do not walk). One site serves both backends: each backend's own window is closed when it returns (P1, item
-     5), the strict one after `derive_element_components` (`lib.rs:235-237`), the tolerant one direct or as the
-     fallback after a strict reject. A strict reject's partial subtree was despawned (`tree_builder/mod.rs:214-236`)
-     and fires nothing. Every production fragment parse goes through this function (H-T29), so every entry point gets
-     the event: `innerHTML` on Element / ShadowRoot / template, `setHTMLUnsafe`, `outerHTML`, `insertAdjacentHTML`,
-     the queued `Mutation::SetInnerHtml`, and DOMParser's build. `Range.createContextualFragment` is a stub that
-     parses nothing; no `document.write` or `parseHTMLUnsafe` exists (H-T29).
-   - **Order against the placement.** With no enclosing window (every entry point but DOMParser's) the event is
-     dispatched at the fire, and each caller places the returned nodes after the return, so the event precedes every
-     `Insert` of the placement. Inside DOMParser's window (the one production window that encloses a fragment parse,
-     H-T30) the event is queued (item 4) and dispatched at that window's close, so it **follows** the placement under
-     the synthesized `html` element (`inert_document.rs:142`; its `Insert`s reach no consumer, as on the base) and the
-     two structural reconcilers (form-control state `:172-174`, base URL `:200`); no script runs inside the window, so "before script can observe the
-     subtree" still holds (PM decision 713 (3); until rev 4.8: "Each caller places the returned nodes after the
-     return, so the event precedes every `Insert` of the placement", without the nested case).
-   - Not a fire point: the document parse (pre-bind; its creation-equivalent point is the first bind, umbrella K-6).
-4. **While the dispatcher is `Taken`: queued, dispatched at the outermost close (PM decisions 711 (1), 713 (2)).**
-   The window's state has one home, the slot (World-level state; ECS-native, one issue one way): T3 gives
-   `DispatcherSlot::Taken` the window's pending creation events.
-   ```rust
-   // crates/core/elidex-ecs/src/dom/mod.rs (T3; on ig's head)
-   enum DispatcherSlot {
-       Absent,
-       Installed(Box<dyn MutationDispatcher + Send + Sync>),
-       /// A take window is open (ig's `DispatcherTake`). `pending`: the roots of the `FragmentParse` creation
-       /// events fired inside it, in fire order, dispatched at the close of the guard that took the dispatcher.
-       Taken { pending: Vec<Entity> },
-   }
-   ```
-   - `fire_subtree_created(root, cause)`: slot `Installed` → dispatched at once (`dispatch_event`); `Absent` (unbound)
-     → nothing, both causes, as on the base; `Taken` with `FragmentParse` → `pending.push(root)`, no assertion;
-     `Taken` with `Clone(_)` → D-4's `debug_assert!` (the RC-2a plan §4.7: no clone inside a window), kept as an
-     internal invariant shown unreachable (PM 584; PM decision 711 (1)), and in release the event is dropped as on the
-     base. Every other event in a window is dropped as today (`dispatch_event`'s `Absent` / `Taken` arm).
-   - **The restore function (PM 720, option (δ)).** The guard's restore is **one private function** of
-     `DispatcherTake` (the body of ig's `Drop` today: `if let Some(d) = self.taken.take() { set_mutation_dispatcher(d) }`);
-     T3's change makes it also hand back the `pending` that leaves the slot in the same replacement that writes
-     `Installed(box)` back (empty for a guard that took nothing). `close` and `Drop` both call it and nothing else
-     restores: one restore function, one slot state (guarantee (b)), one flush point (the outermost close).
-   - **The outermost close** (`DispatcherTake::close(mut self)` of the guard that took the box, PR (ig) plan §4.1;
-     T3's change to it): calls the restore function, **then**, through `self.dom` (still held by the guard),
-     dispatches `SubtreeCreated { root, cause: FragmentParse }` for each returned root in fire order, skipping a root
-     that is no longer alive (`EcsDom::contains`); then `self` drops, and since `taken` is already `None` its `Drop`
-     does nothing. The restore comes first, so the flush dispatches through the installed dispatcher, and a consumer
-     panic during the flush leaves the slot `Installed` (`dispatch_event`'s own guard; the unwinding guard's `Drop`
-     finds `taken` `None`). This is the order the PR (ig) plan §8 *T3 intersection* assigns to T3. (Until rev 4.8.2:
-     which code holds the restore and which the dispatch was open, P-T20 *Residual*; until rev 4.8.1: "it writes
-     `Installed(box)` back … then dispatches", a restore written in the close.)
-   - **Unwind** (ig's `Drop` reached without `close`): calls the same restore function and **discards** the returned
-     list; no consumer runs during an unwind, so ig's `Drop` keeps "does nothing that can panic" (PR (ig) plan §4.1
-     *Why it is unwind-safe* item 2, H-T32) on every path. *Dependency (PM 720):* the PR (ig) plan §4.1's "`Drop` …
-     the one site of the restore" is reworded by L3 to "the restore function is the only one"; that wording is
-     re-pinned with the other L3 citations before T3 is ratified (R7 premise 1).
-   - A nested guard (its take found the slot `Taken` and holds nothing): its close and its drop leave the slot, and
-     `pending`, untouched. `clear_mutation_dispatcher` inside a window (unbind) writes `Absent`: `pending` is
-     discarded with the window, since no consumer is left to receive it. `take_mutation_dispatcher` writes `Taken {
-     pending: Vec::new() }`.
-   - **What T3 relies on: ig's guarantees (a) and (b), plus T3's change to `close` (PM decision 713; the PR (ig) plan
-     §8 *T3 intersection*, H-T32).** (a) The restore point is the outermost guard's `close` (`DispatcherTake::close`,
-     consuming, the explicit restore point on a returning path; ig's `Drop` stays the unwind backstop), so on a
-     returning path the flush point exists and is distinct from the unwind `Drop`; (b) the slot state is the single
-     home of take/restore state (no window keeps a second flag or depth counter; the guard holds only the box it took),
-     so `pending` has one home. T3 identifies "the guard that took" by what ig's guard already holds (the box), not by
-     `is_outermost` (P-T20; that method is not used). T3's PR adds `pending`, the push, the restore function's
-     returned list and the flush in `close`; ig adds neither. The windows whose `pending` can be non-empty are those enclosing a fragment parse,
-     i.e. DOMParser's (H-T30), whose window calls `close` on its returning path (H-T32); the fragment backends' own
-     windows close before the fire (P1), and nothing fires inside `despawn_subtree`'s (whose window restores by its
-     drop in the snapshot, so it is not relied on). The shape of T3's change to `close` is (δ) above (PM 720, P-T20;
-     until rev 4.8.2 open as P-T20 *Residual*). (Until rev 4.8.1: "What T3 requires of ig: (a) on every return path of a take window
-     the restore is the outermost guard's consuming close, distinct from the unwind `Drop` … (b) the slot state is the
-     window's only storage".)
-   - Consequence: DOMParser's build is processed at creation (D-T12, D-T13), so it leaves slice b (PM decision 711;
-     until rev 4.8: "For `cause = FragmentParse` it does not assert, and the event is dropped as every other event in
-     the window is … dropping is that build's intended outcome … the DOMParser build's creation processing stays slice
-     b's", rested on the rustdoc claim P-T19 corrects). *Not chosen (rev 4.7):* firing inside each backend after its
-     own restore, only when its take returned `Some` (two fire sites).
-5. **Take / restore sites relied on (premise, re-pulled at ig's head; PM decisions 713 (1), 714).** At `cee74989`:
-   - (a) `EcsDom::begin_detached_fragment` takes (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:308`); the tolerant
-     backend restores at `crates/dom/elidex-html-parser/src/lib.rs:156-158`, the strict backend at
-     `crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs:238-241` (both result arms), each before its function
-     returns to `parse_fragment_progressive`;
-   - (b) `parse_into_inert_document` takes at `crates/dom/elidex-form/src/inert_document.rs:112` and restores at
-     `:202-203`, enclosing its `apply_set_inner_html` call (`:142`);
-   - (c) `despawn_subtree` (`teardown.rs:225`, restore `:256`): not relied on (nothing fires inside it; the strict
-     reject path calls it inside (a)'s window).
+The creation event itself (its variant, causes, fire points, the queue in a dispatcher-take window with its restore
+function, flush and discard, the take / restore sites, and every other consumer's migration) is T3-pre's and is stated
+once, in the T3-pre memo §4.2–§4.6; L3 confirms it there (PM decision 722). T3 adds one consumer arm and its walks:
 
-   These anchors change shape in L3's PR (is) and PR (ig): the strict backend's ownership swap disappears and its
-   restore at `tree_builder/mod.rs:238-241` becomes the guard's close (L3, PM decision 713 (1); in the PR (ig) plan
-   §4.1 *The four windows* the strict window opens its guard on the caller's dom in `build_fragment` at PR (is)'s
-   head, the builder borrowing through it, and calls `window.close()` after the teardown), and every take becomes a
-   `DispatcherTake` (H-T32). **T3 re-pulls (a)–(c) at ig's head before implementation (§9 item 1); the properties
-   below are unchanged by is / ig** (L3's review, PM decision 713 (1)). Properties relied on: **P1** when the backend
-   call inside `parse_fragment_progressive` returns, the build's own window is closed (the slot is what it was at the
-   build's start); **P2** a window that encloses a fragment parse is still open at the fire point (the slot reads
-   `Taken { .. }`); **P3** a take inside an open window opens no window and is followed by no restore (its guard holds
-   nothing). With item 4's (a) and (b) they make the fire at item 3's site either a dispatch (P1, no enclosing window)
-   or a push onto the enclosing window's `pending` (P2, P3), flushed exactly once, at that window's close.
-6. **Walk set and migration, per consumer** (H-T31's census; at T3's head `git grep -n -e CloneCreated -e
-   fire_clone_created -- crates` → 0):
-   - `EventHandlerAttributeConsumer` (T3; new arm, `session/event_handler_consumer.rs`): `SubtreeCreated { root,
-     cause }` → `process_created_subtree(dom, root, cause, policy, active)` at `ProcessingTiming::Creation`.
-     `Clone(scope)` → D-T10's walk (`for_each_clone_created(root, scope, …)`, then the first-level template contents
-     through `for_each_uncapped_shadow_inclusive(…, WalkScope::WithTemplateContents, …)`, the base's `Include`).
-     `FragmentParse` → **every node the parse created** (PM decision 711 (3)): `root` and every node
-     `EcsDom::for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` visits (io: the `pub`
-     walker taking a `WalkScope`; `OwnedEntity::in_scope`'s exhaustive match puts `ShadowRoot` and `TemplateContents`
-     in that scope and the inert template document out of it, H-T32): the light tree, declarative shadow content and
-     template contents at any depth, uncapped. Every visited element is processed and marked. `LifetimeUnit` is not
-     used (D-T12). `handle_insert` keeps its current set (root + `traverse_descendants`, capped); the two no longer
-     share a collector (PM decision 713 (4); until rev 4.8: "the insertion-time set … one collector shared with
-     `handle_insert` … not a copy"). The visit order is the walker's (H-T25); it is observable only where two
-     created elements write one Window handler (two `body` / `frameset` elements of one parse in the active
-     document), and no cell pins it.
-   - `CustomElementReactionConsumer` (`crates/dom/elidex-custom-elements/src/consumer.rs:116`): `Clone(scope)` →
-     `handle_clone_created(root, scope, dom)`, unchanged; `FragmentParse` → no-op, behaviour unchanged (PM decision
-     711 (4): T3 does not change custom-element behaviour). The spec's upgrade enqueue at a fragment-parsed element's
-     creation is the defect of the L3-owned slot of §8.1 item 5, closed by a later L3 PR that adds the `FragmentParse`
-     arm (O-12, closed).
-   - `FormControlReconciler` (`crates/dom/elidex-form/src/reconciler.rs:53`): `Clone(scope)` → `apply_clone_form_state`,
-     unchanged; `FragmentParse` → no-op (the *cloning steps* are a clone's only; DOMParser's build re-runs it itself).
-   - `LiveRangeBridge` (`crates/dom/elidex-dom-api/src/range/live.rs:160`, in its list of ignored variants): the listed
-     name changes; still ignored.
-   - `node_iter`, `base_url`, `canvas` (`consumer_dispatcher.rs:157-163`): their catch-all arm; unchanged.
-   - The dom-api test probe `CloneCreatedProbe` (`test_util.rs:43-53`) is renamed `SubtreeCreatedProbe` and records the
-     `Clone` cause (the grep in this item's heading would count its old name); docs and tests that
-     name the old variant or fire function (`ecs/dom/mod.rs`, `walkers.rs`, `tree_clone.rs`, `upgrade.rs`, form
-     `clone.rs`, `consumer_dispatcher.rs`, `node_methods_extras.rs`, and the test files of §5.3) are renamed in place.
-
-   No consumer reads what another writes on this event (only the event-handler arm acts on `FragmentParse`; for
-   `Clone` the RC-2a plan §2 C × D), and no script runs between the dispatch and the placement, or, inside
-   DOMParser's window, between the fire and the flush (the setter call and `parseFromString` are synchronous;
-   custom-element reactions are only enqueued), so the consumers' field order is unobservable.
+- **The arm** (`session/event_handler_consumer.rs`, `EventHandlerAttributeConsumer::handle`, replacing the catch-all's
+  share for this variant): `SubtreeCreated { root, cause }` → `process_created_subtree(dom, root, cause, policy,
+  active)` at `ProcessingTiming::Creation`, with the consumer's own policy and `ActiveDocument` (D-T3). It acts on both
+  causes; it is the `FragmentParse` cause's one acting consumer (the T3-pre memo §4.6, whose no-op arms point here).
+- **`Clone(scope)`** → D-T10's walk: `for_each_clone_created(root, scope, …)` (RC-2a), then the first-level template
+  contents through `for_each_uncapped_shadow_inclusive(…, WalkScope::WithTemplateContents, …)` (the base's `Include`).
+- **`FragmentParse`** → **every node the parse created** (PM decision 711 (3)): `root` and every node
+  `EcsDom::for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` visits (io: the `pub` walker
+  taking a `WalkScope`; `OwnedEntity::in_scope`'s exhaustive match puts `ShadowRoot` and `TemplateContents` in that
+  scope and the inert template document out of it, H-T32): the light tree, declarative shadow content and template
+  contents at any depth, uncapped. Every visited element is processed and marked. `LifetimeUnit` is not used (D-T12).
+  `handle_insert` keeps its current set (root + `traverse_descendants`, capped); the two do not share a collector (PM
+  decision 713 (4)).
+- **Visit order (R1 M9).** The fragment walk's order is the walker's: a node, then its template contents, then its
+  shadow tree, then its light children (H-T25), i.e. preorder, which is the parser's creation order for the light tree.
+  It is observable where two created elements write one Window handler, i.e. two Window-delegating elements of one parse
+  in the active document. A second `<body>` start tag never creates a second `body` element (HTML §13.2.6.4.7 The "in
+  body" insertion mode, start tag "body": the token is ignored, or its attributes are added to the existing `body`; and
+  ignored when a `template` is on the stack of open elements), but HTML §13.2.6.4.18 The "in frameset" insertion mode,
+  start tag "frameset", inserts a nested `frameset` (webref, 2026-11-13). So `<frameset onfocus=A><frameset
+  onfocus=B>` in an `html` context creates two framesets whose `focus` handler both target the Window; the spec runs
+  the attribute change steps in creation order, outer then inner, so the Window ends with B. Cell T-29 pins it
+  (reverse order: A). The clone walk's order is pinned by T-16b (D-T10 *Order*).
+- No other consumer reads what this arm writes (`EventListeners` on D-T1's target and the marker), and no script runs
+  between the dispatch and the placement, or, inside DOMParser's window, between the fire and the flush (the T3-pre
+  memo §2 Q1×Q10), so the consumers' field order is unobservable.
 
 ## §5. Populations, touched files, named risks
 
@@ -1221,7 +1102,7 @@ production entry population is one (`cloneNode`, H-T24, H-T26, by their `git gre
 population is every element each parse created: each returned root's `WalkScope::WithTemplateContents` walk, light,
 declarative shadow and template contents, uncapped (D-T12; until rev 4.8: "each returned root's insertion-time walk
 set"); its production entry population is one function, `parse_fragment_progressive`, with six calls (H-T29),
-DOMParser's among them (queued and flushed at its window's close, §4.5 item 4; until rev 4.8: "dropped").
+DOMParser's among them (queued and flushed at its window's close, the T3-pre memo §4.4; until rev 4.8: "dropped").
 
 ### §5.2 Existing tests whose expectation changes (red at T3 by design, rewritten in the same commit)
 
@@ -1262,45 +1143,31 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
   (545 lines).
 - `crates/script/elidex-script-session/src/lib.rs` — exports.
 - `crates/core/elidex-ecs/src/dom/mod.rs` — delete `EcsDom::window_entity` (a deletion; 959 lines at `cee74989`, with
-  C0b and C1; 926 at `4fd85f4e`. Under 1000, so no prereq split; if a later landing takes it over 1000 at the base,
-  the touch-time split check runs first).
+  C0b and C1; 926 at `4fd85f4e`). **R1 M19:** L3's is, ig and io and T3-pre all edit this file before T3's base (the
+  T3-pre memo §5.3), so 959 is not T3's number: its size is re-measured at the base T3 is cut from (§9 item 1), and if
+  it is over 1000 there, the touch-time split check (CLAUDE.md "1000-line debt") runs first, as a standalone
+  prerequisite split (T3's own edit here is a deletion).
 - `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs` — accessors, `require_body_receiver` (683 lines).
 - `crates/script/elidex-js/src/vm/host/elements.rs` — the `body` arm (455 lines).
 - `crates/script/elidex-js/src/vm/consumer_dispatcher.rs`, `crates/script/elidex-js/src/vm/vm_api.rs` — marshal
   `ActiveDocument` at bind through `HostData::active_document()` (PM 455); the `event_handler_attrs` field doc names the
-  `CloneCreated` arm.
+  `SubtreeCreated` arm.
 - `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs` — `HostData::active_document()` (NEW, beside
   `document_entity_opt` `:474`; D-T3, PM 441), unless the event-path PR-B landed it first (573 lines).
 - tests: `session/event_handler_processing/tests_target.rs` (NEW), `tests_bind.rs`, `tests_insertion_and_write.rs`
   (harness); `elidex-js/vm/tests/tests_event_handler_target.rs` (NEW), `tests_event_handler_attrs_window_delegating.rs`
   and `tests_event_handler_attrs_once.rs` (§5.2); `crates/shell/elidex-shell/src/content_eh_attrs_bind_tests.rs` (cell
   T-E1; 390 lines).
-- the creation event (§4.5; PM decision 705), sizes at `cee74989`: `crates/core/elidex-ecs/src/dom/mutation_event.rs`
-  (441; the variant, `CreationCause`), `crates/core/elidex-ecs/src/dom/mod.rs` (959; `fire_subtree_created` replaces
-  `fire_clone_created` in place, net a few lines; with T3's deletion of `EcsDom::window_entity` it stays under 1000;
-  if a later landing takes it over 1000 at the base, the touch-time split check runs first),
-  `crates/core/elidex-ecs/src/lib.rs` (51; re-export), docs in `ecs/dom/tree/walkers.rs` (482) and
-  `ecs/dom/tree_clone.rs` (415); `crates/dom/elidex-html-parser/src/lib.rs` (259; the fragment fire);
-  `crates/dom/elidex-dom-api/src/node_methods/clone.rs` (472; the clone fire), `range/live.rs` (506),
-  `test_util.rs` (78); `crates/dom/elidex-custom-elements/src/consumer.rs` (480), `upgrade.rs` (609);
-  `crates/dom/elidex-form/src/reconciler.rs` (340), `clone.rs` (399); docs in
-  `crates/script/elidex-js/src/vm/host/node_methods_extras.rs` (242). Tests renamed or extended:
-  `ecs/dom/tests/dispatch_guard.rs` (194; U-T11), `mutation_hook.rs` (919), `mutation_hook_fire_helpers.rs` (112),
-  `traversal.rs` (611); `elidex-custom-elements/src/tests.rs` (731); `elidex-dom-api/src/node_methods/tests/clone_shadow.rs`
-  (440); `elidex-js/vm/tests/tests_clone_created.rs` (186), `tests_clone_form_state.rs` (177); a fragment-fire test
-  module of `elidex-html-parser` (U-T10; the crate's `tests.rs` or a sibling, chosen by size at implementation).
-- the window's queue (§4.5 item 4; PM decisions 711, 713), on ig's head (re-measured there, §9 item 1):
-  `crates/core/elidex-ecs/src/dom/mod.rs` (`DispatcherSlot::Taken { pending }`, `take_mutation_dispatcher`,
-  `clear_mutation_dispatcher`, `fire_subtree_created`'s `Taken` arm; same file as above);
-  `crates/core/elidex-ecs/src/dom/dispatcher_take.rs` (NEW: ig's file; T3 adds the flush in the outermost close, the discard in
-  `Drop`); `crates/dom/elidex-form/src/inert_document.rs` (291 at `cee74989`; the rustdoc of `parse_into_inert_document`,
-  `:64-90`: the build's creation event is queued and dispatched at the window's close, and the
-  `EventHandlerAttributeConsumer` then sets raw handlers, compilation being null without a browsing context (HTML
-  §8.1.8.1 *get the current value of the event handler* step 3.2, N1's gate), replacing "HTML §8.1.3.4 does NOT
+- `crates/dom/elidex-form/src/inert_document.rs` (291 at `cee74989`) — the rustdoc of `parse_into_inert_document`
+  (`:64-90`) only: the build's creation event is queued and dispatched at the window's close (the T3-pre memo §4.4),
+  and the `EventHandlerAttributeConsumer` then sets raw handlers, compilation being null without a browsing context
+  (HTML §8.1.8.1 *get the current value of the event handler* step 3.2, N1's gate), replacing "HTML §8.1.3.4 does NOT
   process event-handler attrs when scripting is disabled … Leaving both off is the CORRECT inert behavior" (P-T19,
-  D-T13); `CustomElementReactionConsumer` still ignores the event (§8.1 item 5)). Tests: U-T11 in ig's guard test
-  module or `ecs/dom/tests/dispatch_guard.rs` (whichever holds the window cells at ig's head); T-26 to T-28 in
-  `tests_event_handler_target.rs` (above).
+  D-T13); `CustomElementReactionConsumer` still ignores the `FragmentParse` cause (§8.1 item 5). Cells T-26, T-26b,
+  T-27, T-28, T-29 are in `tests_event_handler_target.rs` (above).
+- The creation event, its fire points, the queue and the other consumers' migration (`elidex-ecs`,
+  `elidex-html-parser`, `elidex-dom-api`, `elidex-custom-elements`, `elidex-form`'s reconciler and clone code, and
+  their tests): T3-pre's touched files (the T3-pre memo §5.3), not T3's (until rev 5 listed here).
 - docs: the umbrella (§8.4, in this PR).
 
 Not touched: `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (858; C-i rejected, D-T12; its
@@ -1309,14 +1176,15 @@ implementation); `crates/script/elidex-script-session/src/scripting.rs` (D-T4: C
 `crates/core/elidex-ecs/src/dom/classify.rs` and `crates/dom/elidex-dom-api/src/char_data/document_props.rs` (D-T5, PM
 decision 133); `crates/script/elidex-js/src/vm/host_data/` other than `engine_feature/bind.rs`'s constructor (D-T11; Q-14).
 `crates/dom/elidex-dom-api/src/node_methods/clone.rs` (D-T10's rejected site) and
-`crates/script/elidex-js/src/vm/host/node_methods_extras.rs` (rev 4's site, D-T10) get no processing call; since rev
-4.7 they are touched by §4.5's rename only (the fire call, docs; until rev 4.7 both were listed as not touched).
+`crates/script/elidex-js/src/vm/host/node_methods_extras.rs` (rev 4's site, D-T10) get no processing call; the event's
+rename in them is T3-pre's (rev 4.7 to 4.8.2 listed it as T3's).
 
 ### §5.4 Named risks
 
 - **R2 — merge contact with C0, RC-2a, C1-pre and C1** in `event_handler_attrs.rs`, `elements.rs`, `entity_kind.rs`
-  (C1-pre's `PrototypeKind::Document`) and the clone code (C1 D-C6 changes `replicate_template_contents`; RC-2a adds the
-  `CloneCreated` arms T3's arm sits beside); T3 is written on their landed base (§9 item 1).
+  (C1-pre's `PrototypeKind::Document`) and the clone code (C1 D-C6 changes `replicate_template_contents`; RC-2a added
+  the clone arms, which T3-pre migrates and T3's arm sits beside); T3 is written on their landed base, with T3-pre and
+  io (§9 item 1).
 - **R3 — `ActiveDocument` staleness.** The consumer's copy is fixed at construction; it is rebuilt at every bind (slice a
   H13), and each production `Vm` binds one `EcsDom`'s one bound document (H-T15). The unbind caveat (H-T15) is the
   relied-on contract; a cross-`EcsDom` rebind would make step 4 return the old World's Window (B1 removes the
@@ -1326,28 +1194,22 @@ decision 133); `crates/script/elidex-js/src/vm/host_data/` other than `engine_fe
   `<body onerror>` (§8.3 item 4).
 - **R5 — clone-path cost.** A deep clone of n elements adds one walk of n and one attribute scan per element (the walk
   is RC-2a's, which the form and CE arms already run once each per clone, the RC-2a plan §4.3).
-- **R6 — a future clone path that bypasses the canonical cloner entry**: D-T10 *Fallback*.
-- **R7 — the creation event and its queue are on L3's surface.** T3's PR changes RC-2a's `CloneCreated` into
-  `SubtreeCreated`, gives ig's slot state the pending list and adds the flush to ig's close (§4.5); L3 reviewed rev 4.7's
-  §4.5 (PM decision 713) and reviews rev 4.8's through the PM. **Premises (rev 4.8.1):** (1) L3's plans are cited at a
-  pre-ratification snapshot (H-T32) by symbol and section; **before T3 is ratified, every L3 citation in this memo
-  and in the umbrella's x12 row is re-pinned to L3's ratified sha** (the PR (ig) plan, the PR (io) plan, the L3
-  umbrella), and a citation whose symbol or section is gone there is re-derived, not carried (PM 718 already
-  announces changes past the snapshot, H-T32: none is relied on). (2) T3 lands after io (umbrella x12), so ig's and
-  io's landed code is T3's base: §4.5 item 5's anchors are re-pulled at ig's head and the walker's names at io's (§9
-  item 1). (3) The flush shape is (δ) (PM 720; P-T20): one private restore function of the guard, called by `close`
-  (which then dispatches through `self.dom`) and by the unwind `Drop` (which discards), §4.5 item 4; the PR (ig) plan
-  §4.1's restore wording changes accordingly (L3, PM 720) and is re-pinned under premise (1) (until rev 4.8.2: "P-T20
-  *Residual* … is decided with L3 before T3's implementation starts"). **Stop condition (what remains after rev
-  4.8.2):** T3 stops for the PM if ig is ratified or lands **without a consuming `close`** as the restore point on
-  the returning path of a window that can enclose a fragment parse (guarantee (a)), or **with a second home of
-  take/restore state** beside the slot (a flag or depth counter in a window or guard; guarantee (b)), or if (δ)
-  cannot be built on ig's landed guard (`close` does not keep the guard's `&mut EcsDom` past the restore, or the
-  restore is not one body that `close` and `Drop` can share) (until rev 4.8.2: "or if the shape P-T20 settles cannot
-  be built on ig's landed `close` and `Drop`"; until rev 4.8.1: "If ig's landed guard does not have item 4's (a) (a consuming close on every return
-  path, distinct from the unwind `Drop`) or (b) …, item 4 cannot be built as written and T3 stops"; until rev 4.8:
-  "If (i) lands first and changes a take / restore site or property of §4.5 item 5, item 4's rule is re-derived on
-  (i)'s guard").
+- **R6 — a future clone path that bypasses the canonical cloner entry**: D-T10 *Fallback*. Its fragment analogue, a
+  future fragment-creating path that bypasses `parse_fragment_progressive` (the known one: `Range.createContextualFragment`,
+  `#11-range-full-impl`), is recorded once, in the T3-pre memo §4.3 (R1 M8): it would fire no `FragmentParse` event, so
+  its OR and XW pairs would be processed at the first insertion (slice a's fallback) and its EW pairs never (D-T7).
+- **R7 — T3 rests on two unlanded units: T3-pre and L3's io.** The event, its queue and their L3 review are T3-pre's
+  (the T3-pre memo R-P3, with its stop condition on ig); T3 relies on T3-pre's landed surface as stated in the T3-pre
+  memo §4.2–§4.6 and §2, and on io's `pub` walker taking `WalkScope::WithTemplateContents` (H-T32). **Premises:** (1)
+  L3's io plan and umbrella are cited at a pre-ratification snapshot (H-T32) by symbol and section; before T3 is
+  ratified every such citation in this memo and in the umbrella's x12 row is re-pinned to L3's ratified sha, and a
+  citation whose symbol or section is gone there is re-derived, not carried (PM 718's announced changes, H-T32, are not
+  relied on). (2) T3 lands after T3-pre and io (umbrella x14, x12), so their landed code is T3's base: the walker's
+  names and order are re-pulled at io's head (and at the DOM-walker program's slice 1 if it landed, §8.2), and the
+  arm's match at T3-pre's head (§9 item 1). **Stop condition:** T3 stops for the PM if T3-pre lands with a different
+  event shape or cause set than the T3-pre memo §4.2 states, or io lands without a `pub` walker taking
+  `WalkScope::WithTemplateContents`. (Until rev 5 R7 carried T3-pre's ig premises and stop condition, now the T3-pre
+  memo R-P3.)
 - **R8 — fragment-path cost.** One uncapped walk per returned root at creation over every node the parse created
   (light, declarative shadow, template contents), a superset of the set the placement's `Insert` walks; at the
   placement each OR element then returns at the marked shortcut (`mod.rs:85`). DOMParser's build adds the same walk
@@ -1397,10 +1259,12 @@ connected element, `fn` counts its calls in `fnRan`). *Base* values are the base
 | T-26 | **red (OR-4; D-T13; PM decisions 711, 713: DOMParser's build processed at its window's close)** | `dd = new DOMParser().parseFromString('<p onclick="window.c = 1" onfocus="window.d = 1"></p>','text/html'); p = dd.querySelector('p'); r.push(p.onclick === null); p.dispatchEvent(new Event('click')); r.push(window.c === undefined); p.onclick = fn; document.body.append(p); p.dispatchEvent(new Event('click')); r.push(fnRan === 1, window.c === undefined)` | `true,true,false,false` (nothing at creation; the IDL write does not process an element with two handler attributes, D-8; the first insertion processes the unmarked `p` and its raw value replaces `fn`) | `true,true,true,true` (raw at creation and marked; null in P by N1's compile gate; the insertion processes nothing). Mutants: the event dropped in the window (rev 4.7), or flushed before the restore: `true,true,false,false` |
 | T-27 | **red (OR-5; D-T12: declarative shadow content of a fragment parse; static; confirmed red-first at implementation)** | `h = document.createElement('div'); el.append(h); h.setHTMLUnsafe('<div><template shadowrootmode="open"><p onclick="window.c = 1"></p></template></div>'); h.firstChild.shadowRoot.firstChild.dispatchEvent(new Event('click')); r.push(window.c === 1)` | `false` (no placement `Insert` enters a shadow tree; never processed) | `true` (processed at creation). Mutant: the insertion-time walk set (rev 4.7): `false` |
 | T-28 | **red (OR-6; D-T12, D-T13: template contents of a fragment parse)** | `el.innerHTML = '<template><p onclick="window.c = 1" onfocus="window.d = 1"></p></template>'; p = el.firstChild.content.firstChild; r.push(p.onclick === null); p.onclick = fn; document.body.append(p); p.dispatchEvent(new Event('click')); r.push(fnRan === 1, window.c === undefined)` | `true,false,false` (contents unprocessed at the placement; the first insertion into A re-raws over `fn`) | `true,true,true` (raw at creation in I, null there by N1's compile gate; marked, so the insertion processes nothing). Mutant: the insertion-time walk set (rev 4.7): `true,false,false` |
+| T-26b | guard (OR-4; D-T13's raw write: R1 M5) | `dd = new DOMParser().parseFromString('<p onclick="window.c = 1" onfocus="window.d = 1"></p>','text/html'); p = dd.querySelector('p'); document.body.append(p); p.dispatchEvent(new Event('click')); r.push(window.c === 1)` | `true` (unmarked; the first insertion processes it and its raw value compiles) | `true` (the raw value written at creation in P, under the mark, compiles once `p`'s node document is the bound one; nothing at the insertion). Mutant: Creation in a document without a browsing context marks without writing the raw value: `false` |
+| T-29 | red (§4.5's visit order, R1 M9; EW; static; confirmed red-first at implementation) | `window.onfocus = fn; document.documentElement.innerHTML = '<frameset onfocus="window.w = 1"><frameset onfocus="window.w = 2"></frameset></frameset>'; r.push(typeof window.onfocus === 'function' && window.onfocus !== fn); window.onfocus(); r.push(window.w)` | `false,undefined` (both raw on their elements at the placement's insertion; `window.onfocus` is still `fn`, which runs) | `true,2` (the outer `frameset` is created first, the inner last, HTML §13.2.6.4.18; the walk is preorder, §4.5). Mutant: children before their parent (or a reversed collection): `true,1` |
 
 
 **T-22c under §4.5 (rev 4.8; PM decisions 711, 713).** `parseFromString` runs inside DOMParser's window: its
-fragment build's event is queued and dispatched at the window's close (§4.5 item 4), the arm processes the `body` at
+fragment build's event is queued and dispatched at the window's close (the T3-pre memo §4.4), the arm processes the `body` at
 Creation, and step 3 returns null for both names (its node document is `dd`, not active), so nothing is delivered;
 the base processes nothing there, with the same outcome. The later `dd.documentElement.innerHTML = …` runs outside
 any window: the event is dispatched at once, Creation again finds step 3 null, and the placement's Insertion re-raws
@@ -1420,8 +1284,7 @@ and the note said the build's event "is dropped … and the parsed document gets
 | U-T7 | red (D-T10 coverage) | built without a dispatcher (as umbrella U7 / U12), so no `Insert` marks it: `process_created_subtree` with `CloneScope::Subtree` over a clone root whose subtree has (i) a parent wider than `MAX_ANCESTOR_DEPTH` (the U11 precedent; independent of depth; the deeper-than-cap chain is RC-2a's deep-tree cell, PM 367), (ii) a clonable shadow root with `<button onclick=A>`, (iii) a `<template>` whose contents hold `<div onclick=A>` and a `<body onfocus=B>`, built with each owner (active, a non-active Document, I); then (ii)'s host with a light child, with `CloneScope::SelfOnly` | every child of (i)'s wide parent and every element of (ii)–(iii) is marked; under `SelfOnly` the shadow tree is marked and the light child is not; ordinary entries raw on their elements; the contents' `<body>` delivers nothing (I, EW-19); a non-active owner's `<body>` delivers nothing (EW-11, XW-14). The production shape (clone-internal `Insert`s, CI-1) is the VM cells': root T-16, T-20, T-20b; shadow-root children T-16b; both writers T-16c, T-16d |
 | U-T8 | red (D-T8; FN-1b, FN-4, FN-5, OR-1) | `is_event_handler_content_attribute_of` over every `EVENT_HANDLER_ATTRS` name × element {HTML `body`, HTML `frameset`, HTML `div`, SVG `body`, SVG `rect`, MathML `body`, MathML `mi`, null-namespace `body`}, through the AttributeChange arm and at Creation | HTML: GlobalEventHandlers names everywhere, WindowEventHandlers names on `body` / `frameset` only, Document-only names nowhere; SVG: every name; MathML: GlobalEventHandlers names only; null namespace: none. The base: every name installs |
 | U-T9 | red (D-T12 coverage; OR-3, OR-5, OR-6, EW-20, EW-21, XW-15; rewritten in rev 4.8, PM decision 711 (3)) | built without a dispatcher, so no `Insert` marks it: a fragment from `parse_fragment_progressive` whose returned root holds (i) a parent wider than `MAX_ANCESTOR_DEPTH`, (ii) a `<template>` whose contents hold `<div onclick=A>` and a nested `<template>` whose contents hold `<span onclick=A>`, (iii) (`allow_declarative_shadow`) a nested `<template shadowrootmode=open>` host whose shadow tree holds `<button onclick=A>` and a `<template>` with `<i onclick=A>` in its contents, then `process_created_subtree` with `CreationCause::FragmentParse` on each root; (iv) `<body onfocus=B onhashchange=C>` parsed with an `html` context owned by the active document, a non-active Document and I | the marked set equals every element `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` visits from the roots: every child of (i)'s wide parent, (ii)'s contents at both levels, (iii)'s shadow tree and the contents inside it; ordinary entries raw on their elements (I for contents); (iv): `focus` and `hashchange` raw on the Window for the active owner, nothing anywhere for the other two. Base: no `FragmentParse` cause. Mutants: the insertion-time set (rev 4.7), or `ShadowIncludingTree`: some of those unmarked |
-| U-T10 | red (§4.5 items 3–4; `elidex-html-parser`) | a probe dispatcher recording every event; `parse_fragment_progressive` with two top-level elements, on input the strict backend accepts and on input it rejects (tolerant fallback); then the same inside an outer `DispatcherTake` (ig) window, closed after the call | exactly two `SubtreeCreated { cause: FragmentParse }`, roots in the returned order, no other event before them, none naming a despawned entity; inside the outer window none reaches the probe during the call, and the same two, in the same order, reach it at the outer close, after the restore. Base: no event |
-| U-T11 | red + guard (§4.5 item 4; ig's guard test module or `ecs/dom/tests/dispatch_guard.rs`, §5.3; rewritten in rev 4.8, PM decisions 711, 713) | a probe dispatcher installed; an outer `DispatcherTake`: (a) `fire_subtree_created(r1, FragmentParse)`, `fire_subtree_created(r2, FragmentParse)`, `fire_subtree_created(r3, FragmentParse)`, `despawn_subtree(r2)` inside the window, then a nested `DispatcherTake` opened and closed, then the outer close; (b) as (a) up to the nested window, then a panic inside the outer window, caught outside it (`catch_unwind`); (c) one push, then `clear_mutation_dispatcher` inside the window, then the close; (d) `fire_subtree_created(root, Clone(CloneScope::Subtree))` while `Taken` | (a) nothing reaches the probe before the outer close (the nested close flushes nothing); at the close the slot is `Installed` before the first dispatch (the probe reads it), and exactly `r1`, `r3` arrive, in that order; (b) the slot holds the dispatcher and the probe received nothing; (c) nothing is received; (d) debug-asserts (D-4, the existing test renamed). Base: (a)–(c) receive nothing (the event is not queued) |
+| U-T10, U-T11 | (moved to the T3-pre memo §6.1, rev 5; PM decision 722) | the event's fire and the window's queue | — |
 
 ### §6.3 End to end (shell)
 
@@ -1451,16 +1314,12 @@ and the note said the build's event "is dropped … and the parsed document gets
 | fragment path's Creation not asking step 3 (the bound document's Window for every fragment) | T-22c |
 | step 3 asking whether the element is connected (not its node document's activeness) | T-8a, T-8b, T-23, T-24 |
 | fragment path delivering EW once at the first insertion instead of at creation (O-10 (b), rejected) | T-15b for DOMParser's build (its first insertion that reaches a consumer is the move into A, where the mutant delivers to the page Window); for the other entry points none: each is placed by its caller in the same call with no script between (H-T29; `createContextualFragment` is a stub), so the outcome is equal at T3's base; a `createContextualFragment` implementation (`#11-range-full-impl`) would add a killer (until rev 4.8: "DOMParser's build drops the event, H-T30") |
-| fragment event fired inside the build (before the restore), so no consumer sees it | T-22, T-22b, U-T10 |
-| fragment event for the first returned root only | U-T10 |
-| the `FragmentParse` cause asserting while `Taken` (D-4 made uniform) | U-T11 (a) (debug panic at the first push); T-15b, T-22c and T-26 (debug panic inside `parseFromString`) |
-| the `FragmentParse` event dropped while `Taken` (rev 4.7's shape) | T-26, U-T10, U-T11 (a) |
-| the flush before the restore (dispatched into the `Taken` slot, so lost), or at a nested close | T-26, U-T11 (a) |
-| the queue flushed on unwind, or not discarded at `clear_mutation_dispatcher` | U-T11 (b), (c) |
-| a dead queued root dispatched (no `contains` check) | U-T11 (a) |
+| the event's own mutants (fired inside the build, first root only, asserting / dropped while `Taken`, flushed before the restore or at a nested close, on unwind, not discarded at unbind, a dead root dispatched, the restore through `set_mutation_dispatcher`) | the T3-pre memo §6.2 (moved in rev 5); T3's VM cells kill some of them too: T-22, T-22b (fired inside the build), T-15b, T-22c, T-26 (asserting or dropped while `Taken`, flushed before the restore) |
 | fragment walk = the insertion-time set (rev 4.7: no shadow trees, no template contents, capped), or `ShadowIncludingTree` | U-T9, T-27, T-28 |
 | fragment walk on `LifetimeUnit` | none: an equivalent mutant from a fragment root (only a Document carries the inert-document link, H-T32); excluded by D-T12's wording, not by a cell |
 | fragment Creation skipping a class, or not marking OR | U-T9, T-25, T-26, T-28 |
+| Creation in a document without a browsing context marking without writing the raw value | T-26b |
+| fragment walk in another order than preorder (children before their parent) | T-29 |
 | clone path walking light tree only | T-16b, U-T7 |
 | clone path excluding template contents, or ignoring the scope | U-T7 only (with a dispatcher both are outcome-equivalent: CI-1 processes those elements) |
 | clone walk in shadow-including tree order (shadow tree before light children) | T-16b |
@@ -1492,19 +1351,20 @@ compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
 |---|---|---|
 | X-W for XW (`body` × WEH re-raw at insertion); the D-8 restriction | slice b's S-5 (PM decision 129 moved only EW's part) | slice b; `#11-eh-attrs-creation-time-call-sites` defect (7) (§8.3 item 2) |
 | creation-time processing on S-1's other paths (declarative shadow content and template contents created by the pre-bind document parse) | slice b's S-1 (PM decision 153 moved the clone path; PM decisions 699, 705 and 711 the whole fragment path, DOMParser's build, declarative shadow content and template contents it creates included, D-T12; until rev 4.8 those three stayed here) | slice b S-1 |
-| the custom-element consumer's `FragmentParse` arm (the upgrade enqueue at a fragment-parsed element's creation) | T3 does not change custom-element behaviour (PM decision 711 (4)) | L3-owned slot `#11-custom-element-upgrade-at-fragment-creation` (proposed id; §8.1 item 5), closed by a later L3 PR after T3 |
+| the custom-element consumer's `FragmentParse` arm (the upgrade enqueue at a fragment-parsed element's creation) | T3 does not change custom-element behaviour (PM decision 711 (4)) | L3-owned slot `#11-custom-element-upgrade-at-fragment-creation` (**registered** 2026-11-13, PM 719; §8.1 item 5), closed by a later L3 PR |
 | foreign elements' HTML interfaces other than `body`'s | the general fix needs the SVG / MathML interface families (D-T11) | proposed defect text (§8.1 item 4; PM to route; `M4-13:#svg` row as candidate home) |
 | **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (§8.3 item 9) |
 | **attribute change steps step 1, namespace half** (a non-null attribute namespace) | needs `MutationEvent::AttributeChange` to carry a namespace (H-T19; D-T8) | `#11-event-handler-content-attribute-applicability` facet (2), closed by slice b (§8.3 item 8) |
 | `document.body`'s tag-only class test (H-T12) | PM decision 133: T3's steps 3–4 do not use "the body element" | proposed defect text (§8.1 item 3; PM to route) |
 | attribute change steps step 5.1 (CSP) | not modelled | `#11-csp-inline-handler-enforcement` |
 | multi-realm step 4; the unbind caveat | B1 | hand-off (§8.2) |
-| Range element clones (`cloneContents`, `extractContents`' partial element clone) | not implemented (H-T26); through the canonical cloner from RC-2b they fire `CloneCreated` (D-T10) | `#11-range-full-impl` |
+| Range element clones (`cloneContents`, `extractContents`' partial element clone) | not implemented (H-T26); through the canonical cloner from RC-2b they fire `SubtreeCreated` (`Clone` cause; D-T10; PM decision 723) | `#11-range-full-impl` |
 | the ASCII-case-insensitive tag compare (an XML-document `createElementNS(html, 'BODY')` counts as `body`) | engine-wide tag-predicate convention (`is_base_element` precedent) | not changed; noted |
 | a bubbling event at an element not reaching the Window (H-T27) | not T3's mechanism; no T3 cell depends on it | `#11-event-path-window-missing` |
 
 Own deferrals: **0**. Residuals: **0** (PM decisions 168, 699, 705, 711). The custom-element row is L3's surface,
-recorded as a slot by PM decision 711 (4), not a T3 deferral.
+recorded as a slot by PM decision 711 (4) and registered by PM 719, not a T3 deferral. The creation event's own
+records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the T3-pre memo §8.3).
 
 ## §8. Edges, hand-offs, records
 
@@ -1536,17 +1396,13 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
    (`a`, `script`, `style`, `title`, …) need the foreign interfaces first, since `HTMLElement.prototype` lacks members
    the foreign interface has (e.g. `SVGScriptElement`'s `type`). **Trigger:** an SVG / MathML DOM interface PR, the
    `M4-13:#svg` program's plan, or a WPT `svg/` / `mathml/` subset. **Re-eval:** 2026-12-31. ⚠ No remedy reviewed."
-5. **The custom-element upgrade at a fragment-parsed element's creation** (rev 4.8; O-12 closed by PM decision 711
-   (4) as (c)+(a); owner L3; proposed id `#11-custom-element-upgrade-at-fragment-creation`; registered at T3's
-   landing; closed by a later L3 PR adding the `SubtreeCreated { cause: FragmentParse }` arm to
-   `CustomElementReactionConsumer` after T3). Text: the draft handed to the PM with this rev (defect, spec steps, the
-   registry-less side from L3's review, PM decision 713 (6), where the arm goes, closing condition); its one home is
-   the ledger once registered, so it is not restated here. In short: a defined custom element created by a fragment
-   parse is upgraded only at a connected `Insert`
-   (`crates/dom/elidex-custom-elements/src/consumer.rs:128-155` at `cee74989`), where HTML §13.2.6.1 *create an
-   element for a token* step 17 (willExecuteScript false in a fragment parse) and DOM §4.9 *create an element* steps
-   4.4 / 5.2.2 enqueue the upgrade at creation, connected or not; an element whose looked-up registry is null (a
-   DOMParser document's) stays not upgraded (HTML §4.13.3 *look up a custom element definition* step 1).
+5. **The custom-element upgrade at a fragment-parsed element's creation** — **registered** by the PM (PM 719,
+   2026-11-13) as `#11-custom-element-upgrade-at-fragment-creation` (owner L3; trigger T3's landing; Re-eval
+   2026-12-31), from this memo's rev 4.8 draft (O-12 closed by PM decision 711 (4) as (c)+(a); the registry-less side
+   from L3's review, PM decision 713 (6)). Its one home is the ledger; nothing is handed to the PM for it (until rev 5:
+   "proposed id … registered at T3's landing"). It is closed by a later L3 PR adding the `SubtreeCreated { cause:
+   FragmentParse }` arm to `CustomElementReactionConsumer` (whose T3-pre no-op arm points at the slot, the T3-pre memo
+   §4.6). Whether its trigger moves to T3-pre's landing is the T3-pre memo's Q-P1 (for the PM).
 
 ### §8.2 Hand-offs
 
@@ -1574,32 +1430,43 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
   C0's landed code changes any of them, D-T4 and rows XW-9/10, EW-15/16, XW-12 are re-derived (§9 item 1). Rev 4.5,
   at `cee74989`: D-1, D-4 / D-5 and D-7 (a) hold as relied on (H-T7, H-T8); D-8 / D-10 give a fragment parse's nodes
   the context's node document, which broke rev 4.5's D-T7 fragment-parse premise (P-T17); D-T7 now relies on them
-  (PM decision 699: the fragment path is processed at creation with that document; PM decision 705: through §4.5's
-  event; PM decision 711: DOMParser's build too, with the DOMParser document as the node document). The C0
+  (PM decision 699: the fragment path is processed at creation with that document; PM decision 705: through T3-pre's
+  event, consumed by §4.5's arm; PM decision 711: DOMParser's build too, with the DOMParser document as the node document). The C0
   memo's H-T (the umbrella-edit split, PM decision 223 O-1 as amended by 271) is applied by this rev (§8.4).
 - **C1** (landed: #626): T3 relies on D-C2 to D-C7 (every node in template contents, in a clone of them or under I
   resolves to I; held at `cee74989`, H-T21). The C1 memo has applied PM decision 153's order (its P-C11; edge c4 = umbrella x8).
 - **`#11-capped-walker-deep-element-processing`** (L3, after RC-2a; PM 369): its one bounding rule covers D-T10's two
   walks (§8.3 item 11); if its PR lands first, they take its rule (§9 item 1).
-- **L3's ecs-entity-lifetime PRs ig and io** (PM decisions 711, 713, 714; umbrella x12: T3 after io): T3 relies on
-  ig's outermost consuming close and its slot-only window state (§4.5 item 4 (a), (b)) and on io's `pub` walker taking
-  `WalkScope::WithTemplateContents` (§4.5 item 6); names cited by symbol and section from the PR (ig) / PR (io)
-  plans and the L3 umbrella at the snapshot H-T32 names, re-pinned to L3's ratified sha before T3 is ratified and
-  re-pulled at their landed heads (R7, §9 item 1). T3's PR adds the queue (`DispatcherSlot::Taken { pending }`) and
-  the flush in ig's close (shape (δ), PM 720, P-T20); ig and io add neither.
-- **RC-2a** (landed: #596; edge x11): T3 relies on the RC-2a plan §2 A (one emitter, after the whole copy
-  exists), §4.3 (the walk's set and order) and §4.7 (no clone inside a dispatcher window). Rev 4.7 (PM decision 705):
-  T3 generalises RC-2a's event (§4.5) and keeps all three for the `Clone` cause; L3 reviews §4.5 against its
-  ecs-entity-lifetime PRs ig and io (R7; rev 4.8: §4.7's "no clone inside a dispatcher window" stays D-4's
-  assertion, while a `FragmentParse` event inside one is queued, PM decision 711). If RC-2a's landed code
-  changes any of them, D-T10 is re-derived (§9 item 1). Rev 4.5, at `cee74989`: all three hold (H-T24;
-  `walkers.rs:145-199`; the `fire_clone_created` debug-assert, `ecs/dom/mod.rs:334-340`).
+- **T3-pre** (PM decision 722; umbrella x14: T3 after T3-pre): T3 relies on the event as the T3-pre memo §4.2–§4.6
+  states it (both causes, the fragment fire's order against the placement, the queue's flush at the outermost close,
+  the `Clone` cause unchanged, I-RC1 to I-RC3) and adds only the event-handler consumer's arm (§4.5). T3 is Layout's
+  next unit after T3-pre (its DoD item 7).
+- **L3's ecs-entity-lifetime PR io** (PM decisions 711, 714; umbrella x12: T3 after io): T3 relies on io's `pub` walker
+  taking `WalkScope::WithTemplateContents` (§4.5), cited by symbol and section from the PR (io) plan and the L3
+  umbrella at the snapshot H-T32 names, re-pinned to L3's ratified sha before T3 is ratified and re-pulled at io's
+  landed head (R7, §9 item 1). L3's ig reaches T3 only through T3-pre (the T3-pre memo x13, R-P3).
+- **L3's DOM-walker program, slice 1** (`#11-dom-walkers-iterative-over-ecs-links`; R1 M18): it stacks on io and
+  touches `walkers.rs` (L3 umbrella §8 hand-offs, H-T32), where T3's creation walks' set and order live
+  (`for_each_uncapped_shadow_inclusive`, §4.5; cells U-T9, T-27, T-28, T-29). No ordering edge (no semantic
+  dependency either way); **re-pull:** if slice 1 lands before T3's branch is cut, T3 re-reads the walker's signature,
+  `visit` type and visit order at that head (§9 item 1), and T-29 / U-T9 are the cells that catch an order or set
+  change; if it lands after T3, slice 1 inherits T3's two creation-walk callers in its census (they are listed in
+  `#11-capped-walker-deep-element-processing`'s census, §8.3 item 11).
+- **RC-2a** (landed: #596; edge x11, from rev 5 to T3-pre): T3 relies on the RC-2a plan §2 A (one emitter, after the
+  whole copy exists), §4.3 (the walk's set and order) and §4.7 (no clone inside a dispatcher window), all kept for the
+  `Clone` cause by T3-pre (the T3-pre memo I-RC1, I-RC3). If RC-2a's or T3-pre's landed code changes any of them, D-T10
+  is re-derived (§9 item 1). Rev 4.5, at `cee74989`: all three hold (H-T24; `walkers.rs:145-199`; the
+  `fire_clone_created` debug-assert, `ecs/dom/mod.rs:334-340`).
+- **L3's Range RC-2b** (PM decision 723; R1 M17): lands after T3-pre, on `SubtreeCreated { cause: Clone(scope) }`; its
+  clones reach T3's arm through the canonical cloner (D-T10 *Fallback*). The hand-off and the properties it relies on
+  are the T3-pre memo's (§8.2, §2 I-RC1 to I-RC3).
 
 ### §8.3 Records for existing slots (for the PM, exact texts; all at T3's landing unless stated)
 
 1. `#11-event-handler-target-determination` — **close**, with this record: "Closed by T3 (#<PR>, `<squash>`): facets
-   (1)–(4) realised by `determine_event_handler_target`, the only caller of steps 1–4 (attribute change steps, IDL getter
-   and setter, a clone's creation); facet (2) in HEAD's single-browsing-context model (B1 replaces the source of
+   (1)–(4) realised by `determine_event_handler_target`, the only caller of steps 1–4 (the attribute change steps at
+   every timing, including the creation of a clone, of a fragment parse's elements and of a DOMParser build's elements;
+   the IDL getter and setter); facet (2) in HEAD's single-browsing-context model (B1 replaces the source of
    `ActiveDocument`). T3 landed after C0 (`#11-cross-document-adopt-on-insert`) and C1
    (`#11-template-contents-owner-document`), so step 3 reads the spec's node document for template contents and after
    cross-document moves. Related defects homed elsewhere: the `frameset` interface → `#11-htmlframesetelement-interface`;
@@ -1610,21 +1477,43 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
    `event_handler_processing/mod.rs:249` since #563)", "in three ways" → "in four ways (facet (4) below)", and
    "**Owner**: the IBP-sandbox program (Layout lane), since its N-series rewrites the handler path." → "**Owner**: the
    EH-attrs-at-creation program (Layout lane), T3 (PM decision 25; sub-bullet below)." (P-T1, P-T2.)
-2. `#11-eh-attrs-creation-time-call-sites` — (a) defect (7): replace "(7) a `<body>` / `<frameset>` handler that
-   delegates to the Window (X-W) is re-raw'd at every insertion over any write, and a `<body>` outside an active document
-   delivers it to the page Window." by "(7) a `<body>` handler for a WindowEventHandlers name (X-W, narrowed by T3) is
-   re-raw'd onto the Window at every insertion of the element into the active document, over any write (since T3 the
-   Window-reflecting names on `<body>` and every Window-delegating name on `<frameset>` are not re-raw'd, PM decision
-   129, and an insertion into a non-active document delivers nothing)." (b) Defect (2) "a never-inserted clone of an
-   element with a handler content attribute reads `null` from `on<T>`" → closed by T3 (struck, with "closed by T3, the
-   clone path of S-1, PM decision 153"). (c) Defect (3) → "after `c = document.body.cloneNode()`, a `window.on<T>`
-   assignment for a WindowEventHandlers name is overwritten by `c`'s attribute at each insertion of `c` (X-W; since T3
-   the attribute is also written at `c`'s creation, as the spec does, and the Window-reflecting names are not
-   overwritten)". (d) Defect (1): append "(since T3 not for a clone: a clone is processed and marked at its creation)".
-   (e) The classification sentence: drop "and (7)'s pairs that HEAD targets at the element (both to the spec's
-   `null`)"; "three" becomes "two". (f) **Closes**: "which removes the restriction, X-W and processing at insertion"
-   stays; the closing path reads "slice a lands → N1 → C0 → C1 → T3 → slice b" (PM decision 153). The umbrella §8.2
-   carries the same text (defects in its *Rev 8.<t>*; the closing path by C0a, the C0 memo R-3 E12).
+2. `#11-eh-attrs-creation-time-call-sites` — **the one re-derivation** of what T3's grown scope (PM decisions 129, 153,
+   699, 705, 711, 722) changes in this slot and in slice a's windows (R1 F3). The umbrella's §1.5 bullets and §8.2
+   copy point here and do not restate it. Base: the ledger row as registered (`project_open-defer-slots.md`, read
+   2026-11-13), whose closing path and trigger predate PM decision 153. Edits, all at T3's landing:
+   (a) Defect (1): append "(since T3 not for an element a clone, a fragment parse or a DOMParser build created: it is
+   processed and marked at its creation, T3 memo D-T10, D-T12, D-T13)".
+   (b) Defect (2) "a never-inserted clone of an element with a handler content attribute reads `null` from `on<T>`" →
+   closed by T3 (struck, with "closed by T3, the clone path of S-1, PM decision 153").
+   (c) Defect (3) → "after `c = document.body.cloneNode()`, a `window.on<T>` assignment for a WindowEventHandlers name
+   is overwritten by `c`'s attribute at each insertion of `c` (X-W; since T3 the attribute is also written at `c`'s
+   creation, as the spec does, and the Window-reflecting names are not overwritten)".
+   (d) Defect (4): append "(since T3 not for an element a fragment parse or a clone created: processed at its creation
+   whether or not a placement `Insert` reaches it, `ShadowRoot.innerHTML`, `setHTMLUnsafe`'s declarative shadow content
+   and a clone's replicated shadow tree included, T3 memo D-T10, D-T12, rows OR-3, OR-5)".
+   (e) Defect (5): append "(since T3 not for the elements of a DOMParser build, nor for template contents a fragment
+   parse or a clone creates: processed and marked at their creation, the raw value compiling only once the element's
+   node document is the bound one, T3 memo D-T12, D-T13, rows OR-4, OR-6; what remains is template contents created by
+   the pre-bind document parse, slice b's S-1 / S-2)".
+   (f) Defect (6): append "(since T3 not for a subtree a clone or a fragment parse created: both creation walks are
+   uncapped, T3 memo D-T10, D-T12)".
+   (g) Defect (7): replace "(7) a `<body>` / `<frameset>` handler that delegates to the Window (X-W) is re-raw'd at
+   every insertion over any write, and a `<body>` outside an active document delivers it to the page Window." by "(7) a
+   `<body>` handler for a WindowEventHandlers name (X-W, narrowed by T3) is re-raw'd onto the Window at every insertion
+   of the element into the active document, over any write (since T3 the Window-reflecting names on `<body>` and every
+   Window-delegating name on `<frameset>` are not re-raw'd, PM decision 129, and an insertion into a non-active document
+   delivers nothing)."
+   (h) The classification sentence: drop "and (7)'s pairs that HEAD targets at the element (both to the spec's
+   `null`)"; "three" becomes "two".
+   (i) **Closes** stays ("at slice b's landing, which removes the restriction, X-W and processing at insertion").
+   **Closing path:** "slice a lands → T3 (this program) → C1's handling decided → slice b" → "slice a lands → N1 → C0
+   → C1 → T3-pre → T3 (this program) → slice b (PM decisions 153, 722)". **Trigger:** "T3 and N1 landed, and C1's
+   handling decided" → "N1, C0, C1, T3-pre and T3 landed". **Confidence** sentence: "T3 starts only after slice a
+   lands, and slice b also waits on C1's handling (owner TBD)" → "T3 starts after C1, T3-pre and io land, and C1's
+   handling is decided (branch A, PM decision 123)".
+   **Slice a's windows** (umbrella §1.5), from T3: *K-2 / K-3 residual*, as (a); *G5 / K3*, as (b); *K2*, as (c);
+   *G2 rest*, as (d); *X-W*, as (g); *Post-bind width cap*, as (f); *W-K5*, as (e)'s DOMParser and template-contents
+   halves (an element T3 processes at creation is marked, so no first insertion re-processes it).
 3. ~~Order lines of `#11-cross-document-adopt-on-insert` and `#11-template-contents-owner-document`~~ — withdrawn (rev 4):
    the C0 memo R-8 and the C1 memo R-2 / R-10 carry them.
 4. `#11-event-handler-attribute-edge-cases` — append to facet (2): "Reachable through `<body onerror>` since T3 (the
@@ -1632,19 +1521,39 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
 5. (withdrawn in rev 3; number kept.)
 6. Umbrella K-0's E-G1 (i) and the ledger row's facet (4) bullet: closed by T3 (the record of item 1 covers both).
 7. (withdrawn in rev 4.1: a Range clone through the canonical cloner fires `CloneCreated`, D-T10; number kept.)
-8. `#11-event-handler-content-attribute-applicability` — **register** with rev 3's §8.1 item 2 text (header pointer),
-   then append: "Facets (1) and (3) closed by T3 (#<PR>, `<squash>`,
-   `is_event_handler_content_attribute_of`; PM decision 168): an HTML element accepts the GlobalEventHandlers names and,
-   on `body` / `frameset` only, the WindowEventHandlers names (HTML §8.1.8.2); an SVG element every name (SVG2 §15.8);
-   a MathML element the names HTML supports on all HTML elements (MathML Core §2.1.4, as the `MathMLElement` IDL
-   defines: GlobalEventHandlers); any other namespace none (the attribute change steps' step 1; the three define them for their own namespaces only). Facet (2) (a non-null
-   attribute namespace) remains, closed by slice b."
+8. `#11-event-handler-content-attribute-applicability` — **register** (the ledger has no row; PM 377: registered at
+   T3's landing) with this text, which replaces rev 3's §8.1 item 2 draft (rev 3's facet (3) said "since T3 a MathML
+   `body`'s WindowEventHandlers attribute lands on that element", which contradicts D-T8's outcome "nothing", rows FN-4,
+   cell T-21; R1 M15): "pre-existing. The attribute change steps (HTML §8.1.8.1 Event handlers) step 1 return when the
+   attribute's namespace is not null, or its local name is not the name of an event handler content attribute on the
+   element. Before T3 elidex realised neither test: (1) the consumer looked the name up in `EVENT_HANDLER_ATTRS`
+   regardless of the element (`event_handler_attr_lookup`,
+   `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:237` at `cee74989`), so a
+   WindowEventHandlers name on an HTML element other than `body` / `frameset` (HTML §8.1.8.2: they are content
+   attributes of body and frameset elements only), or a Document-only name (`HandlerScope::DocumentOnly`) on any HTML
+   element, installed a handler on that element; (2) `MutationEvent::AttributeChange` carries no namespace
+   (`crates/core/elidex-ecs/src/dom/mutation_event.rs:366-371` at `cee74989`), so `setAttributeNS(ns, 'onclick', X)`
+   with a non-null `ns` installs one; (3) which names MathML elements accept was not modelled: every name installed,
+   so a WindowEventHandlers name on a MathML `body` reached the Window (the tag-only target rule) and on another MathML
+   element installed on it, where MathML Core §2.1.4 admits only the names HTML supports on all HTML elements (the
+   `MathMLElement` IDL: GlobalEventHandlers). SVG elements are not a defect: SVG2 §15.8 Event attributes makes every
+   supported event type an event attribute of every SVG element. **Facets (1) and (3) closed by T3** (#<PR>,
+   `<squash>`, `is_event_handler_content_attribute_of`; PM decision 168): an HTML element accepts the
+   GlobalEventHandlers names and, on `body` / `frameset` only, the WindowEventHandlers names; an SVG element every name;
+   a MathML element the GlobalEventHandlers names, so a WindowEventHandlers name on a MathML `body` installs nothing
+   (T3 memo D-T8, rows FN-4, FN-5, cells T-21, U-T8); any other namespace none (the attribute change steps' step 1; the
+   three specs define them for their own namespaces only). **Facet (2) remains** (a non-null attribute namespace).
+   **Owner:** Layout lane (program `EH-attrs-at-creation`); **closes at slice b**, which extends the processing function
+   to every creation path (S-1), adds the namespace to the event, and re-runs the writer census (S-7). **Trigger:** slice
+   b's plan. ⚠ No remedy reviewed."
 9. `#11-htmlframesetelement-interface` — **register** (PM decision 130, compat layer) with rev 3's §8.1 item 1 text
    (header pointer), unchanged.
-10. `#11-unbound-attribute-writes-bypass-consumers` — append: "Since T3 (#<PR>, `<squash>`) an element cloned while
-    unbound gets no `CloneCreated` processing; at a later insertion its ordinary and XW pairs are processed (slice a's
-    fallback), its EW pairs (`body` × the Window-reflecting names, `frameset` × every Window-delegating name) never
-    (T3 memo D-T7, D-T10)."
+10. `#11-unbound-attribute-writes-bypass-consumers` — append: "Since T3-pre (#<PR>, `<squash>`) and T3 (#<PR>,
+    `<squash>`) an element cloned or fragment-parsed while unbound gets no creation processing: with no dispatcher
+    installed `EcsDom::fire_subtree_created` delivers nothing, for both causes, `Clone` and `FragmentParse` (the T3-pre
+    memo §4.4, the `Absent` column). At a later insertion its ordinary and XW pairs are processed (slice a's fallback),
+    its EW pairs (`body` × the Window-reflecting names, `frameset` × every Window-delegating name) never (T3 memo D-T7,
+    D-T10, D-T12)." (Until rev 5: "gets no `CloneCreated` processing", clone half only; R1 M4.)
 11. `#11-capped-walker-deep-element-processing` — append to the caller census: "T3 (#<PR>, `<squash>`) adds two
     uncapped callers in `process_created_subtree` (`elidex-script-session` `event_handler_processing/mod.rs`):
     `for_each_clone_created` and, per first-level template, `for_each_uncapped_shadow_inclusive(…,
@@ -1656,13 +1565,14 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
     of the same association: `ActiveDocument`, constructed by `HostData::active_document()` and read at bind for the
     handler consumer and by the VM handler accessors (T3 memo D-T3)."
 
-### §8.4 Umbrella in-place edits carried by this PR (PM decisions 129, 131, 153, 168, 699, 705, 711, 713, 714)
+### §8.4 Umbrella in-place edits carried by this PR (PM decisions 129, 131, 153, 168, 699, 705, 711, 713, 714, 718–720, 722, 723)
 
 The edits and their sites are listed in the umbrella's changelog entry *Rev 8.<t>*; each edited clause keeps what it
 said before (PM decision 131). `<t>` follows the umbrella's numbering rule (its *Rev 8.<t>* entry). By PM decision 223 O-1 as amended by 271 each row and
 edge is added by its own PR: the C0 program row, the order line, x9, x10 and the order-consequence edits E1–E13 by C0a
 (the C0 memo D-9, R-3); the C1 row and x7 by C1 (the C1 memo R-1). T3 keeps x8 (C1 → T3) and its own scope edits; it
-does not restate C0's or C1's content.
+does not restate C0's or C1's content. T3-pre's row and its edges (x11 re-pointed, x13, x14) and the order line's T3-pre
+are carried by this plan PR too, which lands the T3-pre memo with this one (PM decision 722).
 
 ## §9. Definition of done
 
@@ -1673,19 +1583,18 @@ does not restate C0's or C1's content.
    D-T10 on RC-2a's landed clone path and on `#11-capped-walker-deep-element-processing`'s rule if landed (§8.2), H-T27 on `#11-event-path-window-missing` if
    landed (L3 may land it before T3; T3's element dispatches are non-bubbling with non-capture handlers, so a Window on
    the path changes none of them), and the memo's coordinates and *Base* columns are updated before
-   implementation starts; existing tests changed by D-T8 are listed (§5.2). Rev 4.8 (PM decisions 711, 713, 714): the
-   branch is cut after L3's PR (io) lands (so after ig; umbrella x12); §4.5 item 5's take / restore anchors are
-   re-pulled at ig's head and the walker's names (`WalkScope`, `for_each_uncapped_shadow_inclusive`'s signature) at
-   io's, both against H-T32. Rev 4.8.1: before T3 is ratified, every L3 citation is re-pinned from the H-T32 snapshot
-   to L3's ratified sha (R7 premise 1), the PR (ig) plan §4.1's restore wording included (PM 720). Rev 4.8.2: the
-   flush shape is (δ) (PM 720, R7 premise 3; until rev 4.8.2 "before implementation, P-T20 *Residual* is decided");
-   ig's landed guard is checked for §4.5 item 4's guarantees (a) and (b) and for (δ), and T3 stops for the PM on R7's
-   stop condition (no consuming `close` on such a window's returning path, a second home of take/restore state, or
-   (δ) not buildable on the landed guard).
+   implementation starts; existing tests changed by D-T8 are listed (§5.2). Rev 5 (PM decisions 714, 722): the branch
+   is cut after **T3-pre and L3's PR (io)** land (umbrella x14, x12; so after is and ig); the walker's names and order
+   (`WalkScope`, `for_each_uncapped_shadow_inclusive`'s signature and `visit` type) are re-pulled at io's head against
+   H-T32, and at the DOM-walker program's slice 1 if it landed (§8.2); the arm's match is written on T3-pre's landed
+   `SubtreeCreated` (the T3-pre memo §4.2) and T3 stops for the PM on R7's stop condition; before T3 is ratified, every
+   L3 citation is re-pinned from the H-T32 snapshot to L3's ratified sha (R7 premise 1). (Until rev 5 this item
+   re-pulled ig's take / restore anchors and checked ig's guard for (δ); those are the T3-pre memo §9 item 1.)
 2. `/elidex-plan-review` passes on this memo (mandatory, §1.3).
 3. Red-first: T-1–T-9, T-14, T-15, T-15b, T-16, T-16b, T-16c, T-17, T-19, T-20, T-20b, T-21, T-22, T-22b, T-22c, T-23, T-24,
-   T-25, T-26, T-27, T-28, U-T1–U-T3, U-T6, U-T7, U-T8, U-T9, U-T10, U-T11, T-E1
-   committed failing; the fix makes them and §5.2's rewritten cells green; the guards (T-6b, T-8a, T-9b, T-16d, T-18, U-T4)
+   T-25, T-26, T-27, T-28, T-29, U-T1–U-T3, U-T6, U-T7, U-T8, U-T9, T-E1
+   committed failing (U-T10 / U-T11 are T3-pre's, the T3-pre memo §9 item 3); the fix makes them and §5.2's rewritten
+   cells green; the guards (T-6b, T-8a, T-9b, T-16d, T-18, T-26b, U-T4)
    are green at the head; the static-marked expectations (§5.2, T-6b) are confirmed by their runs.
 4. `/usr/bin/grep -rn 'resolve_handler_target\|is_body_element' crates` and `/usr/bin/grep -rn 'fn window_entity'
    crates/core/elidex-ecs` → 0 hits (`HostData::window_entity`, `bind.rs:492`, and the `HostDriver` trait item
@@ -1702,17 +1611,18 @@ does not restate C0's or C1's content.
    `determine_event_handler_target(` → the definition and the five call sites of §4.2;
    `is_event_handler_content_attribute_of(` → the definition and two calls; `is_x_w_pair(` → the definition and one
    call; `process_created_subtree(` → the definition and one call (the `SubtreeCreated` arm, both causes; PM decision
-   705); `git grep -n -e CloneCreated -e fire_clone_created -- crates` → 0; `git grep -n 'fire_subtree_created(' --
-   crates ':!*tests*'` → the definition and two calls (the dom-api cloner, `parse_fragment_progressive`; §4.5 item 3);
-   `git grep -n -w 'Taken' -- crates/core/elidex-ecs/src/dom/mod.rs` → every construction is `Taken { pending: … }`
-   (§4.5 item 4); `git grep -n 'LifetimeUnit' -- crates/script/elidex-script-session` → 0 (D-T12);
+   705); `git grep -n 'SubtreeCreated' -- crates/script/elidex-script-session/src/event_handler_consumer.rs` → the arm
+   (§4.5); `git grep -n 'LifetimeUnit' -- crates/script/elidex-script-session` → 0 (D-T12). (The event's greps,
+   `CloneCreated` → 0, `fire_subtree_created(` → two calls, `Taken { pending }`, are the T3-pre memo §9 item 4, moved in
+   rev 5.)
    `/usr/bin/grep -n
    'tag_matches_ascii_case(entity, "body")' crates/script/elidex-js/src/vm/host/elements.rs
    crates/script/elidex-js/src/vm/host/event_handler_attrs.rs` → each hit paired with the namespace read (D-T11).
-5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-html-parser -p
-   elidex-dom-api -p elidex-custom-elements -p elidex-form --all-features` green (the last four: §4.5's migration); `mise run ci`
-   before push.
-6. §8.1 / §8.3 texts handed to the PM in the PR description.
+5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-form --all-features` green
+   (`elidex-form`: the rustdoc of `inert_document.rs`; the other crates T3-pre's migration touched are T3-pre's DoD);
+   `mise run ci` before push.
+6. §8.1 items 3 and 4 and the §8.3 texts handed to the PM in the PR description (§8.1 item 5's slot is registered, PM
+   719; nothing for it is handed over).
 7. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-10-eh-attrs-t3-target-determination.md` and the same on the umbrella exit 0.
 
@@ -1730,21 +1640,23 @@ Rejected by PM decision 699: (b) an EW delivery once at the first insertion and 
 insertion, since both deliver at a time the spec does not ((c) also leaves the older form beside the new one, a
 strangler intermediate); (d) a stated residual, since the spec decides the outcome. Rev 4.5's text of O-10:
 `git show 662e0377:docs/plans/2026-10-eh-attrs-t3-target-determination.md` (§10).
-**O-11 → S-i × C-ii, PM decision 705** (D-T12; the event: §4.5): the whole fragment path is T3's, processed at
+**O-11 → S-i × C-ii, PM decision 705** (D-T12; the arm: §4.5; the event: the T3-pre memo §4.2): the whole fragment path is T3's, processed at
 creation, every class, over the insertion-time walk set, by the consumer's one `SubtreeCreated` arm; `CloneCreated` is
 generalised (no new variant beside it) and every consumer migrates. Rejected by PM decision 705, with D-T12's
-reasons: C-i (the policy routed into the mutation layer, Layering), S-ii (two processing points), S-iii (a scope per
+reasons: C-i (the policy routed into the policy-free mutation layer, and a second call site; rev 5 names the grounds,
+R1 M1), S-ii (two processing points), S-iii (a scope per
 entry point), C-iii (T-22 / T-22b red at T3). Rev 4.6's facts F-1 to F-4 are answered by H-T29 to H-T31 (F-1, F-3),
-D-T12 *Rejected* (F-2) and §4.5 item 6 (F-4); rev 4.6's premise that the build's take keeps the event from the
+D-T12 *Rejected* (F-2) and §4.5 (F-4); rev 4.6's premise that the build's take keeps the event from the
 consumer is P-T18. Rev 4.6's text of O-11: `git show 0e1ef07e:docs/plans/2026-10-eh-attrs-t3-target-determination.md`
 (§10). Rev 4.8: PM decision 711 overrides rev 4.7's walk set ("over the insertion-time walk set" → every node the parse
 created, `WalkScope::WithTemplateContents`) and its drop inside a dispatcher window (→ queued, flushed at the outermost
-close); PM decision 713 settles the queue's home and the flush (§4.5 item 4) and the raw-handler requirement (D-T13);
-PM decision 714 assigns the guard to L3's ig and the walk scope to io (T3 after io, umbrella x12).
-**O-12 → (c)+(a), PM decision 711 (4)** (§4.5 item 6, §7, §8.1 item 5): T3 does not change custom-element behaviour;
-the defect is recorded as an L3-owned slot (proposed id `#11-custom-element-upgrade-at-fragment-creation`), closed by
-a later L3 PR adding the `SubtreeCreated(FragmentParse)` arm after T3; L3's registry-less point (PM decision 713 (6))
-is in its text. Rejected: (b) T3 adds the arm. Rev 4.7's text of O-12:
+close); PM decision 713 settles the queue's home and the flush (the T3-pre memo §4.4) and the raw-handler requirement (D-T13);
+PM decision 714 assigns the guard to L3's ig and the walk scope to io (T3 after io, umbrella x12); PM decision 722
+moves the event and the queue to T3-pre (T3 after T3-pre, x14).
+**O-12 → (c)+(a), PM decision 711 (4)** (§7, §8.1 item 5): T3 does not change custom-element behaviour;
+the defect is the L3-owned slot `#11-custom-element-upgrade-at-fragment-creation`, **registered** by PM 719
+(2026-11-13), closed by a later L3 PR adding the `SubtreeCreated(FragmentParse)` arm; L3's registry-less point (PM
+decision 713 (6)) is in its text. Rejected: (b) T3 adds the arm. Rev 4.7's text of O-12:
 `git show 83075ea0:docs/plans/2026-10-eh-attrs-t3-target-determination.md` (§10).
 
 **Answered (folded):** Q-7 → H-T27; Q-8 → H-T28; Q-9 → D-T11, §8.1 item 4; Q-10 → H-T7, D-T4 ((ii)); Q-11 → H-T24;
@@ -1753,9 +1665,7 @@ RC-2a plan §4.3; PM decision 359 folded it into the plan-review), cell T-16b. R
 Q-1 to Q-6 → H-T15 to H-T20.
 
 **For the PM (designer's findings, not decided here):**
-- **P-T20 *Residual* — closed (PM 720): option (δ).** One private restore function of the guard, called by `close`
-  (then the dispatch through `self.dom`) and by the unwind `Drop` (discard); (α)–(γ) not chosen (§0.3 P-T20, §4.5
-  item 4, R7 premise 3). L3 rewords the PR (ig) plan §4.1 accordingly.
+- **P-T20 *Residual* — closed (PM 720): option (δ)**; moved with the queue to the T3-pre memo (P-P1, §4.4).
 - **O-9 — closed (PM 367): (b), owner L3.** RC-2a's implementation PR makes `for_each_clone_created` uncapped (iterative, creation order) with its own deep-tree cell; T3's deep-element processing rests on it (edge x11).
 
 No browser measurement is needed: every outcome in §6 is spec-defined, including FN-4's (MathML Core §2.1.4, H-T23).
