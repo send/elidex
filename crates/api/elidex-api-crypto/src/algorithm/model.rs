@@ -197,24 +197,24 @@ pub enum NormalizedAlgorithm {
     },
     /// RSA generateKey (WebCrypto §20.4 `RsaHashedKeyGenParams` / §21.4.3) —
     /// the RSA family, the modulus bit length, the public exponent octets,
-    /// and the message hash (carried on the key, §20.6).  The single
+    /// and the message hash (carried on the key, §20.7).  The single
     /// requested `usages` list is split across the produced key pair by the
-    /// op (§20.8.3 / §21.4.3), so it is not carried here.
+    /// op (§20.9.3 / §21.4.3), so it is not carried here.
     RsaKeyGen {
         variant: RsaVariant,
         modulus_length: u32,
         public_exponent: Vec<u8>,
         hash: HashAlgorithm,
     },
-    /// RSA importKey (WebCrypto §20.7 `RsaHashedImportParams` / §21.4.4) —
+    /// RSA importKey (WebCrypto §20.8 `RsaHashedImportParams` / §21.4.4) —
     /// the RSA family + the message hash the imported key carries.
     RsaImport {
         variant: RsaVariant,
         hash: HashAlgorithm,
     },
-    /// RSASSA-PKCS1-v1_5 sign / verify params (WebCrypto §20.8.1 / §20.8.2) —
+    /// RSASSA-PKCS1-v1_5 sign / verify params (WebCrypto §20.9.1 / §20.9.2) —
     /// name-only: the dictionary is the bare `Algorithm` (the signature hash
-    /// comes from the key's `[[algorithm]]`, §20.6).
+    /// comes from the key's `[[algorithm]]`, §20.7).
     RsassaParams,
     /// RSA-PSS sign / verify params (WebCrypto §21.3 `RsaPssParams`): the
     /// `saltLength` (the hash still comes from the key's `[[algorithm]]`).
@@ -223,7 +223,7 @@ pub enum NormalizedAlgorithm {
     },
     /// RSA-OAEP encrypt / decrypt params (WebCrypto §22.3 `RsaOaepParams`): the
     /// optional `label` (the OAEP + MGF1 hash comes from the key's
-    /// `[[algorithm]]`, the §20.6 `RsaHashedKeyAlgorithm` reused by §22).
+    /// `[[algorithm]]`, the §20.7 `RsaHashedKeyAlgorithm` reused by §22).
     /// §22.2 registers RSA-OAEP for `encrypt` / `decrypt` only, so this is
     /// reached directly from those two — and from `wrapKey` / `unwrapKey` only
     /// via the generic §14.3.11 / §14.3.12 encrypt / decrypt fallback (RSA-OAEP

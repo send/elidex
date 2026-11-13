@@ -22,7 +22,7 @@ fn generate_key_shape_and_usage_split() {
     assert_eq!(private.usages, vec![KeyUsage::Sign]);
 
     // The key's `[[algorithm]]` carries the variant + modulus length + public
-    // exponent + hash (RsaHashedKeyAlgorithm §20.6).
+    // exponent + hash (RsaHashedKeyAlgorithm §20.7).
     let KeyAlgorithm::Rsa {
         variant,
         modulus_length,
@@ -96,7 +96,7 @@ fn generate_modulus_above_8192_is_operation_error() {
     // The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
     // is tighter than the 16384 import ceiling — keygen's prime search is the
     // expensive part.  A 16384-bit `modulusLength` is rejected BEFORE keygen
-    // (fast), so an abusive request cannot hang the VM thread (§20.8.3 step-3
+    // (fast), so an abusive request cannot hang the VM thread (§20.9.3 step-4
     // OperationError surface).
     let err = generate_key(
         keygen_alg(RsaVariant::RsassaPkcs1V15, 16384, HashAlgorithm::Sha256),
@@ -128,7 +128,7 @@ fn generate_surfaces_entropy_failure_without_hanging() {
 
 #[test]
 fn generate_preserves_non_minimal_public_exponent() {
-    // §20.8.3 step 7: the key's publicExponent reflects the caller's input
+    // §20.9.3 step 8: the key's publicExponent reflects the caller's input
     // bytes (normalizedAlgorithm.publicExponent) — a non-minimal `[0,1,0,1]`
     // is NOT canonicalized to `[1,0,1]`.
     let mut raw = RawAlgorithm::from_name(RsaVariant::RsassaPkcs1V15.canonical_name());

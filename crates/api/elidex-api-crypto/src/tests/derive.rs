@@ -159,7 +159,7 @@ fn pbkdf2_derive_bits_rfc7914_sha256() {
 
 #[test]
 fn hkdf_oversized_length_is_operation_error() {
-    // §33.4.1 step 4 / RFC 5869 §2.3: HKDF-SHA-256 caps output at 255×32 =
+    // §33.4.1 step 3 / RFC 5869 §2.3: HKDF-SHA-256 caps output at 255×32 =
     // 8160 bytes (65280 bits). A request above the cap is an OperationError —
     // and must reject WITHOUT allocating the oversized buffer (Codex R2 F3).
     let key = import_kdf(

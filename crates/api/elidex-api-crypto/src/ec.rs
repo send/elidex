@@ -489,7 +489,7 @@ pub(crate) fn verify(
 /// InvalidAccessError precedence against the base key (steps 1, 3, 4, 5),
 /// perform the ECDH primitive (RFC 6090 §4) yielding the shared secret (the
 /// field-element-to-octet-string X coordinate, `coordinate_len` bytes), then
-/// apply the step-8 length semantics.  `peer` is the VM-extracted
+/// apply the step-11 length semantics.  `peer` is the VM-extracted
 /// [`EcdhKeyDeriveParams.public`][EcdhPeer]; the §14.3.8 name + `deriveBits`-
 /// usage gate ran in [`crate::ops::derive_bits`] / [`crate::ops::derive_key`].
 ///
@@ -528,13 +528,13 @@ pub(crate) fn derive_bits(
         .public_point
         .as_deref()
         .ok_or_else(|| invalid_access("the ECDH public key has no point"))?;
-    // step 6: the ECDH primitive → the shared secret (X coordinate octets).
+    // step 9: the ECDH primitive → the shared secret (X coordinate octets).
     let secret = ecdh_shared_secret(curve, scalar, peer_point)?;
-    // step 8: the length semantics (null → full; else first `length` bits).
+    // step 11: the length semantics (null → full; else first `length` bits).
     truncate_to_length(secret, length)
 }
 
-/// The ECDH primitive (WebCrypto §24.4.2 step 6 / RFC 6090 §4): scalar-
+/// The ECDH primitive (WebCrypto §24.4.2 step 9 / RFC 6090 §4): scalar-
 /// multiply the peer point by the base scalar, returning the shared secret's
 /// X coordinate as octets (RFC 6090 §6.2, `coordinate_len` bytes big-endian).
 fn ecdh_shared_secret(
@@ -551,7 +551,7 @@ fn ecdh_shared_secret(
     })
 }
 
-/// WebCrypto §24.4.2 step 8: `None` returns the full secret; `Some(len)`
+/// WebCrypto §24.4.2 step 11: `None` returns the full secret; `Some(len)`
 /// returns the first `len` bits (masking the final partial octet), or an
 /// OperationError if `len` exceeds the secret's bit length.
 fn truncate_to_length(secret: Vec<u8>, length: Option<u32>) -> Result<Vec<u8>, AlgorithmError> {

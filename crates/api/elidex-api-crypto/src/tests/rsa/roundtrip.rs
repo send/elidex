@@ -1,4 +1,4 @@
-//! RSA import / export round-trips (spki / pkcs8 / jwk) and the §20.8.4 /
+//! RSA import / export round-trips (spki / pkcs8 / jwk) and the §20.9.4 /
 //! §21.4.4 invalid-shape (DataError / SyntaxError / NotSupported) matrix.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -127,7 +127,7 @@ fn jwk_multiprime_oth_is_data_error() {
     // A *private* RSA JWK with a non-empty `oth` (multi-prime) is rejected
     // before the key is reconstructed: no browser supports multi-prime RSA and
     // the DER storage cannot encode >2 primes, so the key shape is a DataError
-    // (§20.8.4 jwk step 10 / §6.3.2 — matching the `pkcs8` multi-prime path).
+    // (§20.9.4 jwk step 10 / §6.3.2 — matching the `pkcs8` multi-prime path).
     // The reject is scoped to the private branch (see the public-import test
     // below).
     let jwk = JsonWebKey {
@@ -153,7 +153,7 @@ fn jwk_multiprime_oth_is_data_error() {
 fn jwk_public_with_oth_member_is_ignored() {
     // A *public* RSA JWK (no `d`) carrying a stray `oth` member must import
     // successfully: WebCrypto interprets a public JWK per RFC 7518 §6.3.1
-    // (n / e only — §20.8.4 / §21.4.4 "Otherwise" step), which never references
+    // (n / e only — §20.9.4 / §21.4.4 "Otherwise" step), which never references
     // `oth`, so it is ignored exactly as p / q already are.  The multi-prime
     // rejection is private-branch-only (Codex R11).
     let (public, _private) = generate_pair(
@@ -465,7 +465,7 @@ fn jwk_non_minimal_base64urluint_is_data_error() {
 fn jwk_d_only_is_data_error() {
     // A CRT-less (d-only) private JWK is a DataError: every browser requires the
     // full p / q / dp / dq / qi set and none recover the primes from (n, e, d),
-    // so elidex matches that UA behavior (§20.8.4 jwk step 10 / §6.3.2).  Built
+    // so elidex matches that UA behavior (§20.9.4 jwk step 10 / §6.3.2).  Built
     // by exporting a real key and stripping its CRT members, so n / e / d are a
     // consistent key (the reject is the missing CRT set, not bad material).
     let (_public, private) = generate_pair(

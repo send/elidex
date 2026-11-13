@@ -43,7 +43,7 @@ use crate::error::AlgorithmError;
 const BLOCK: usize = 16;
 
 /// The valid AES-GCM authentication-tag lengths in bits (WebCrypto §29.4.1
-/// step 4 / §29.4.2 step 1).  All are byte-aligned, so truncation /
+/// step 3 / §29.4.2 step 1).  All are byte-aligned, so truncation /
 /// comparison is on whole octets.
 const VALID_GCM_TAG_LENGTHS: [u32; 7] = [32, 64, 96, 104, 112, 120, 128];
 
@@ -51,7 +51,7 @@ const VALID_GCM_TAG_LENGTHS: [u32; 7] = [32, 64, 96, 104, 112, 120, 128];
 /// caps the plaintext at 2^39 − 256 **bits** = (2^32 − 2) × 16 = 2^36 − 32
 /// bytes — exactly the 32-bit GCTR counter capacity (the data counter starts
 /// at `inc32(J0)` and must not wrap, else keystream blocks repeat).  WebCrypto
-/// §29.4.1 step 1 phrases the bound in bytes, but the underlying value is the
+/// §29.4.1 step 4 phrases the bound in bytes, but the underlying value is the
 /// NIST bit-count, so the byte cap is that bit-count / 8.
 const MAX_GCM_MESSAGE_BYTES: u64 = (1u64 << 36) - 32;
 
@@ -65,7 +65,7 @@ fn operation(msg: impl Into<String>) -> AlgorithmError {
 
 /// AES-GCM encrypt (§29.4.1): returns `ciphertext || tag`, the tag
 /// truncated to `tag_length_bits`.  `tag_length_bits` must be one of the
-/// valid GCM tag lengths (else `OperationError`, §29.4.1 step 4).
+/// valid GCM tag lengths (else `OperationError`, §29.4.1 step 3).
 pub fn encrypt_gcm(
     key: &[u8],
     iv: &[u8],
@@ -73,10 +73,10 @@ pub fn encrypt_gcm(
     plaintext: &[u8],
     tag_length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
-    // §29.4.1 step 1 / NIST SP 800-38D §5.2.1.1: a plaintext beyond the GCM
+    // §29.4.1 step 4 / NIST SP 800-38D §5.2.1.1: a plaintext beyond the GCM
     // message limit would wrap the 32-bit GCTR counter and reuse keystream
     // (catastrophic) → OperationError.  (The IV / additionalData > 2^64-1
-    // byte limits of steps 2-3 are unreachable — a `Vec` cannot hold that
+    // byte limits of steps 1-2 are unreachable — a `Vec` cannot hold that
     // many bytes.)
     if plaintext.len() as u64 > MAX_GCM_MESSAGE_BYTES {
         return Err(operation("AES-GCM plaintext exceeds the maximum length"));
@@ -106,7 +106,7 @@ pub fn decrypt_gcm(
     tag_length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
     let tag_len = gcm_tag_len_bytes(tag_length_bits)?;
-    // §29.4.2 step 2: ciphertext shorter than the tag cannot carry one.
+    // §29.4.2 step 4: ciphertext shorter than the tag cannot carry one.
     if ciphertext.len() < tag_len {
         return Err(operation("AES-GCM ciphertext is shorter than the tag"));
     }
@@ -127,7 +127,7 @@ pub fn decrypt_gcm(
 }
 
 /// `tagLength` bits → tag byte count, rejecting an out-of-set value
-/// (§29.4.1 step 4 / §29.4.2 step 1).
+/// (§29.4.1 step 3 / §29.4.2 step 1).
 fn gcm_tag_len_bytes(tag_length_bits: u32) -> Result<usize, AlgorithmError> {
     if VALID_GCM_TAG_LENGTHS.contains(&tag_length_bits) {
         Ok((tag_length_bits / 8) as usize)

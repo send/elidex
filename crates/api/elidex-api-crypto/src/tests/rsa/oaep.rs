@@ -55,7 +55,7 @@ fn generate_oaep_key_shape_and_usage_split() {
     assert_eq!(private.key_type, KeyType::Private);
     assert_eq!(private.usages, vec![KeyUsage::Decrypt, KeyUsage::UnwrapKey]);
 
-    // The key's `[[algorithm]]` is the shared `RsaHashedKeyAlgorithm` (§20.6,
+    // The key's `[[algorithm]]` is the shared `RsaHashedKeyAlgorithm` (§20.7,
     // reused by §22)
     // with the RsaOaep variant + the modulus / exponent / hash.
     let KeyAlgorithm::Rsa {
@@ -322,7 +322,7 @@ fn oaep_jwk_use_enc_accepted_sig_rejected() {
 #[test]
 fn rsassa_jwk_use_enc_rejected() {
     // The mirror guard: a signing-family `jwk` still requires `use` = "sig"
-    // (§20.8.4 step 4) — "enc" (the RSA-OAEP value) is a DataError, so the
+    // (§20.9.4 step 4) — "enc" (the RSA-OAEP value) is a DataError, so the
     // variant-aware `use` check did not loosen the signing families.
     let (public, _private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,

@@ -103,7 +103,7 @@ fn ops_import_empty_material_empty_usages_is_data_error() {
 
 #[test]
 fn ops_import_invalid_usage_kind_beats_material() {
-    // §31.6.4 step 2: a non-sign/verify usage is a SyntaxError raised
+    // §31.6.4 step 3: a non-sign/verify usage is a SyntaxError raised
     // before key material is parsed (so it wins over an empty-material
     // DataError).
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
@@ -143,7 +143,7 @@ fn ops_import_raw_sign_matches_vector() {
 
 #[test]
 fn ops_import_raw_length_masks_trailing_bits() {
-    // 4-byte (32-bit) key with length=28 → §31.6.4 step 8 "the first 28
+    // 4-byte (32-bit) key with length=28 → §31.6.4 step 9 "the first 28
     // bits of data": the final octet's low 4 bits are zeroed (0xFF→0xF0),
     // algorithm.length=28; export returns the masked material.
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(28));
