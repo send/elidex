@@ -477,6 +477,7 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
 /// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.8.3
 /// step-3 OperationError from the rsa crate (honored as-is).
+/// ⚠ Disputed by `#11-webcrypto-rsa-keygen-param-validation` (WebCrypto §20.5 step 3).
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,

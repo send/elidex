@@ -295,7 +295,7 @@ fn import_jwk(
 // ---------------------------------------------------------------------------
 
 /// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
-/// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
+/// — returns the `(publicKey, privateKey)` pair (the §17 `CryptoKeyPair`).
 /// `fill_random` is the VM entropy seam, fed through [`TryClosureRng`] into
 /// `NonZeroScalar::try_generate_from_rng`'s vetted rejection sampling.
 pub(crate) fn generate<F>(
@@ -492,6 +492,7 @@ pub(crate) fn verify(
 /// apply the step-11 length semantics.  `peer` is the VM-extracted
 /// [`EcdhKeyDeriveParams.public`][EcdhPeer]; the §14.3.8 name + `deriveBits`-
 /// usage gate ran in [`crate::ops::derive_bits`] / [`crate::ops::derive_key`].
+/// ⚠ The check order is disputed by `#11-webcrypto-ecdh-derive-bits-check-order`.
 ///
 /// `length` semantics differ from the KDFs: `None` returns the **full**
 /// secret (not an OperationError); `Some(len)` returns the first `len` bits

@@ -17,7 +17,8 @@ use super::names::{AesVariant, AlgorithmName, EcAlgorithm, NamedCurve, RsaVarian
 /// validates the §24.4.2 `InvalidAccessError` precedence (peer `[[type]]`
 /// is "public"; peer `[[algorithm]]` name equals the base key's; peer curve
 /// equals the base key's) against the base key, so the conveyed fields cover
-/// every check.
+/// every check.  ⚠ The check order is disputed by
+/// `#11-webcrypto-ecdh-derive-bits-check-order`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EcdhPeer {
     /// The peer key's `[[type]]` (§24.4.2: must be "public").
