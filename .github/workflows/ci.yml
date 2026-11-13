@@ -57,7 +57,7 @@ jobs:
     name: Check, Test, Lint
     needs: changes
     if: needs.changes.outputs.rust == 'true' || github.event_name == 'push'
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +116,32 @@ jobs:
       # this nor the Clippy step's exit status masks or skips the other.
       - name: Fixture boundary (fixtures enabled from dev-dependencies only)
         run: bash scripts/check-fixture-boundary.sh
+
+      # [PR-A1 TEMPORARY, run B] plan docs/plans/2026-11-elidex-js-default-row-pra1.md §5.2.
+      # Removed by a later commit on the same branch; never merged.
+      - name: "[PR-A1 temp] elidex-js app row: clippy -D warnings"
+        shell: bash
+        run: cargo clippy -p elidex-js --features engine -- -D warnings
+      - name: "[PR-A1 temp] elidex-js app row: rustdoc listing (non -D)"
+        shell: bash
+        run: |
+          cargo doc --no-deps --document-private-items -p elidex-js --features engine --message-format=json > rustdoc-app-${{ runner.os }}.json
+          echo "app rustdoc warning messages: $(grep -c '"level":"warning"' rustdoc-app-${{ runner.os }}.json || true)"
+      - name: "[PR-A1 temp] elidex-js browser row: clippy -D warnings"
+        shell: bash
+        run: cargo clippy -p elidex-js --features engine,compat-webapi -- -D warnings
+      - name: "[PR-A1 temp] elidex-js browser row: rustdoc listing (non -D)"
+        shell: bash
+        run: |
+          cargo doc --no-deps --document-private-items -p elidex-js --features engine,compat-webapi --message-format=json > rustdoc-browser-${{ runner.os }}.json
+          echo "browser rustdoc warning messages: $(grep -c '"level":"warning"' rustdoc-browser-${{ runner.os }}.json || true)"
+      - name: "[PR-A1 temp] upload rustdoc listings"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pra1-runB-rustdoc-${{ runner.os }}
+          path: rustdoc-*.json
+          if-no-files-found: error
 
   doc:
     name: Documentation
