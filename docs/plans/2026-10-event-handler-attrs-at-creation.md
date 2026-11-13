@@ -31,14 +31,17 @@ slice a's implementation PR (the #541 precedent). "At umbrella approval" means "
 implementation is cut from main after that.
 
 **Changelog.** *Rev 8.<t>* (carried by T3's PR, branch `layout-eh-target-determination-plan`, with the T3 memo
-`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.5; PM decisions 129–131, 153, 168, 359; `<t>` is the next
-number after main's when T3 rebases, the C0 program memo D-9's rule). PM decision 129 (the user's choice for T3 memo
+`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.6; PM decisions 129–131, 153, 168, 359, 699; `<t>` is
+assigned at landing, as for C1's *Rev 8.7* (PM 223 O-1 / 232; PM decision 699); until T3 memo rev 4.6: "the next number
+after main's when T3 rebases, the C0 program memo D-9's rule"). PM decision 129 (the user's choice for T3 memo
 rev 1 O-1): T3 also ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six Window-reflecting names,
 every Window-delegating name on a `<frameset>`) and hands them to the spec target, so the windows the T3 memo calls W1
 and W2 never land on main; that part leaves slice b's S-5. PM decision 153 (the user's choice for T3 memo rev 2 O-6):
 S-1's clone path moves into T3 (T3 memo D-T10), so slice b's S-1 loses it, and T3 chooses a `<body>`'s HTML interface
 by namespace (D-T11). PM decision 168 (T3 memo rev 3 O-7 (a)): T3 closes facets (1) and (3) of
-`#11-event-handler-content-attribute-applicability` (D-T8); facet (2) stays with slice b. Edited in place, each with its
+`#11-event-handler-content-attribute-applicability` (D-T8); facet (2) stays with slice b. PM decision 699 (T3 memo rev
+4.5 O-10 (a)): T3 also processes a fragment-parsed element at its creation when its node document is active (T3 memo
+D-T7), so that part of S-1's fragment path leaves slice b (how much, and its call site: T3 memo O-11). Edited in place, each with its
 pre-8.<t> wording kept: X-W *Status*; K-0's X-W paragraph and "K-0's wording and X-W"; the K-1 / K-2 qualifiers; §0.6's
 lead, S-1, S-5 and S-6; §1.1 I4; §1.2's T3 and slice b rows (scope); §1.3 x3, x6 (closure), new x8 (C1 → T3) and new x11 (RC-2a → T3, PM decision 359); §1.4
 (1) (§1.4's order sentence is C0a's, rev 8.4; T3's version of it was dropped when T3 rebased, T3 memo rev 4.5); §1.5's heading and its K-2 / K-3, G5 / K3, K2, G2 rest and X-W bullets; §2.1 I1×I4 and
@@ -405,7 +408,9 @@ how it satisfies each of the following, and its plan-review checks that:
   no element that S-1 covers. HTML defines no event-handler insertion steps (WHATWG DOM §4.2.3 Mutation algorithms).
   Rev 8.<t> (PM decision 153): the **clone** path is T3's (T3 memo D-T10: every element of a clone, every pair class,
   shadow-including and template contents included, processed at creation through one session entry point); slice b's
-  S-1 covers its other creation paths (until rev 8.<t> the clone was slice b's).
+  S-1 covers its other creation paths (until rev 8.<t> the clone was slice b's). PM decision 699: the fragment path's
+  creation in an active-document context is T3's too (T3 memo D-T7; how much of the fragment path and its call site:
+  T3 memo O-11).
 - **S-2, template contents and their clones follow C1's handling.** In branch A (C1 landed), they are processed at
   creation and read null. In branch B, slice b's plan decides how they are processed, subject to S-3 and S-4, and S-3
   allows **no** exception. S-1 processes a clone at creation unconditionally, and S-3 forbids a clone of template
@@ -463,8 +468,8 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | **C0** `EH-attrs-at-creation-C0` (owner: Layout lane, this program; PM decisions 143, 244), a program of three PRs in order **C0a** `EH-attrs-at-creation-C0a` (*replace* record order) → **C0b** `EH-attrs-at-creation-C0b` (the node document as the stored fact: creation entry, insertion adoption, one reader) → **C0c** `EH-attrs-at-creation-C0c` (`adoptedCallback` and `document.adoptNode`); program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` | slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node document after a cross-document move (a node moved into another document keeps its old node document, which T3's step 3 would read; edge x9). C0a: landed (#595). C0b: landed (#608). C0c: landed (#611). | IBP-sandbox N1's implementation landed; C0a after D-14 (a); C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585); C0c after C0b and D-14 (b) |
 | **C1-pre** `layout-c1-pre-document-wrapper` (owner: Layout lane; PM 328 / 335 / 339; memo `docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document (one `Document.prototype`, chosen at first allocation) | C0 D-14 (b) and RC-2a landed |
 | **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6); closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed; C1-pre landed |
-| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
-| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>); G2 rest, G5's non-clone half, K2's X-W half (§1.5); slot `#11-event-handler-content-attribute-applicability` facet (2) (rev 8.<t>, T3 memo D-T8; facets (1) and (3) are T3's, PM decision 168) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
+| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8). **Rev 8.<t> (PM decision 699):** also a fragment-parsed element's processing at its creation when its node document is active (T3 memo D-T7; extent and call site: T3 memo O-11) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
+| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>) and without T3's part of the fragment path (rev 8.<t>, PM decision 699); G2 rest, G5's non-clone half, K2's X-W half (§1.5); slot `#11-event-handler-content-attribute-applicability` facet (2) (rev 8.<t>, T3 memo D-T8; facets (1) and (3) are T3's, PM decision 168) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
 **Order (PM decisions 21, 23, 25, 123, 153, 244; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → **C1-pre** → C1 → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs).
 
@@ -881,7 +886,8 @@ scope; any other becomes a slot.
   Window-delegating pair (X-W; C17, C18, C19). Rev 8.<t> (PM decision 129): from T3, X-W keeps HEAD's path only for a
   `<body>`'s WindowEventHandlers names (to S-5); every other Window-delegating pair is on the spec's target and the
   spec's processing points (T3 memo D-T7). T3 has no residual where step 3 reads a pre-existing gap (template contents
-  and cross-document moves are closed by C1 and C0 before it, T3 memo §1.2).
+  and cross-document moves are closed by C1 and C0 before it, T3 memo §1.2) or where a fragment parse creates a
+  `<body>` / `<frameset>` in an active document (T3 processes it at creation, PM decision 699; T3 memo §1.2 R-E).
 - **G4, the Window-reflecting body set.** Slot `#11-event-handler-target-determination` facet 4 (trigger: slice a's
   landing). Interaction: E-G1 (i); the six names are Window-delegating pairs under X-W. Rev 8.<t> (PM decision 129): T3
   closes G4 whole, target and timing; after T3 the six names are no longer under X-W (until rev 8.<t>: the timing was
