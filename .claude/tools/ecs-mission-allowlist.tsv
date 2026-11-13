@@ -18,7 +18,7 @@ T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	///
 D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// Chrome's own rationale). Tighter than the 16384 *import* ceiling because
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// JWK *format*, but every browser requires the full set and none recover the
 D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
-D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `RSA_MAX_MODULUS_BITS` (Firefox). WebCrypto §20.9.4 sets **no** import
+D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/rsa.rs	/// `RSA_MAX_MODULUS_BITS` (Firefox). WebCrypto §20.8.4 sets **no** import
 D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/keygen.rs	// The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/roundtrip.rs	// A CRT-less (d-only) private JWK is a DataError: every browser requires the
 N	-	crates/api/elidex-api-sw/src/sync.rs	//! Background Sync (WICG proposal — Chrome/Edge implemented).
