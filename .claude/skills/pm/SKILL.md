@@ -34,9 +34,12 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 |---|---|
 | memory dir (`$MEM`) | `/Users/kazuaki/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory/` |
 | PM folder (`$PMD`) | `/Users/kazuaki/repos/send.sh/elidex-pm-trial/` |
-| portfolio (`$PF`) | `$PMD/PORTFOLIO-2026-10-26.md` (決定は `- **PM <N>** …` の連番。**次の番号は `$PF` の最後の `Next decision: N` の N**。正はここだけ — PM 464) |
+| portfolio の本体 (`$PF`) | `$PMD/PORTFOLIO-2026-10-26.md` (決定は `- **PM <N>** …` の連番。構成と次の判断番号は §7) |
+| portfolio の archive | `$PMD/PORTFOLIO-archive-YYYY-Www.md` (本体から移した block。§7.2) |
+| 索引 (`$PFI`) | `$PMD/PORTFOLIO-index.md` (今も効いている決定の 1 行索引。§7.3) |
+| 決定ログ全体 (先例の grep の対象) | `$PMD/PORTFOLIO-*.md` (本体 + archive + 索引 + 10-24 / 10-25 の旧 portfolio) |
 | landing リスト | `$PMD/handoff/pending-at-landing/*.md` (済んだら pmo が `*.DONE.md` に rename) |
-| PM 所有の台帳 (書くのは pmo) | `$MEM/MEMORY.md` Active state / `$MEM/project_open-defer-slots.md` / `$MEM/m4-12-landings-ledger.md` / `$PF` |
+| PM 所有の台帳 (書くのは pmo) | `$MEM/MEMORY.md` Active state / `$MEM/project_open-defer-slots.md` / `$MEM/m4-12-landings-ledger.md` / `$PF` / archive / `$PFI` |
 | 定期チェックの道具 | `$PMD/tools/slot_homing_check.py` / `$PMD/tools/memory_browser_sweep.py` / `$PMD/tools/overdue_scan.py` (走らせるのは pmo、§2 の行 8) |
 | PM の checkout | `/Users/kazuaki/orca/workspaces/elidex/main` (branch `send/main`)。git の共有元は `/Users/kazuaki/repos/send.sh/elidex` |
 | backup | `$PMD/backup/` (global 変更) / pmo は scratchpad に取ってパスを報告 |
@@ -51,9 +54,11 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    未 commit の変更・branch が `send/main` でない) 止めて状況を確かめる — 自分が作っていない WIP なら触らない。
    context に読み込まれた `CLAUDE.md` は session 起動時の版なので、規則を引く時は
    `git -C /Users/kazuaki/orca/workspaces/elidex/main show origin/main:CLAUDE.md` で読む。
-2. `$PF` の **最新の handoff block** (見出しに `handoff` / `引き継ぎ` / `restart` を含む最後のもの) と、
-   その後ろの決定行をすべて読む。summary は claim — 台帳・git と突き合わせてから使う。
-3. **繰り越し照合**: 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** の
+2. `$PF` の **最新の handoff block** (§7.1 の見分け方で最後のもの) と、その後ろの行をすべて読み、続けて
+   `$PFI` を全部読む (今も効いている決定)。summary も索引の行も claim — 台帳・git・PM 番号の本文と
+   突き合わせてから使う。
+3. **繰り越し照合**: 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** (§7.2 の移送は
+   どちらも `$PF` に残す) の
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
    確かめる。どれでもない項目は落ちている — 一覧に戻す。本 skill 自身は landing するまで必ずこの一覧に載る。
@@ -128,8 +133,15 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
    テスト期待値にした案は lens で棄却する (順位の本文は repo `CLAUDE.md`)。
 3. **手段の問いの前に目的を問う**: lane が「X をどうやるか」(測り方・環境) を上げてきたら、X 自体が
    lens で要るかを先に決める (PM 420/422 [history] — 測定が要らない場面で測り方を user に聞いた)。
-4. **先例を grep**: 決定の種類の語で `$PF` / 台帳 / memory を引き、コマンドを残す。先例があれば適用。
-   reviewer finding は repro の形と症状の語で先に引く。
+4. **先例を grep**: 決定の種類の語で決定ログ全体 (§0、archive を含む) / 台帳 / memory を引き、コマンドを残す。
+   先例があれば適用。reviewer finding は repro の形と症状の語で先に引く。0 件が「先例なし」を決めるので、
+   決定ログは control と一緒に引く:
+   ```sh
+   /usr/bin/grep -nE '<語>' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-*.md
+   # control — 毎回。archive に移った既知の決定行の file が出なければ glob か移送が壊れている
+   /usr/bin/grep -l '^- \*\*PM 528 (11-08)\*\*' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-*.md
+   ```
+   control の出力が `PORTFOLIO-archive-2026-W45.md` の 1 行だけでなければ「先例なし」と読まない。
 5. 規則の「読み」を問う時は、その規則を引く ratified 行を両側すべて列挙し、案ごとに保つ行・覆す行を書く。
 6. 選択肢に lens が棄却する案 (real finding の defer 等) を混ぜない。
 7. `~/.claude/hooks/lens-attest.sh "<どの原則がどの案を選び、どこで割れたか>"` を **PM session の primary
@@ -164,7 +176,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 
 | 書くもの | 書き手 | PM がすること |
 |---|---|---|
-| 台帳 (slot / landings)、`$PF` の決定行と pass 表、MEMORY Active state、landing リストの適用 | **pmo** | 決定の本文・番号・出典 (`<path>:<lines> @ <sha>` か lane の file:line) を渡し、報告の表を読む |
+| 台帳 (slot / landings)、`$PF` の決定行と pass 表、archive への移送、`$PFI` の行、MEMORY Active state、landing リストの適用 | **pmo** | 決定の本文・番号・出典 (`<path>:<lines> @ <sha>` か lane の file:line) を渡し、報告の表を読む |
 | homing / browser sweep / overdue scan | **pmo** | 件数と control を読み、判断の要る hit を裁く |
 | plan / code / doc / citation / review 後の fix 適用 / 道具の作成 | global 表の型 (coder / designer …) | brief と verdict |
 | repo `CLAUDE.md` の user 承認済み hunk | **PM** (例外 1) | §3.4 |
@@ -200,10 +212,10 @@ gh pr checks <N> -R send/elidex
       gh pr view <N> -R send/elidex --json body --jq .body | /usr/bin/grep -niE "$RE"
       git -C /Users/kazuaki/repos/send.sh/elidex show <headRefOid>:<plan>     | /usr/bin/grep -niE "$RE"
       git -C /Users/kazuaki/repos/send.sh/elidex show <headRefOid>:<umbrella> | /usr/bin/grep -niE "$RE"
-      # positive control — 毎回。:36 (「PR-1 lands only after PR-2's」) が出なければ grep が壊れている
-      git -C /Users/kazuaki/repos/send.sh/elidex show origin/main:docs/plans/2026-10-python-pin-pr1-pin-and-gate.md | /usr/bin/grep -niE "$RE" | /usr/bin/grep -c '^36:'
+      # 正の対照と負の対照 — 毎回。固定の fixture に、origin/main の本 skill の RE を当てる (PM 537)
+      python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/landing_condition_control.py
       ```
-      control が 1 でなければ go を出さない。hit した条件ごとに充足の証拠 (PM 番号 / sha) を記録し、
+      control が exit 0 かつ `control: ok (…)` でなければ go を出さない。hit した条件ごとに充足の証拠 (PM 番号 / sha) を記録し、
       証拠が無ければ go を出さない
 - [ ] PR body に `ratchet: ok (N allowlisted, 0 new, 0 stale)` の行がある（`python3 .claude/tools/ecs_mission_ratchet.py` を PR の head で走らせた結果。new が 1 以上 → push 前の gate へ戻す）。タグの使い方の妥当性は /elidex-review の Axis 2 authority-source sub-check (2d) が見る (PM 497)
 - [ ] review loop がその PR の合意した終わり方で終わっている
@@ -244,8 +256,7 @@ head が動いていたら merge せず聞き直す。
 
 ## 7. 記録
 
-- 記録は pmo が書く (§3.5)。PM が渡すのは決定の本文と番号。番号は `$PF` の最後の `Next decision: N` の N で、
-  渡す時に決める。
+- 記録は pmo が書く (§3.5)。PM が渡すのは決定の本文と番号 (§7.4) と、索引に載せるかどうか (§7.3)。
 - **pmo を起こせない時** (起動の失敗・応答なし・上限の引き継ぎ待ち): PM は記録を自分で書かない。書くべき記録を
   turn の本文に「**未記録の決定**」として列挙し (番号・本文・出典)、次に pmo を起こせた時に最初に渡す。
   PM handoff (§10.2 項目 1) の未完了一覧にも載せる。
@@ -254,9 +265,61 @@ head が動いていたら merge せず聞き直す。
   ID が空文字に化けた)。scratch は scratchpad に残し、作ってすぐ消さない。
 - ブラウザ名を含む行は必ずタグ付き (一覧は repo `CLAUDE.md`)。Bash で書いた行は hook が見ないので、書いた
   pass で browser sweep (§2 行 8) を回させる。sweep の対象は memory dir と PM folder (`$PMD/*.md`、
-  `$PMD/handoff/**/*.md`) の md (PM 468)。
-- 次の判断番号は `$PF` の最後の `Next decision: N` だけが正 (PM 464)。MEMORY Active state は番号を持たず
-  `$PF` を指す。
+  `$PMD/handoff/**/*.md`) の md (PM 468)。archive と索引は `$PMD/*.md` なので対象に入る。
+
+### 7.1 決定ログの構成 (PM 528)
+
+| file | 中身 | 変わり方 |
+|---|---|---|
+| `$PF` (本体) | 1 行目の title と、最後から 2 つ目の handoff block から末尾まで (例外は §7.2 の 1) | 末尾への書き足しと、§7.2 の移送だけ |
+| archive (`PORTFOLIO-archive-YYYY-Www.md`) | 本体から移した block | 末尾への書き足し (移送) だけ |
+| `$PFI` (索引) | 今も効いている決定の 1 行ずつ | 行の追加と削除だけ |
+
+- **書き足すだけ**: 本体と archive の既存の行は書き換えない・消さない。訂正と撤回は新しい決定行として末尾に足す。
+  行の場所が変わるのは §7.2 の移送だけで、移送は行の中身を変えない。
+- **handoff block** = 見出しの次の行が §10.2 の固定の 1 行目である block (見出しから次の見出しの前まで)。
+  見出しの語 (`handoff` / `restart` 等) では見分けない — `restart` を含む PM pass の見出しにも当たる。
+- 本体に書く block の見出しには `YYYY-MM-DD` を入れる (§7.2 が archive の週をこの日付で決める)。
+- 決定は `PM <N>` で引き、本体の行番号で引かない (移送で動く)。移送より前に書かれた行番号の cite は、
+  archive の移送の記録行 (§7.2 の 3) で引き直す。
+
+### 7.2 移送 (pmo が PM の依頼で行う)
+
+いつ: handoff block を書いた直後 (§10.2)。週の reset (木、`usage-pace.py status` の `next_reset`) の後の最初の
+pass で、前の reset 以降に移送の記録行が無ければ、その pass でも行う。編集前の backup 等の書き方は
+`~/.claude/agents/pmo.md`「書き方の規則」。
+
+1. **切れ目 C** = 本体で最後から 2 つ目の handoff block の見出しの行。本体の最後の `Next decision: <数字>` の行が
+   C より前にあれば、その行を含む block の見出しを C にする (本体から番号を消さない)。handoff block が 2 つ
+   未満なら移送しない。
+2. 2 行目から C−1 行目を移す。見出しごとの block に分け、block の見出しの日付の ISO 週 (`%G-W%V`) の archive の
+   末尾へ、元の順のまま足す。最初の見出しより前の行 (初回の移送だけにある) は 1 行目の title の日付で決める。
+3. archive に足すまとまりの直前に記録行 `<!-- 移送 YYYY-MM-DD: $PF の <a>–<b> 行 (移送前の行番号) -->` を
+   1 行入れる。新しい archive は 1 行目を `# PORTFOLIO archive YYYY-Www` にする。
+4. 本体を「1 行目 + C 行目から末尾」に置き換える。
+5. 確かめて報告する: (a) 移送前の本体 = 1 行目 + archive に足した行 (記録行と新しい archive の 1 行目を
+   除く) + 新しい本体の 2 行目以降 (順序まで一致、`diff` が空)。(b) §7.4 の読み方の出力が移送の前後で同じ。(c) browser sweep (§2 行 8) が NEW 0。
+   どれかが外れたら backup から戻して PM に返す。
+
+### 7.3 索引 (`$PFI`)
+
+- 行の形: `- PM <N> (YYYY-MM-DD): <効いている規則を 1 行> — 移送先: <未定 | skill §X | memory <file>>`。
+  正は PM <N> の本文 (決定ログ全体を grep して引く)。行は要約であって規則の 2 つ目の置き場ではない。
+- **載せる**: 以後の判断・運用を縛る決定 (規則・運用・常時の方針) のうち、正典 (skill / memory / repo の文書) に
+  まだ書かれていないもの。1 件だけを裁いた決定 (merge の go、review の round の裁定、lane の plan の裁定 —
+  その正典は lane の plan と SSoT) は載せない。載せるかと行の文面は、PM が決定を渡す時に決めて pmo に渡す。
+- **消す**: (a) 撤回・置き換えの決定を記録する同じ依頼で、その行を消す。(b) 移送先に書かれて land したら消す。
+  行を書き換えて残さない (同じ規則が 2 か所になる)。
+- **正典へ移す** (PM 528 (3)): 日付から 14 日を過ぎた行は、handoff の「PM の未完了」に
+  「索引 → 正典: PM <N>」として期日付きで載せる。PM が移送先を PM 番号付きで決め、書くのは §3.5 の書き手。
+
+### 7.4 次の判断番号 (PM 464)
+
+次の判断番号は **`$PF` (本体) の最後の `Next decision: <数字>` の数字** だけが正。読み方は 1 つ:
+`/usr/bin/grep -oE 'Next decision: [0-9]+' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-2026-10-26.md | tail -n 1`。
+出力が空なら番号を決めず、pmo に本体と直前の移送を確かめさせる。archive・索引・glob (`PORTFOLIO-*.md`) からは読まない
+(archive も `Next decision:` を含み、glob では本体より後ろに並ぶ)。§7.2 の 1 が最後の番号の行を本体に残す。
+番号は渡す時に決める。MEMORY Active state と handoff block は番号を持たず、ここを指す。
 
 ## 8. Pre-flight (提案・指示・slot 文面を出す前の 1 行チェック)
 
@@ -269,7 +332,7 @@ head が動いていたら merge せず聞き直す。
       (PM 421/424 [history] — PM が書いた slot が既存ブラウザ寄りの framing だった。PM 440 の
       `#11-implicit-submission-commits-change` は欠陥がブラウザの振る舞いでしか定義されていなかった)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
-- [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・`$PF` を引き、
+- [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・決定ログ全体 (§3.3 の 4) を引き、
       `git diff --stat origin/main...<branch>` と branch にしか無い memo を添える。tip の sha でも grep する
 - [ ] **agent の事実を使う前**: git で 1 件確かめ (`git show <sha>:<path>` 等)、どれを確かめたか書く。
       agent 間・要約と表が食い違ったら自分で測る
@@ -312,7 +375,7 @@ lane が自分の lane SSoT 冒頭に書く (項目は `drive-scope.md`)。PM �
 
 ### 10.2 PM handoff (`$PF` に新しい block、pmo が書く)
 
-いつ: 長い待ちの前、context が大きくなった時、日の区切り。block の **1 行目は固定**:
+いつ: 長い待ちの前、context が大きくなった時、日の区切り。block の **1 行目は固定** (§7.1 がこの行で handoff block を見分ける):
 
 ```
 - **次の PM session**: `/pm` を起動する。この block は §1 の入力であって手順の代わりではない。
@@ -322,12 +385,14 @@ lane が自分の lane SSoT 冒頭に書く (項目は `drive-scope.md`)。PM �
 
 1. **PM の未完了** (§1 step 3 で照合される一覧): 未適用の landing リスト、未 landing の PM 成果物、
    約束した報告、延期した triage (件数と延期日)、§2 で `skipped` になった行 (連続 skip の回数)、
-   pmo に渡せていない「未記録の決定」(§7)
-2. PM の session 名、pmo の有無、budget の状態 (次の判断番号は書かない — `$PF` の最後の `Next decision: N` が正)
+   pmo に渡せていない「未記録の決定」(§7)、索引の「索引 → 正典」の行 (§7.3)
+2. PM の session 名、pmo の有無、budget の状態 (次の判断番号は書かない — §7.4)
 3. main の状態 (先頭、今日の着地、赤)
 4. lane → session 名 [ref] → Orca terminal handle、lane ごとの待ちと依存
 5. user の返事待ちの問い (PM が聞いたもの。lane が聞いたものは無いはず — あれば §3.4 違反として直す)
-6. 今日の決定から生まれた運用ルールと、その memory file
+6. 今日の索引の変化: 足した行・消した行の PM 番号だけ (規則の本文は書かない — 正は索引の行が指す PM 番号の本文)
+
+block を書いたら、同じ依頼で pmo に §7.2 の移送をさせる。
 
 handoff を渡す引き継ぎ prompt は「`/pm` を起動」と block の位置だけを書く。要約を prompt に書かない。
 compaction と clear の使い分け (日中は compaction、日の区切りで clear) は memory `feedback_compaction-vs-clear-for-pm.md`。
