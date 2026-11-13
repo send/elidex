@@ -77,7 +77,7 @@ type SwChannel = LocalChannel<SwToContent, ContentToSw>;
 /// parameter here would let a production embedder select
 /// [`BrowserCore`](elidex_plugin::EngineMode::BrowserCore) /
 /// [`App`](elidex_plugin::EngineMode::App) and create the no-storage SW realm the
-/// `#[cfg(test)]` gate on `Vm::new_with_mode` prevents on the main thread (a core
+/// test-only gate on `Vm::new_with_mode` prevents on the main thread (a core
 /// session is contracted to expose `elidex.storage`, design §14.4.3). Until
 /// `#11-async-core-storage-cookiestore` makes non-compat modes production-
 /// selectable, this spawn entry hard-derives `BrowserCompat`; that PR threads the

@@ -27,7 +27,7 @@ impl Vm {
     /// to the pre-gate engine. This is the **sole public production constructor**:
     /// the non-compat modes are not selectable for a real session until the async
     /// core storage (`#11-async-core-storage-cookiestore`) lands — see
-    /// `Vm::new_with_mode` (test-only, `#[cfg(all(test, feature = "engine"))]`).
+    /// `Vm::new_with_mode` (test-only).
     pub fn new() -> Self {
         #[cfg(feature = "engine")]
         let vm = Self::new_with_scope(super::GlobalScopeKind::Window, EngineMode::BrowserCompat);
@@ -75,7 +75,7 @@ impl Vm {
     /// **`pub(crate)` — not a production embedder surface (F10).** This constructor
     /// takes an explicit `engine_mode`, so leaving it `pub` would let a production
     /// embedder select [`EngineMode::BrowserCore`] / [`EngineMode::App`] for a
-    /// worker realm and create the same no-storage realm the `#[cfg(test)]` gate on
+    /// worker realm and create the same no-storage realm the test-only gate on
     /// [`Vm::new_with_mode`] prevents on the main thread (a core session is
     /// contracted to expose `elidex.storage`, design §14.4.3). Restricting it to the
     /// crate keeps mode selection by-construction-safe: the only in-crate caller
@@ -127,7 +127,7 @@ impl Vm {
     /// [`Vm::new_worker`], the explicit `engine_mode` is restricted to the crate so
     /// a production embedder cannot select [`EngineMode::BrowserCore`] /
     /// [`EngineMode::App`] for a SW realm and create the no-storage realm the
-    /// `#[cfg(test)]` gate on [`Vm::new_with_mode`] prevents on the main thread. The
+    /// test-only gate on [`Vm::new_with_mode`] prevents on the main thread. The
     /// public SW spawn entry (`sw_thread::sw_thread_main`) hard-derives
     /// `BrowserCompat` (a SW has no parent VM to inherit from); the explicit-mode
     /// parameter here is exercised only by the crate-internal `run_service_worker`

@@ -258,7 +258,11 @@ pub(super) fn native_clear_interval(
 // Readers: `drain_timers` is wired into `ScriptEngine::drain_timers` and the
 // worker / service-worker threads under `engine`, and `tests_timer` reads it
 // in tests; `next_timer_deadline` is read only under `engine`. The block is
-// gated to those configurations; without either it has no reader.
+// gated to those configurations; without either it has no reader. Interim
+// (`#11-elidex-js-no-default-features-support`): when L3's brand-check PR-1b
+// makes the timer surface engine-only, `tests_timer` goes engine-only with it
+// and the `any(test, feature = "engine")` gates in this file collapse into that
+// one surface gate.
 #[cfg(any(test, feature = "engine"))]
 impl VmInner {
     /// The earliest pending timer deadline, or `None` if no live timer is
