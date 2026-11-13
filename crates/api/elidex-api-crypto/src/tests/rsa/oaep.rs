@@ -350,9 +350,9 @@ fn rsassa_jwk_use_enc_rejected() {
 fn oaep_encrypt_decrypt_round_trip_across_hashes_and_labels() {
     // §22.4.1 → §22.4.2 round-trip through the PUBLIC ops API (ops::encrypt /
     // ops::decrypt), so it also pins the op-dispatch generalization (plan memo
-    // `crypto-subtle-full-pr5b-plan` §2.2): the op takes the KEY (RSA keys
-    // have no flat byte form), not a pre-extracted `as_bytes()` — the pre-fix
-    // path `unreachable!`-panicked for an RSA key.
+    // `memory/crypto-subtle-full-pr5b-plan.md` §2.2): the op takes the KEY (RSA
+    // keys have no flat byte form), not a pre-extracted `as_bytes()` — the
+    // pre-fix path `unreachable!`-panicked for an RSA key.
     // Every WebCrypto hash + an absent / ASCII / NON-UTF-8 label (the binary
     // `BufferSource` the `rsa` crate's String label cannot carry).
     let plaintext = b"a quick brown fox";
@@ -503,8 +503,9 @@ fn oaep_wrap_unwrap_aes_key_round_trip() {
     // §14.3.11 / §14.3.12: RSA-OAEP registers no own wrap op, so wrapKey /
     // unwrapKey fall back to the encrypt / decrypt op — this pins the generic
     // wrap/unwrap path reaches the RSA-OAEP arm of the generalized dispatch
-    // (the reachability invariant of plan memo `crypto-subtle-full-pr5b-plan`
-    // §2.2, distinct from the direct encrypt test).
+    // (the reachability invariant of plan memo
+    // `memory/crypto-subtle-full-pr5b-plan.md` §2.2, distinct from the direct
+    // encrypt test).
     let (public, private) = generate_pair(
         RsaVariant::RsaOaep,
         HashAlgorithm::Sha256,

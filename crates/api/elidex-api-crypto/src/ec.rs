@@ -486,7 +486,7 @@ pub(crate) fn verify(
 // ---------------------------------------------------------------------------
 
 /// ECDH `deriveBits` (WebCrypto §24.4.2): validate the §24.4.2
-/// InvalidAccessError precedence against the base key (steps 1, 3, 4, 5),
+/// InvalidAccessError precedence against the base key (steps 6, 2, 7, 8, in that order),
 /// perform the ECDH primitive (RFC 6090 §4) yielding the shared secret (the
 /// field-element-to-octet-string X coordinate, `coordinate_len` bytes), then
 /// apply the step-11 length semantics.  `peer` is the VM-extracted
@@ -503,23 +503,23 @@ pub(crate) fn derive_bits(
     peer: &EcdhPeer,
     length: Option<u32>,
 ) -> Result<Vec<u8>, AlgorithmError> {
-    // step 1: the base key must be private.
+    // step 6: the base key must be private.
     let scalar = ec_private_scalar(base_key)?;
     let curve = base_key
         .algorithm
         .named_curve()
         .expect("an ECDH base key has a curve");
-    // step 3: the peer must be public.
+    // step 2: the peer must be public.
     if peer.key_type != KeyType::Public {
         return Err(invalid_access("the ECDH public key is not a public key"));
     }
-    // step 4: the peer's algorithm name must equal the base key's (ECDH).
+    // step 7: the peer's algorithm name must equal the base key's (ECDH).
     if peer.algorithm != base_key.algorithm.name() {
         return Err(invalid_access(
             "the ECDH public key algorithm does not match the base key",
         ));
     }
-    // step 5: the peer's curve must equal the base key's.
+    // step 8: the peer's curve must equal the base key's.
     if peer.curve != Some(curve) {
         return Err(invalid_access(
             "the ECDH public key curve does not match the base key",

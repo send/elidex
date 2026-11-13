@@ -230,7 +230,7 @@ fn digest_rejects_explicit_undefined_data_with_type_error() {
 
 #[test]
 fn digest_dict_form_missing_name_rejects_with_type_error() {
-    // WebCrypto §10.1 `dictionary Algorithm { required DOMString
+    // WebCrypto §11 `dictionary Algorithm { required DOMString
     // name; }` — when the dict form omits `name`, the conversion
     // should throw TypeError, NOT ToString-coerce `undefined` to
     // the string `"undefined"` and reject with NotSupportedError.

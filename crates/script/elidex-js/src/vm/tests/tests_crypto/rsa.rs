@@ -25,9 +25,9 @@ const RSAOAEP_GEN: &str =
 
 #[test]
 fn rsassa_generate_key_returns_crypto_key_pair_with_algorithm() {
-    // §20.8.3: a CryptoKeyPair whose publicKey is verify-only + always
+    // §20.9.3: a CryptoKeyPair whose publicKey is verify-only + always
     // extractable, privateKey is sign-only.  The `[[algorithm]]` is the
-    // RsaHashedKeyAlgorithm (§20.6) — note publicExponent is a Uint8Array.
+    // RsaHashedKeyAlgorithm (§20.7) — note publicExponent is a Uint8Array.
     let src = format!(
         "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({RSASSA_GEN}, false, ['sign','verify']) \
@@ -71,7 +71,7 @@ fn rsa_algorithm_keys_are_in_webidl_inheritance_order() {
 #[test]
 fn rsassa_sign_then_verify_round_trips_with_name_only_params() {
     // generateKey → sign(privateKey) → verify(publicKey).  RSASSA sign / verify
-    // take a name-only `Algorithm` (the hash rides on the key, §20.6).
+    // take a name-only `Algorithm` (the hash rides on the key, §20.7).
     let src = format!(
         "globalThis.r = 'pending'; \
          const data = new Uint8Array([1, 2, 3, 4, 5]); \
@@ -210,7 +210,7 @@ fn rsa_generate_key_reads_inherited_members_before_hash() {
 fn rsa_oaep_generate_key_pair_shape_and_usage_split() {
     // §22.4.3: a CryptoKeyPair whose publicKey is {encrypt, wrapKey} + always
     // extractable, privateKey is {decrypt, unwrapKey}; name = "RSA-OAEP", the
-    // hash rides on the key (RsaHashedKeyAlgorithm §20.6, reused by §22).
+    // hash rides on the key (RsaHashedKeyAlgorithm §20.7, reused by §22).
     let src = format!(
         "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({RSAOAEP_GEN}, false, ['encrypt','decrypt','wrapKey','unwrapKey']) \

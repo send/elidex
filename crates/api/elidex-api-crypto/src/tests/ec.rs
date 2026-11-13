@@ -459,7 +459,7 @@ fn ecdh_derive_bits_peer_mismatches_are_invalid_access() {
     let (good_pub, _) = ecdh_keypair(NamedCurve::P256, fill_offset);
     let (wrong_curve_pub, _) = ecdh_keypair(NamedCurve::P384, fill_offset);
 
-    // Peer on a different curve (§24.4.2 step 5).
+    // Peer on a different curve (§24.4.2 step 8).
     let err = derive_bits(
         NormalizedAlgorithm::EcdhDerive {
             peer: ecdh_peer(&wrong_curve_pub),
@@ -470,7 +470,7 @@ fn ecdh_derive_bits_peer_mismatches_are_invalid_access() {
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
 
-    // Peer with the wrong algorithm name — ECDSA (§24.4.2 step 4).
+    // Peer with the wrong algorithm name — ECDSA (§24.4.2 step 7).
     let mut ecdsa_peer = ecdh_peer(&good_pub);
     ecdsa_peer.algorithm = crate::AlgorithmName::Ecdsa;
     let err = derive_bits(
@@ -481,7 +481,7 @@ fn ecdh_derive_bits_peer_mismatches_are_invalid_access() {
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
 
-    // Peer that is a private (not public) key (§24.4.2 step 3).
+    // Peer that is a private (not public) key (§24.4.2 step 2).
     let mut private_peer = ecdh_peer(&good_pub);
     private_peer.key_type = KeyType::Private;
     let err = derive_bits(

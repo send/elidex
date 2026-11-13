@@ -323,7 +323,7 @@ fn ops_import_jwk_export_jwk_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// ops: JWK invalid shapes (plan memo `crypto-subtle-full-pr1-plan` §6.3 matrix)
+// ops: JWK invalid shapes (plan memo `memory/crypto-subtle-full-pr1-plan.md` §6.3 matrix)
 // ---------------------------------------------------------------------------
 
 fn import_jwk(jwk: JsonWebKey, usages: Vec<KeyUsage>) -> Result<(), AlgorithmError> {

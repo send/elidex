@@ -324,7 +324,7 @@ fn read_params(
             raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
         }
         AlgorithmParams::RsaHashedImport => {
-            // `RsaHashedImportParams` (§20.7): hash (required
+            // `RsaHashedImportParams` (§20.8): hash (required
             // `HashAlgorithmIdentifier`, the only member) — same step-6 /
             // step-10 split as EcdsaParams.
             let hash_val = read_required_hash_value(ctx, id, method)?;
