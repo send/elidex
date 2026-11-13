@@ -104,7 +104,15 @@ test (PM decision 133, D-T5); the attribute change steps' step 1 namespace test 
 D-T8); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130); the
 foreign-element interfaces other than `body`'s (§8.1 item 4); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 4.8* (2026-11-13): PM decisions 711, 713, 714. (711 (1), 713 (2)–(3)) A `FragmentParse`
+**Changelog.** *Rev 4.8.1* (2026-11-13): re-anchor only, on L3's split (PM decision 714) and PM 718's citation rule.
+L3's names are cited by symbol and section from the PR (ig) plan, the PR (io) plan and the L3 umbrella, read at one
+pre-ratification snapshot (§0.1, H-T32 rewritten); premise added: every L3 citation is re-pinned to L3's ratified
+sha before T3 is ratified (R7, §9 item 1). P-T20 answered: ig has a consuming `DispatcherTake::close` and guarantees
+(a) and (b) (its §8 *T3 intersection*), so §4.5 item 4 relies on them plus T3's change to `close` instead of stating
+a requirement on ig; one residual stays open, the shape of the flush against ig's `Drop` as the one restore site
+(P-T20 *Residual*, for the PM with L3). §4.5 item 4 uses no `is_outermost`. R7's stop condition and §9 item 1 are
+narrowed to what remains; the umbrella's x12 row cites the split plans.
+*Rev 4.8* (2026-11-13): PM decisions 711, 713, 714. (711 (1), 713 (2)–(3)) A `FragmentParse`
 creation event fired while the dispatcher is taken is queued on `DispatcherSlot::Taken { pending }` and dispatched at
 the outermost window's close (restore first, in order, dead roots skipped; discarded on unwind), so DOMParser's build
 is processed at creation and leaves slice b; the nested flush follows the placement (§4.5 items 3–4; the Clone-cause
@@ -197,15 +205,22 @@ NEW). **Naming (rev 4.7, PM decision 705):** T3 replaces `MutationEvent::CloneCr
 this memo names `CloneCreated` or "the `CloneCreated` arm" for T3's own code it means that cause of `SubtreeCreated`.
 `CloneScope` and `for_each_clone_created` keep their names.
 **L3's names (rev 4.8, PM decisions 711, 713, 714).** L3's ecs-entity-lifetime PR (i) is split into PR (is), PR (ig)
-and PR (io), landing is → ig → io → ii (PM decision 714); T3 lands after io. Their names are cited from the pre-split
-plan, "PR (i) plan @ 7ab6f87d" (`git show 7ab6f87d:docs/plans/2026-11-ecs-entity-lifetime-pr-i-teardown-structure.md`,
-a frozen snapshot of L3's in-progress branch; H-T32): from **ig**, `DispatcherTake` (§4.1 there; the one way to take the
-dispatcher, held by all four take windows); from **io**, `WalkScope` (`ShadowIncludingTree`, `WithTemplateContents`,
-`LifetimeUnit`), `OwnedEntity::in_scope` (NEW: io; its exhaustive match) and `for_each_uncapped_shadow_inclusive(&self, root,
-scope: WalkScope, visit)`, which replaces `TemplateContentsWalk` (deleted there). Where this memo writes
-`TemplateContentsWalk::Include` for the base, T3's code passes `WalkScope::WithTemplateContents` (NEW: io) (the base's `Include`,
-PR (i) plan @ 7ab6f87d §3.1 and §4.2). "ig's close" is the consuming close of the outermost `DispatcherTake`, which
-§4.5 item 4 requires of ig (PM decision 713; not in the plan @ 7ab6f87d, P-T20).
+and PR (io), landing is → ig → io → ii (PM decision 714; umbrella §5 *Order*); T3 lands after io. Their names are
+cited by symbol and section from L3's split plans, "the PR (ig) plan"
+(`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md`), "the PR (io) plan"
+(`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md`) and "the L3 umbrella"
+(`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md`), as read at the snapshot H-T32 names (pre-ratification; every
+citation is re-pinned to L3's ratified sha before T3 is ratified, R7): from **ig**, `DispatcherTake` (PR (ig) plan
+§4.1; the one way to take the dispatcher, held by all four take windows) and its consuming `DispatcherTake::close`
+(§4.1, the explicit restore point on a returning path; its `Drop` the unwind backstop and the one site of the
+restore); from **io**, `WalkScope` (`ShadowIncludingTree`, `WithTemplateContents`, `LifetimeUnit`), `OwnedEntity::in_scope`
+(NEW: io; its exhaustive match) and `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, which
+replaces `TemplateContentsWalk` (deleted there) (PR (io) plan §4.1, §4.2). Where this memo writes
+`TemplateContentsWalk::Include` for the base, T3's code passes `WalkScope::WithTemplateContents` (NEW: io) (the base's
+`Include`, PR (io) plan §3.1 and §4.2). "ig's close" is `DispatcherTake::close` of the guard that took the dispatcher
+(PR (ig) plan §4.1, *The restore point*); T3 relies on ig's two guarantees stated in the PR (ig) plan §8 *T3
+intersection*, and adds the flush to that close (§4.5 item 4; P-T20). (Until rev 4.8.1: the names were cited from the
+pre-split PR (i) plan.)
 
 ### §0.2 Premises re-measured
 
@@ -242,7 +257,7 @@ PR (i) plan @ 7ab6f87d §3.1 and §4.2). "ig's close" is the consuming close of 
 | H-T29 | (rev 4.7) The fragment build takes the dispatcher only during the build; one function returns every fragment parse | `git show cee74989:crates/dom/elidex-html-parser/src/lib.rs \| sed -n 140,160p` and `sed -n 207,247p`; `git show cee74989:crates/dom/elidex-html-parser-strict/src/tree_builder/mod.rs \| sed -n 165,245p`; `git grep -n 'parse_fragment_progressive(' cee74989 -- crates` | tolerant: `begin_detached_fragment` takes (`lib.rs:143`), `finish_detached_fragment` (`:155`), restore (`:156-158`); strict: take (`tree_builder/mod.rs:180`), restore on both result arms (`:238-241`, "so the caller's placement of the returned detached nodes fires events"). `parse_fragment_progressive` (`lib.rs:223`) is the one dispatch site of both backends (strict; on reject, tolerant over the pristine dom, `:229-246`) and is called only from `session/mutation/html_fragment.rs` (`:93`, `:174`, `:209`, `:218`, `:235`, `:245`), which places the returned nodes after it returns. So the placement's `Insert` reaches the consumer on the base (the base delivers a fragment-parsed `body`'s Window-delegating pairs there: `ProcessingTiming::Bind \| Insertion`, `session/event_handler_processing/mod.rs:121`), and an event fired after the backend returns and before the placement reaches it too. Entry points: the `innerHTML` setter on Element / ShadowRoot / template (`elidex-js/vm/host/dom_inner_html.rs:146`), `setHTMLUnsafe` (`:419`, `:474`), `outerHTML` (`:361` → `apply_set_outer_html` `html_fragment.rs:143`), `insertAdjacentHTML` (`apply_insert_adjacent_html` `:193`), the queued `Mutation::SetInnerHtml` (`session/mutation/mod.rs:225-226`), DOMParser (H-T30). `Range.createContextualFragment` is a stub that parses nothing (`crates/dom/elidex-dom-api/src/range/mutation.rs:648`); no `document.write`, no `parseHTMLUnsafe` |
 | H-T30 | (rev 4.7) DOMParser's window encloses a fragment parse | `git show cee74989:crates/dom/elidex-form/src/inert_document.rs \| sed -n 108,205p`; `git show cee74989:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 210,232p` | `parse_into_inert_document` takes the dispatcher (`:112`), calls `apply_set_inner_html` (`:142`, so `parse_fragment_progressive`), and restores it (`:202-203`) after its own structural re-runs. Inside, `begin_detached_fragment`'s take finds the slot `Taken` and returns `None` without opening a window (`take_mutation_dispatcher`, `ecs/dom/mod.rs:221-232`), so no restore follows and the slot is still `Taken` when `parse_fragment_progressive` returns there |
 | H-T31 | (rev 4.7; census restated in rev 4.8, PM decision 711 (6)) The `CloneCreated` population | `git grep -n -e CloneCreated -e fire_clone_created cee74989 -- crates \| wc -l` and `git grep -l -e CloneCreated -e fire_clone_created cee74989 -- crates \| wc -l`; `git grep -n CloneCreated cee74989 -- crates \| wc -l` and `git grep -l CloneCreated cee74989 -- crates \| wc -l` | **73 lines in 19 files** (verified 2026-11-13) naming the variant (substring `CloneCreated`, so `CloneCreatedProbe` too) **or** its fire function `fire_clone_created`; of them **50 lines in 18 files** (verified 2026-11-13) contain `CloneCreated` (the other 23 lines name only `fire_clone_created`, and the 19th file, `ecs/dom/tests/dispatch_guard.rs`, names only the fire function). Rev 4.7 wrote "73 lines in 19 files" without saying it counted both names. Match arms: `elidex-custom-elements/src/consumer.rs:116` (`CustomElementReactionConsumer`), `elidex-form/src/reconciler.rs:53` (`FormControlReconciler`), `elidex-dom-api/src/test_util.rs:53` (test probe `CloneCreatedProbe`); ignored-variant list: `elidex-dom-api/src/range/live.rs:160` (`LiveRangeBridge`); fire: definition `ecs/dom/mod.rs:333`, one production call `elidex-dom-api/src/node_methods/clone.rs:305`; the rest are docs and tests. `EventHandlerAttributeConsumer::handle` matches `AttributeChange` and `Insert` only (`session/event_handler_consumer.rs:381-391`). The other three consumers of `ConsumerDispatcher` (`node_iter`, `base_url`, `canvas`; `elidex-js/vm/consumer_dispatcher.rs:157-163`) do not name it |
-| H-T32 | (rev 4.8) L3's guard and walk scopes, as planned (frozen snapshot; PM decisions 711, 713, 714) | `git show 7ab6f87d:docs/plans/2026-11-ecs-entity-lifetime-pr-i-teardown-structure.md \| sed -n 214,360p` and `sed -n 380,470p`; `git log -1 --format=%B 7ab6f87d` | PR (i) plan @ 7ab6f87d (pre-split; PM decision 714 splits it into is / ig / io): `DispatcherTake<'a> { dom: &'a mut EcsDom, taken: Option<Box<…>> }` (§4.1), "the one way to take the mutation dispatcher out of an `EcsDom`", held by all four take windows (`despawn_subtree` through `TeardownWindow`, both fragment parses through `begin_detached_fragment`, `parse_into_inert_document`; commit message: "one dispatcher-take guard for all four windows", PM 698); a nested take holds nothing and its drop is a no-op (§4.1 *Why it is unwind-safe* item 3); at that snapshot the restore is the guard's `Drop` on return and on unwind alike ("`window` drops here"), and `Drop` "does nothing that can panic" (item 2). `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }` (§4.3) with `OwnedEntity::in_scope(self, scope)`, an exhaustive match: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only; the uncapped walker becomes `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)` and `TemplateContentsWalk` is deleted; `WalkScope` is `pub` (walker callers in other crates), `OwnedEntity` / `in_scope` are `pub(in crate::dom)`; `despawn_subtree` passes `WithTemplateContents`, "the base's `Include`" (§4.2) |
+| H-T32 | (rev 4.8.1) L3's guard and walk scopes, as planned (pre-ratification snapshot of L3's split plans; PM decisions 711, 713, 714) | `S=6d31ced1; P=docs/plans/2026-11-ecs-entity-lifetime` (the one snapshot read: L3's local plan branch, read only through `git show`), then `git show $S:$P-pr-ig-dispatcher-take-guard.md \| grep -n -e 'pub fn close' -e 'one site of the restore' -e 'does nothing that can panic' -e 'window.close();' -e 'Drop restores' -e '^\*\*T3 intersection' -e 'This PR guarantees only'`; `git show $S:$P-pr-io-owned-entities-walk-scope.md \| grep -n -e 'pub enum WalkScope' -e 'const fn in_scope' -e 'scope: WalkScope, visit' -e 'enum OwnedEntity'`; `git show $S:$P-umbrella.md \| grep -n -e '^\*\*Order\.\*\*' -e 'Layout T3 lands after PR (io)'` | **PR (ig) plan** §4.1: `DispatcherTake<'a> { dom: &'a mut EcsDom, taken: Option<Box<…>> }`, "the one way to take the mutation dispatcher out of an `EcsDom`", held by all four take windows (`despawn_subtree` through `TeardownWindow`, both fragment parses through `begin_detached_fragment`, `parse_into_inert_document`); `DispatcherTake::close(self)`, "the explicit restore point on a returning path (PM 705). It consumes the guard, so its `Drop` runs here; `Drop` stays the unwind backstop and the one site of the restore" (its body is `drop(self)`); `impl Drop` restores the box when the guard holds one, a nested guard holding nothing (*Why it is unwind-safe* item 3), and `Drop` "does nothing that can panic" (item 2); *The restore point*: the outermost guard's close or drop; the two fragment windows and `parse_into_inert_document` call `window.close()` on their returning path (no early return in between), while `despawn_subtree`'s `TeardownWindow` restores by its drop at the end of its block (§4.2, "Drop restores"). §8 *T3 intersection*: T3 adds the queue in the `DispatcherSlot::Taken` state and the flush at the outermost guard's `close` (restore the box, then dispatch in order, skipping non-live roots; on unwind, restore only and discard; no consumer code during unwind); ig guarantees only (a) the restore point is the outermost guard's `close` and (b) the slot state is the single home of take/restore state (no second flag or depth counter in any window). **PR (io) plan** §4.1: `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }` with `OwnedEntity::in_scope(self, scope)`, an exhaustive match: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only; `WalkScope` is `pub`, `OwnedEntity` / `in_scope` are `pub(in crate::dom)`; §4.2: the walker becomes `for_each_uncapped_shadow_inclusive(&self, root, scope: WalkScope, visit)`, `TemplateContentsWalk` is deleted, `despawn_subtree` passes `WithTemplateContents`, the base's `Include`. **L3 umbrella** §5 *Order*: is → ig → io → ii; "Layout T3 lands after PR (io)" (its `WalkScope`, ig's outermost-close flush point; the §8 Layout T3 hand-off says the same). Announced after the snapshot (PM 718; not in it, so not relied on): `TeardownWindow` gains a consuming close, `is_outermost` is removed, the walker passes an `OwnedEntity` to `visit` and the owned side gains back-links; T3 relies on none of these (§4.5 item 4 does not name `is_outermost`); the type of `visit` is re-pinned with every other citation (R7). Until rev 4.8.1: cited from the pre-split PR (i) plan |
 | H-T33 | (rev 4.8) The spec's attribute change steps do not consult scripting; compilation does | `.claude/tools/webref body html event-handler-attributes`; `webref dfn html 'get the current value of the event handler'`; `webref heading html 8.1.3.4`; `git show cee74989:crates/dom/elidex-form/src/inert_document.rs \| sed -n 64,90p`; `git show cee74989:crates/script/elidex-script-session/src/scripting.rs \| sed -n 40,90p` | HTML §8.1.8.1 Event handlers, the attribute change steps: step 1 (namespace / name test), 2 (determine the target), 3 (null → return), 5.1 (CSP), 5.5 "Set eventHandler's value to the internal raw uncompiled handler value/location", 5.6 "Activate an event handler": no step reads scripting or the browsing context. *Get the current value of the event handler* (§8.1.8.1, `#getting-the-current-value-of-the-event-handler`) step 3.2: "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null" (document = the element's node document, step 3.1). §8.1.3.4 is *Enabling and disabling scripting*. `inert_document.rs:78-84` says the `EventHandlerAttributeConsumer` must stay off for a DOMParser document because "HTML §8.1.3.4 does NOT process event-handler attrs when scripting is disabled": wrong (P-T19). N1's compile gate (landed, #580; clause (b) read through `EcsDom::node_document` since C0b) realises step 3.2 for a node whose node document is not the bound document (`scripting_disabled_for_platform_object`, `scripting.rs:40-90`), consulted by `ensure_event_handler_current` on every read and dispatch (`elidex-js/vm/host/event_handler_attrs.rs:515-560`) |
 
 ### §0.3 Premise errors (reported)
@@ -305,10 +320,28 @@ New in rev 4.8:
   DOMParser document's elements carry their handlers from creation, and the base's (and rev 4.7's) "nothing" was a
   defect, not the inert outcome. T3 queues the event (§4.5 item 4), sets the raw handlers (D-T13) and corrects the
   rustdoc (§5.3).
-- **P-T20 (PM decision 711's premise; answered by PM decision 713).** PM decision 711 names the flush point "PR (i)'s
-  consuming close". In PR (i) plan @ 7ab6f87d the guard has no consuming close: the restore is `Drop`, on return and
-  on unwind alike (H-T32). L3's split (PM decisions 713, 714) makes the restore on a return path the outermost guard's
-  close in ig; §4.5 item 4 states what T3 requires of it, and T3 re-pulls ig's head before implementation (§9 item 1).
+- **P-T20 (PM decision 711's premise; answered by PM decision 713 and the split plans, rev 4.8.1; one residual
+  open).** PM decision 711 names the flush point "PR (i)'s consuming close". The pre-split PR (i) plan had no
+  consuming close (rev 4.8's finding). The PR (ig) plan has one: `DispatcherTake::close` consumes the guard and is
+  the explicit restore point on a returning path, and its §8 *T3 intersection* guarantees (a) the restore point is the
+  outermost guard's `close` and (b) the slot state is the single home of take/restore state, with the flush in that
+  `close` assigned to T3 (H-T32). So §4.5 item 4 relies on ig's guarantees and T3's change to `close`, and no longer
+  states a requirement on ig. Every window whose `pending` can be non-empty (DOMParser's, `parse_into_inert_document`)
+  calls `close` on its returning path with no early return before it (H-T32); `despawn_subtree`'s `TeardownWindow`
+  restores by its drop at the end of its block in the snapshot, and nothing fires inside it, so T3 does not rely on
+  it.
+  **Residual (open, for the PM with L3): where the flush sits against ig's one restore site.** The PR (ig) plan §4.1
+  makes `Drop` "the one site of the restore" and gives `close` the body `drop(self)`; the guard owns the
+  `&'a mut EcsDom` borrow. Once the restore has run in that `Drop`, `close` no longer holds the dom, so "restore in
+  `Drop`, then dispatch from `close`" cannot be written in `close` as planned. Whichever shape T3's change takes must
+  move one of three things: (α) the restore into `close` too (a second restore site, against ig §4.1's "one site");
+  (β) the dispatch into `Drop`, run only after a `close` has handed it the pending list, so the unwind path's `Drop`
+  is unchanged but the close path's `Drop` runs consumer code (ig's *Why it is unwind-safe* item 2, "`Drop` does
+  nothing that can panic", then holds on the unwind path only); (γ) the dispatch out to each window's caller, which
+  regains its `&mut EcsDom` after `close` returns the list (one flush per window site instead of one). §4.5 item 4
+  fixes the observable order (restore before the first dispatch, in fire order, dead roots skipped, nothing on
+  unwind) and leaves the shape to this question; T3 does not choose it here (designer stop, rev 4.8.1). None of
+  (α)–(γ) needs `is_outermost`: the guard knows whether it took from its own `taken`.
 
 ### §0.4 Decisions (this PR)
 
@@ -995,8 +1028,8 @@ the result on the listener store.
 ### §4.5 The creation event `SubtreeCreated` (PM decisions 705, 711, 713, 714; for L3's review)
 
 The one statement of the event's shape; every other site of this memo refers here. Coordinates are `cee74989`'s
-(H-T29 to H-T31 carry the commands); L3's names are the pre-split PR (i) plan @ 7ab6f87d's (H-T32), assigned to its
-PRs ig and io by PM decision 714. `MutationEvent::CloneCreated` is RC-2a's (L3's) ratified surface; T3 is the
+(H-T29 to H-T31 carry the commands); L3's names are the PR (ig) and PR (io) plans', cited by symbol and section at
+the snapshot H-T32 names (§0.1; re-pinned to L3's ratified sha before T3 is ratified, R7). `MutationEvent::CloneCreated` is RC-2a's (L3's) ratified surface; T3 is the
 event's first new consumer, so the generalisation lands in T3's PR (PM decision 705). Sibling plans that name
 `CloneCreated` (the RC-2a plan, the Range program, the C0 and C1 memos) keep it as the name at their time. **T3 lands
 after io, so after ig** (umbrella x12; PM decisions 711, 714): the queue's flush point is ig's outermost close (item
@@ -1055,7 +1088,7 @@ after io, so after ig** (umbrella x12; PM decisions 711, 714): the queue's flush
        Absent,
        Installed(Box<dyn MutationDispatcher + Send + Sync>),
        /// A take window is open (ig's `DispatcherTake`). `pending`: the roots of the `FragmentParse` creation
-       /// events fired inside it, in fire order, dispatched at the outermost close.
+       /// events fired inside it, in fire order, dispatched at the close of the guard that took the dispatcher.
        Taken { pending: Vec<Entity> },
    }
    ```
@@ -1064,23 +1097,36 @@ after io, so after ig** (umbrella x12; PM decisions 711, 714): the queue's flush
      `Taken` with `Clone(_)` → D-4's `debug_assert!` (the RC-2a plan §4.7: no clone inside a window), kept as an
      internal invariant shown unreachable (PM 584; PM decision 711 (1)), and in release the event is dropped as on the
      base. Every other event in a window is dropped as today (`dispatch_event`'s `Absent` / `Taken` arm).
-   - **The outermost close** (ig's consuming close of the `DispatcherTake` that took the box): it writes
-     `Installed(box)` back, moving `pending` out of the slot in the same replacement, **then** dispatches
-     `SubtreeCreated { root, cause: FragmentParse }` for each root in order, skipping a root that is no longer alive
-     (`EcsDom::contains`). The restore comes first, so the flush dispatches through the installed dispatcher, and a
-     consumer panic during the flush leaves the slot `Installed` (`dispatch_event`'s own guard).
-   - **Unwind** (ig's `Drop` reached without the close): restores the box and **discards** `pending`; no consumer runs
-     during an unwind (and ig's `Drop` keeps "does nothing that can panic", H-T32).
+   - **The outermost close** (`DispatcherTake::close` of the guard that took the box, PR (ig) plan §4.1; T3's change
+     to it): `pending` leaves the slot in the same replacement that writes `Installed(box)` back, **then**
+     `SubtreeCreated { root, cause: FragmentParse }` is dispatched for each root in order, skipping a root that is no
+     longer alive (`EcsDom::contains`). The restore comes first, so the flush dispatches through the installed
+     dispatcher, and a consumer panic during the flush leaves the slot `Installed` (`dispatch_event`'s own guard).
+     This is the order the PR (ig) plan §8 *T3 intersection* assigns to T3. Which code holds the restore and which
+     the dispatch, given ig's `Drop` as the one site of the restore and `close`'s body `drop(self)`, is open (P-T20
+     *Residual*); the order above holds whichever shape is chosen. (Until rev 4.8.1: "it writes `Installed(box)`
+     back … then dispatches", a restore written in the close.)
+   - **Unwind** (ig's `Drop` reached without `close`): restores the box and **discards** `pending`; no consumer runs
+     during an unwind (and ig's `Drop` keeps "does nothing that can panic" on that path, PR (ig) plan §4.1 *Why it is
+     unwind-safe* item 2, H-T32).
    - A nested guard (its take found the slot `Taken` and holds nothing): its close and its drop leave the slot, and
      `pending`, untouched. `clear_mutation_dispatcher` inside a window (unbind) writes `Absent`: `pending` is
      discarded with the window, since no consumer is left to receive it. `take_mutation_dispatcher` writes `Taken {
      pending: Vec::new() }`.
-   - **What T3 requires of ig (PM decision 713):** (a) on every return path of a take window the restore is the
-     outermost guard's consuming close, distinct from the unwind `Drop` (PR (i) plan @ 7ab6f87d restores in `Drop` on
-     both paths, P-T20); (b) the slot state is the window's only storage (the guard holds the box, nothing else). T3's
-     PR adds `pending`, the push and the flush in the close; ig adds neither. The windows whose `pending` can be
-     non-empty are those enclosing a fragment parse, i.e. DOMParser's (H-T30); the fragment backends' own windows
-     close before the fire (P1), and nothing fires inside `despawn_subtree`'s.
+   - **What T3 relies on: ig's guarantees (a) and (b), plus T3's change to `close` (PM decision 713; the PR (ig) plan
+     §8 *T3 intersection*, H-T32).** (a) The restore point is the outermost guard's `close` (`DispatcherTake::close`,
+     consuming, the explicit restore point on a returning path; ig's `Drop` stays the unwind backstop), so on a
+     returning path the flush point exists and is distinct from the unwind `Drop`; (b) the slot state is the single
+     home of take/restore state (no window keeps a second flag or depth counter; the guard holds only the box it took),
+     so `pending` has one home. T3 identifies "the guard that took" by what ig's guard already holds (the box), not by
+     `is_outermost` (P-T20 *Residual*; that method is not used). T3's PR adds `pending`, the push and the flush in
+     `close`; ig adds neither. The windows whose `pending` can be non-empty are those enclosing a fragment parse,
+     i.e. DOMParser's (H-T30), whose window calls `close` on its returning path (H-T32); the fragment backends' own
+     windows close before the fire (P1), and nothing fires inside `despawn_subtree`'s (whose window restores by its
+     drop in the snapshot, so it is not relied on). Open: the shape of T3's change to `close` against ig's one restore
+     site (P-T20 *Residual*). (Until rev 4.8.1: "What T3 requires of ig: (a) on every return path of a take window
+     the restore is the outermost guard's consuming close, distinct from the unwind `Drop` … (b) the slot state is the
+     window's only storage".)
    - Consequence: DOMParser's build is processed at creation (D-T12, D-T13), so it leaves slice b (PM decision 711;
      until rev 4.8: "For `cause = FragmentParse` it does not assert, and the event is dropped as every other event in
      the window is … dropping is that build's intended outcome … the DOMParser build's creation processing stays slice
@@ -1097,8 +1143,9 @@ after io, so after ig** (umbrella x12; PM decisions 711, 714): the queue's flush
      reject path calls it inside (a)'s window).
 
    These anchors change shape in L3's PR (is) and PR (ig): the strict backend's ownership swap disappears and its
-   restore at `tree_builder/mod.rs:238-241` becomes the guard's close (L3, PM decision 713 (1); in PR (i) plan @
-   7ab6f87d the window moves to `build_fragment` around the shuffle, §4.1 there), and every take becomes a
+   restore at `tree_builder/mod.rs:238-241` becomes the guard's close (L3, PM decision 713 (1); in the PR (ig) plan
+   §4.1 *The four windows* the strict window opens its guard on the caller's dom in `build_fragment` at PR (is)'s
+   head, the builder borrowing through it, and calls `window.close()` after the teardown), and every take becomes a
    `DispatcherTake` (H-T32). **T3 re-pulls (a)–(c) at ig's head before implementation (§9 item 1); the properties
    below are unchanged by is / ig** (L3's review, PM decision 713 (1)). Properties relied on: **P1** when the backend
    call inside `parse_fragment_progressive` returns, the build's own window is closed (the slot is what it was at the
@@ -1265,12 +1312,21 @@ decision 133); `crates/script/elidex-js/src/vm/host_data/` other than `engine_fe
 - **R6 — a future clone path that bypasses the canonical cloner entry**: D-T10 *Fallback*.
 - **R7 — the creation event and its queue are on L3's surface.** T3's PR changes RC-2a's `CloneCreated` into
   `SubtreeCreated`, gives ig's slot state the pending list and adds the flush to ig's close (§4.5); L3 reviewed rev 4.7's
-  §4.5 (PM decision 713) and reviews rev 4.8's through the PM. T3 lands after io (umbrella x12), so ig's and io's
-  landed code is T3's base: §4.5 item 5's anchors are re-pulled at ig's head and the walker's names at io's (§9 item
-  1). If ig's landed guard does not have item 4's (a) (a consuming close on every return path, distinct from the unwind
-  `Drop`) or (b) (the slot as the window's only storage), item 4 cannot be built as written and T3 stops for the PM
-  (until rev 4.8: "If (i) lands first and changes a take / restore site or property of §4.5 item 5, item 4's rule is
-  re-derived on (i)'s guard").
+  §4.5 (PM decision 713) and reviews rev 4.8's through the PM. **Premises (rev 4.8.1):** (1) L3's plans are cited at a
+  pre-ratification snapshot (H-T32) by symbol and section; **before T3 is ratified, every L3 citation in this memo
+  and in the umbrella's x12 row is re-pinned to L3's ratified sha** (the PR (ig) plan, the PR (io) plan, the L3
+  umbrella), and a citation whose symbol or section is gone there is re-derived, not carried (PM 718 already
+  announces changes past the snapshot, H-T32: none is relied on). (2) T3 lands after io (umbrella x12), so ig's and
+  io's landed code is T3's base: §4.5 item 5's anchors are re-pulled at ig's head and the walker's names at io's (§9
+  item 1). (3) P-T20 *Residual* (where the flush sits against ig's one restore site) is decided with L3 before T3's
+  implementation starts. **Stop condition (what remains after rev 4.8.1):** T3 stops for the PM if ig is ratified or
+  lands **without a consuming `close`** as the restore point on the returning path of a window that can enclose a
+  fragment parse (guarantee (a)), or **with a second home of take/restore state** beside the slot (a flag or depth
+  counter in a window or guard; guarantee (b)), or if the shape P-T20 settles cannot be built on ig's landed `close`
+  and `Drop` (until rev 4.8.1: "If ig's landed guard does not have item 4's (a) (a consuming close on every return
+  path, distinct from the unwind `Drop`) or (b) …, item 4 cannot be built as written and T3 stops"; until rev 4.8:
+  "If (i) lands first and changes a take / restore site or property of §4.5 item 5, item 4's rule is re-derived on
+  (i)'s guard").
 - **R8 — fragment-path cost.** One uncapped walk per returned root at creation over every node the parse created
   (light, declarative shadow, template contents), a superset of the set the placement's `Insert` walks; at the
   placement each OR element then returns at the marked shortcut (`mod.rs:85`). DOMParser's build adds the same walk
@@ -1506,9 +1562,10 @@ recorded as a slot by PM decision 711 (4), not a T3 deferral.
   walks (§8.3 item 11); if its PR lands first, they take its rule (§9 item 1).
 - **L3's ecs-entity-lifetime PRs ig and io** (PM decisions 711, 713, 714; umbrella x12: T3 after io): T3 relies on
   ig's outermost consuming close and its slot-only window state (§4.5 item 4 (a), (b)) and on io's `pub` walker taking
-  `WalkScope::WithTemplateContents` (§4.5 item 6); names from PR (i) plan @ 7ab6f87d (H-T32), re-pulled at their
-  heads (§9 item 1). T3's PR adds the queue (`DispatcherSlot::Taken { pending }`) and the flush in ig's close; ig and
-  io add neither.
+  `WalkScope::WithTemplateContents` (§4.5 item 6); names cited by symbol and section from the PR (ig) / PR (io)
+  plans and the L3 umbrella at the snapshot H-T32 names, re-pinned to L3's ratified sha before T3 is ratified and
+  re-pulled at their landed heads (R7, §9 item 1). T3's PR adds the queue (`DispatcherSlot::Taken { pending }`) and
+  the flush in ig's close (its shape open, P-T20 *Residual*); ig and io add neither.
 - **RC-2a** (landed: #596; edge x11): T3 relies on the RC-2a plan §2 A (one emitter, after the whole copy
   exists), §4.3 (the walk's set and order) and §4.7 (no clone inside a dispatcher window). Rev 4.7 (PM decision 705):
   T3 generalises RC-2a's event (§4.5) and keeps all three for the `Clone` cause; L3 reviews §4.5 against its
@@ -1598,8 +1655,11 @@ does not restate C0's or C1's content.
    implementation starts; existing tests changed by D-T8 are listed (§5.2). Rev 4.8 (PM decisions 711, 713, 714): the
    branch is cut after L3's PR (io) lands (so after ig; umbrella x12); §4.5 item 5's take / restore anchors are
    re-pulled at ig's head and the walker's names (`WalkScope`, `for_each_uncapped_shadow_inclusive`'s signature) at
-   io's, both against H-T32; ig's guard is checked for §4.5 item 4's (a) and (b), and if either is missing T3 stops
-   for the PM (R7).
+   io's, both against H-T32. Rev 4.8.1: before T3 is ratified, every L3 citation is re-pinned from the H-T32 snapshot
+   to L3's ratified sha (R7 premise 1); before implementation, P-T20 *Residual* is decided (R7 premise 3); ig's
+   landed guard is checked for §4.5 item 4's guarantees (a) and (b), and T3 stops for the PM on R7's stop condition
+   (no consuming `close` on such a window's returning path, a second home of take/restore state, or the settled
+   flush shape not buildable on the landed guard).
 2. `/elidex-plan-review` passes on this memo (mandatory, §1.3).
 3. Red-first: T-1–T-9, T-14, T-15, T-15b, T-16, T-16b, T-16c, T-17, T-19, T-20, T-20b, T-21, T-22, T-22b, T-22c, T-23, T-24,
    T-25, T-26, T-27, T-28, U-T1–U-T3, U-T6, U-T7, U-T8, U-T9, U-T10, U-T11, T-E1
@@ -1671,6 +1731,10 @@ RC-2a plan §4.3; PM decision 359 folded it into the plan-review), cell T-16b. R
 Q-1 to Q-6 → H-T15 to H-T20.
 
 **For the PM (designer's findings, not decided here):**
+- **P-T20 *Residual* — open (rev 4.8.1), for the PM with L3.** Where T3's flush sits against the PR (ig) plan's
+  `Drop` as the one site of the restore (`close` = `drop(self)`; after that drop `close` holds no dom): (α) restore
+  in `close` too, (β) dispatch in `Drop` after a `close` hand-off, (γ) dispatch by each window's caller. §0.3 P-T20
+  states the constraint each one moves; T3 does not choose (R7 premise 3).
 - **O-9 — closed (PM 367): (b), owner L3.** RC-2a's implementation PR makes `for_each_clone_created` uncapped (iterative, creation order) with its own deep-tree cell; T3's deep-element processing rests on it (edge x11).
 
 No browser measurement is needed: every outcome in §6 is spec-defined, including FN-4's (MathML Core §2.1.4, H-T23).
