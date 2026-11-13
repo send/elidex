@@ -13,7 +13,8 @@ exponents 2, 4 and 65536 did not return within 90 s (measured 2026-11-13, debug 
 `rsa::generate`). The keygen runs on the VM thread, so this is a hang that any script can trigger. The other
 §20.5 cases (modulusLength 0, 3; modulusLength 16 with e = 65537; exponent 1, which at 2048 first runs
 the full prime search, 11 s in a debug build, F3) end in OperationError from the rsa crate, but only by
-accident of that crate. Two comments state the opposite of
+accident of that crate. §20.5 alone is not the whole fix: an odd exponent with a tiny modulusLength hangs the
+same crate loop (D6). Two comments state the opposite of
 the spec ("WebCrypto does not constrain its value", `rsa.rs:479-481`; "the exponent value are the
 rsa-crate's OperationError … honored as-is", `algorithm/normalize.rs:118-119`), each with a
 `⚠ Contradicts WebCrypto §20.5 step 3` pointer to this slot (`rsa.rs:482-483`, `algorithm/normalize.rs:120-121`).
@@ -52,7 +53,7 @@ called from that one place is the single canonical form.
   destructured (`ops.rs:99-112`), and the spec's step 1–2 only read those two members.
 - Engine-independent: pure byte arithmetic in `elidex-api-crypto`, no rsa-crate type, no VM type.
 
-**D2. Order: usages SyntaxError (step 1) → §20.5 (step 2) → the 8192 generate ceiling and the OAEP range →
+**D2. Order: usages SyntaxError (step 1) → §20.5 (step 2) → the D6 floor and exponent cap → the 8192 generate ceiling and the OAEP range →
 `new_with_exp` (steps 3–4) → the §14.3.6 empty-private-usages SyntaxError.** The call is inserted at
 `rsa.rs:499`, between `validate_generate_usages` (`:498`) and the ceiling (`:507`). Reason: follow the spec
 step order wherever it is observable. The ceiling and the OAEP range are elidex's own limits on step 3
@@ -108,6 +109,23 @@ named `OperationError` (`crates/script/elidex-js/src/vm/host/subtle_crypto/ops.r
 **D5. Each new test has a named mutation that must turn it red (§3.3); the mutations are run once, on
 the final head, in a debug build, and the result goes in the PR body.**
 
+**D6. Two capability bounds in `generate`, after §20.5 (PM 726).** Measured 2026-11-13 (debug build, base
+`06bdfbbd` + `4e91e0ab`): modulusLength 12 with e = 39 (RSASSA-PKCS1-v1_5 and RSA-PSS) does not return within
+60 s, although §20.5 accepts it (odd, ≥ 3, < 2^12 − 1). Controls: ml 12 / e = 3 generates in 0.26 ms,
+ml 64 / e = 65537 in 2.2 ms. Cause: only three 6-bit candidate primes exist (top two bits set: 53, 59, 61), every
+φ shares a factor with 39 = 3·13, and the rsa crate's `generate_multi_prime_key_with_exp` `'next: loop` never ends;
+the crate checks `MAX_PUB_EXPONENT` (2^33 − 1) only after that loop. RSA-OAEP is unaffected (its range is ≥ 2048).
+- Derivation: with e ≤ 2^33 − 1, e has at most 9 distinct odd prime factors (3·5·…·29 < 2^33 < 3·5·…·31); a b-bit
+  prime p with p − 1 = 2q (q prime, q > 2^33) gives gcd(e, p − 1) = 1 for every such e; such primes exist among the
+  candidates when b ≥ 35, so the loop ends with probability 1; each prime is modulusLength / 2 bits, so
+  modulusLength ≥ 2·35 = 70.
+- Decision: `MIN_RSA_GENERATE_MODULUS_BITS = 70` (unrounded: a rounded number has no derivation) and an exponent
+  cap at the crate's `RsaPublicKey::MAX_PUB_EXPONENT`, compared on the bytes (no `BigUint`), both OperationError
+  (Generate Key's "generation fails" path, like the 8192 ceiling), in `rsa/keygen_params.rs`
+  `validate_rsa_generate_capability`, called right after §20.5.
+- Rejected: a floor of 256 (a browser's value, not a derivation); no floor (the hang stays).
+- (The D5 above is the mutation-run decision; this one is D6 because D5 was taken.)
+
 ## §3. Tests
 
 Helper: `keygen_alg` (`tests/rsa/mod.rs:48`) fixes the exponent at `[1, 0, 1]`; add a sibling that takes
@@ -136,45 +154,61 @@ Each failing row trips exactly one condition, and each condition has a row on ea
 | B14 | 17 | `[0, 0, 1, 0, 1]` | 65537 | Ok | leading zeros not counted as bits |
 | B15 | `u32::MAX` | `[1, 0, 1]` | 65537 | Ok | no allocation at the largest ml (returns at once) |
 
+### §3.1b Capability table — `validate_rsa_generate_capability` directly
+
+| # | ml | exponent | expect |
+|---|---|---|---|
+| C1 | 69 | 65537 | Err (`modulusLength`) |
+| C2 | 70 | 65537 | Ok |
+| C3 | 70 | 2^33 − 1 = `[1,FF,FF,FF,FF]` | Ok (also accepted by §20.5) |
+| C4 | 70 | 2^33 + 1 = `[2,0,0,0,1]` | Err (`publicExponent`; odd, so §20.5 does not stop it first) |
+| C5 | 70 | 2^33 − 1 with 4 leading zero bytes (9 bytes) | Ok (strip before the length test) |
+| C6 | 70 | 9-byte value above 2^64 | Err |
+| C7 | `u32::MAX` | 65537 | Ok |
+
+The boundary tables carry an expected-message column (Ok, or the substring the OperationError must contain).
+
 ### §3.2 Through `generate_key` (DoD (ii), (iii)) and the VM
 
-All rows use `panicking_fill` except G7.
-
-| # | variant | ml | exponent | usages | expect |
-|---|---|---|---|---|---|
-| G1 | RSASSA-PKCS1-v1_5 | 1024 | `[2]` | sign, verify | Err equal to `validate_rsa_keygen_params(1024, &[2])`'s error (the measured hang input) |
-| G2 | RSASSA-PKCS1-v1_5 | 2048 | `[1, 0, 0]` | sign, verify | Err equal to the function's error for the same input |
-| G3 | RSA-PSS | 2048 | `[1, 0, 0]` | sign, verify | same |
-| G4 | RSA-OAEP | 2048 | `[1, 0, 0]` | encrypt, decrypt | same (2048 so that the OAEP range passes and only §20.5 can stop it) |
-| G5 | RSASSA-PKCS1-v1_5 | 2048 | `[1, 0, 0]` | encrypt | SyntaxError (step 1 before step 2) |
-| G6 | RSA-OAEP | 1024 | `[1, 0, 0]` | encrypt, decrypt | Err equal to the §20.5 error, not the OAEP range message (step 2 before the range) |
-| G6b | RSASSA-PKCS1-v1_5 | 16384 | `[1, 0, 0]` | sign, verify | Err equal to the §20.5 error, not the ceiling message |
-| G6c | RSA-PSS | 2048 | `[1, 0, 0]` | verify | OperationError (§14.3.6 empty-private-usages check comes after the operation) |
-| G7 | VM, RSA-PSS | 3 | `new Uint8Array([3])` | sign, verify | rejects; `name === 'OperationError'`, message contains `modulusLength` (D4; F3) |
-
-G2–G4 show the three variants reach the same function: each compares against that function's own output,
-and the panic seam shows none of them got past it to the rsa crate. Existing tests all use 65537 (or the
-non-minimal `[0, 1, 0, 1]`) at modulusLength 512, 1024, 2048 or 16384, all of which §20.5 accepts, so no
-existing test changes expectation (checked by grep at `06bdfbbd`; re-check after the edit).
+`generate_rejects_before_the_rsa_crate`: one table over the panic seam; each row's error must equal the
+function's own error for that input (`validate_rsa_keygen_params` or `validate_rsa_generate_capability`):
+G1 (1024, e = 2), G2–G4 (even exponent, RSASSA / PSS / OAEP at 2048), G6 (OAEP 1024, §20.5 before the OAEP
+range), G6b (16384, §20.5 before the ceiling), G8 (ml 3, §20.5 before the floor), G9 / G10 (ml 12, e = 39,
+RSASSA / PSS: the D6 regression), G11 (ml 69), G12 (e = 2^33 + 1), G13 / G14 (cap before the ceiling / the OAEP
+range). `generate_check_order_kinds`: G5 (usages SyntaxError before §20.5), G6c (empty private usages is
+OperationError, §14.3.6 is after the operation), G6d (same at ml 12 / e = 39).
+G7 (VM, RSA-PSS, ml 3, `[3]`): rejects with `OperationError` and a message containing `modulusLength` (D4; F3).
+Existing tests use 65537 (or non-minimal `[0,1,0,1]`) at ml 512 / 1024 / 2048 / 16384, which both checks accept.
 
 ### §3.3 Mutations (D5)
 
-| # | mutation in `validate_rsa_keygen_params` / `generate` | must turn red |
-|---|---|---|
-| M1 | delete the `ml < 4` condition | B1 |
-| M2 | `ml < 4` → `ml <= 4` | B2 |
-| M3 | delete the `e < 3` condition | B3. (Measured at implementation: with the whole condition deleted, an empty `e` reaches the parity index and panics, so B5/B6 go red by panic rather than through "even". M3b, deleting only the `e.len() == 1 && e[0] < 3` part, keeps B3 red.) |
-| M4 | `e[0] < 3` → `e[0] <= 3` | B4 |
-| M5 | delete the "even" condition | B7, G1–G4 (panic seam) |
-| M6 | `≥` → `>` (drop the all-ones equality branch) | B9, B13 |
-| M7 | drop the leading-zero strip (bit length from the raw length) | B14 |
-| M8 | equality branch treats `bits == ml` as always failing | B10 |
-| M9 | delete the call in `generate` | G1–G4 (panic seam), G6, G6b, G7 |
-| M10 | move the call before `validate_generate_usages` | G5 |
-| M11 | move the call after the ceiling and OAEP range checks | G6, G6b |
+Run on the final head (debug build); "red" = the named test fails.
 
-`e[0] < 3` → `e[0] < 2` is an equivalent mutant (the only value it lets through, 2, is rejected as even);
-the PR body says so instead of claiming a kill.
+| # | mutation | red test(s) |
+|---|---|---|
+| M1 | delete `ml < 4` | `keygen_params_boundary_table` (B1), `generate_rejects_before_the_rsa_crate` (G8) |
+| M2 | `ml < 4` → `ml <= 4` | boundary table (B2) |
+| M3 | delete the whole `e < 3` condition | boundary table (B3) |
+| M3b | delete only `e.len() == 1 && e[0] < 3` | boundary table (B3) |
+| M4 | `e[0] < 3` → `e[0] <= 3` | boundary table (B2, via e = 3) |
+| M5 | delete the "even" condition | boundary table, `generate_rejects_before_the_rsa_crate` (panic seam), `generate_check_order_kinds` |
+| M6 | drop the all-ones equality branch | boundary table (B9) |
+| M7 | no leading-zero strip in §20.5 | boundary table, `generate_preserves_non_minimal_public_exponent` (both by panic: shift overflow on a zero lead byte) |
+| M8 | `bits == ml` always fails | boundary table (B10) |
+| M9 | delete the §20.5 call | `generate_rejects_before_the_rsa_crate`, `generate_check_order_kinds` (panic seam). G7 stays green (the floor's message also contains `modulusLength`) |
+| M9c | delete the §20.5 call and the capability call | same two (panic seam), and G7 (VM) |
+| M10 | §20.5 call before the usages check | `generate_check_order_kinds` (G5) |
+| M11 | §20.5 call after the ceiling / OAEP range | `generate_rejects_before_the_rsa_crate` (G6) |
+| M12 | floor 70 → 69 | `keygen_capability_boundary_table` (C1), `generate_rejects_before_the_rsa_crate` (G11) |
+| M13 | drop the floor check | capability table (C1), `generate_rejects_before_the_rsa_crate` (G9), `generate_check_order_kinds` |
+| M14 | cap `>` → `>=` | capability table (C3) |
+| M15 | drop the cap check | capability table (C4), `generate_rejects_before_the_rsa_crate` (G12) |
+| M16 | no leading-zero strip in the cap | capability table (C5) |
+| M17 | delete the capability call | `generate_rejects_before_the_rsa_crate`, `generate_check_order_kinds` (panic seam) |
+
+`e[0] < 3` → `e[0] < 2` is an equivalent mutant (the only value it lets through, 2, is rejected as even).
+With §20.5, the floor and the cap calls all removed, G9 fails at once by the seam's panic ("rsa crate reached"),
+about 0.5 s wall including the cargo invocation.
 
 ## §4. Comment rewrites (DoD (iv))
 
@@ -195,9 +229,9 @@ the PR body says so instead of claiming a kill.
 
 ## §5. DoD
 
-- (i) Each of the four §20.5 step-3 conditions is tested on both sides of its boundary (§3.1).
+- (i) Each of the four §20.5 step-3 conditions, the floor (69 / 70) and the exponent cap (2^33 − 1 / 2^33 + 1) is tested on both sides of its boundary (§3.1, §3.1b), and ml 12 / e = 39 (RSASSA and RSA-PSS) is rejected at once (G9, G10).
 - (ii) An even exponent fails at once with OperationError, by a test that cannot hang if the fix regresses
-  (G1–G4 with the panic seam).
+  (G1–G4, G9–G10 with the panic seam).
 - (iii) The RSASSA-PKCS1-v1_5, RSA-PSS and RSA-OAEP variants all go through the same validation (G2–G4).
 - (iv) The two false claims are rewritten to match §20.5 and their slot pointers removed (§4).
 - (v) Every WebCrypto cite added or changed in this PR is checked against webref (§1 table; re-run the

@@ -262,7 +262,7 @@ fn keygen_capability_boundary_table() {
         (
             "C5 cap, leading zeros stripped",
             70,
-            &[0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF],
+            &[0, 0, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF],
             None,
         ),
         (
