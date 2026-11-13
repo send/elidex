@@ -27,7 +27,7 @@ impl Vm {
     /// to the pre-gate engine. This is the **sole public production constructor**:
     /// the non-compat modes are not selectable for a real session until the async
     /// core storage (`#11-async-core-storage-cookiestore`) lands — see
-    /// `Vm::new_with_mode` (test-only, `#[cfg(test)]`).
+    /// `Vm::new_with_mode` (test-only, `#[cfg(all(test, feature = "engine"))]`).
     pub fn new() -> Self {
         #[cfg(feature = "engine")]
         let vm = Self::new_with_scope(super::GlobalScopeKind::Window, EngineMode::BrowserCompat);
@@ -42,13 +42,14 @@ impl Vm {
     /// split; it is fixed here at construction (before `register_globals` installs
     /// any surface) and cannot be changed afterwards.
     ///
-    /// **`#[cfg(test)]` — not a production surface (F10).** [`EngineMode::BrowserCore`]
+    /// **Test-only — not a production surface (F10).** [`EngineMode::BrowserCore`]
     /// / [`EngineMode::App`] must not be selected for a real session until the async
     /// core storage (`#11-async-core-storage-cookiestore`) lands (a core session is
     /// contracted to expose `elidex.storage`, design §14.4.3 — selecting these modes
     /// before then yields a session with *no* storage API). Production embedders use
-    /// [`Vm::new`] (BrowserCompat); the `#[cfg(test)]` gate enforces the precondition
-    /// by construction rather than by doc warning. The async-core PR removes the gate.
+    /// [`Vm::new`] (BrowserCompat); the `test` half of the gate enforces the precondition
+    /// by construction rather than by doc warning. The async-core PR removes that half;
+    /// the `engine` half stays, because [`EngineMode`] exists only under `engine`.
     #[cfg(all(test, feature = "engine"))]
     #[must_use]
     pub fn new_with_mode(engine_mode: EngineMode) -> Self {
