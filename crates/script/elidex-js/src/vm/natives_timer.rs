@@ -100,7 +100,9 @@ pub(super) fn clamp_delay_to_duration(ms: f64) -> Duration {
 }
 
 /// Core scheduler: allocates an id, pushes a [`TimerEntry`] onto the heap.
-/// `repeat=None` for `setTimeout`, `Some(delay)` for `setInterval`.
+/// `repeat` is `false` for `setTimeout` and `true` for `setInterval`; the entry
+/// records it as `None` / `Some(interval)`. The parameter exists only with the
+/// `engine` feature or in this crate's tests, where something drains the heap.
 fn schedule_timer(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
