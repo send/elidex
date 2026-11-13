@@ -470,7 +470,7 @@ fn ecdh_derive_bits_peer_mismatches_are_invalid_access() {
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
 
-    // Peer with the wrong algorithm name — ECDSA (§24.4.2 step 7).
+    // Peer with the wrong algorithm name — ECDSA (§24.4.2 steps 3 / 7).
     let mut ecdsa_peer = ecdh_peer(&good_pub);
     ecdsa_peer.algorithm = crate::AlgorithmName::Ecdsa;
     let err = derive_bits(

@@ -229,10 +229,9 @@ fn native_crypto_get_random_values(
     // §10.1.1 step 1 — type check.  Allow-list of integer TypedArrays
     // (Int8/Uint8/Uint8Clamped/Int16/Uint16/Int32/Uint32/BigInt64/
     // BigUint64); Float32/Float64/DataView/non-TypedArray reject
-    // with TypeError (NOT TypeMismatchError DOMException — modern
-    // WebCrypto + WPT spec wording).  Matches Chrome / Firefox.
-    // ⚠ Disputed by `#11-webcrypto-getrandomvalues-type-mismatch-error`
-    // (WebCrypto §10.1.1 step 1).
+    // with TypeError.
+    // ⚠ Contradicts WebCrypto §10.1.1 step 1 (TypeMismatchError); tracked by
+    // `#11-webcrypto-getrandomvalues-type-mismatch-error`.
     let JsValue::Object(view_id) = view_val else {
         return Err(VmError::type_error(
             "Failed to execute 'getRandomValues' on 'Crypto': \
@@ -282,7 +281,9 @@ fn native_crypto_get_random_values(
     // detached view, divergent from browser behaviour (Chrome /
     // Firefox both throw).  Placed before the §11.1 step 2 quota
     // check so a detached view does not surface a misleading
-    // `QuotaExceededError` on the `byte_length == 0` path.
+    // `QuotaExceededError` on the `byte_length == 0` path.  (§11.1 step 2
+    // above is the old number of §10.1.1 step 3; it is fixed when
+    // `#11-ecs-mission-ratchet-rekey` lands.)
     if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
         return Err(VmError::type_error(
             "Failed to execute 'getRandomValues' on 'Crypto': \

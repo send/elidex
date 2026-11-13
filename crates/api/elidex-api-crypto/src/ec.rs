@@ -493,7 +493,8 @@ pub(crate) fn verify(
 /// apply the step-11 length semantics.  `peer` is the VM-extracted
 /// [`EcdhKeyDeriveParams.public`][EcdhPeer]; the §14.3.8 name + `deriveBits`-
 /// usage gate ran in [`crate::ops::derive_bits`] / [`crate::ops::derive_key`].
-/// ⚠ The check order is disputed by `#11-webcrypto-ecdh-derive-bits-check-order`.
+/// ⚠ This order contradicts WebCrypto §24.4.2 (peer checks first); tracked by
+/// `#11-webcrypto-ecdh-derive-bits-check-order`.
 ///
 /// `length` semantics differ from the KDFs: `None` returns the **full**
 /// secret (not an OperationError); `Some(len)` returns the first `len` bits

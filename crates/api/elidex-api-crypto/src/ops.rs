@@ -239,8 +239,8 @@ fn import_hmac_key(
     // (§14.3.9 generic, below) — so empty usages must NOT short-circuit
     // material validation here, or `importKey('raw', new Uint8Array(0),
     // …, [])` would surface SyntaxError instead of the required DataError.
-    // ⚠ The check order is disputed by
-    // `#11-webcrypto-hmac-import-length-zero-order` (WebCrypto §31.6.4 step 1).
+    // ⚠ This order contradicts WebCrypto §31.6.4 step 1 (length check first);
+    // tracked by `#11-webcrypto-hmac-import-length-zero-order`.
     validate_usage_kinds(&usages, KeyUsage::is_hmac_usage, HMAC_USAGE_MSG)?;
 
     let material = match (format, key_data) {

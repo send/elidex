@@ -85,7 +85,6 @@ S	-	crates/script/elidex-js/src/vm/host/blob.rs	// fall back to empty (Chromium 
 S	-	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
 S	-	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
-S	-	crates/script/elidex-js/src/vm/host/crypto.rs	// WebCrypto + WPT spec wording). Matches Chrome / Firefox.
 S	-	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
 S	-	crates/script/elidex-js/src/vm/host/css_style_declaration.rs	//! (Supersedes the earlier IMP-1/2 verbatim-write reading: Chrome's
 S	-	crates/script/elidex-js/src/vm/host/css_style_declaration.rs	//! `el.style.foo` readback Chrome exhibits is a JS expando on the

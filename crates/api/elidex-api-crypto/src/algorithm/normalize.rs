@@ -117,8 +117,8 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
             // borrow-legal, but the precedence-defining checks run in order.
             // modulusLength validity + the exponent value are the rsa-crate's
             // OperationError at generate (§20.9.3 step 4), honored as-is.
-            // ⚠ Disputed by `#11-webcrypto-rsa-keygen-param-validation`
-            // (WebCrypto §20.5 step 3).
+            // ⚠ Contradicts WebCrypto §20.5 step 3; tracked by
+            // `#11-webcrypto-rsa-keygen-param-validation`.
             let modulus_length = raw
                 .modulus_length
                 .ok_or_else(|| required_member("modulusLength", "RsaHashedKeyGenParams"))?;
