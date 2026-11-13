@@ -57,7 +57,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
 2. `$PF` の **最新の handoff block** (§7.1 の見分け方で最後のもの) と、その後ろの行をすべて読み、続けて
    `$PFI` を全部読む (今も効いている決定)。summary も索引の行も claim — 台帳・git・PM 番号の本文と
    突き合わせてから使う。
-3. **繰り越し照合**: 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** (§7.2 の移送は
+3. **繰り越し照合**: 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** (§7.2 の道具は
    どちらも `$PF` に残す) の
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
@@ -249,7 +249,8 @@ head が動いていたら merge せず聞き直す。
   `usage-pace.py status` の `next_reset` (JST の ISO) をそのまま使う (`resets_at` の epoch を自分で変換しない)。
 - 自己 cap に近づいたら: 新しい単位を始めない。**走行中の agent は止めない** (PM 321)。lane は単位の境界で
   済 / 残を報告して止まる。
-- yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out は数えない。
+- yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out (plan-review / review の 5 軸) も
+  1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
@@ -271,7 +272,7 @@ head が動いていたら merge せず聞き直す。
 
 | file | 中身 | 変わり方 |
 |---|---|---|
-| `$PF` (本体) | 1 行目の title と、最後から 2 つ目の handoff block から末尾まで (例外は §7.2 の 1) | 末尾への書き足しと、§7.2 の移送だけ |
+| `$PF` (本体) | 1 行目の title と、最後から 2 つ目の handoff block から末尾まで (例外は §7.2 の道具の docstring) | 末尾への書き足しと、§7.2 の移送だけ |
 | archive (`PORTFOLIO-archive-YYYY-Www.md`) | 本体から移した block | 末尾への書き足し (移送) だけ |
 | `$PFI` (索引) | 今も効いている決定の 1 行ずつ | 行の追加と削除だけ |
 
@@ -279,27 +280,24 @@ head が動いていたら merge せず聞き直す。
   行の場所が変わるのは §7.2 の移送だけで、移送は行の中身を変えない。
 - **handoff block** = 見出しの次の行が §10.2 の固定の 1 行目である block (見出しから次の見出しの前まで)。
   見出しの語 (`handoff` / `restart` 等) では見分けない — `restart` を含む PM pass の見出しにも当たる。
-- 本体に書く block の見出しには `YYYY-MM-DD` を入れる (§7.2 が archive の週をこの日付で決める)。
+- 本体に書く block の見出しには `YYYY-MM-DD` を入れる (§7.2 の道具が archive の週をこの日付で決める)。
 - 決定は `PM <N>` で引き、本体の行番号で引かない (移送で動く)。移送より前に書かれた行番号の cite は、
-  archive の移送の記録行 (§7.2 の 3) で引き直す。
+  archive の移送の記録行 (§7.2 の道具が書く) で引き直す。
 
-### 7.2 移送 (pmo が PM の依頼で行う)
+### 7.2 移送 (pmo が PM の依頼で、道具で行う)
 
 いつ: handoff block を書いた直後 (§10.2)。週の reset (木、`usage-pace.py status` の `next_reset`) の後の最初の
-pass で、前の reset 以降に移送の記録行が無ければ、その pass でも行う。編集前の backup 等の書き方は
-`~/.claude/agents/pmo.md`「書き方の規則」。
+pass で、前の reset 以降に移送の記録行が無ければ、その pass でも行う。
 
-1. **切れ目 C** = 本体で最後から 2 つ目の handoff block の見出しの行。本体の最後の `Next decision: <数字>` の行が
-   C より前にあれば、その行を含む block の見出しを C にする (本体から番号を消さない)。handoff block が 2 つ
-   未満なら移送しない。
-2. 2 行目から C−1 行目を移す。見出しごとの block に分け、block の見出しの日付の ISO 週 (`%G-W%V`) の archive の
-   末尾へ、元の順のまま足す。最初の見出しより前の行 (初回の移送だけにある) は 1 行目の title の日付で決める。
-3. archive に足すまとまりの直前に記録行 `<!-- 移送 YYYY-MM-DD: $PF の <a>–<b> 行 (移送前の行番号) -->` を
-   1 行入れる。新しい archive は 1 行目を `# PORTFOLIO archive YYYY-Www` にする。
-4. 本体を「1 行目 + C 行目から末尾」に置き換える。
-5. 確かめて報告する: (a) 移送前の本体 = 1 行目 + archive に足した行 (記録行と新しい archive の 1 行目を
-   除く) + 新しい本体の 2 行目以降 (順序まで一致、`diff` が空)。(b) §7.4 の読み方の出力が移送の前後で同じ。(c) browser sweep (§2 行 8) が NEW 0。
-   どれかが外れたら backup から戻して PM に返す。
+```sh
+python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.py --control
+python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.py --dry-run
+python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.py
+```
+
+切れ目の決め方・archive の週・記録行・移送の後の確かめの手順の正は、道具の docstring (ここに書き写さない)。
+`--control` が外れた時と、道具が exit 0 でない時は、移送しない・したものは道具の報告どおり戻して PM に返す。
+移送の後に browser sweep (§2 行 8) を回させる。編集前の backup 等の書き方は `~/.claude/agents/pmo.md`「書き方の規則」。
 
 ### 7.3 索引 (`$PFI`)
 
@@ -318,7 +316,7 @@ pass で、前の reset 以降に移送の記録行が無ければ、その pass
 次の判断番号は **`$PF` (本体) の最後の `Next decision: <数字>` の数字** だけが正。読み方は 1 つ:
 `/usr/bin/grep -oE 'Next decision: [0-9]+' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-2026-10-26.md | tail -n 1`。
 出力が空なら番号を決めず、pmo に本体と直前の移送を確かめさせる。archive・索引・glob (`PORTFOLIO-*.md`) からは読まない
-(archive も `Next decision:` を含み、glob では本体より後ろに並ぶ)。§7.2 の 1 が最後の番号の行を本体に残す。
+(archive も `Next decision:` を含み、glob では本体より後ろに並ぶ)。§7.2 の道具は最後の番号の行を本体に残し、移送の前後で同じことを確かめる。
 番号は渡す時に決める。MEMORY Active state と handoff block は番号を持たず、ここを指す。
 
 ## 8. Pre-flight (提案・指示・slot 文面を出す前の 1 行チェック)
