@@ -38,7 +38,7 @@ use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
 mod keygen_params;
-pub(crate) use keygen_params::validate_rsa_keygen_params;
+pub(crate) use keygen_params::{validate_rsa_generate_capability, validate_rsa_keygen_params};
 
 mod oaep;
 pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
@@ -480,11 +480,9 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`.  Generate Key step 2 runs §20.5
-/// ([`validate_rsa_keygen_params`]) before any key generation, so an even
-/// exponent, an exponent below 3 or at least 2^modulusLength − 1, or a
-/// modulusLength below 4 is an OperationError there; the rsa crate is reached
-/// only with parameters §20.5 accepts, and its failures are steps 3–4's
-/// OperationError.
+/// ([`validate_rsa_keygen_params`]) before any key generation; the rsa crate is
+/// reached only with parameters §20.5 and the capability bounds accept, and its
+/// failures are steps 3–4's OperationError.
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,
@@ -500,9 +498,10 @@ where
     // §20.9.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
-    // §20.9.3 / §21.4.3 / §22.4.3 step 2: validate the RSA key generation
-    // parameters (§20.5) before any key generation.
+    // §20.9.3 / §21.4.3 / §22.4.3 step 2 (§20.5).
     validate_rsa_keygen_params(modulus_length, public_exponent)?;
+    // Step 3 capability bounds: modulusLength floor + exponent cap.
+    validate_rsa_generate_capability(modulus_length, public_exponent)?;
     // Bound the script-controlled `modulusLength` BEFORE the rsa crate
     // allocates + prime-searches at that bit size.  WebCrypto §20.9.3 sets no
     // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an

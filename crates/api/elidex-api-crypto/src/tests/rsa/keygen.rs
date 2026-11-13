@@ -200,59 +200,104 @@ fn public_exponent_round_trips_byte_identical() {
 // WebCrypto §20.5 RSA key generation parameter validation
 // ---------------------------------------------------------------------------
 
-use crate::rsa::validate_rsa_keygen_params as validate;
+use crate::rsa::{
+    validate_rsa_generate_capability as capability, validate_rsa_keygen_params as validate,
+};
 
-#[test]
-fn keygen_params_boundary_table() {
-    // (row, modulusLength, publicExponent bytes, expect Ok)
-    let rows: &[(&str, u32, &[u8], bool)] = &[
-        ("B1 ml<4", 3, &[3], false),
-        ("B2 ml<4 pass", 4, &[3], true),
-        ("B3 e<3", 2048, &[1], false),
-        ("B4 e<3 pass", 2048, &[3], true),
-        ("B5 empty = 0", 2048, &[], false),
-        ("B6 all-zero = 0", 2048, &[0, 0], false),
-        ("B7 even", 2048, &[1, 0, 0], false),
-        ("B8 even pass", 2048, &[1, 0, 1], true),
-        ("B9 e = 2^16-1", 16, &[0xFF, 0xFF], false),
-        ("B10 bits == ml, not all ones", 16, &[0xFF, 0xFD], true),
-        ("B11 bits > ml", 16, &[1, 0, 1], false),
-        ("B12 bits < ml", 17, &[1, 0, 1], true),
-        ("B13 leading zeros stripped", 8, &[0, 0, 0xFF], false),
-        ("B14 leading zeros not bits", 17, &[0, 0, 1, 0, 1], true),
-        ("B15 largest ml", u32::MAX, &[1, 0, 1], true),
-    ];
-    for &(row, ml, e, ok) in rows {
-        let got = validate(ml, e);
-        if ok {
-            assert_eq!(got, Ok(()), "{row}");
-        } else {
-            assert!(
-                matches!(got, Err(AlgorithmError::Operation(_))),
-                "{row}: {got:?}"
-            );
+/// Run a `(row, ml, exponent, expected message substring)` table against `check`:
+/// `None` expects Ok, `Some(m)` an OperationError whose message contains `m`.
+fn run_table(
+    rows: &[(&str, u32, &[u8], Option<&str>)],
+    check: fn(u32, &[u8]) -> Result<(), AlgorithmError>,
+) {
+    for &(row, ml, e, msg) in rows {
+        match (check(ml, e), msg) {
+            (Ok(()), None) => {}
+            (Err(AlgorithmError::Operation(m)), Some(want)) => {
+                assert!(m.contains(want), "{row}: message {m:?} lacks {want:?}");
+            }
+            (got, _) => panic!("{row}: unexpected {got:?} (expected message {msg:?})"),
         }
     }
 }
 
 #[test]
-fn keygen_params_messages_name_the_condition() {
-    let ml = validate(3, &[3]).unwrap_err();
-    assert!(
-        matches!(&ml, AlgorithmError::Operation(m) if m.contains("modulusLength")),
-        "{ml:?}"
-    );
-    for e in [&[1u8][..], &[1, 0, 0], &[0xFF, 0xFF]] {
-        let err = validate(16, e).unwrap_err();
-        assert!(
-            matches!(&err, AlgorithmError::Operation(m) if m.contains("publicExponent")),
-            "{err:?}"
-        );
+fn keygen_params_boundary_table() {
+    let rows: &[(&str, u32, &[u8], Option<&str>)] = &[
+        ("B1 ml<4", 3, &[3], Some("modulusLength")),
+        ("B2 ml<4 pass", 4, &[3], None),
+        ("B3 e<3", 2048, &[1], Some("publicExponent")),
+        ("B4 e<3 pass", 2048, &[3], None),
+        ("B5 empty = 0", 2048, &[], Some("publicExponent")),
+        ("B6 all-zero = 0", 2048, &[0, 0], Some("publicExponent")),
+        ("B7 even", 2048, &[1, 0, 0], Some("publicExponent")),
+        ("B8 even pass", 2048, &[1, 0, 1], None),
+        ("B9 e = 2^16-1", 16, &[0xFF, 0xFF], Some("publicExponent")),
+        ("B10 bits == ml, not all ones", 16, &[0xFF, 0xFD], None),
+        ("B11 bits > ml", 16, &[1, 0, 1], Some("publicExponent")),
+        ("B12 bits < ml", 17, &[1, 0, 1], None),
+        (
+            "B13 leading zeros stripped",
+            8,
+            &[0, 0, 0xFF],
+            Some("publicExponent"),
+        ),
+        ("B14 leading zeros not bits", 17, &[0, 0, 1, 0, 1], None),
+        ("B15 largest ml", u32::MAX, &[1, 0, 1], None),
+    ];
+    run_table(rows, validate);
+}
+
+/// 2^33 - 1 (the rsa crate's `MAX_PUB_EXPONENT`) and 2^33 + 1, big-endian.
+const E_CAP: &[u8] = &[1, 0xFF, 0xFF, 0xFF, 0xFF];
+const E_CAP_PLUS_2: &[u8] = &[2, 0, 0, 0, 1];
+
+#[test]
+fn keygen_capability_boundary_table() {
+    let rows: &[(&str, u32, &[u8], Option<&str>)] = &[
+        ("C1 floor 69", 69, &[1, 0, 1], Some("modulusLength")),
+        ("C2 floor 70", 70, &[1, 0, 1], None),
+        ("C3 cap 2^33-1", 70, E_CAP, None),
+        ("C4 cap 2^33+1", 70, E_CAP_PLUS_2, Some("publicExponent")),
+        (
+            "C5 cap, leading zeros stripped",
+            70,
+            &[0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF],
+            None,
+        ),
+        (
+            "C6 cap, 9 bytes",
+            70,
+            &[1, 0, 0, 0, 0, 0, 0, 0, 1],
+            Some("publicExponent"),
+        ),
+        ("C7 largest ml", u32::MAX, &[1, 0, 1], None),
+    ];
+    run_table(rows, capability);
+    // The C3 / C4 / C2 inputs are all accepted by §20.5, so only the capability
+    // bounds (not §20.5) decide them.
+    for e in [E_CAP, E_CAP_PLUS_2, &[1, 0, 1][..]] {
+        assert_eq!(validate(70, e), Ok(()), "{e:?}");
     }
 }
 
-/// `generate_key` over the panic seam: §20.5 must reject before the rsa crate.
-fn keygen_rejected_by_params(
+#[derive(Clone, Copy)]
+enum Src {
+    Params,
+    Capability,
+}
+
+fn sv() -> Vec<KeyUsage> {
+    vec![KeyUsage::Sign, KeyUsage::Verify]
+}
+
+fn ed() -> Vec<KeyUsage> {
+    vec![KeyUsage::Encrypt, KeyUsage::Decrypt]
+}
+
+/// `generate_key` over the panic seam: a check before the rsa crate must reject
+/// (a regression panics instead of hanging).
+fn keygen_rejected(
     variant: RsaVariant,
     ml: u32,
     exp: &[u8],
@@ -264,70 +309,179 @@ fn keygen_rejected_by_params(
         usages,
         panicking_fill,
     )
-    .expect_err("§20.5 rejects these parameters")
+    .expect_err("rejected before key generation")
+}
+
+type GenRow = (
+    &'static str,
+    RsaVariant,
+    u32,
+    &'static [u8],
+    Vec<KeyUsage>,
+    Src,
+);
+
+#[allow(clippy::too_many_lines)] // a flat case table
+fn rejection_rows() -> Vec<GenRow> {
+    use RsaVariant::{RsaOaep, RsaPss, RsassaPkcs1V15 as Rsassa};
+    vec![
+        (
+            "G1 e=2 at 1024 (measured hang)",
+            Rsassa,
+            1024,
+            &[2],
+            sv(),
+            Src::Params,
+        ),
+        (
+            "G2 even, RSASSA",
+            Rsassa,
+            2048,
+            &[1, 0, 0],
+            sv(),
+            Src::Params,
+        ),
+        (
+            "G3 even, RSA-PSS",
+            RsaPss,
+            2048,
+            &[1, 0, 0],
+            sv(),
+            Src::Params,
+        ),
+        (
+            "G4 even, RSA-OAEP",
+            RsaOaep,
+            2048,
+            &[1, 0, 0],
+            ed(),
+            Src::Params,
+        ),
+        (
+            "G6 step 2 before the OAEP range",
+            RsaOaep,
+            1024,
+            &[1, 0, 0],
+            ed(),
+            Src::Params,
+        ),
+        (
+            "G6b step 2 before the ceiling",
+            Rsassa,
+            16384,
+            &[1, 0, 0],
+            sv(),
+            Src::Params,
+        ),
+        (
+            "G8 step 2 before the floor",
+            Rsassa,
+            3,
+            &[3],
+            sv(),
+            Src::Params,
+        ),
+        (
+            "G9 ml 12 e=39 hang, RSASSA",
+            Rsassa,
+            12,
+            &[39],
+            sv(),
+            Src::Capability,
+        ),
+        (
+            "G10 ml 12 e=39 hang, RSA-PSS",
+            RsaPss,
+            12,
+            &[39],
+            sv(),
+            Src::Capability,
+        ),
+        (
+            "G11 floor 69",
+            RsaPss,
+            69,
+            &[1, 0, 1],
+            sv(),
+            Src::Capability,
+        ),
+        (
+            "G12 cap 2^33+1",
+            Rsassa,
+            1024,
+            E_CAP_PLUS_2,
+            sv(),
+            Src::Capability,
+        ),
+        (
+            "G13 cap before the ceiling",
+            Rsassa,
+            16384,
+            E_CAP_PLUS_2,
+            sv(),
+            Src::Capability,
+        ),
+        (
+            "G14 cap before the OAEP range",
+            RsaOaep,
+            1024,
+            E_CAP_PLUS_2,
+            ed(),
+            Src::Capability,
+        ),
+    ]
 }
 
 #[test]
-fn generate_even_exponent_rejected_at_once_for_all_variants() {
-    let sv = || vec![KeyUsage::Sign, KeyUsage::Verify];
-    let ed = || vec![KeyUsage::Encrypt, KeyUsage::Decrypt];
-    // G1: the measured hang input (modulusLength 1024, e = 2).
-    assert_eq!(
-        keygen_rejected_by_params(RsaVariant::RsassaPkcs1V15, 1024, &[2], sv()),
-        validate(1024, &[2]).unwrap_err(),
-        "G1"
-    );
-    // G2-G4: the three variants reach the same validation.
-    for (row, variant, usages) in [
-        ("G2", RsaVariant::RsassaPkcs1V15, sv()),
-        ("G3", RsaVariant::RsaPss, sv()),
-        ("G4", RsaVariant::RsaOaep, ed()),
-    ] {
-        assert_eq!(
-            keygen_rejected_by_params(variant, 2048, &[1, 0, 0], usages),
-            validate(2048, &[1, 0, 0]).unwrap_err(),
-            "{row}"
-        );
+fn generate_rejects_before_the_rsa_crate() {
+    for (row, variant, ml, e, usages, src) in rejection_rows() {
+        let want = match src {
+            Src::Params => validate(ml, e),
+            Src::Capability => capability(ml, e),
+        }
+        .expect_err(row);
+        assert_eq!(keygen_rejected(variant, ml, e, usages), want, "{row}");
     }
 }
 
 #[test]
-fn generate_usages_syntax_error_precedes_params() {
-    // G5: Generate Key step 1 (usages) before step 2 (§20.5).
-    let err = keygen_rejected_by_params(
-        RsaVariant::RsassaPkcs1V15,
-        2048,
-        &[1, 0, 0],
-        vec![KeyUsage::Encrypt],
-    );
-    assert!(matches!(err, AlgorithmError::Syntax(_)), "got {err:?}");
-}
-
-#[test]
-fn generate_params_error_precedes_oaep_range_and_ceiling() {
-    // G6: step 2 before the RSA-OAEP range.
-    let err = keygen_rejected_by_params(
-        RsaVariant::RsaOaep,
-        1024,
-        &[1, 0, 0],
-        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
-    );
-    assert_eq!(err, validate(1024, &[1, 0, 0]).unwrap_err(), "G6");
-    // G6b: step 2 before the generate ceiling.
-    let err = keygen_rejected_by_params(
-        RsaVariant::RsassaPkcs1V15,
-        16384,
-        &[1, 0, 0],
-        vec![KeyUsage::Sign, KeyUsage::Verify],
-    );
-    assert_eq!(err, validate(16384, &[1, 0, 0]).unwrap_err(), "G6b");
-}
-
-#[test]
-fn generate_params_error_precedes_empty_private_usages_error() {
-    // G6c: the §14.3.6 empty-private-usages SyntaxError comes after the
-    // operation, so an even exponent with `verify` only is an OperationError.
-    let err =
-        keygen_rejected_by_params(RsaVariant::RsaPss, 2048, &[1, 0, 0], vec![KeyUsage::Verify]);
-    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+fn generate_check_order_kinds() {
+    // (row, variant, ml, exponent, usages, expect Syntax? else Operation)
+    let rows = [
+        // Step 1 (usages) before step 2 (§20.5).
+        (
+            "G5",
+            RsaVariant::RsassaPkcs1V15,
+            2048,
+            &[1u8, 0, 0][..],
+            vec![KeyUsage::Encrypt],
+            true,
+        ),
+        // §14.3.6 empty-private-usages SyntaxError comes after the operation.
+        (
+            "G6c",
+            RsaVariant::RsaPss,
+            2048,
+            &[1, 0, 0],
+            vec![KeyUsage::Verify],
+            false,
+        ),
+        (
+            "G6d floor",
+            RsaVariant::RsaPss,
+            12,
+            &[39],
+            vec![KeyUsage::Verify],
+            false,
+        ),
+    ];
+    for (row, variant, ml, e, usages, syntax) in rows {
+        let err = keygen_rejected(variant, ml, e, usages);
+        let ok = if syntax {
+            matches!(err, AlgorithmError::Syntax(_))
+        } else {
+            matches!(err, AlgorithmError::Operation(_))
+        };
+        assert!(ok, "{row}: {err:?}");
+    }
 }

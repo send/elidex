@@ -365,12 +365,7 @@ fn rsa_oaep_sign_is_not_supported() {
 
 #[test]
 fn rsa_generate_key_params_violation_is_operation_error_naming_modulus_length() {
-    // §20.5 (Generate Key step 2): the script's `publicExponent` bytes reach the
-    // parameter validation through the marshaller and come back as an
-    // OperationError whose message names the §20.5 condition (`modulusLength`),
-    // not the rsa crate's opaque "RSA key generation failed".  modulusLength 3
-    // with e = 3 fails fast both before and after the fix, so this test cannot
-    // hang; the message tells the two apart.
+    // §20.5 via the marshaller; fails fast with or without the fix, so the message tells them apart (memo F3).
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({name:'RSA-PSS', modulusLength:3, \
            publicExponent:new Uint8Array([3]), hash:'SHA-256'}, false, ['sign','verify']) \
