@@ -680,7 +680,7 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 
 /// Pull raw bytes out of a BufferSource argument.  Accepts
 /// `ArrayBuffer`, any `TypedArray`, or `DataView`; `undefined` →
-/// empty byte vector (spec §10.1.3 step 2 for TextDecoder; analogous
+/// empty byte vector (Encoding §7.2 `decode()` step 3 for TextDecoder; analogous
 /// shape for `SubtleCrypto.digest` in §14.3.5).  Anything else throws
 /// TypeError — matches the WebIDL `BufferSource` union.
 ///

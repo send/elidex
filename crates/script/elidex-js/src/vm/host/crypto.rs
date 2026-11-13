@@ -303,7 +303,8 @@ fn native_crypto_get_random_values(
         ));
     }
 
-    // §11.1 step 3 — zero-length short-circuit.  Skip the body_data
+    // Zero-length short-circuit (an elidex optimisation, not a WebCrypto
+    // step).  Skip the body_data
     // mutation entirely so the entry is NOT materialised by a no-op
     // write (mirrors `byte_io::write_at` empty-slice early-return —
     // `body_data.contains_key(&id)` is consulted by other call sites

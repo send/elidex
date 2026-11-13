@@ -486,7 +486,8 @@ pub(crate) fn verify(
 // ---------------------------------------------------------------------------
 
 /// ECDH `deriveBits` (WebCrypto §24.4.2): validate the §24.4.2
-/// InvalidAccessError precedence against the base key (steps 6, 2, 7, 8, in that order),
+/// InvalidAccessError precedence against the base key (steps 6, 2, 7, 8, in that
+/// order; the step-5 length check runs last, at step 11's `truncate_to_length`),
 /// perform the ECDH primitive (RFC 6090 §4) yielding the shared secret (the
 /// field-element-to-octet-string X coordinate, `coordinate_len` bytes), then
 /// apply the step-11 length semantics.  `peer` is the VM-extracted
