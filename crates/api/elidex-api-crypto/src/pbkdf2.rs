@@ -51,7 +51,7 @@ pub fn derive_bits(
     // a non-spec `dkLen` cap would be the pragmatic deviation the program
     // declined (the cross-cutting ideal is off-main-thread async-settle for the
     // whole vertical, not a per-op cap).  HKDF differs only because its
-    // §33.4.1 step-4 / RFC 5869 §2.3 `255 × HashLen` ceiling makes an
+    // §33.4.1 step-3 / RFC 5869 §2.3 `255 × HashLen` ceiling makes an
     // over-length request *invalid* (OperationError), worth rejecting before
     // the wasted allocation.
     let mut dk = vec![0u8; len];

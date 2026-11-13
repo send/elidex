@@ -408,7 +408,7 @@ fn ops_wrap_key_name_mismatch_precedes_export_support() {
     ));
 }
 
-/// §14.3.12 step 12: an unwrapping key without the `unwrapKey` usage is an
+/// §14.3.12 step 13: an unwrapping key without the `unwrapKey` usage is an
 /// InvalidAccessError.
 #[test]
 fn ops_unwrap_key_missing_unwrap_usage_is_invalid_access() {

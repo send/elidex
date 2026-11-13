@@ -45,7 +45,8 @@ fn normalize_hmac_keygen_nested_hash() {
 
 #[test]
 fn normalize_hmac_missing_hash_is_type_error() {
-    // §6.3 row 6 — required `hash` absent → TypeError at normalize.
+    // plan memo `memory/crypto-subtle-full-pr1-plan.md` §6.3 row 6 — required
+    // `hash` absent → TypeError at normalize.
     let raw = RawAlgorithm::from_name("HMAC");
     assert!(matches!(
         normalize(Operation::ImportKey, raw),

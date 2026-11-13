@@ -55,7 +55,7 @@ fn generate_oaep_key_shape_and_usage_split() {
     assert_eq!(private.key_type, KeyType::Private);
     assert_eq!(private.usages, vec![KeyUsage::Decrypt, KeyUsage::UnwrapKey]);
 
-    // The key's `[[algorithm]]` is the shared `RsaHashedKeyAlgorithm` (§20.6,
+    // The key's `[[algorithm]]` is the shared `RsaHashedKeyAlgorithm` (§20.7,
     // reused by §22)
     // with the RsaOaep variant + the modulus / exponent / hash.
     let KeyAlgorithm::Rsa {
@@ -322,7 +322,7 @@ fn oaep_jwk_use_enc_accepted_sig_rejected() {
 #[test]
 fn rsassa_jwk_use_enc_rejected() {
     // The mirror guard: a signing-family `jwk` still requires `use` = "sig"
-    // (§20.8.4 step 4) — "enc" (the RSA-OAEP value) is a DataError, so the
+    // (§20.9.4 step 4) — "enc" (the RSA-OAEP value) is a DataError, so the
     // variant-aware `use` check did not loosen the signing families.
     let (public, _private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,
@@ -349,9 +349,10 @@ fn rsassa_jwk_use_enc_rejected() {
 #[test]
 fn oaep_encrypt_decrypt_round_trip_across_hashes_and_labels() {
     // §22.4.1 → §22.4.2 round-trip through the PUBLIC ops API (ops::encrypt /
-    // ops::decrypt), so it also pins the §2.2 op-dispatch generalization: the
-    // op takes the KEY (RSA keys have no flat byte form), not a pre-extracted
-    // `as_bytes()` — the pre-fix path `unreachable!`-panicked for an RSA key.
+    // ops::decrypt), so it also pins the op-dispatch generalization (plan memo
+    // `memory/crypto-subtle-full-pr5b-plan.md` §2.2): the op takes the KEY (RSA
+    // keys have no flat byte form), not a pre-extracted `as_bytes()` — the
+    // pre-fix path `unreachable!`-panicked for an RSA key.
     // Every WebCrypto hash + an absent / ASCII / NON-UTF-8 label (the binary
     // `BufferSource` the `rsa` crate's String label cannot carry).
     let plaintext = b"a quick brown fox";
@@ -502,7 +503,9 @@ fn oaep_wrap_unwrap_aes_key_round_trip() {
     // §14.3.11 / §14.3.12: RSA-OAEP registers no own wrap op, so wrapKey /
     // unwrapKey fall back to the encrypt / decrypt op — this pins the generic
     // wrap/unwrap path reaches the RSA-OAEP arm of the generalized dispatch
-    // (the §2.2 reachability invariant, distinct from the direct encrypt test).
+    // (the reachability invariant of plan memo
+    // `memory/crypto-subtle-full-pr5b-plan.md` §2.2, distinct from the direct
+    // encrypt test).
     let (public, private) = generate_pair(
         RsaVariant::RsaOaep,
         HashAlgorithm::Sha256,

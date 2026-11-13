@@ -16,7 +16,7 @@
 //! `to_pkcs8_der` rejects >2 primes, so a multi-prime `pkcs8` / JWK `oth`
 //! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox
 //! read only two primes; Safari rejects it explicitly), so the key shape is
-//! rejected as malformed-for-this-implementation per WebCrypto §20.8.4 jwk
+//! rejected as malformed-for-this-implementation per WebCrypto §20.9.4 jwk
 //! step 10 (not a valid two-prime key per §6.3.2 / RFC3447).
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -45,6 +45,8 @@ pub(crate) use signing::{sign, verify};
 
 /// Upper bound on an **imported** RSA modulus (bits) — the ceiling
 /// [`check_modulus_bits`] applies to every imported key (jwk / spki / pkcs8).
+/// (The §20.8.4 below is the old number of §20.9.4; it is fixed when
+/// `#11-ecs-mission-ratchet-rekey` lands.)
 ///
 /// 16384 is the value every major browser caps import at: BoringSSL's
 /// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
@@ -65,8 +67,8 @@ pub(crate) const MAX_RSA_IMPORT_MODULUS_BITS: u32 = 16384;
 /// Chrome's own rationale).  Tighter than the 16384 *import* ceiling because
 /// keygen, unlike import, runs the expensive prime search; an unbounded
 /// `modulusLength` would hang / OOM the engine via untrusted script.  WebCrypto
-/// §20.8.3 sets no maximum → an over-cap `modulusLength` is an OperationError
-/// (the §20.8.3 step-3 generation-failure surface).
+/// §20.9.3 sets no maximum → an over-cap `modulusLength` is an OperationError
+/// (the §20.9.3 step-4 generation-failure surface).
 pub(crate) const MAX_RSA_GENERATE_MODULUS_BITS: u32 = 8192;
 
 /// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
@@ -123,13 +125,13 @@ fn rsa_oaep_modulus_out_of_range(variant: RsaVariant, bits: u32) -> bool {
 pub(crate) const ENTROPY_PROBE_LEN: usize = 1;
 
 // ---------------------------------------------------------------------------
-// importKey (WebCrypto §20.8.4 / §21.4.4)
+// importKey (WebCrypto §20.9.4 / §21.4.4)
 // ---------------------------------------------------------------------------
 
-/// `importKey` for an RSA signing algorithm (WebCrypto §20.8.4
+/// `importKey` for an RSA signing algorithm (WebCrypto §20.9.4
 /// RSASSA-PKCS1-v1_5 / §21.4.4 RSA-PSS).  `hash` is the `RsaHashedImportParams`
-/// hash (§20.7) carried on the produced key's `[[algorithm]]`.  `raw` is not a
-/// registered RSA import format (§20.8.4 lists only spki / pkcs8 / jwk).
+/// hash (§20.8) carried on the produced key's `[[algorithm]]`.  `raw` is not a
+/// registered RSA import format (§20.9.4 lists only spki / pkcs8 / jwk).
 pub(crate) fn import(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -144,13 +146,13 @@ pub(crate) fn import(
     // member, so it validates usages internally.
     let imported = match (format, key_data) {
         (KeyFormat::Spki, KeyData::Raw(der)) => {
-            // §20.8.4 spki: a public-only format.
+            // §20.9.4 spki: a public-only format.
             validate_import_usages(variant, KeyType::Public, &usages)?;
             let pubkey = parse_spki(&der)?;
             public_imported(&pubkey)?
         }
         (KeyFormat::Pkcs8, KeyData::Raw(der)) => {
-            // §20.8.4 pkcs8: a private-only format.
+            // §20.9.4 pkcs8: a private-only format.
             validate_import_usages(variant, KeyType::Private, &usages)?;
             let privkey = parse_pkcs8(&der)?;
             private_imported(&privkey)?
@@ -207,7 +209,7 @@ struct Imported {
 /// Decode an RSA SubjectPublicKeyInfo DER into its `(n, e)` components **without**
 /// the rsa crate's 4096-bit `MAX_SIZE` cap (which `from_public_key_der` applies
 /// inside its `try_from`): the rsa crate offers no max-size SPKI decode, so this
-/// reconstructs the crate's own SPKI validation — WebCrypto §20.8.4 spki **step
+/// reconstructs the crate's own SPKI validation — WebCrypto §20.9.4 spki **step
 /// 4** (the rsaEncryption OID + NULL parameters → reject on mismatch) and **step
 /// 5-6** (the RFC 3447 §A.1.1 `RSAPublicKey` structure) — and returns `(n, e)`
 /// for [`RsaPublicKey::new_with_max_size`] at the elidex import ceiling.
@@ -215,7 +217,7 @@ struct Imported {
 /// DataError on import or an OperationError on reconstruction.
 fn decode_rsa_spki(der: &[u8]) -> Result<(BigUint, BigUint), ()> {
     let spki = SubjectPublicKeyInfoRef::from_der(der).map_err(|_| ())?;
-    // §20.8.4 spki step 4: the algorithm must be rsaEncryption with NULL params
+    // §20.9.4 spki step 4: the algorithm must be rsaEncryption with NULL params
     // (mirrors the rsa crate's `verify_algorithm_id`).
     spki.algorithm
         .assert_algorithm_oid(pkcs1::ALGORITHM_OID)
@@ -223,7 +225,7 @@ fn decode_rsa_spki(der: &[u8]) -> Result<(BigUint, BigUint), ()> {
     if spki.algorithm.parameters_any().map_err(|_| ())? != Null.into() {
         return Err(());
     }
-    // §20.8.4 spki step 5-6: parse the RFC 3447 §A.1.1 RSAPublicKey.
+    // §20.9.4 spki step 5-6: parse the RFC 3447 §A.1.1 RSAPublicKey.
     let pk_bytes = spki.subject_public_key.as_bytes().ok_or(())?;
     let pkcs1_key = pkcs1::RsaPublicKey::try_from(pk_bytes).map_err(|_| ())?;
     let n = BigUint::from_bytes_be(pkcs1_key.modulus.as_bytes());
@@ -242,7 +244,7 @@ fn bounded_public_key(n: BigUint, e: BigUint) -> Result<RsaPublicKey, ()> {
     RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize).map_err(|_| ())
 }
 
-/// Parse a SubjectPublicKeyInfo (WebCrypto §20.8.4 spki step 4-6) into a public
+/// Parse a SubjectPublicKeyInfo (WebCrypto §20.9.4 spki step 4-6) into a public
 /// key, bounded by [`MAX_RSA_IMPORT_MODULUS_BITS`] (16384) rather than the rsa
 /// crate's `from_public_key_der` 4096 cap.  Decodes `n` / `e` via the custom
 /// [`decode_rsa_spki`] seam, then applies the same bounds as the jwk path — a
@@ -258,7 +260,7 @@ fn parse_spki(der: &[u8]) -> Result<RsaPublicKey, AlgorithmError> {
     bounded_public_key(n, e).map_err(|()| data("invalid SubjectPublicKeyInfo RSA public key"))
 }
 
-/// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.8.4 pkcs8): `from_pkcs8_der`
+/// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.9.4 pkcs8): `from_pkcs8_der`
 /// validates the rsaEncryption OID + the RSA structure.  `from_pkcs8_der` applies
 /// no modulus cap, so the explicit `check_modulus_bits` is *reached* and required
 /// — it enforces the [`MAX_RSA_IMPORT_MODULUS_BITS`] (16384) import ceiling on the
@@ -307,7 +309,7 @@ fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError>
     })
 }
 
-/// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 / §22.4.4 jwk branch +
+/// Import an RSA `jwk` (WebCrypto §20.9.4 / §21.4.4 / §22.4.4 jwk branch +
 /// RFC 7518 §6.3): validate the JWK shape (kty / use / key_ops / ext / alg),
 /// determine the key type from the `d` member, then reconstruct the typed key
 /// from n / e (public) or n / e / d / p / q / dp / dq / qi (private — the full
@@ -327,11 +329,11 @@ fn import_jwk(
         KeyType::Public
     };
     validate_import_usages(variant, key_type, usages)?;
-    // kty must be "RSA" (§20.8.4 / §21.4.4 / §22.4.4).
+    // kty must be "RSA" (§20.9.4 / §21.4.4 / §22.4.4).
     if jwk.kty.as_deref() != Some("RSA") {
         return Err(data("JWK 'kty' member must be 'RSA' for an RSA key"));
     }
-    // use, if present (and usages non-empty), must match the family (§20.8.4
+    // use, if present (and usages non-empty), must match the family (§20.9.4
     // step 4 / §21.4.4 step 4 → "sig"; §22.4.4 step 5 RSA-OAEP → "enc").
     if !usages.is_empty() {
         if let Some(use_) = jwk.use_.as_deref() {
@@ -383,9 +385,9 @@ fn import_jwk(
             // browser supports multi-prime RSA and the rsa crate's DER encoder
             // rejects >2 primes; RFC 7518 §6.3.2.7 says `oth` MUST be absent for a
             // two-prime key, so even an empty `oth: []` is an unsupported
-            // multi-prime shape (§20.8.4 jwk step 10 / §6.3.2 → DataError).
+            // multi-prime shape (§20.9.4 jwk step 10 / §6.3.2 → DataError).
             // This is checked ONLY on the private branch: WebCrypto interprets a
-            // *public* JWK per RFC 7518 §6.3.1 (n / e only — §20.8.4 / §21.4.4
+            // *public* JWK per RFC 7518 §6.3.1 (n / e only — §20.9.4 / §21.4.4
             // "Otherwise" step), which never references `oth`, so a public import
             // ignores it exactly as it already ignores p / q / d.
             if jwk.oth.is_some() {
@@ -399,7 +401,7 @@ fn import_jwk(
             // demand p / q / dp / dq / qi; Safari rejects "private keys without
             // additional data") and none recover the primes from (n, e, d).
             // elidex matches that UA behavior: a CRT-less (d-only) or partial-CRT
-            // private JWK is a DataError (§20.8.4 jwk step 10 / §6.3.2 — the gate
+            // private JWK is a DataError (§20.9.4 jwk step 10 / §6.3.2 — the gate
             // lives in [`jwk_primes`]).  Accepting a key no browser does would be
             // an interop footgun (and would need a hand-rolled small-exponent
             // factorization the rsa crate's recovery cannot do anyway).
@@ -424,7 +426,7 @@ fn import_jwk(
 /// **required** for a private key: RFC 7518 §6.3.2 makes them optional in the
 /// JWK *format*, but every browser requires the full set and none recover the
 /// primes from (n, e, d), so elidex matches that UA behavior — a missing or
-/// partial set is a DataError (§20.8.4 jwk step 10 / §6.3.2).  `from_components`
+/// partial set is a DataError (§20.9.4 jwk step 10 / §6.3.2).  `from_components`
 /// recomputes dp / dq / qi from p / q / d; the supplied dp / dq / qi are then
 /// checked for consistency by [`validate_jwk_crt`].
 fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
@@ -465,18 +467,20 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 }
 
 // ---------------------------------------------------------------------------
-// generateKey (WebCrypto §20.8.3 / §21.4.3)
+// generateKey (WebCrypto §20.9.3 / §21.4.3)
 // ---------------------------------------------------------------------------
 
-/// `generateKey` for an RSA algorithm (WebCrypto §20.8.3 RSASSA-PKCS1-v1_5 /
+/// `generateKey` for an RSA algorithm (WebCrypto §20.9.3 RSASSA-PKCS1-v1_5 /
 /// §21.4.3 RSA-PSS / §22.4.3 RSA-OAEP — `variant` selects the family, all three
 /// share this `RsaHashedKeyGenParams` keygen) — returns the `(publicKey,
 /// privateKey)` pair (the §17 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
-/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.8.3
-/// step-3 OperationError from the rsa crate (honored as-is).
+/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.9.3
+/// step-4 OperationError from the rsa crate (honored as-is).
+/// ⚠ Contradicts WebCrypto §20.5 step 3; tracked by
+/// `#11-webcrypto-rsa-keygen-param-validation`.
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,
@@ -489,11 +493,11 @@ pub(crate) fn generate<F>(
 where
     F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
-    // §20.8.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
+    // §20.9.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
     // Bound the script-controlled `modulusLength` BEFORE the rsa crate
-    // allocates + prime-searches at that bit size.  WebCrypto §20.8.3 sets no
+    // allocates + prime-searches at that bit size.  WebCrypto §20.9.3 sets no
     // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an
     // untrusted `generateKey({modulusLength: 2**32 - 1})` would otherwise
     // OOM / hang the engine (the keygen runs on the VM thread).  The generate
@@ -514,7 +518,7 @@ where
             "RSA-OAEP modulusLength is outside the supported range (2048-8192 bits)",
         ));
     }
-    // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
+    // §20.9.3 step 3-4: generate the RSA key pair (failure → OperationError).
     let exp = BigUint::from_bytes_be(public_exponent);
     let privkey = {
         let mut rng = ClosureRng::new(&mut fill_random);
@@ -535,14 +539,14 @@ where
     else {
         unreachable!("private_imported always returns KeyMaterial::Rsa");
     };
-    // §20.8.3 step 7: the key's `publicExponent` is the `publicExponent`
+    // §20.9.3 step 8: the key's `publicExponent` is the `publicExponent`
     // member of the *normalized algorithm* (the caller's input bytes), NOT the
     // canonical form re-derived from the parsed key — so a non-minimal input
     // (e.g. a leading-zero `[0, 1, 0, 1]`) round-trips byte-identical.  The
     // modulus length is the generated key's actual bit length.
     let key_alg = variant.key_algorithm(imported.modulus_length, public_exponent.to_vec(), hash);
-    // §20.8.3 steps 9-13: the public key — [[extractable]] always true (step 12),
-    // usages = ∩(usages, {verify}) (step 13).
+    // §20.9.3 steps 10-14: the public key — [[extractable]] always true (step 13),
+    // usages = ∩(usages, {verify}) (step 14).
     let public = CryptoKeyData {
         key_type: KeyType::Public,
         extractable: true,
@@ -553,8 +557,8 @@ where
             private_pkcs8_der: None,
         },
     };
-    // §20.8.3 steps 14-18: the private key — [[extractable]] = the requested
-    // value (step 17), usages = ∩(usages, {sign}) (step 18).
+    // §20.9.3 steps 15-19: the private key — [[extractable]] = the requested
+    // value (step 18), usages = ∩(usages, {sign}) (step 19).
     let private_usages = split_usages(variant, KeyType::Private, usages);
     // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
     // empty usages is a SyntaxError.
@@ -575,7 +579,7 @@ where
 }
 
 /// Whether `usage` is permitted for an RSA key of `variant` + `key_type`: the
-/// §20.8.3/.4 + §21.4.3/.4 sign-family split (public → `verify`, private →
+/// §20.9.3/.4 + §21.4.3/.4 sign-family split (public → `verify`, private →
 /// `sign`) for RSASSA-PKCS1-v1_5 / RSA-PSS, or the §22.4.3/.4 OAEP split
 /// (public → `encrypt` / `wrapKey`, private → `decrypt` / `unwrapKey`) for
 /// RSA-OAEP.  One predicate so the generate / import / pair-split usage checks
@@ -596,7 +600,7 @@ fn rsa_allowed_usages(variant: RsaVariant) -> &'static str {
     }
 }
 
-/// The §20.8.3 / §21.4.3 / §22.4.3 step-1 usage check: every requested usage
+/// The §20.9.3 / §21.4.3 / §22.4.3 step-1 usage check: every requested usage
 /// must be valid for one half of the produced pair (the variant's usage split).
 fn validate_generate_usages(
     variant: RsaVariant,
@@ -618,7 +622,7 @@ fn validate_generate_usages(
 }
 
 /// The usage intersection for the `key_type` half of a generated key pair
-/// (§20.8.3 steps 13 / 18, §22.4.3): keep the requested usages permitted for
+/// (§20.9.3 steps 14 / 19, §22.4.3): keep the requested usages permitted for
 /// that key type + `variant` (sign family public → {verify} / private →
 /// {sign}; OAEP public → {encrypt, wrapKey} / private → {decrypt, unwrapKey}),
 /// deduplicated + canonically ordered.
@@ -633,10 +637,10 @@ fn split_usages(variant: RsaVariant, key_type: KeyType, usages: &[KeyUsage]) -> 
 }
 
 // ---------------------------------------------------------------------------
-// exportKey (WebCrypto §20.8.5 / §21.4.5)
+// exportKey (WebCrypto §20.9.5 / §21.4.5)
 // ---------------------------------------------------------------------------
 
-/// `exportKey` for an RSA key (WebCrypto §20.8.5 / §21.4.5).  The §14.3.10
+/// `exportKey` for an RSA key (WebCrypto §20.9.5 / §21.4.5).  The §14.3.10
 /// step-6 export-support + step-7 extractable gates already ran in
 /// [`crate::ops::export_key`]; this performs the per-format `[[type]]` check
 /// (InvalidAccessError) + encoding.  `raw` is not a registered RSA export
@@ -649,12 +653,12 @@ pub(crate) fn export(
 ) -> Result<ExportedKey, AlgorithmError> {
     match format {
         KeyFormat::Spki => {
-            // §20.8.5 spki: [[type]] must be public.
+            // §20.9.5 spki: [[type]] must be public.
             require_public(key)?;
             Ok(ExportedKey::Raw(rsa_public_der(key).to_vec()))
         }
         KeyFormat::Pkcs8 => {
-            // §20.8.5 pkcs8: [[type]] must be private.
+            // §20.9.5 pkcs8: [[type]] must be private.
             Ok(ExportedKey::Raw(rsa_private_der(key)?.to_vec()))
         }
         KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(export_jwk(variant, hash, key)?))),
@@ -664,7 +668,7 @@ pub(crate) fn export(
     }
 }
 
-/// Build the RSA `jwk` (WebCrypto §20.8.5 / §21.4.5 jwk): `kty`="RSA", `n` /
+/// Build the RSA `jwk` (WebCrypto §20.9.5 / §21.4.5 jwk): `kty`="RSA", `n` /
 /// `e` (public), plus `d` / `p` / `q` / `dp` / `dq` / `qi` (private), `alg`
 /// (RS256 / PS384 / …), `key_ops`, `ext`.
 fn export_jwk(
@@ -722,7 +726,7 @@ fn export_jwk(
 
 /// Reconstruct the typed `RsaPublicKey` from a key's stored canonical SPKI DER
 /// (export / verify).  The DER was produced by this crate, so a parse failure
-/// is the §20.8.5 step-2 "key material cannot be accessed" OperationError, not
+/// is the §20.9.5 step-2 "key material cannot be accessed" OperationError, not
 /// a DataError.
 fn reconstruct_public(key: &CryptoKeyData) -> Result<RsaPublicKey, AlgorithmError> {
     let (n, e) = decode_rsa_spki(rsa_public_der(key)).map_err(|()| key_inaccessible())?;
@@ -735,8 +739,8 @@ fn reconstruct_private(key: &CryptoKeyData) -> Result<RsaPrivateKey, AlgorithmEr
     RsaPrivateKey::from_pkcs8_der(rsa_private_der(key)?).map_err(|_| key_inaccessible())
 }
 
-/// Validate the import usages for `(variant, key_type)` (WebCrypto §20.8.3 /
-/// §20.8.4 "usages contains an entry which is not 'sign' / 'verify' →
+/// Validate the import usages for `(variant, key_type)` (WebCrypto §20.9.3 /
+/// §20.9.4 "usages contains an entry which is not 'sign' / 'verify' →
 /// SyntaxError"): a public key accepts only `verify`, a private key only
 /// `sign`.
 fn validate_import_usages(
@@ -768,7 +772,7 @@ fn usage_message(variant: RsaVariant, key_type: KeyType) -> String {
     format!("{} {}", variant.canonical_name(), kind)
 }
 
-/// The §20.8.5 spki "If `[[type]]` is not 'public' → InvalidAccessError" gate.
+/// The §20.9.5 spki "If `[[type]]` is not 'public' → InvalidAccessError" gate.
 fn require_public(key: &CryptoKeyData) -> Result<(), AlgorithmError> {
     if key.key_type == KeyType::Public {
         Ok(())
@@ -786,7 +790,7 @@ fn rsa_public_der(key: &CryptoKeyData) -> &[u8] {
         .expect("an RSA key always stores its public SPKI DER")
 }
 
-/// The stored canonical PKCS#8 DER of an RSA **private** key — the §20.8.5
+/// The stored canonical PKCS#8 DER of an RSA **private** key — the §20.9.5
 /// pkcs8 "If `[[type]]` is not 'private' → InvalidAccessError" gate.
 fn rsa_private_der(key: &CryptoKeyData) -> Result<&[u8], AlgorithmError> {
     key.material
@@ -803,13 +807,13 @@ fn encode_spki(pubkey: &RsaPublicKey) -> Result<Vec<u8>, AlgorithmError> {
         .to_vec())
 }
 
-/// The modulus bit length (`RsaHashedKeyAlgorithm.modulusLength`, §20.6).
+/// The modulus bit length (`RsaHashedKeyAlgorithm.modulusLength`, §20.7).
 fn modulus_bits<K: PublicKeyParts>(key: &K) -> Result<u32, AlgorithmError> {
     u32::try_from(key.n().bits()).map_err(|_| data("RSA modulus length is too large"))
 }
 
 /// Reject an imported RSA modulus wider than [`MAX_RSA_IMPORT_MODULUS_BITS`]
-/// (16384, the BoringSSL / NSS import cap).  WebCrypto §20.8.4 sets no import
+/// (16384, the BoringSSL / NSS import cap).  WebCrypto §20.9.4 sets no import
 /// maximum, but every import path validates / constructs the key from a
 /// script-controlled `n` on the VM thread, so an unbounded modulus is an
 /// engine-hang / OOM DoS via untrusted script.  Reached by all three import
@@ -884,7 +888,7 @@ fn operation(msg: &str) -> AlgorithmError {
     AlgorithmError::Operation(msg.to_string())
 }
 
-/// The §20.8.5 step-2 "key material cannot be accessed → OperationError" —
+/// The §20.9.5 step-2 "key material cannot be accessed → OperationError" —
 /// used for the (unreachable, key already validated) re-encode / reconstruct
 /// failures.
 fn key_inaccessible() -> AlgorithmError {

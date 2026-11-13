@@ -74,10 +74,10 @@ pub(super) enum DesiredType {
     /// `modulusLength` (required `[EnforceRange] unsigned long`), a
     /// `publicExponent` (required `BigInteger`), and a `hash` (required).
     RsaKeyGen(RsaVariant),
-    /// RSA `importKey` (`RsaHashedImportParams`, §20.7 / §21.4.4): a `hash`
+    /// RSA `importKey` (`RsaHashedImportParams`, §20.8 / §21.4.4): a `hash`
     /// (required `HashAlgorithmIdentifier`).
     RsaImport(RsaVariant),
-    /// RSASSA-PKCS1-v1_5 `sign` / `verify` (§20.8.1 / §20.8.2): a name-only
+    /// RSASSA-PKCS1-v1_5 `sign` / `verify` (§20.9.1 / §20.9.2): a name-only
     /// `Algorithm` (the hash comes from the key's `[[algorithm]]`).
     RsassaParams,
     /// RSA-PSS `sign` / `verify` (`RsaPssParams`, §21.3): a `saltLength`
@@ -163,8 +163,8 @@ pub(super) fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType>
         (Operation::DeriveBits, AlgorithmName::Ecdh) => Some(DesiredType::EcdhDerive),
         // RSASSA-PKCS1-v1_5 / RSA-PSS (WebCrypto §20 / §21).  generateKey +
         // importKey carry the RsaHashed key params (RsaHashedKeyGenParams §20.4
-        // / RsaHashedImportParams §20.7); RSASSA sign / verify are name-only
-        // (§20.8.1 / §20.8.2) while RSA-PSS adds RsaPssParams (§21.3).  Neither
+        // / RsaHashedImportParams §20.8); RSASSA sign / verify are name-only
+        // (§20.9.1 / §20.9.2) while RSA-PSS adds RsaPssParams (§21.3).  Neither
         // registers get-key-length (§20.2): a `(GetKeyLength, Rsassa|RsaPss)`
         // pair falls to the AES catch-all below where `as_aes()` returns `None`
         // → NotSupported.  These arms precede the AES catch-alls (and the
@@ -189,7 +189,7 @@ pub(super) fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType>
             Some(DesiredType::RsaPssParams)
         }
         // RSA-OAEP (WebCrypto §22).  generateKey + importKey reuse the RsaHashed
-        // key params (RsaHashedKeyGenParams §20.4 / RsaHashedImportParams §20.7,
+        // key params (RsaHashedKeyGenParams §20.4 / RsaHashedImportParams §20.8,
         // reused by §22); encrypt / decrypt take the optional RsaOaepParams.label
         // (§22.3).  §22.2 registers ONLY these — NOT wrapKey / unwrapKey (and no
         // get-key-length / sign / verify): a `(WrapKey | UnwrapKey, RSA-OAEP)`
@@ -271,7 +271,7 @@ pub enum AlgorithmParams {
     /// `publicExponent` (required `BigInteger` = `Uint8Array`), `hash`
     /// (required `HashAlgorithmIdentifier`).
     RsaHashedKeyGen,
-    /// RSA importKey (`RsaHashedImportParams` §20.7 / §21.4.4): `hash`
+    /// RSA importKey (`RsaHashedImportParams` §20.8 / §21.4.4): `hash`
     /// (required `HashAlgorithmIdentifier`).
     RsaHashedImport,
     /// RSA-PSS sign / verify (`RsaPssParams` §21.3): `saltLength` (required
@@ -318,7 +318,7 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         DesiredType::EcdhDerive => AlgorithmParams::EcdhKeyDeriveParams,
         // RSA generateKey + importKey carry distinct dictionaries
         // (`RsaHashedKeyGenParams` §20.4 has modulusLength + publicExponent +
-        // hash; `RsaHashedImportParams` §20.7 has only hash).  RSA-PSS sign /
+        // hash; `RsaHashedImportParams` §20.8 has only hash).  RSA-PSS sign /
         // verify read `saltLength`; RSASSA sign / verify are name-only
         // (folded into the `NameOnly` group above).
         DesiredType::RsaKeyGen(_) => AlgorithmParams::RsaHashedKeyGen,

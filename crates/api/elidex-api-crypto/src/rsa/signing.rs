@@ -26,7 +26,7 @@ use super::{
 };
 
 /// RSA `sign` (WebCrypto §20.9.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
-/// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.6), then
+/// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.7), then
 /// apply the family padding — RSASSA-PKCS1-v1_5 (RFC 3447 §8.2) applies the
 /// EMSA-PKCS1-v1_5 encoding (§9.2, deterministic); RSA-PSS (§8.1) applies
 /// EMSA-PSS + MGF1 over a random `salt_length`-byte salt (§9.1).  The §14.3.3

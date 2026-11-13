@@ -122,7 +122,7 @@ fn ecdh_derive_bits_non_crypto_key_public_is_type_error() {
 #[test]
 fn ecdh_derive_bits_curve_mismatch_rejects_invalid_access() {
     // A P-384 peer against a P-256 base key → InvalidAccessError (§24.4.2
-    // step 5).
+    // step 8).
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']) \
            .then(base => crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-384'}, true, ['deriveBits']) \

@@ -233,12 +233,14 @@ fn import_hmac_key(
     usages: Vec<KeyUsage>,
     key_data: KeyData,
 ) -> Result<CryptoKeyData, AlgorithmError> {
-    // §31.6.4 Import Key step 2: a non-`sign`/`verify` usage is a
+    // §31.6.4 Import Key step 3: a non-`sign`/`verify` usage is a
     // SyntaxError, checked before the key material is parsed.  The
     // *empty*-usages SyntaxError is a separate, later step
     // (§14.3.9 generic, below) — so empty usages must NOT short-circuit
     // material validation here, or `importKey('raw', new Uint8Array(0),
     // …, [])` would surface SyntaxError instead of the required DataError.
+    // ⚠ This order contradicts WebCrypto §31.6.4 step 1 (length check first);
+    // tracked by `#11-webcrypto-hmac-import-length-zero-order`.
     validate_usage_kinds(&usages, KeyUsage::is_hmac_usage, HMAC_USAGE_MSG)?;
 
     let material = match (format, key_data) {
@@ -270,8 +272,8 @@ fn import_hmac_key(
     // DataError/NotSupportedError from invalid material wins.
     require_secret_usages_nonempty(&usages)?;
     let usages = normalize_usages(usages);
-    // §31.6.4 step 8 "an HMAC key with the first length bits of data":
-    // step 7 admits a `length` member up to 7 bits below the data's bit
+    // §31.6.4 step 9 "an HMAC key with the first length bits of data":
+    // step 8 admits a `length` member up to 7 bits below the data's bit
     // length, so zero the unused trailing bits of the final octet.
     let mut material = material;
     mask_to_bit_length(&mut material, length);
@@ -416,7 +418,7 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
         KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
         KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
-        // RSA export (§20.8.5 / §21.4.5) — the variant + hash drive the jwk
+        // RSA export (§20.9.5 / §21.4.5) — the variant + hash drive the jwk
         // `alg` (RS256 / PS384 / …); spki / pkcs8 are verbatim canonical DER.
         KeyAlgorithm::Rsa { variant, hash, .. } => crate::rsa::export(variant, hash, format, key),
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
@@ -448,7 +450,7 @@ fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKe
     }
 }
 
-/// `sign` (WebCrypto §14.3.3 + §31 HMAC / §23.7.1 ECDSA / §20.8.1
+/// `sign` (WebCrypto §14.3.3 + §31 HMAC / §23.7.1 ECDSA / §20.9.1
 /// RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS).  `fill_random` is the VM entropy seam.
 /// HMAC and ECDSA are deterministic (ECDSA uses an RFC 6979 deterministic
 /// nonce), so the closure is never invoked for them.  BOTH RSA families consume
@@ -478,7 +480,7 @@ where
             };
             crate::ec::sign(curve, hash, key, data)
         }
-        // RSA: the variant + hash ride on the key (§20.6); RSA-PSS reads its
+        // RSA: the variant + hash ride on the key (§20.7); RSA-PSS reads its
         // `saltLength` from the normalized params (RSASSA params are name-only).
         KeyAlgorithm::Rsa { variant, hash, .. } => {
             let salt_length = match algorithm {
@@ -496,7 +498,7 @@ where
     }
 }
 
-/// `verify` (WebCrypto §14.3.4 + §31 HMAC / §23.7.2 ECDSA / §20.8.2
+/// `verify` (WebCrypto §14.3.4 + §31 HMAC / §23.7.2 ECDSA / §20.9.2
 /// RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS).
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn verify(
@@ -748,12 +750,12 @@ fn require_secret_usages_nonempty(usages: &[KeyUsage]) -> Result<(), AlgorithmEr
 
 /// Zero the unused trailing (low-order) bits of the final octet so the
 /// material represents exactly the first `length_bits` bits of the key
-/// (WebCrypto §31.6.3 step 3 "key of length length bits" / §31.6.4 step 8
+/// (WebCrypto §31.6.3 step 3 "key of length length bits" / §31.6.4 step 9
 /// "first length bits of data").
 ///
 /// Both callers supply exactly `ceil(length_bits / 8)` octets — generate
 /// fills that many CSPRNG bytes, and the import range check (§31.6.4
-/// step 7) bounds `length_bits` to within 7 bits of the data — so the only
+/// step 8) bounds `length_bits` to within 7 bits of the data — so the only
 /// partial octet is the last one, holding `length_bits mod 8` significant
 /// (high-order) bits.  An octet-aligned `length_bits` is a no-op.
 fn mask_to_bit_length(material: &mut [u8], length_bits: u32) {

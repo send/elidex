@@ -39,7 +39,7 @@ pub enum AlgorithmName {
     /// RSASSA-PKCS1-v1_5 (WebCrypto §20) — `generateKey` / `importKey` /
     /// `exportKey` / `sign` / `verify`.  Asymmetric: no `get key length`
     /// (§20.2).  The signature `hash` rides on the key
-    /// (`RsaHashedKeyAlgorithm`, §20.6), and sign / verify take name-only
+    /// (`RsaHashedKeyAlgorithm`, §20.7), and sign / verify take name-only
     /// params (no per-call dictionary).
     RsassaPkcs1V15,
     /// RSA-PSS (WebCrypto §21) — the same op-set as RSASSA-PKCS1-v1_5; sign
@@ -48,7 +48,7 @@ pub enum AlgorithmName {
     /// RSA-OAEP (WebCrypto §22) — `generateKey` / `importKey` / `exportKey` /
     /// `encrypt` / `decrypt` / `wrapKey` / `unwrapKey`.  The encrypt family of
     /// the RSA keys (distinct `[[usages]]` from RSASSA / RSA-PSS); the OAEP
-    /// digest + MGF1 hash ride on the key (`RsaHashedKeyAlgorithm`, §20.6 —
+    /// digest + MGF1 hash ride on the key (`RsaHashedKeyAlgorithm`, §20.7 —
     /// reused by §22), and
     /// `encrypt` / `decrypt` take only the optional `RsaOaepParams.label`
     /// (§22.3).
@@ -287,7 +287,7 @@ impl EcAlgorithm {
 
 /// Which RSA signing family a generate / import / sign / verify resolves to
 /// (RSASSA-PKCS1-v1_5 §20 vs RSA-PSS §21).  The §20.4 `RsaHashedKeyGenParams`
-/// / §20.7 `RsaHashedImportParams` dicts carry no family marker, so this
+/// / §20.8 `RsaHashedImportParams` dicts carry no family marker, so this
 /// discriminator rides alongside the key params to decide the produced key's
 /// `[[algorithm]]` and the sign / verify padding — the RSA analogue of
 /// [`EcAlgorithm`] / [`AesVariant`].  (RSA-OAEP §22 — the encrypt family —
@@ -322,7 +322,7 @@ impl RsaVariant {
         }
     }
 
-    /// The key's `[[algorithm]]` for this RSA family (WebCrypto §20.6 / §21
+    /// The key's `[[algorithm]]` for this RSA family (WebCrypto §20.7 / §21
     /// `RsaHashedKeyAlgorithm`) — used by both RSA import and generateKey.
     pub(crate) fn key_algorithm(
         self,
@@ -339,7 +339,7 @@ impl RsaVariant {
     }
 
     /// The JWK `use` value this RSA family requires when a `jwk` import carries
-    /// the optional `use` member with non-empty usages (WebCrypto §20.8.4 step 4
+    /// the optional `use` member with non-empty usages (WebCrypto §20.9.4 step 4
     /// RSASSA / §21.4.4 step 4 RSA-PSS → `"sig"`; §22.4.4 step 5 RSA-OAEP →
     /// `"enc"`) — the signing families are signature keys, RSA-OAEP is an
     /// encryption key.
@@ -351,8 +351,8 @@ impl RsaVariant {
     }
 
     /// The JWK `alg` value for this RSA family + `hash`, emitted on export
-    /// (WebCrypto §20.8.5 RSASSA / §21.4.5 RSA-PSS / §22.4.5 RSA-OAEP jwk) and
-    /// matched on import (§20.8.4 / §21.4.4 / §22.4.4): `RS1` / `RS256` / `RS384`
+    /// (WebCrypto §20.9.5 RSASSA / §21.4.5 RSA-PSS / §22.4.5 RSA-OAEP jwk) and
+    /// matched on import (§20.9.4 / §21.4.4 / §22.4.4): `RS1` / `RS256` / `RS384`
     /// / `RS512` for RSASSA-PKCS1-v1_5, `PS1` / `PS256` / `PS384` / `PS512` for
     /// RSA-PSS, `RSA-OAEP` / `RSA-OAEP-256` / `RSA-OAEP-384` / `RSA-OAEP-512`
     /// for RSA-OAEP (the SHA-1 form is the bare `RSA-OAEP`).  Total over the

@@ -58,7 +58,7 @@ impl KeyUsage {
         }
     }
 
-    /// Whether HMAC accepts this usage (WebCrypto §31.6.3/.4 step 1:
+    /// Whether HMAC accepts this usage (WebCrypto §31.6.3 step 1 / §31.6.4 step 3:
     /// `sign` / `verify` only).
     pub fn is_hmac_usage(self) -> bool {
         matches!(self, Self::Sign | Self::Verify)
@@ -109,8 +109,8 @@ impl KeyUsage {
     }
 
     /// Whether an RSA signing algorithm (RSASSA-PKCS1-v1_5 §20 / RSA-PSS
-    /// §21) accepts this usage for a key of `key_type` (WebCrypto §20.8.3 /
-    /// §20.8.4 / §21.4.3 / §21.4.4): a public key accepts only `verify`; a
+    /// §21) accepts this usage for a key of `key_type` (WebCrypto §20.9.3 /
+    /// §20.9.4 / §21.4.3 / §21.4.4): a public key accepts only `verify`; a
     /// private key only `sign`.  Key-type-dependent (the usage split across
     /// the generated key pair), like [`Self::is_ecdsa_usage`].
     pub fn is_rsa_sign_usage(self, key_type: KeyType) -> bool {
@@ -163,7 +163,7 @@ pub fn normalize_usages(mut usages: Vec<KeyUsage>) -> Vec<KeyUsage> {
 /// The canonical algorithm descriptor stored on a `CryptoKey`.
 ///
 /// Not `Copy`: the RSA variant carries the public-exponent octets
-/// (`RsaHashedKeyAlgorithm.publicExponent`, §20.6 — a `BigInteger`, the
+/// (`RsaHashedKeyAlgorithm.publicExponent`, §20.7 — a `BigInteger`, the
 /// only one in WebCrypto), an owned `Vec<u8>`.  The symmetric / EC variants
 /// are still trivially clonable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,15 +190,15 @@ pub enum KeyAlgorithm {
     /// is the `EcKeyAlgorithm` `{ name: "ECDH", namedCurve: "P-256"… }`.
     Ecdh { curve: NamedCurve },
     /// RSA signing families (WebCrypto §20 RSASSA-PKCS1-v1_5 / §21 RSA-PSS) —
-    /// the `RsaHashedKeyAlgorithm` (§20.6): the family `variant`, the public
+    /// the `RsaHashedKeyAlgorithm` (§20.7): the family `variant`, the public
     /// modulus bit length, the public exponent octets, and the message
     /// `hash`.  Unlike ECDSA (whose signature `hash` lives on the call
-    /// params, `EcdsaParams`), RSA carries the hash on the **key** (§20.6) —
+    /// params, `EcdsaParams`), RSA carries the hash on the **key** (§20.7) —
     /// `sign` / `verify` read it from here, not the normalized call algorithm
     /// (RSASSA params are name-only; RSA-PSS adds only `saltLength`).  The
     /// `public_exponent` is the big-endian `BigInteger` octets (typically
     /// `[0x01, 0x00, 0x01]` = 65537) of the `RsaKeyAlgorithm.publicExponent`
-    /// member (§20.5, inherited by §20.6), round-tripped byte-identical when
+    /// member (§20.6, inherited by §20.7), round-tripped byte-identical when
     /// the §13.4 `algorithm` getter re-materializes it as a `Uint8Array`.
     Rsa {
         variant: RsaVariant,

@@ -15,14 +15,14 @@ use crate::hash::HashAlgorithm;
 
 /// Derive `length_bits / 8` bytes via HKDF-`hash` (RFC 5869 §2 Extract then
 /// Expand) from input keying material `ikm`, with `salt` and `info`
-/// (WebCrypto §33.4.1 Derive Bits step 3: `hash` as Hash, `ikm` as IKM,
+/// (WebCrypto §33.4.1 Derive Bits step 5: `hash` as Hash, `ikm` as IKM,
 /// `salt`, `info`, and `length_bits / 8` as L).
 ///
 /// `length_bits` is a non-null multiple of 8 (the §33.4.1 step-1 constraint
 /// is enforced upstream in the shared derive-bits seam reached by both
 /// [`crate::ops::derive_bits`] and [`crate::ops::derive_key`]).  A derivation
 /// failure — only an output longer than RFC 5869's `255 × HashLen` cap — is
-/// an `OperationError` (§33.4.1 step 4).
+/// an `OperationError` (§33.4.1 step 3).
 pub fn derive_bits(
     hash: HashAlgorithm,
     ikm: &[u8],
@@ -31,7 +31,7 @@ pub fn derive_bits(
     length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
     let len = (length_bits / 8) as usize;
-    // §33.4.1 step 4 / RFC 5869 §2.3: HKDF-Expand fails for an output longer
+    // §33.4.1 step 3 / RFC 5869 §2.3: HKDF-Expand fails for an output longer
     // than `255 × HashLen`.  Check the cap BEFORE allocating, so an oversized
     // `deriveBits` request returns the spec `OperationError` instead of first
     // allocating the full (attacker-controlled, up to ~512 MiB) buffer — which

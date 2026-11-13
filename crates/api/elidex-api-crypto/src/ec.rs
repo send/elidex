@@ -295,7 +295,7 @@ fn import_jwk(
 // ---------------------------------------------------------------------------
 
 /// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
-/// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
+/// — returns the `(publicKey, privateKey)` pair (the §17 `CryptoKeyPair`).
 /// `fill_random` is the VM entropy seam, fed through [`TryClosureRng`] into
 /// `NonZeroScalar::try_generate_from_rng`'s vetted rejection sampling.
 pub(crate) fn generate<F>(
@@ -486,12 +486,15 @@ pub(crate) fn verify(
 // ---------------------------------------------------------------------------
 
 /// ECDH `deriveBits` (WebCrypto §24.4.2): validate the §24.4.2
-/// InvalidAccessError precedence against the base key (steps 1, 3, 4, 5),
+/// InvalidAccessError precedence against the base key (steps 6, 2, 7, 8, in that
+/// order; the step-5 length check runs last, at step 11's `truncate_to_length`),
 /// perform the ECDH primitive (RFC 6090 §4) yielding the shared secret (the
 /// field-element-to-octet-string X coordinate, `coordinate_len` bytes), then
-/// apply the step-8 length semantics.  `peer` is the VM-extracted
+/// apply the step-11 length semantics.  `peer` is the VM-extracted
 /// [`EcdhKeyDeriveParams.public`][EcdhPeer]; the §14.3.8 name + `deriveBits`-
 /// usage gate ran in [`crate::ops::derive_bits`] / [`crate::ops::derive_key`].
+/// ⚠ This order contradicts WebCrypto §24.4.2 (peer checks first); tracked by
+/// `#11-webcrypto-ecdh-derive-bits-check-order`.
 ///
 /// `length` semantics differ from the KDFs: `None` returns the **full**
 /// secret (not an OperationError); `Some(len)` returns the first `len` bits
@@ -502,23 +505,23 @@ pub(crate) fn derive_bits(
     peer: &EcdhPeer,
     length: Option<u32>,
 ) -> Result<Vec<u8>, AlgorithmError> {
-    // step 1: the base key must be private.
+    // step 6: the base key must be private.
     let scalar = ec_private_scalar(base_key)?;
     let curve = base_key
         .algorithm
         .named_curve()
         .expect("an ECDH base key has a curve");
-    // step 3: the peer must be public.
+    // step 2: the peer must be public.
     if peer.key_type != KeyType::Public {
         return Err(invalid_access("the ECDH public key is not a public key"));
     }
-    // step 4: the peer's algorithm name must equal the base key's (ECDH).
+    // step 7: the peer's algorithm name must equal the base key's (ECDH).
     if peer.algorithm != base_key.algorithm.name() {
         return Err(invalid_access(
             "the ECDH public key algorithm does not match the base key",
         ));
     }
-    // step 5: the peer's curve must equal the base key's.
+    // step 8: the peer's curve must equal the base key's.
     if peer.curve != Some(curve) {
         return Err(invalid_access(
             "the ECDH public key curve does not match the base key",
@@ -528,13 +531,13 @@ pub(crate) fn derive_bits(
         .public_point
         .as_deref()
         .ok_or_else(|| invalid_access("the ECDH public key has no point"))?;
-    // step 6: the ECDH primitive → the shared secret (X coordinate octets).
+    // step 9: the ECDH primitive → the shared secret (X coordinate octets).
     let secret = ecdh_shared_secret(curve, scalar, peer_point)?;
-    // step 8: the length semantics (null → full; else first `length` bits).
+    // step 11: the length semantics (null → full; else first `length` bits).
     truncate_to_length(secret, length)
 }
 
-/// The ECDH primitive (WebCrypto §24.4.2 step 6 / RFC 6090 §4): scalar-
+/// The ECDH primitive (WebCrypto §24.4.2 step 9 / RFC 6090 §4): scalar-
 /// multiply the peer point by the base scalar, returning the shared secret's
 /// X coordinate as octets (RFC 6090 §6.2, `coordinate_len` bytes big-endian).
 fn ecdh_shared_secret(
@@ -551,7 +554,7 @@ fn ecdh_shared_secret(
     })
 }
 
-/// WebCrypto §24.4.2 step 8: `None` returns the full secret; `Some(len)`
+/// WebCrypto §24.4.2 step 11: `None` returns the full secret; `Some(len)`
 /// returns the first `len` bits (masking the final partial octet), or an
 /// OperationError if `len` exceeds the secret's bit length.
 fn truncate_to_length(secret: Vec<u8>, length: Option<u32>) -> Result<Vec<u8>, AlgorithmError> {

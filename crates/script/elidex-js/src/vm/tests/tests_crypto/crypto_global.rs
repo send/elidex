@@ -1,7 +1,7 @@
 //! `globalThis.crypto` + `Crypto` constructor stub, `getRandomValues`
 //! (type acceptance / rejection / quota boundary / return identity /
 //! brand check), `randomUUID`, and the `crypto.subtle` `[SameObject]`
-//! accessor (WebCrypto §10 / §11).
+//! accessor (WebCrypto §10).
 
 use super::{assert_typeerror, eval_bool, eval_err, eval_number, eval_string};
 
@@ -225,7 +225,7 @@ fn get_random_values_brand_checks_receiver() {
 }
 
 // ---------------------------------------------------------------------------
-// `randomUUID` (WebCrypto §11.5)
+// `randomUUID` (WebCrypto §10.1.2)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -235,7 +235,7 @@ fn random_uuid_returns_string() {
 
 #[test]
 fn random_uuid_matches_v4_format() {
-    // Spec §11.5: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    // Spec §10.1.2: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
     // where x is hex and y in {8, 9, a, b} (RFC 4122 variant bits).
     assert!(eval_bool(
         "const u = crypto.randomUUID(); \

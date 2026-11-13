@@ -1,6 +1,6 @@
 //! RSA (RSASSA-PKCS1-v1_5 / RSA-PSS) crate-level tests (WebCrypto §20 / §21):
 //! the generateKey usage-split + key shape, the import / export round-trips
-//! across spki / pkcs8 / jwk, RSASSA / RSA-PSS sign / verify, and the §20.8.4 /
+//! across spki / pkcs8 / jwk, RSASSA / RSA-PSS sign / verify, and the §20.9.4 /
 //! §21.4.4 invalid-shape (DataError / SyntaxError / NotSupported) set.
 //!
 //! Keys are produced by a **seeded** deterministic CSPRNG (reproducible,
@@ -16,7 +16,7 @@
 //! - `keygen` — generateKey shape / usage-split / WebIDL member order /
 //!   modulus ceiling / entropy + DoS bounds, and the Marvin tripwire.
 //! - `roundtrip` — import / export round-trips (spki / pkcs8 / jwk) and the
-//!   §20.8.4 / §21.4.4 invalid-shape (DataError / SyntaxError / NotSupported)
+//!   §20.9.4 / §21.4.4 invalid-shape (DataError / SyntaxError / NotSupported)
 //!   matrix.
 //! - `sign_verify` — RSASSA / RSA-PSS sign / verify, blinding, salt-length and
 //!   cross-hash boundaries.

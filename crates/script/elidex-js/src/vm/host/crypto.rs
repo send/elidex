@@ -71,7 +71,7 @@ impl VmInner {
         });
 
         // `getRandomValues` + `randomUUID` methods (WebCrypto
-        // §11.1 / §11.5).
+        // §10.1.1 / §10.1.2).
         let methods: [(_, NativeFn); 2] = [
             (
                 self.well_known.get_random_values,
@@ -209,11 +209,11 @@ fn require_crypto_this(
 }
 
 // ---------------------------------------------------------------------------
-// `Crypto.prototype.getRandomValues(view)` (WebCrypto §11.1)
+// `Crypto.prototype.getRandomValues(view)` (WebCrypto §10.1.1)
 // ---------------------------------------------------------------------------
 
 /// Maximum byte length accepted by `getRandomValues` per WebCrypto
-/// §11.1 step 1.  Views with `byteLength > QUOTA_EXCEEDED_LIMIT`
+/// §10.1.1 step 3.  Views with `byteLength > QUOTA_EXCEEDED_LIMIT`
 /// reject with `QuotaExceededError`; the boundary itself (==
 /// `QUOTA_EXCEEDED_LIMIT`) is allowed.
 const QUOTA_EXCEEDED_LIMIT: u32 = 65_536;
@@ -226,11 +226,12 @@ fn native_crypto_get_random_values(
     require_crypto_this(ctx, this, "getRandomValues")?;
     let view_val = args.first().copied().unwrap_or(JsValue::Undefined);
 
-    // §11.1 step 1 — type check.  Allow-list of integer TypedArrays
+    // §10.1.1 step 1 — type check.  Allow-list of integer TypedArrays
     // (Int8/Uint8/Uint8Clamped/Int16/Uint16/Int32/Uint32/BigInt64/
     // BigUint64); Float32/Float64/DataView/non-TypedArray reject
-    // with TypeError (NOT TypeMismatchError DOMException — modern
-    // WebCrypto + WPT spec wording).  Matches Chrome / Firefox.
+    // with TypeError.
+    // ⚠ Contradicts WebCrypto §10.1.1 step 1 (TypeMismatchError); tracked by
+    // `#11-webcrypto-getrandomvalues-type-mismatch-error`.
     let JsValue::Object(view_id) = view_val else {
         return Err(VmError::type_error(
             "Failed to execute 'getRandomValues' on 'Crypto': \
@@ -280,7 +281,9 @@ fn native_crypto_get_random_values(
     // detached view, divergent from browser behaviour (Chrome /
     // Firefox both throw).  Placed before the §11.1 step 2 quota
     // check so a detached view does not surface a misleading
-    // `QuotaExceededError` on the `byte_length == 0` path.
+    // `QuotaExceededError` on the `byte_length == 0` path.  (§11.1 step 2
+    // above is the old number of §10.1.1 step 3; it is fixed when
+    // `#11-ecs-mission-ratchet-rekey` lands.)
     if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
         return Err(VmError::type_error(
             "Failed to execute 'getRandomValues' on 'Crypto': \
@@ -288,7 +291,7 @@ fn native_crypto_get_random_values(
         ));
     }
 
-    // §11.1 step 2 — quota check.  Boundary value is allowed.
+    // §10.1.1 step 3 — quota check.  Boundary value is allowed.
     if byte_length > QUOTA_EXCEEDED_LIMIT {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_quota_exceeded_error,
@@ -301,7 +304,8 @@ fn native_crypto_get_random_values(
         ));
     }
 
-    // §11.1 step 3 — zero-length short-circuit.  Skip the body_data
+    // Zero-length short-circuit (an elidex optimisation, not a WebCrypto
+    // step).  Skip the body_data
     // mutation entirely so the entry is NOT materialised by a no-op
     // write (mirrors `byte_io::write_at` empty-slice early-return —
     // `body_data.contains_key(&id)` is consulted by other call sites
@@ -310,7 +314,7 @@ fn native_crypto_get_random_values(
         return Ok(view_val);
     }
 
-    // §11.1 step 4 — fill view bytes with cryptographically strong
+    // §10.1.1 steps 5-6 — fill view bytes with cryptographically strong
     // random.  Allocate into a stack-friendly temp `Vec<u8>` rather
     // than borrowing `body_data` mutably (which would conflict with
     // the `ctx.vm` borrow held by the brand check).  Up to 64 KiB =
@@ -326,13 +330,13 @@ fn native_crypto_get_random_values(
     })?;
     super::byte_io::write_at_with_routing(ctx.vm, buffer_id, abs, &bytes);
 
-    // §11.1 step 5 — return the SAME view receiver (identity per
+    // §10.1.1 step 7 — return the SAME view receiver (identity per
     // IDL `ArrayBufferView getRandomValues(ArrayBufferView array)`).
     Ok(view_val)
 }
 
 // ---------------------------------------------------------------------------
-// `Crypto.prototype.randomUUID()` (WebCrypto §11.5)
+// `Crypto.prototype.randomUUID()` (WebCrypto §10.1.2)
 // ---------------------------------------------------------------------------
 
 fn native_crypto_random_uuid(
@@ -341,7 +345,7 @@ fn native_crypto_random_uuid(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_crypto_this(ctx, this, "randomUUID")?;
-    // §11.5: return a v4 UUID per RFC 4122 §4.4, lowercase, hyphenated.
+    // §10.1.2: return a v4 UUID per RFC 4122 §4.4, lowercase, hyphenated.
     // `uuid::Uuid::new_v4()` consumes the OS CSPRNG via `getrandom`
     // (configured via the v4 feature) and `.hyphenated()` emits the
     // canonical 8-4-4-4-12 form with the version (`4`) and variant
