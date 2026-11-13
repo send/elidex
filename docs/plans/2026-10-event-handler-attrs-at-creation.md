@@ -31,7 +31,7 @@ slice a's implementation PR (the #541 precedent). "At umbrella approval" means "
 implementation is cut from main after that.
 
 **Changelog.** *Rev 8.<t>* (carried by T3's PR, branch `layout-eh-target-determination-plan`, with the T3 memo
-`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.6; PM decisions 129–131, 153, 168, 359, 699; `<t>` is
+`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.7; PM decisions 129–131, 153, 168, 359, 699, 705; `<t>` is
 assigned at landing, as for C1's *Rev 8.7* (PM 223 O-1 / 232; PM decision 699); until T3 memo rev 4.6: "the next number
 after main's when T3 rebases, the C0 program memo D-9's rule"). PM decision 129 (the user's choice for T3 memo
 rev 1 O-1): T3 also ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six Window-reflecting names,
@@ -41,13 +41,16 @@ S-1's clone path moves into T3 (T3 memo D-T10), so slice b's S-1 loses it, and T
 by namespace (D-T11). PM decision 168 (T3 memo rev 3 O-7 (a)): T3 closes facets (1) and (3) of
 `#11-event-handler-content-attribute-applicability` (D-T8); facet (2) stays with slice b. PM decision 699 (T3 memo rev
 4.5 O-10 (a)): T3 also processes a fragment-parsed element at its creation when its node document is active (T3 memo
-D-T7), so that part of S-1's fragment path leaves slice b (how much, and its call site: T3 memo O-11). Edited in place, each with its
+D-T7). PM decision 705 (T3 memo rev 4.6 O-11 → S-i × C-ii): the whole fragment path of S-1 is T3's (T3 memo D-T12),
+processed at creation through one creation event, RC-2a's `CloneCreated` generalised to `SubtreeCreated { root, cause }`
+(T3 memo §4.5), so slice b's S-1 loses the fragment path except the declarative shadow content and template contents a
+fragment parse creates (outside the insertion-time walk set). Edited in place, each with its
 pre-8.<t> wording kept: X-W *Status*; K-0's X-W paragraph and "K-0's wording and X-W"; the K-1 / K-2 qualifiers; §0.6's
 lead, S-1, S-5 and S-6; §1.1 I4; §1.2's T3 and slice b rows (scope); §1.3 x3, x6 (closure), new x8 (C1 → T3) and new x11 (RC-2a → T3, PM decision 359); §1.4
 (1) (§1.4's order sentence is C0a's, rev 8.4; T3's version of it was dropped when T3 rebased, T3 memo rev 4.5); §1.5's heading and its K-2 / K-3, G5 / K3, K2, G2 rest and X-W bullets; §2.1 I1×I4 and
-I4×I5; §5.1's `cloneNode` row; C19b's and C19c's *Spec* notes; §7 G3, G4 and G5; §8.1 (first bullet, and the two slots
+I4×I5; §3's §13.4 row (PM decision 705); §5.1's `cloneNode` and fragment rows; C19b's and C19c's *Spec* notes; §7 G3, G4 and G5; §8.1 (first bullet, and the two slots
 T3 registers at landing: `#11-htmlframesetelement-interface`, PM decision 130, and the applicability slot); §8.2 defects (1),
-(2), (3), (7) and the classification; §9 N-6; §10.2; §10.3; §11's O9 line. Not carried here (PM decision 223 O-1 as
+(2), (3), (7) and the classification; §9 N-4 (b) and N-6; §10.2; §10.3; §11's O9 line. Not carried here (PM decision 223 O-1 as
 amended by 271: each row and edge by its own PR): the C0 program row, the order line, x9, x10 and the order's other
 consequences (C0a's PR, C0 program memo D-9 / R-3), the C1 row and x7 (C1's PR, C1 memo R-1), the C1-pre row and the
 C1-pre → C1 edge (C1's PR).
@@ -408,9 +411,12 @@ how it satisfies each of the following, and its plan-review checks that:
   no element that S-1 covers. HTML defines no event-handler insertion steps (WHATWG DOM §4.2.3 Mutation algorithms).
   Rev 8.<t> (PM decision 153): the **clone** path is T3's (T3 memo D-T10: every element of a clone, every pair class,
   shadow-including and template contents included, processed at creation through one session entry point); slice b's
-  S-1 covers its other creation paths (until rev 8.<t> the clone was slice b's). PM decision 699: the fragment path's
-  creation in an active-document context is T3's too (T3 memo D-T7; how much of the fragment path and its call site:
-  T3 memo O-11).
+  S-1 covers its other creation paths (until rev 8.<t> the clone was slice b's). PM decisions 699 and 705: the
+  **fragment** path is T3's too (T3 memo D-T7, D-T12: every element of a fragment's insertion-time walk set, every pair
+  class, processed at creation through the creation event of T3 memo §4.5); the declarative shadow content and
+  template contents a fragment parse creates are outside that walk set and stay slice b's (until T3 memo rev 4.7:
+  "the fragment path's creation in an active-document context is T3's too (… how much of the fragment path and its
+  call site: T3 memo O-11)").
 - **S-2, template contents and their clones follow C1's handling.** In branch A (C1 landed), they are processed at
   creation and read null. In branch B, slice b's plan decides how they are processed, subject to S-3 and S-4, and S-3
   allows **no** exception. S-1 processes a clone at creation unconditionally, and S-3 forbids a clone of template
@@ -468,8 +474,8 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | **C0** `EH-attrs-at-creation-C0` (owner: Layout lane, this program; PM decisions 143, 244), a program of three PRs in order **C0a** `EH-attrs-at-creation-C0a` (*replace* record order) → **C0b** `EH-attrs-at-creation-C0b` (the node document as the stored fact: creation entry, insertion adoption, one reader) → **C0c** `EH-attrs-at-creation-C0c` (`adoptedCallback` and `document.adoptNode`); program memo `docs/plans/2026-10-eh-attrs-c0-insertion-adoption.md` | slot `#11-cross-document-adopt-on-insert` (DOM §4.2.3 *insert* step 7.1, §4.5 *adopt*); C0b ends the stale node document after a cross-document move (a node moved into another document keeps its old node document, which T3's step 3 would read; edge x9). C0a: landed (#595). C0b: landed (#608). C0c: landed (#611). | IBP-sandbox N1's implementation landed; C0a after D-14 (a); C0b after C0a, D-14 (c), the CI/tools default-features check PR (#585); C0c after C0b and D-14 (b) |
 | **C1-pre** `layout-c1-pre-document-wrapper` (owner: Layout lane; PM 328 / 335 / 339; memo `docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document (one `Document.prototype`, chosen at first allocation) | C0 D-14 (b) and RC-2a landed |
 | **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6); closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed; C1-pre landed |
-| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8). **Rev 8.<t> (PM decision 699):** also a fragment-parsed element's processing at its creation when its node document is active (T3 memo D-T7; extent and call site: T3 memo O-11) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
-| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>) and without T3's part of the fragment path (rev 8.<t>, PM decision 699); G2 rest, G5's non-clone half, K2's X-W half (§1.5); slot `#11-event-handler-content-attribute-applicability` facet (2) (rev 8.<t>, T3 memo D-T8; facets (1) and (3) are T3's, PM decision 168) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
+| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11). **Rev 8.<t> (PM decision 168):** also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8). **Rev 8.<t> (PM decisions 699, 705):** also S-1's fragment path: every element of a fragment's insertion-time walk set processed at its creation, every pair class (T3 memo D-T7, D-T12), through `SubtreeCreated`, RC-2a's `CloneCreated` generalised (T3 memo §4.5) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed") |
+| **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>) and without the fragment path except the declarative shadow content and template contents it creates (rev 8.<t>, PM decisions 699, 705); G2 rest, G5's non-clone half, K2's X-W half (§1.5); slot `#11-event-handler-content-attribute-applicability` facet (2) (rev 8.<t>, T3 memo D-T8; facets (1) and (3) are T3's, PM decision 168) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
 **Order (PM decisions 21, 23, 25, 123, 153, 244; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → **C1-pre** → C1 → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs).
 
@@ -479,7 +485,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 |---|---|---|---|
 | x1 | slice a → IBP-sandbox N1 (external) | semantic precondition | §L: without slice a, N1 returns null from the getter of a compiled or IDL-set handler moved into a DOMParser document, where HEAD returns a function. Slice a's K-1 removes that for each §L row (one deliverable ordinary attribute, marked before the move at its first processing: T-a1, T-a2 or T-a3), not for N1 memo §5.4 NR8 (a) (two or more silent attributes, a callback before first processing, D-8 (a)), which keeps it until S-5 (O5, PM decision 90) |
 | x2 | slice a → slice b | code predecessor + data flow | S-6 |
-| x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a DOMParser or fragment-throwaway `<body>` would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b)). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8). Rev 8.<t> (PM decision 129): T3 itself drops X-W for those pairs (the reflecting six on `<body>`, every name on `<frameset>`); S-5 drops the rest. Rev 8.<t> (PM decision 153): T3 also processes a clone at its creation (S-1's clone path), so slice b's S-1 starts from T3's entry point |
+| x3 | T3 (`#11-event-handler-target-determination` facets 1 (step 3), 3 (`<frameset>`) and 4 (the reflecting set); **owner: this program, Layout lane**, PM decision 25) → slice b | semantic precondition | creation-time processing of a `<body>` whose node document at creation is not the active document (a DOMParser document's, or a fragment's parsed in such a document's context: a fragment's elements are created in the context's node document, HTML §13.4 step 2 and §13.2.6.1 step 6, not in the parser's own Document) would otherwise deliver its WindowEventHandlers attributes to the **page** Window (§9 N-4 (b); until rev 8.<t>: "a DOMParser or fragment-throwaway `<body>`"). S-5 drops X-W, so every Window-delegating pair must then take the spec's target: facet 4 for the reflecting six, facet 3 for `<frameset>` (rev 8). Rev 8.<t> (PM decision 129): T3 itself drops X-W for those pairs (the reflecting six on `<body>`, every name on `<frameset>`); S-5 drops the rest. Rev 8.<t> (PM decision 153): T3 also processes a clone at its creation (S-1's clone path), so slice b's S-1 starts from T3's entry point. Rev 8.<t> (PM decisions 699, 705): T3 also processes a fragment parse's elements at their creation (S-1's fragment path, T3 memo D-T12, through the creation event of T3 memo §4.5) |
 | x4 | N1 → slice b | semantic precondition | raw values written at DOMParser-node creation read null only under N1's compile-gate node clause (§9 N-4 (a)) |
 | x5 | C1's handling decided (`#11-template-contents-owner-document`) → slice b | decision precondition; in branch A also C1's landing | S-2 (§9 N-4 (c)) |
 | x6 | slice a → T3 | scheduling precondition (PM decisions 25, 153) | T3 is started after C1 lands (PM decision 153; until rev 8.4: "once slice a lands"), so x6 holds transitively (slice a → N1 → C0 → C1 → T3). No code or semantic dependency is claimed. Slice a's X-W window (§1.5) is what T3 then slice b close (rev 8.<t>: T3 closes it for the pairs HEAD targeted at the element, slice b the rest) |
@@ -638,7 +644,7 @@ Count: 36 pairs; 32 intersect and 4 do not (I4×I6, I6×I7, I6×I8, I8×I9). Of 
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 17.2, "Append attribute to element" | parser path: every token attribute is appended at creation | parser bakes `Attributes` at spawn (`crates/dom/elidex-html-parser/src/convert.rs:258`; strict `crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:61`, `:119`, `tree_builder/shadow.rs:162`); a: first bind (pre-bind) or first insertion; b: S-1 | ✓ | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | start tag "template", step 13 "Keep", sub-step 1 (declarative shadow root) | the shadow root is attached while parsing; its children are parsed into it | strict `tree_builder/shadow.rs:137`, `:162`; a: pre-bind DSD by the bind pass (E7); fragment DSD not processed at host insertion (D-10, HEAD-equal); b: S-1 | ✗ | yes |
 | WHATWG HTML §13.2.6.4.7 The "in body" insertion mode | start tag "html" step 2.2, start tag "body" step 3.2 | an attribute not already present is added to the existing element | no elidex-side writer (§5.0); not a creation-time attribute | ✗ | yes |
-| WHATWG HTML §13.4 Parsing HTML fragments | step 4, the fragment's new `Document` | fragment elements are created in a throwaway document | `begin_detached_fragment` `crates/core/elidex-ecs/src/dom/tree/teardown.rs:318` (unchanged in a; b: S-1) | ✗ | yes |
+| WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 1–2 (step 1: the parser's own new `Document`; step 2: the fragment, in target's node document) | fragment elements are created in the context's node document (through §13.2.6.1 *create an element for a token* step 6, after the redirection out of the parser's root `html` element), not in step 1's Document (rev 8.<t>, T3 memo P-T17; until rev 8.<t>: "step 4, the fragment's new `Document` \| fragment elements are created in a throwaway document") | `begin_detached_fragment` (`crates/core/elidex-ecs/src/dom/tree/teardown.rs`, unchanged in a); creation-time processing: T3 (PM decisions 699, 705; T3 memo D-T12, §4.5) | ✗ | yes |
 | WHATWG DOM §4.4 Interface Node | *clone a single node* step 2.5; *clone a node* steps 5 and 6.7 | a clone's attributes are appended at its own creation; children and shadow children are cloned the same way | a: clone-policy table `crates/core/elidex-ecs/src/dom/tree_clone.rs:19-34` (row added: marker non-copy); b: S-1 | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | *template contents*; *appropriate template contents owner document*; the template *cloning steps* step 2 | contents are not descendants; their owner document has a null browsing context; a template clone's contents are cloned into the copy's contents | a: not walked by the bind pass (D-11); the Insert arm keeps W-K5 (H22); b: S-2 | ✗ | yes |
 | WHATWG DOM §4.5 Interface Document | *adopt* | node document changes; no event-handler step | `EcsDom::adopt_subtree` `teardown.rs:285` (unchanged; the marker survives) | ✓ | no |
@@ -758,7 +764,7 @@ Result:
 | path | slice a | slice b |
 |---|---|---|
 | main-document parse, URL-loaded iframe, srcdoc / about:blank iframe (pre-bind; H16/H17) | **first bind** (G1) | same (K-6) |
-| fragment (innerHTML / outerHTML / setHTMLUnsafe) | first insertion (placement, H6); none when placed directly under a shadow root (HEAD) | S-1 |
+| fragment (innerHTML / outerHTML / setHTMLUnsafe) | first insertion (placement, H6); none when placed directly under a shadow root (HEAD) | S-1 (rev 8.<t>: from T3, PM decisions 699, 705; T3 memo D-T12; the declarative shadow content and template contents it creates stay S-1 / S-2) |
 | DOMParser | first insertion after return (W-K5 when into a DOMParser document) | S-1 |
 | `createElement` + `setAttribute` | the write processes and marks (D-8); a Window-delegating pair is not processed at the write (X-W) | same (S-5) |
 | `cloneNode` | first insertion | S-1 (rev 8.<t>: from T3, PM decision 153; T3 memo D-T10) |
@@ -1058,8 +1064,10 @@ These are evidence that slice b's plan must account for. None of them is decided
   nothing else), cell B9 and the slot `#11-eh-template-contents-at-creation`. R2 A3 found that a kept arm acts as a
   release fallback for any unmarked element (against S-4). R2 A2's N-2 makes "their clones" unidentifiable.
 - **N-4, R8's blockers (the reason for x3–x5).** (a) DOMParser nodes: raw entries at parse; HEAD's compile gate reads
-  only the realm flag, so `d.onclick` compiles (spec: null, *get the current value* step 3.2) → N1 first. (b) A DOMParser
-  or fragment-throwaway `<body>` with a WindowEventHandlers attribute: `resolve_handler_target` returns the page Window
+  only the realm flag, so `d.onclick` compiles (spec: null, *get the current value* step 3.2) → N1 first. (b) A `<body>`
+  with a WindowEventHandlers attribute whose node document at creation is not active (a DOMParser document's, or a
+  fragment's parsed in such a document's context; until rev 8.<t>: "A DOMParser or fragment-throwaway `<body>`", the
+  parser's own Document holding no fragment element, T3 memo P-T17): `resolve_handler_target` returns the page Window
   for any `<body>` → T3 first. (c) Template contents and their clones: the composition does not suppress them (the
   composed root is a fragment, which falls back to the page document) → C1's handling.
 - **N-5, an existing template-inclusive walker (R2 A1 MIN).** `collect_template_inclusive_descendants` in `elidex_form::init`
@@ -1106,7 +1114,9 @@ These are evidence that slice b's plan must account for. None of them is decided
   identification of template-content clones, and its cells.
 - Its base contains T3 (landed as this program's own PR, PM decision 25) and N1, and C1's handling is decided. Rev 8.<t>:
   its base contains N1, C0, C1 and T3 (PM decision 153).
-- S-1 to S-7 hold, each pinned by cells its plan names (S-5 without T3's part, S-1 without the clone path; rev 8.<t>).
+- S-1 to S-7 hold, each pinned by cells its plan names (S-5 without T3's part, S-1 without the clone path; rev 8.<t>;
+  and without the fragment path except the declarative shadow content and template contents it creates, rev 8.<t>, PM
+  decisions 699, 705).
 - The PM closes `#11-eh-attrs-creation-time-call-sites`, and facet (2) of
   `#11-event-handler-content-attribute-applicability` (rev 8.<t>, T3 memo D-T8; facets (1) and (3) close at T3).
 
@@ -1139,7 +1149,9 @@ The criterion for N1's landing is the IBP-sandbox node memo's §5.1 claim (each 
 restrictive than it; none is a restriction escape"); §L classifies NR8 (a) as worse but does not gate the landing.
 
 Moved to slice b's plan (not open here): **O9** call-site shape (§9 N-1; rev 8.<t>: decided for the clone path by T3's
-plan, T3 memo D-T10, one session entry point called from the `CloneCreated` arm; slice b decides it for its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
+plan, T3 memo D-T10, one session entry point called from the `CloneCreated` arm; and for the fragment path by PM
+decision 705, T3 memo D-T12, the same arm on `SubtreeCreated`, `CloneCreated` generalised, T3 memo §4.5; slice b decides
+it for its paths); branch-B treatment (§9 N-2, N-3); Q6 (§9 N-9).
 
 Open:
 - **O4, writer completeness.** Is §5.0 complete for handler state, in particular any VM path that writes
