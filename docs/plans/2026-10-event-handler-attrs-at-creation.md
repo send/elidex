@@ -31,7 +31,7 @@ slice a's implementation PR (the #541 precedent). "At umbrella approval" means "
 implementation is cut from main after that.
 
 **Changelog.** *Rev 8.<t>* (carried by T3's PR, branch `layout-eh-target-determination-plan`, with the T3 memo
-`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.3; PM decisions 129–131, 153, 168, 359; `<t>` is the next
+`docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 4.5; PM decisions 129–131, 153, 168, 359; `<t>` is the next
 number after main's when T3 rebases, the C0 program memo D-9's rule). PM decision 129 (the user's choice for T3 memo
 rev 1 O-1): T3 also ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six Window-reflecting names,
 every Window-delegating name on a `<frameset>`) and hands them to the spec target, so the windows the T3 memo calls W1
@@ -41,12 +41,13 @@ by namespace (D-T11). PM decision 168 (T3 memo rev 3 O-7 (a)): T3 closes facets 
 `#11-event-handler-content-attribute-applicability` (D-T8); facet (2) stays with slice b. Edited in place, each with its
 pre-8.<t> wording kept: X-W *Status*; K-0's X-W paragraph and "K-0's wording and X-W"; the K-1 / K-2 qualifiers; §0.6's
 lead, S-1, S-5 and S-6; §1.1 I4; §1.2's T3 and slice b rows (scope); §1.3 x3, x6 (closure), new x8 (C1 → T3) and new x11 (RC-2a → T3, PM decision 359); §1.4
-(1) and its order sentence; §1.5's heading and its K-2 / K-3, G5 / K3, K2, G2 rest and X-W bullets; §2.1 I1×I4 and
+(1) (§1.4's order sentence is C0a's, rev 8.4; T3's version of it was dropped when T3 rebased, T3 memo rev 4.5); §1.5's heading and its K-2 / K-3, G5 / K3, K2, G2 rest and X-W bullets; §2.1 I1×I4 and
 I4×I5; §5.1's `cloneNode` row; C19b's and C19c's *Spec* notes; §7 G3, G4 and G5; §8.1 (first bullet, and the two slots
 T3 registers at landing: `#11-htmlframesetelement-interface`, PM decision 130, and the applicability slot); §8.2 defects (1),
 (2), (3), (7) and the classification; §9 N-6; §10.2; §10.3; §11's O9 line. Not carried here (PM decision 223 O-1 as
 amended by 271: each row and edge by its own PR): the C0 program row, the order line, x9, x10 and the order's other
-consequences (C0a's PR, C0 program memo D-9 / R-3), the C1 row and x7 (C1's PR, C1 memo R-1).
+consequences (C0a's PR, C0 program memo D-9 / R-3), the C1 row and x7 (C1's PR, C1 memo R-1), the C1-pre row and the
+C1-pre → C1 edge (C1's PR).
 *C1-pre row* (carried by C1's PR; missing since C1-pre's PR, #616, PM 604): §1.2's C1-pre row landed with #616 (c7cce8c8; C1 memo §8 R-1, §9 item 11). *Rev 8.7* (carried by C1's PR; number assigned at landing, PM 223 O-1 / 232): §1.2 gains the C1 row and §1.3 gains x7 (C0 → C1) and the C1-pre → C1 edge (C1 memo R-1); §1.6's heading "C1's handling (decided by the PM, not here)" → "C1's handling (decided: branch A, PM decision 123)"; §8.1's `#11-template-contents-owner-document` "Owner TBD …" → the Layout lane's owner line; cell C14's expected column, K-5, §8.2 defect (5), §1.4's interim line (window iv), §1.5's W-K5 bullet and heading, §1.1's I7 row and §0.5's K-5 red-cell line carry C1's template-contents half (C1 memo R-3). *Rev 8.6* (2026-11-08; carried by C0c's PR): §1.2's C0 row: "C0c: planned." → "C0c: landed (#611)." (C0 program memo R-3). *Rev 8.5* (2026-11-07; carried by C0b's PR): §1.2's C0 row: "C0b: planned." → "C0b: landed (#608)." (C0 program memo R-3). *Rev 8.4* (2026-11-05; carried by C0a's PR): §1.2 gains the C0 program row and its order line follows PM 153; the header, the T3 and slice b rows, x6, the closing paths, §1.6, G3, §8.1 and §8.2 follow the new order and PM 123; edges x9 and x10 added (PM decisions 123, 153, 159, 223 O-1 as amended by 271, 227 O-1, 244, 271). *Rev 8.3* (2026-10-31; carried by N1's PR with N1 memo rev 4.5; N1 memo §10.5, Step 4.5 MIN-1 and
 MIN-2): the header's N1 pointer is rev 4.5; §1.4 (i), §1.5's K-2 / K-3 bullet, x1 and §8.2's defect (1) and
 classification name NR8 (a)'s population by its value, a callback at the first insertion (an IDL write, or a
@@ -482,7 +483,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x7 | C0 → C1 | semantic precondition (PM decisions 143, 153) | without insertion adoption C1 makes the most common template idiom worse than its base (C1 memo §1) |
 | x<n> | C1-pre → C1 | semantic precondition (PM 328) | I is reachable from script through `ownerDocument`; its wrapper is a Document only through C1-pre's `Document.prototype` (C1 memo edge c-pre) |
 | x8 | C1 → T3 (rev 8.<t>) | semantic precondition (PM decision 153) | without C1 template contents report the bound document, so T3's step 3 passes there and a Window-reflecting `<body>` / `<frameset>` handler written inside template contents reaches the Window (the T3 memo rev 2's residual R-A) |
-| x11 | L3 RC-2a (external) → T3 (rev 8.<t>) | semantic precondition (PM decision 359) | T3 processes a clone's handler content attributes in a `MutationEvent::CloneCreated` (NEW: RC-2a) arm (T3 memo D-T10); without RC-2a no clone fires that event, and its clone walk is RC-2a's uncapped `for_each_clone_created` (PM 367) |
+| x11 | L3 RC-2a (external) → T3 (rev 8.<t>) | semantic precondition (PM decision 359) | T3 processes a clone's handler content attributes in a `MutationEvent::CloneCreated` (RC-2a, landed by #596) arm (T3 memo D-T10); without RC-2a no clone fires that event, and its clone walk is RC-2a's uncapped `for_each_clone_created` (PM 367) |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 
