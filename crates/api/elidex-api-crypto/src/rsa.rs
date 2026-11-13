@@ -48,7 +48,7 @@ pub(crate) use signing::{sign, verify};
 ///
 /// 16384 is the value every major browser caps import at: BoringSSL's
 /// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
-/// `RSA_MAX_MODULUS_BITS` (Firefox).  WebCrypto §20.9.4 sets **no** import
+/// `RSA_MAX_MODULUS_BITS` (Firefox).  WebCrypto §20.8.4 sets **no** import
 /// maximum, so a modulus above this ceiling is an **elidex capability bound
 /// (no spec §-anchor — the value is the UA convention)**, not malformed
 /// material → NotSupported.  Public keys are reconstructed with
@@ -475,8 +475,8 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
-/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.8.3
-/// step-3 OperationError from the rsa crate (honored as-is).
+/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.9.3
+/// step-4 OperationError from the rsa crate (honored as-is).
 /// ⚠ Disputed by `#11-webcrypto-rsa-keygen-param-validation` (WebCrypto §20.5 step 3).
 pub(crate) fn generate<F>(
     variant: RsaVariant,
