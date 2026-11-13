@@ -13,9 +13,6 @@
 //!
 //! The raw pointers are valid only between `bind()` and `unbind()`.
 
-/// The S5-6a cross-context effect queues ([`HostEffectQueues`]) + their
-/// enqueue/take methods on `HostData` — carved out of this file as a bounded
-/// cohesion seam.
 #[cfg(feature = "engine")]
 mod effect_queues;
 

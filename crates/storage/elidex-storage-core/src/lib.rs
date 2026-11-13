@@ -9,8 +9,6 @@ pub mod origin_manager;
 pub mod quota;
 pub mod sqlite;
 pub mod util;
-/// Synchronous Web Storage backend — gated behind `feature = "web-storage"` so
-/// the `elidex-app` profile drops it from the binary (A2 absence guarantee).
 #[cfg(feature = "web-storage")]
 pub mod web_storage;
 

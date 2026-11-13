@@ -5,6 +5,9 @@
 //! quota math, origin scoping, and JSON-on-disk layout stay in a single
 //! place per the CLAUDE.md Layering mandate.
 //!
+//! Gated behind `feature = "web-storage"` so the `elidex-app` profile drops it
+//! from the binary (A2 absence guarantee).
+//!
 //! ## Persistence
 //!
 //! `localStorage` is JSON-on-disk, one file per origin, hashed via

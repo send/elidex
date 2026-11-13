@@ -11,7 +11,7 @@
 //!    private key.  aws-lc-rs (a FIPS-family BoringSSL fork) performs the
 //!    private-key exponentiation + OAEP unpadding in constant time; the pure-Rust
 //!    `rsa` crate carries Marvin on its decryption and ships no constant-time
-//!    decrypt ([`signing`]'s blinding has no rsa-crate *decryption*
+//!    decrypt ([`super::signing`]'s blinding has no rsa-crate *decryption*
 //!    analogue).  This is the SOLE aws-lc-rs call site, isolated so a future swap
 //!    back to a constant-time pure-Rust `rsa` (RustCrypto/RSA#390) touches only
 //!    this file.

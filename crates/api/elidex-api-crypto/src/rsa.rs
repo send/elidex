@@ -1,5 +1,7 @@
-//! RSA key import / export + RSASSA-PKCS1-v1_5 / RSA-PSS sign / verify
-//! (WebCrypto §20 RSASSA-PKCS1-v1_5 / §21 RSA-PSS), reached only through
+//! RSA key import / export / key-management backend, on the `rsa` crate.
+//! The op-sets split from it: [`signing`] holds sign / verify (WebCrypto §20
+//! RSASSA-PKCS1-v1_5 / §21 RSA-PSS) and [`oaep`] holds RSA-OAEP (§22) on the
+//! constant-time aws-lc-rs backend.  Reached only through
 //! [`crate::ops`] (which runs the §14.3.x name / usage / extractable gates),
 //! so the rsa-typed APIs are `pub(crate)` — not a public surface.
 //!
@@ -35,15 +37,9 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
-/// RSA-OAEP encrypt / decrypt (WebCrypto §22) on the constant-time aws-lc-rs
-/// backend — the encrypt family of the RSA keys, split from this module's
-/// `rsa`-crate key-management backend (see [`oaep`]).
 mod oaep;
 pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 
-/// RSA `sign` / `verify` (WebCrypto §20.8.1/.2 / §21.4.1/.2) on the `rsa` crate
-/// — the signing vertical, split from this module's key-management backend as a
-/// cohesive op-set (parallel to [`oaep`]); see [`signing`].
 mod signing;
 pub(crate) use signing::{sign, verify};
 
