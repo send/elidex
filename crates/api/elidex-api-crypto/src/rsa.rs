@@ -37,6 +37,9 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
+mod keygen_params;
+pub(crate) use keygen_params::validate_rsa_keygen_params;
+
 mod oaep;
 pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 
@@ -467,7 +470,7 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 }
 
 // ---------------------------------------------------------------------------
-// generateKey (WebCrypto §20.9.3 / §21.4.3)
+// generateKey (WebCrypto §20.9.3 / §21.4.3 / §22.4.3)
 // ---------------------------------------------------------------------------
 
 /// `generateKey` for an RSA algorithm (WebCrypto §20.9.3 RSASSA-PKCS1-v1_5 /
@@ -476,11 +479,12 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// privateKey)` pair (the §17 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
-/// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
-/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.9.3
-/// step-4 OperationError from the rsa crate (honored as-is).
-/// ⚠ Contradicts WebCrypto §20.5 step 3; tracked by
-/// `#11-webcrypto-rsa-keygen-param-validation`.
+/// big-endian `BigInteger`.  Generate Key step 2 runs §20.5
+/// ([`validate_rsa_keygen_params`]) before any key generation, so an even
+/// exponent, an exponent below 3 or at least 2^modulusLength − 1, or a
+/// modulusLength below 4 is an OperationError there; the rsa crate is reached
+/// only with parameters §20.5 accepts, and its failures are steps 3–4's
+/// OperationError.
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,
@@ -496,6 +500,9 @@ where
     // §20.9.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
+    // §20.9.3 / §21.4.3 / §22.4.3 step 2: validate the RSA key generation
+    // parameters (§20.5) before any key generation.
+    validate_rsa_keygen_params(modulus_length, public_exponent)?;
     // Bound the script-controlled `modulusLength` BEFORE the rsa crate
     // allocates + prime-searches at that bit size.  WebCrypto §20.9.3 sets no
     // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an

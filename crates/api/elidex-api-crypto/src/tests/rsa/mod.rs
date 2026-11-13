@@ -50,11 +50,30 @@ fn keygen_alg(
     modulus_length: u32,
     hash: HashAlgorithm,
 ) -> NormalizedAlgorithm {
+    keygen_alg_exp(variant, modulus_length, &[0x01, 0x00, 0x01], hash)
+}
+
+/// [`keygen_alg`] with an explicit `publicExponent` (big-endian bytes).
+fn keygen_alg_exp(
+    variant: RsaVariant,
+    modulus_length: u32,
+    public_exponent: &[u8],
+    hash: HashAlgorithm,
+) -> NormalizedAlgorithm {
     let mut raw = RawAlgorithm::from_name(variant.canonical_name());
     raw.modulus_length = Some(modulus_length);
-    raw.public_exponent = Some(vec![0x01, 0x00, 0x01]);
+    raw.public_exponent = Some(public_exponent.to_vec());
     raw.hash = Some(Box::new(RawAlgorithm::from_name(hash.canonical_name())));
     normalize(Operation::GenerateKey, raw).expect("RSA keygen algorithm normalizes")
+}
+
+/// A `fill_random` that panics: a test that hands it to `generate_key` with
+/// parameters §20.5 rejects fails at once if the validation regresses (the rsa
+/// crate's prime search calls the RNG), instead of hanging.  It panics rather
+/// than returning `Err` because `ClosureRng` latches an error and continues on
+/// its fallback stream, so an `Err` seam would let the prime search loop on.
+fn panicking_fill(_: &mut [u8]) -> Result<(), AlgorithmError> {
+    panic!("rsa crate reached");
 }
 
 fn import_alg(variant: RsaVariant, hash: HashAlgorithm) -> NormalizedAlgorithm {
