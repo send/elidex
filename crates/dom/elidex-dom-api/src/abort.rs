@@ -193,13 +193,11 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
     }
 
     // Step 3.
-    match g.links_mut(result) {
-        Some(links) => links.set_dependent(),
-        None => {
-            debug_assert!(false, "create_dependent_abort_signal: result has no row");
-            return DependentCreation::Linked;
-        }
-    }
+    let Some(result_links) = g.links_mut(result) else {
+        debug_assert!(false, "create_dependent_abort_signal: result has no row");
+        return DependentCreation::Linked;
+    };
+    result_links.set_dependent();
 
     // Step 4.
     for &signal in signals {
@@ -285,7 +283,9 @@ pub fn signal_abort<G: AbortSignalGraph>(
     Some(AbortPlan { signal, dependents })
 }
 
+// Graph fixtures name signals a, b, d1, ... after the spec's prose.
 #[cfg(test)]
+#[allow(clippy::many_single_char_names)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
