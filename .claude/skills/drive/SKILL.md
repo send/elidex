@@ -134,6 +134,9 @@ merge の後、PM に 1 通で送る:
 - **この PR で carve / close / 撤回した slot ID の一覧** (無ければ「なし」と書く。cite の無い carve を拾うため)
 - 他 lane への影響 (lint の変化、rebase の要否、共有 file への変更)
 - 比例性の回数 (§5)
+- slot の文案は PM が前提を確かめてから登録する (`/pm` §8)。lane が出す文案の前提は claim であって確認済みではない
+- slot の文面 (BEGIN/END) に行番号を書かない。cite は「file + symbol」で書き、sha は台帳の出典欄にある merge commit の 1 つだけにする (squash merge の後に辿れない sha と、基準の混ざった行番号を生まないため) (PM 648)
+- 件数は計測の出力として、コマンド・head・件数の 3 つで書き、固定の数字で書かない。母集団は性質で定義し、件数は「その head での測定値」とする (PM 659/662)
 
 台帳・MEMORY Active state は書かない (PM が pmo に渡す)。自分の lane SSoT だけを更新する。
 
