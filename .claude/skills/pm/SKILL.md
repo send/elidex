@@ -20,11 +20,11 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 |---|---|
 | elidex の設計原則・至上命題・根拠の順位・ブラウザ名タグの一覧 | repo `CLAUDE.md`「Design philosophy」先頭 bullet |
 | subagent の型・tier・昇格 | `~/.claude/CLAUDE.md`「サブエージェント振り分け」 |
-| 確認の経路、PM が決めるもの / user に上げるものの原文 | memory `feedback_consult-pm-before-asking-user.md` |
+| PM が決めるもの / user に上げるものの原文 | memory `feedback_consult-pm-before-asking-user.md` |
 | lens の回し方の incident 集 | memory `feedback_decide-via-philosophy-before-asking.md` |
 | 記録の書き方 (backup、行番号は測ったものだけ、一意一致の置換、タグ、台帳の形式) | `~/.claude/agents/pmo.md`「書き方の規則」 |
 | ECS 至上命題の guard の層と状態 | memory `project_ecs-mission-guard.md` |
-| lane driver の手順 (kickoff 後の振る舞い、push gate、handoff 10 項目) | 未作成の `/drive` skill (範囲 = `handoff/pm-skill/drive-scope.md`)。できるまで §9 |
+| lane driver の手順 (起動・再開、確認の経路、push gate、merge の実行、landing report、handoff 10 項目、止まり方) と測定の作法 | repo `.claude/skills/drive/SKILL.md` (`/drive`) |
 | PR の review の段 (`/code-review` の effort) | repo `.claude/skills/pre-push/SKILL.md` Stage 4 の表 |
 | 定期チェック (homing / browser sweep / overdue scan) の中身と control | `~/.claude/agents/pmo.md`「担当」の定期チェックと、各道具の docstring |
 
@@ -70,9 +70,8 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    で終えたら、その報告と成果物を渡して新しい pmo を 1 体起こす (global 規則の「上限は引き継ぎ境界」)。
    pmo を起こせない時の扱いは §7。
 6. memory dir の束縛: lane が `/Users/kazuaki/repos/send.sh/elidex` の worktree でない checkout で
-   動いていたら、その session の auto-memory は `$MEM` に束縛されない → kickoff で `$MEM` の絶対パスを
-   渡す。確認: lane 側で `git rev-parse --path-format=absolute --git-common-dir` が
-   `/Users/kazuaki/repos/send.sh/elidex/.git`。
+   動いていたら、その session の auto-memory は `$MEM` に束縛されない → lane は `/drive` §1 の 6 で確かめ、
+   `$MEM` の絶対パスで書く (確かめ方の正は `/drive` §1)。
 7. §2 の PM pass を 1 回回す。
 
 ## 2. PM pass (毎回この順、出力は表)
@@ -107,7 +106,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 | 9 | **overdue triage** (常設) | 行 8 の overdue scan が 1 件以上なら、その pass で triage を始める: reviewer に行ごとの提案 (延長 + 理由 / 着手 / close) を出させ → PM が決め → pmo が適用。budget で延期する時は件数と延期日を §10.2 に載せる (延期できる回数は上の skip の上限)。前 pass より件数が増えた、または件数が不明なら延期しない |
 | 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの |
 
-- review の段: `/pre-push` Stage 4 の表が正 (PM 360 の訂正)。表から外れる段を使う時だけ、lane が理由を
+- review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 
@@ -221,9 +220,8 @@ gh pr checks <N> -R send/elidex
 - [ ] review loop がその PR の合意した終わり方で終わっている
 - [ ] 着地時に台帳へ写す文面 (`<path>:<lines>`) か landing リストが用意されている
 
-全部通ったら driver に **`merge at head <sha>`** (その PR・その head だけ)。driver は merge の直前に head と
-`mergeStateStatus` を再確認し、`gh pr merge <N> --squash --match-head-commit <sha>` を実行して merge commit を報告。
-head が動いていたら merge せず聞き直す。
+全部通ったら driver に **`merge at head <sha>`** (その PR・その head だけ)。driver 側の手順 (直前の再確認、
+merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
 - PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
@@ -329,35 +327,33 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
       定義にしない。ブラウザ名は `[evidence]` / `[contrast]` / `[history]` 等のタグ付きでだけ現れる
       (PM 421/424 [history] — PM が書いた slot が既存ブラウザ寄りの framing だった。PM 440 の
       `#11-implicit-submission-commits-change` は欠陥がブラウザの振る舞いでしか定義されていなかった)
+- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正 (PM 648 / 659・662)
+- [ ] **lane が出した slot の文案**: PM が前提を確かめてから登録する。文案の前提を lane の報告のまま採らない
+      (PM 583 — `#11-no-engine-eventtarget-stubs-nonconforming` は前提が偽だった。由来は PM が確かめずに登録したこと)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
 - [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・決定ログ全体 (§3.3 の 4) を引き、
       `git diff --stat origin/main...<branch>` と branch にしか無い memo を添える。tip の sha でも grep する
 - [ ] **agent の事実を使う前**: git で 1 件確かめ (`git show <sha>:<path>` 等)、どれを確かめたか書く。
       agent 間・要約と表が食い違ったら自分で測る
 - [ ] **driver にツールを走らせる前**: 対象範囲 (docstring / SCHEMAS) を読み、対象外なら指示しない (PM 172)
-- [ ] **toolchain を名指す測定**: `rustc --version` を同じコマンドで (session の `RUSTUP_TOOLCHAIN` が古いことがある)
+- [ ] **測定と背景ジョブの作法** (toolchain を名指す測定 / user の状態に書く probe の隔離 / 並列度の上限 / 背景ジョブを PID で止める):
+      `/drive` §8 が正 (PM 734)。PM 自身の測定と、driver に測らせる・止めさせる指示もこれに従う
 - [ ] **driver の分類** (「行は要らない」「superseded」「関係ない」) は規則と突き合わせてから採る
 - [ ] **lane の「済み」**: head / branch / 未 push を git で突き合わせる
-- [ ] **自分の背景ジョブを止める時**: PID で止める。`pkill -f` しない (並行 lane の同じコマンドも殺す)
 
-## 9. Kickoff brief (lane を起こす・再開させる時 — `/drive` ができるまで)
+## 9. Kickoff brief (lane を起こす・再開させる時)
 
-`/drive` が landing したら、brief は「`/drive` を起動、lane = <名>、最初の成果物 = <X>」と lane 固有の事実だけになる
-(`drive-scope.md`)。それまでは `$PMD/KICKOFF-ci-tools-lane-2026-10-24.md` を型にし、次を必ず含める:
+brief は「`/drive <lane>` を起動」と **lane 固有の事実だけ** を持つ。手順 (`CLAUDE.md` の通読、確認の経路、push gate、
+merge の分担、PR body の ratchet の行、landing report、handoff、測定の作法、止まり方) は `/drive` が正で、brief に
+書き写さない。brief に入れるもの:
 
-- 最初に repo `CLAUDE.md` を Read で通読する
-- 持つもの / 持たないもの (PR・branch・memo。共有台帳は PM、書くのは pmo)
-- 先に読むもの (claim として — 前提が誤っていたら PM に報告し、回避しない)
-- **人間への確認はすべて PM へ** (repo `CLAUDE.md` の文言承認を含む。lane が user に直接聞くのは PM 名が
-  `ListAgents` に無い時だけ)。PM 名は MEMORY Active state 冒頭
-- merge の分担 (§4)、着地時の文面は `<path>:<lines>` で渡す
-- PR body に `ratchet: ok (… 0 new …)` の 1 行、push gate は `EXIT=0` かつ `ERROR task failed` 無し
-- handoff は lane SSoT 冒頭に (`drive-scope.md` の 10 項目)
-- review の段、比例性 trigger、今日の自己 cap と disk の下限、連絡先、memory の書き先 (`$MEM` の絶対パス)
-- user の状態に書く probe は隔離する: mise なら `MISE_DATA_DIR` / `MISE_CACHE_DIR` / `MISE_STATE_DIR` /
-  `MISE_CONFIG_DIR` を隔離し、隔離していない state dir で `mise trust` しない。終わったら
-  `~/.local/state/mise/trusted-configs` に scratchpad 向きの entry が無いことを確かめる (PM 151 / 230、
-  memory `feedback_mise-probes-isolate-state-dir.md`)
+- lane 名 (MEMORY Active state の lane 行と同じ語) と、持つもの / 持たないもの (PR・branch・memo・worktree)
+- 最初の成果物 (edge-dense なら plan と plan-review が先 — 規則は repo `CLAUDE.md`)
+- 先に読むもの (claim として渡す)
+- 今日の自己 cap と disk の下限 (§6、§2 行 3)、その lane に効いている PM / user の決定の番号
+- その lane だけの連絡先 (関係する lane の session 名)。PM の名は MEMORY Active state 冒頭にあるので書かない
+
+brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
 
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 
@@ -365,7 +361,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
 
 ### 10.1 lane handoff
 
-lane が自分の lane SSoT 冒頭に書く (項目は `drive-scope.md`)。PM は書かず、git と突き合わせる:
+lane が自分の lane SSoT 冒頭に書く (項目は `/drive` §9)。PM は書かず、git と突き合わせる:
 `git -C <worktree> log -1 --format=%h`、`git status --short`、`git log --oneline origin/main..HEAD`、
 `git ls-remote origin <branch>`。一致したら user に「clear / restart してよい lane」を伝える。
 `/clear` `/restart` は user の操作。PM が `orca terminal send` で `/clear` を打つのは、その都度 user の OK を得て、
