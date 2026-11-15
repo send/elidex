@@ -108,6 +108,33 @@ fn generate_modulus_above_8192_is_operation_error() {
     assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
 }
 
+/// Floor tripwire: a real keygen at `MIN_RSA_GENERATE_MODULUS_BITS` with the
+/// worst-case accepted exponents.  If an rsa version change breaks the floor
+/// derivation this hangs and nextest's terminate-after kills it; see
+/// `#11-rsa-keygen-search-budget`.
+#[test]
+fn floor_keygen_terminates_else_see_slot_11_rsa_keygen_search_budget() {
+    for exponent in [
+        vec![0x01, 0xFF, 0xFF, 0xFF, 0xFF], // 2^33 - 1
+        vec![0xC0, 0xCF, 0xD7, 0x97],       // 3*5*7*11*13*17*19*23*29
+    ] {
+        let mut raw = RawAlgorithm::from_name(RsaVariant::RsassaPkcs1V15.canonical_name());
+        raw.modulus_length = Some(70);
+        raw.public_exponent = Some(exponent.clone());
+        raw.hash = Some(Box::new(RawAlgorithm::from_name(
+            HashAlgorithm::Sha256.canonical_name(),
+        )));
+        let alg = normalize(Operation::GenerateKey, raw).expect("normalizes");
+        let result = generate_key(
+            alg,
+            true,
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+            seeded_fill(7),
+        );
+        assert!(result.is_ok(), "e = {exponent:02x?}: {:?}", result.err());
+    }
+}
+
 #[test]
 fn generate_surfaces_entropy_failure_without_hanging() {
     // When the VM `fill_random` seam errors, generateKey must TERMINATE with

@@ -12,14 +12,15 @@ use rsa::RsaPublicKey;
 
 use super::{operation, MIN_RSA_GENERATE_MODULUS_BITS};
 
-/// §16: the minimal big-endian encoding (leading zero bytes stripped; empty is zero).
+/// Strip leading zero bytes.  §16 accepts any number of leading zero bits and
+/// the empty array is zero, so the stripped form is only a comparison aid.
 pub(crate) fn minimal_be(bytes: &[u8]) -> &[u8] {
     let skip = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len());
     &bytes[skip..]
 }
 
-/// Generate Key's own capability bounds (step 3 "generation fails" ->
-/// OperationError): modulusLength below [`MIN_RSA_GENERATE_MODULUS_BITS`], or
+/// elidex capability bounds, surfaced as Generate Key step 4's OperationError
+/// (§20.9.3 / §21.4.3 / §22.4.3): modulusLength below [`MIN_RSA_GENERATE_MODULUS_BITS`], or
 /// an exponent above the rsa crate's `MAX_PUB_EXPONENT`.  Compared on the
 /// bytes; no `BigUint` is built before the check.
 pub(crate) fn validate_rsa_generate_capability(

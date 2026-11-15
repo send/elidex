@@ -364,7 +364,7 @@ fn rsa_oaep_sign_is_not_supported() {
 }
 
 #[test]
-fn rsa_generate_key_params_violation_is_operation_error_naming_modulus_length() {
+fn rsa_generate_key_params_violation_is_operation_error_from_webcrypto_20_5() {
     // §20.5 via the marshaller; fails fast with or without the fix, so the message tells them apart (memo F3); only §20.5's messages carry "WebCrypto §20.5", the floor's does not (memo M9).
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({name:'RSA-PSS', modulusLength:3, \

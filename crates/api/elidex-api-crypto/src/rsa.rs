@@ -87,6 +87,9 @@ pub(crate) const MAX_RSA_GENERATE_MODULUS_BITS: u32 = 8192;
 /// Below it the search may not terminate (measured: modulusLength 12 with
 /// e = 39 never returns), which is why a floor is needed; this does not claim
 /// every smaller input hangs.
+///
+/// The derivation depends on rsa 0.9's prime search; any rsa version change
+/// triggers `#11-rsa-keygen-search-budget`.
 pub(crate) const MIN_RSA_GENERATE_MODULUS_BITS: u32 = 70;
 
 /// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
@@ -547,7 +550,8 @@ where
             "RSA-OAEP modulusLength is outside the supported range (2048-8192 bits)",
         ));
     }
-    // §20.9.3 step 3-4: generate the RSA key pair (failure → OperationError).
+    // §20.9.3 step 3 generates the key pair; step 4 turns a failure into an
+    // OperationError (the elidex capability bounds above surface there too).
     let exp = BigUint::from_bytes_be(public_exponent);
     let privkey = {
         let mut rng = ClosureRng::new(&mut fill_random);

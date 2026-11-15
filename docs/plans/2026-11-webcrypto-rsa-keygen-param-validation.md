@@ -1,6 +1,6 @@
 # `#11-webcrypto-rsa-keygen-param-validation` — WebCrypto §20.5 at Generate Key step 2 (small plan-memo)
 
-Status: **plan (pre-implementation)**. Owner: CI/tools (PM 706). Due: 2026-11-22. Not edge-dense (PM 706),
+Status: **implemented** (this PR). Owner: CI/tools (PM 706). Due: 2026-11-22. Not edge-dense (PM 706),
 so no `/elidex-plan-review`; the push gate is the full `/pre-push`. Base: `06bdfbbd`; every `file:line`
 below is at that commit. Paths are relative to `crates/api/elidex-api-crypto/src/` unless they start with
 `crates/` or `docs/`.
@@ -35,7 +35,7 @@ Each pair below was looked up with `.claude/tools/webref heading webcrypto-2 <n>
 
 ## §2. Decisions
 
-**D1. Where the validation lives: a new submodule `rsa/keygen_params.rs` holding one function,
+**D1. Where the validation lives: a new submodule `rsa/keygen_params.rs` holding three functions (`minimal_be`, `validate_rsa_generate_capability`, `validate_rsa_keygen_params`; the main one is
 `pub(crate) fn validate_rsa_keygen_params(modulus_length: u32, public_exponent: &[u8]) -> Result<(), AlgorithmError>`,
 called once from `rsa::generate`.** Reason: §20.5 is an algorithm of the RSA family chapter, invoked from
 each variant's Generate Key step 2, so it belongs to the `rsa` module next to `generate`, the one function
@@ -87,7 +87,7 @@ be materialized; the exponent is already in memory as input bytes, so a scan of 
   of `e` is 1 (`e[0] == 0xFF >> e[0].leading_zeros()` and `e[1..]` all `0xFF`).
 - Cost: O(input length), no allocation.
 
-**D4. Tests: crate unit tests in `src/tests/rsa/keygen.rs` (197 lines now, about 330 after), plus one
+**D4. Tests: crate unit tests in `src/tests/rsa/keygen.rs` (197 lines at base, 524 after), plus one
 VM-level JS test in `crates/script/elidex-js/src/vm/tests/tests_crypto/rsa.rs` (364 lines now).** Neither
 file approaches the 1000-line threshold. Reason for the VM test: the defect report is "script-reachable",
 and only a VM test shows that the bytes a script passes reach §20.5 through the marshaller
@@ -102,15 +102,15 @@ named `OperationError` (`crates/script/elidex-js/src/vm/host/subtle_crypto/ops.r
 - The VM test cannot inject the RNG, so it must not use an input that hangs pre-fix. It uses
   modulusLength 3 with e = 3 (`new Uint8Array([3])`, RSA-PSS), which fails fast both before and after the
   fix (F3), and tells them apart by the message: it asserts `e.name === 'OperationError'` and that
-  `e.message` contains `modulusLength` (the §20.5 message), which the rsa crate's "RSA key generation
+  `e.message` contains `WebCrypto §20.5` (matching §3.2; test `rsa_generate_key_params_violation_is_operation_error_from_webcrypto_20_5`), which the rsa crate's "RSA key generation
   failed" does not. nextest's `terminate-after` (8 × 60 s, `.config/nextest.toml`) stays a backstop only;
   no test in this PR relies on it.
 
 **D5. Each new test has a named mutation that must turn it red (§3.3); the mutations are run once, on
 the final head, in a debug build, and the result goes in the PR body.**
 
-**D6. Two capability bounds in `generate`, after §20.5 (PM 726).** Measured 2026-11-13 (debug build, base
-`06bdfbbd` + `4e91e0ab`): modulusLength 12 with e = 39 (RSASSA-PKCS1-v1_5 and RSA-PSS) does not return within
+**D6. Two capability bounds in `generate`, after §20.5 (PM 726).** These block the known hanging input classes only; the general hang class stays open as `#11-rsa-keygen-search-budget` (§Defer). Measured 2026-11-13 (debug build, base
+`06bdfbbd` + `4ec0c610`): modulusLength 12 with e = 39 (RSASSA-PKCS1-v1_5 and RSA-PSS) does not return within
 60 s, although §20.5 accepts it (odd, ≥ 3, < 2^12 − 1). Controls: ml 12 / e = 3 generates in 0.26 ms,
 ml 64 / e = 65537 in 2.2 ms. Cause: only three 6-bit candidate primes exist (top two bits set: 53, 59, 61), every
 φ shares a factor with 39 = 3·13, and the rsa crate's `generate_multi_prime_key_with_exp` `'next: loop` never ends;
@@ -195,7 +195,7 @@ Run on the final head (debug build); "red" = the named test fails.
 | M4 | `e[0] < 3` → `e[0] <= 3` | boundary table (B2, via e = 3) |
 | M5 | delete the "even" condition | boundary table, `generate_rejects_before_the_rsa_crate` (panic seam), `generate_check_order_kinds` |
 | M6 | drop the all-ones equality branch | boundary table (B9) |
-| M7 | no leading-zero strip in §20.5 | boundary table (B13) only: `generate` strips once before the calls, so `generate_preserves_non_minimal_public_exponent` no longer sees this mutant |
+| M7 | no leading-zero strip in §20.5 | boundary table: B6 fails first (re-run on the final head: expects "at least 3", gets "odd"); B14 (expects Ok) also goes red, B13 stays Err with the same message. `generate` strips once before the calls, so `generate_preserves_non_minimal_public_exponent` no longer sees this mutant |
 | M8 | `bits == ml` always fails | boundary table (B10) |
 | M9 | delete the §20.5 call | `generate_rejects_before_the_rsa_crate`, `generate_check_order_kinds` (panic seam), and G7 (VM; its substring `WebCrypto §20.5` is only in §20.5's messages) |
 | M9c | delete the §20.5 call and the capability call | same as M9 (panic seam, and G7 (VM)) |
@@ -233,7 +233,7 @@ about 0.5 s wall including the cargo invocation.
 
 - (i) Each of the four §20.5 step-3 conditions, the floor (69 / 70) and the exponent cap (2^33 − 1 / 2^33 + 1) is tested on both sides of its boundary (§3.1, §3.1b), and ml 12 / e = 39 (RSASSA and RSA-PSS) is rejected at once (G9, G10).
 - (ii) An even exponent fails at once with OperationError, by a test that cannot hang if the fix regresses
-  (G1–G4, G9–G10 with the panic seam).
+  (G1–G4 with the panic seam).
 - (iii) The RSASSA-PKCS1-v1_5, RSA-PSS and RSA-OAEP variants all go through the same validation (G2–G4).
 - (iv) The two false claims are rewritten to match §20.5 and their slot pointers removed (§4).
 - (v) Every WebCrypto cite added or changed in this PR is checked against webref (§1 table; re-run the
@@ -242,6 +242,15 @@ about 0.5 s wall including the cargo invocation.
 - Plus: each §3.3 mutation recorded red on the final head (M-row → test name), `cargo test -p
   elidex-api-crypto --all-features` and the `tests_crypto` filter of `cargo test -p elidex-js
   --all-features` green, then the full `/pre-push`.
+
+## Defer
+
+- `#11-rsa-keygen-search-budget` (PM 739). Defect: termination is not guaranteed by structure. The guards (§20.5, the
+  floor, the exponent cap) only block known input classes, and the floor-70 derivation depends on rsa 0.9 internals,
+  so D6 does not close the whole hang class. Owner: CI/tools. Re-eval: 2026-12-31. Trigger: any rsa version change.
+  Marks: the pointers in `rng.rs`, `rsa.rs` (`MIN_RSA_GENERATE_MODULUS_BITS` doc), the workspace `Cargo.toml` `rsa`
+  line, the test `floor_keygen_terminates_else_see_slot_11_rsa_keygen_search_budget`, and the lane procedure.
+  Closed by: a general bound on the search (plan-review required).
 
 ## §6. Facts to confirm at implementation (before the test is written)
 
@@ -252,8 +261,8 @@ about 0.5 s wall including the cargo invocation.
 - F3. **Measured 2026-11-13 on `06bdfbbd`, debug build:** exponent 1 at modulusLength 2048 is NOT fast
   pre-fix. It runs the prime search and then fails: `Operation("RSA key generation failed")` in 11.1 s.
   The 65537 control at 2048 generates in 11.0 s. So G7 uses modulusLength 3 with e = 3 (measured fast:
-  `Operation(...)` at once) and asserts the message contains `modulusLength`.
+  `Operation(...)` at once) and asserts the message contains `WebCrypto §20.5` (test `rsa_generate_key_params_violation_is_operation_error_from_webcrypto_20_5`).
 - F4. **Measured 2026-11-13 (same build):** an odd exponent above the rsa crate's public-exponent limit
   (2^33 + 1 and 2^40 + 1, at modulusLength 1024) fails fast with `Operation("RSA key generation failed")`,
   in 0.74 s / 0.75 s. No hang. §20.5 lets these through (they are odd, ≥ 3 and < 2^1024 − 1), and the
-  failure is Generate Key's own "generation fails → OperationError" step, so they are outside this slot.
+  failure is Generate Key's own "generation fails → OperationError" step (step 4). Superseded by D6 (PM 726): the exponent cap is now in this PR, so these are rejected up front.
