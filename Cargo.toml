@@ -75,7 +75,7 @@ encoding_rs = "0.8"
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 hecs = "0.11"
-html5ever = "0.39"
+html5ever = "0.40"
 markup5ever_rcdom = "0.39"
 # `rustls` (not `rustls-no-provider`): selects reqwest's bundled aws-lc-rs CryptoProvider so the
 # crawler's TLS rides the same single crypto C lib as elidex-net + WebCrypto (rationale + the
