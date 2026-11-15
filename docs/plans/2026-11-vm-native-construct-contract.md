@@ -1,12 +1,13 @@
 # Native construct protocol (R) — umbrella
 
-Status: **plan (pre-implementation), Rev 1.1** (§0.2), for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4
+Status: **plan (pre-implementation), Rev 1.2** (§0.2), for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4
 lane. The R-NAT host chapter (§4.4) is L3's. The per-PR plans (R-JS; R-NAT core / ECMA-262 chapter; R-NAT
-host chapter) are written after this umbrella is ratified and each goes through `/elidex-plan-review`
-before code.
+host chapter) are written after this umbrella is ratified (the PM's go; PM 737) and each goes through
+`/elidex-plan-review` before code.
 
-**Base.** Code anchors are at `origin/main` = `4b723d4b` unless a row says otherwise. Facts about the
-value.rs split (#625, landed 11-11 as `439fa47c`) were measured at its PR head `ab71cb43`.
+**Base.** Code anchors are at `origin/main` = `4b723d4b` unless a row says otherwise (Rev 1.2's added
+anchors included). Facts about the value.rs split (#625, landed 11-11 as `439fa47c`) were measured at its PR
+head `ab71cb43`.
 
 **Provenance root.** `H` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/native-construct-umbrella`
 (outside the repo, durable): `H/scripts/` holds the census scripts, `H/logs/` their outputs at `4b723d4b`.
@@ -35,14 +36,16 @@ The specification has one shape, and it has no receiver anywhere:
 - ECMA-262 §10.3.2 (built-in `[[Construct]]`) calls BuiltinCallOrConstruct with `thisArg` = *uninitialized*;
   every built-in constructor creates its own object (OrdinaryCreateFromConstructor or an XCreate AO) at its
   own step.
-- Web IDL *create an interface object* step 8 internally creates the object from NewTarget, then step 9
-  runs the constructor steps "with object as this".
+- Web IDL *create an interface object* step 1.8 internally creates the object from NewTarget, then step
+  1.9 runs the constructor steps "with object as this" (overload resolution is step 1.7).
 - HTML *upgrade an element* step 11.3 constructs C with no arguments and no receiver; step 11.4 is the
   SameValue test. *HTML element constructors* return the construction-stack element (steps 12-16).
 - Proxy `[[Construct]]` and `Reflect.construct` forward `Construct(target, argList, newTarget)`.
 
 The program makes elidex's construct protocol that shape, in two PRs cut by callee kind (§4), so that the
-object's kind (and, for a host object, its brand) is written once, at allocation.
+object's kind (and, for a host object, its brand) is written once, at allocation. "Written once" covers
+those two facts on the object. Mutable per-instance state that a kind keeps outside the object (an
+`ObjectId`-keyed side table, §4.4 item 3) is not the kind: it stays mutable and this program does not move it.
 
 ### §0.1 Ratified rulings (decided; not re-opened here)
 
@@ -62,6 +65,7 @@ object's kind (and, for a host object, its brand) is written once, at allocation
 |---|---|---|
 | 1 | First draft (`6b62e89e`). | PM 675, PM 676 |
 | 1.1 | §9: R-0b moved to 11-24 (after this umbrella's plan-review); §9's dates are canonical; P0a-1's implementation fixed at 11-28; PR-A1 recorded as landed (#628 `c0578223`, 11-13). §4.5 / §4.5.1: R-NAT branch ownership, pull-in by merge, per-commit green record. No other design content changed. | PM 687, PM 688 |
+| 1.2 | R1 plan-review at `d11c4df7` (CRIT 0 / IMP 9 / MIN 21 after dedup). **F1** WebSocket protocol-list validation goes to `elidex-api-ws`; R-0d re-derived (§4.1, §7). **F2** the outside-write population is defined by property, four classes, one no-orphan rule (§4.4 item 3; E-7 and A5×A10 refer to it). **F3** `HTMLElement`'s sync path runs phase 1 before the spawn (§4.4 item 5, §8.4). **F4** per-constructor Call-mode table; the active-function branch is its own helper entry (§4.3, E-11, §3). **F5** P-11 enumerates 13 stale upgrade cites and homes them. **F6** R-0c / R-0d are §9.1 steps 8 / 9 (the later steps renumbered). **F7** repo `:293` is VM P4's, in the rustdoc PR (§5.4, §9.1 step 4). **F8** PM `:271` / `:1327` added to §5.4. **F9** VM-P4 family homes named and split (§4.2, §1.3). MIN: Web IDL §3.7.1 steps are 1.7 / 1.8 / 1.9; OrdinaryCallBindThis, GetThisEnvironment, MakeBasicObject, OrdinaryObjectCreate step ranges; WebAssembly JS API rows (§3); docstring rule for NEW functions; M-6's full command; PM-ledger line numbers re-measured; Re-eval dates (§5.4); A6×A7 and the `invoke_upgrade` row state S-2's flow change; `call_internal` row (§8.1); plan-review skip for R-0b / R-0c / R-0d (§4.1); §4.4 row schema gains layering and state-shape columns; R-0c's seam choice recorded; the scope of "written once" (§0); the R-JS-stage fallback's edge to `#11-vm-proxy-reflect`; `EvalError` / `SharedArrayBuffer` homes (§1.3); wires #1 / #3 exempt the helper module by property (§4.6); `vm/mod.rs` verdict cites its slot (§7). **PM 737**: the R-JS plan window is triggered by the umbrella's ratification; no date moves at the estimate (§9.1). **PM 745**: the host-chapter window is PM-confirmed. | PM 737, PM 743, PM 745 |
 
 ## §1. Scope
 
@@ -145,7 +149,9 @@ trip-wire extension, and the cells of §2.
 
 | Item | Owner |
 |---|---|
-| Absent constructors (`Function`, `RegExp`, `Map` / `Set` / `WeakMap` / `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Proxy`, `Reflect`, `EvalError`, `SharedArrayBuffer`, `Float16Array`) | their slots (§5.2); each is born on (R) |
+| Absent constructors (`Function`, `RegExp`, `Map` / `Set` / `WeakMap` / `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Proxy`, `Reflect`, `EvalError`, `SharedArrayBuffer`, `Float16Array`) | their slots (§5.2); each is born on (R). `EvalError` is `#11-vm-native-error-prototypes`'s (PM `:250`). `SharedArrayBuffer` has no slot of its own: it is named only as the gate of `#11-vm-atomics-global`'s `wait` half (repo `:316`), and this program adds none |
+| `[[HomeObject]]`: the frame field `home_class`, its `None` in `call_internal`, the closure representation; the super-property emit shape | slice-plan umbrella 3 (§4.2, family homes) |
+| SuperCall's argument evaluation (step 4) and `op_super_call_spread`'s layout and inline cache | umbrellas 1a / 1b ([C13]; §4.2, family homes) |
 | The error type of upgrade step 11.4 (NotSupportedError today) | `#11-ce-upgrade-returned-object-typeerror` (L3) |
 | Per-NativeError prototypes | `#11-vm-native-error-prototypes` (E1 / E2) |
 | Instance fields (SuperCall step 12, §10.2.2 step 6.b) | Slice 2ab of `#11-step9-class-extras` (R-JS leaves the seam, E-10) |
@@ -165,7 +171,7 @@ trip-wire extension, and the cells of §2.
 | P-8 | "`ensure_instance_or_alloc`: 15 callers" (assessment; L3: "15 lines in 11 files") | 14 calls in 10 files plus the definition (15 lines, 11 files) |
 | P-9 | the touched files over 1000 lines are `vm/mod.rs`, `gc/trace.rs`, `dispatch.rs`, `websocket.rs` | also `vm/host/events_modern/data_transfer.rs` (1226; `DataTransfer`'s constructor is in P) and, conditionally, `vm/object_kind.rs` (1645) (§7) |
 | P-10 | "201 files import through `value::`" (PM 676) | 201 is the single-line spelling; the property ("names a re-exported type through a `value::` path", brace groups across lines included) is **309** (§9.2) |
-| P-11 | E1 §1.2 and `construct_admission.rs` cite upgrade "step 10.3 / 10.4" | today's HTML numbers them 11.3 / 11.4 (`webref body html concept-upgrade-an-element`) |
+| P-11 | E1 §1.2 and `construct_admission.rs` cite upgrade "step 10.3 / 10.4" | today's HTML numbers them 11.2 ("precustomized") / 11.3 (construct) / 11.4 (SameValue); the cleanup and the exception branch are step 11's unnumbered tail (`webref body html concept-upgrade-an-element`). **13 stale cites** (§10 M-8). Host, 5: `vm/construct_admission.rs:51`, `vm/host/custom_elements/upgrade.rs:275`, `:293`, `:297`, `html_element.rs:195` → **R-JS** (it rewrites `invoke_upgrade`'s call and the entry's callers, and `html_element.rs:185-197` describes the pre-publication S-2 removes). Crate `elidex-custom-elements`, 8: `upgrade.rs:163`, `:208`, `:210`, `:211`, `registry.rs:233`, `:282`, `:294`, `tests.rs:194` → **L3**, proposed with `#11-ce-upgrade-returned-object-typeerror` (its fix rewrites `finalize_failure`, whose docstring is `:208-217`); R does not touch that crate (§8.4). E1's memo: §6 |
 
 ## §2. Coupled invariants
 
@@ -205,7 +211,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A2×A7 | the helper's fallible `? Get` is a new producer path under P0a-2a rule 1 (reach); every member's `?` on it is a carrier use (§9.1) |
 | A2×A8 | the default prototype is an argument, so the core helper reads no engine-gated `VmInner` field |
 | A2×A9 | — |
-| A2×A10 | the `[[Get]]` happens at each constructor's creation step: Web IDL after overload resolution (step 7 → 8), Error before `ToString` (§20.5.1.1 step 2), Date after `ToNumber` (§21.4.2.1 step 6) (E-8) |
+| A2×A10 | the `[[Get]]` happens at each constructor's creation step: Web IDL after overload resolution (step 1.7 → 1.8), Error before `ToString` (§20.5.1.1 step 2), Date after `ToNumber` (§21.4.2.1 step 6) (E-8) |
 | A3×A4 | derived: `undefined` return → GetThisBinding (ReferenceError if `super()` never ran), other primitive → TypeError; base: `thisArg` (E-3) |
 | A3×A5 | the binding's representation is traced wherever it lives (frame field, or a captured cell an arrow keeps alive) (E-5) |
 | A3×A6 | `class C extends HTMLElement`: `super()` binds the element `HTMLElement` returns; the wrapper is no longer `this` before `super()` (E-6) |
@@ -223,11 +229,11 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A5×A7 | CP-1 precedes every allocation the entry makes, so `rl_cp1_entry_failure_no_callee_effect` holds with no allocation (E-9) |
 | A5×A8 | — |
 | A5×A9 | the live-frame roots (`vm/gc/roots.rs:277-313`) and the suspended-frame roots (`vm/gc/trace.rs:335-372`) are two copies of one enumeration; R-JS edits both (R-0b) |
-| A5×A10 | a host constructor spawns its entity before allocating `HostObject { entity, … }`; a throw between them must leave no orphan (E-7) |
-| A6×A7 | P0a-2b reads `invoke_upgrade`'s `construct_synchronous` `Err` path (`p0a2b.md:175-176`, `:225`); R-JS changes the arguments, not the flow |
+| A5×A10 | a creation step that writes state outside the object (an entity, a side-table row, a reverse-map entry, a sent message) has a window between that write and the object's allocation or link; the rule for it is §4.4 item 3 (E-7) |
+| A6×A7 | P0a-2b reads two `Err` paths of `invoke_upgrade` (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`upgrade.rs:216`), and D-4, the `construct_synchronous` call (`:277`). R-JS removes D-3's site with its two failure exits (S-2, a flow change: P0a-2b's D-3 row has no site afterwards) and changes D-4's arguments only |
 | A6×A8 | custom elements are engine-gated; the core entry has no CE knowledge |
 | A6×A9 | `vm/tests/tests_custom_elements.rs` (1321): new cells go to a new file |
-| A6×A10 | `HTMLElement`'s step 9.1 creates through the wrapper identity map (`create_element_wrapper`), not the helper's allocation; only phase 1 is shared |
+| A6×A10 | `HTMLElement`'s step 9.1 creates through the wrapper identity map (`create_element_wrapper`), not the helper's allocation; only phase 1 is shared, and on the sync path it runs before the entity spawn (§4.4 item 5) |
 | A7×A8 | CP-3a / CP-3b are engine-gated (Wasm); the entry's CP-1 is core |
 | A7×A9 | `vm/interpreter.rs` (330) and `vm/interpreter_call.rs` (727): no split |
 | A7×A10 | CP-3b is `instantiate_module`'s first statement (`vm/host/wasm/instance.rs:151`); R-NAT edits its `.kind =` (`:188`) and its receiver parameter |
@@ -257,11 +263,13 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 - **E-6 upgrade.** `Object.setPrototypeOf(C, Blob)` then upgrade: after R-JS the native arm gives Blob a
   fresh object, `super()` binds it, step 11.4 fails, the wrapper's kind and brand are untouched. Cell A-1
   (an ordinary `HTMLElement` upgrade) stays green. L3's A-2 … A-8 are re-expected under this edge.
-- **E-7 host ECS order.** Worker (`vm/host/worker.rs:321`) and OffscreenCanvas
-  (`vm/host/offscreen_canvas/mod.rs:346`): prototype `[[Get]]` → ECS side effects → allocation with the
-  final `HostObject`. Web IDL allocates at step 8 and runs the side effects at step 9; elidex defers the
-  unobservable MakeBasicObject past them so the kind is written once. A throw after the spawn and before
-  the allocation is enumerated per member in §4.4.
+- **E-7 outside writes of a creation step.** A creation step that writes per-instance state outside the
+  object (§4.4 item 3 defines the population and its four classes). For an entity-backed member, Worker
+  (`vm/host/worker.rs:321`) and OffscreenCanvas (`vm/host/offscreen_canvas/mod.rs:346`): prototype
+  `[[Get]]` → ECS side effects → allocation with the final `HostObject`. Web IDL allocates at step 1.8 and
+  runs the side effects at step 1.9; elidex defers the unobservable MakeBasicObject past them so the kind is
+  written once. The order per class and the rule for the window are §4.4 item 3's; cells per member are the
+  host chapter's.
 - **E-8 step position.** The creation step differs per constructor (E-n of A2×A10). Unobservable until
   Proxy / Reflect.construct exist; the step-position tables (§4.3, §4.4) pin it so `#11-vm-proxy-reflect`
   inherits the right order. In the R-JS stage the native pre-allocation stays where `do_new` has it today
@@ -270,9 +278,11 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
   `construct_synchronous`; it stays green, with the stronger reading "no allocation either".
 - **E-10 instance-field seam.** SuperCall step 12 / §10.2.2 step 6.b InitializeInstanceElements: R-JS puts
   one call point after BindThisValue (derived) and after OrdinaryCallBindThis (base), empty until Slice 2ab.
-- **E-11 Call mode of dual-mode constructors.** `Date()`, `String(x)`, `Array(3)`, `Error('m')`,
-  `Object()`: NewTarget undefined → the active function (each constructor's step 1); the helper's Call-mode
-  branch uses the default prototype. L3's A-9 is reused.
+- **E-11 Call mode (NewTarget undefined).** The specification has four behaviours, per constructor (table
+  in §4.3): `Array(3)`, `Error('m')` and the rest of the Error family substitute the active function and
+  create; `Date()`, `String(x)`, `Number(x)`, `Boolean(x)` return a primitive and create nothing;
+  `Object()` has its own steps 1-3; the others throw a TypeError. Only the first group reaches the creation
+  helper in Call mode. L3's A-9 is reused, re-expected per group.
 
 ## §3. Spec coverage map
 
@@ -281,33 +291,44 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | ECMA-262 §13.3.5.1.1 EvaluateNew ( constructExpr, argumentsNode ) | 5-6 | IsConstructor, then Construct | `do_new` → the single entry (NEW) | ✓ | yes |
 | ECMA-262 §7.3.14 Construct ( ctor [ , argList [ , newTarget ] ] ) | 1-2 | newTarget defaults to ctor | the single entry (NEW) | ✓ | yes |
 | ECMA-262 §10.2.2 [[Construct]] ( argList, newTarget ) | 3, 6, 12-17 | base / derived; Object / undefined / other return | the entry's JS arm; `complete_inline_frame` | ✓ | yes |
-| ECMA-262 §10.2.1.2 OrdinaryCallBindThis ( func, calleeContext, thisArg ) | 5-7 | base constructor binds at entry | the entry's JS base arm | ✓ | yes |
+| ECMA-262 §10.2.1.2 OrdinaryCallBindThis ( func, calleeContext, thisArg ) | 5-9 | base constructor binds at entry | the entry's JS base arm | ✓ | yes |
 | ECMA-262 §10.3.2 [[Construct]] ( argList, newTarget ) | 1-2 | thisArg uninitialized; result is an Object | the entry's native arm | ✓ | yes |
 | ECMA-262 §10.3.3 BuiltinCallOrConstruct ( func, thisArg, argList, newTarget ) | 11 | "If thisArg is uninitialized, the this value is uninitialized" | `call_construct_native`, the native arm | ✓ | yes |
 | ECMA-262 §10.4.1.2 [[Construct]] ( argList, newTarget ) | 4-6 | bound args prepended; newTarget remapped when it is the bound function | `admit_construct` (unchanged) | ✓ | yes |
 | ECMA-262 §10.1.14 GetPrototypeFromConstructor ( ctor, intrinsicDefaultProto ) | 2-6 | Object / non-Object (realm intrinsic) | helper phase 1 (NEW) | ✓ | yes |
 | ECMA-262 §10.1.13 OrdinaryCreateFromConstructor ( ctor, intrinsicDefaultProto [ , internalSlotsList ] ) | 2-5 | — | helper phases 1-2 (NEW) | ✓ | yes |
-| ECMA-262 §10.1.12 OrdinaryObjectCreate ( proto [ , additionalInternalSlotsList ] ) | 1-4 | — | helper phase 2 (NEW) | ✓ | no |
-| ECMA-262 §7.3.1 MakeBasicObject ( internalSlotsList ) | 1-7 | the kind is the slot list, written once | helper phase 2 (NEW) | ✓ | no |
+| ECMA-262 §10.1.12 OrdinaryObjectCreate ( proto [ , additionalInternalSlotsList ] ) | 1-5 | — | helper phase 2 (NEW) | ✓ | no |
+| ECMA-262 §7.3.1 MakeBasicObject ( internalSlotsList ) | 1-9 | the kind is the slot list, written once | helper phase 2 (NEW) | ✓ | no |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | SuperCall 1-13 | step 6 Construct before step 9 BindThisValue; step 12 seam | `dispatch_super_inner` | ✓ | yes |
 | ECMA-262 §9.1.1.3.1 BindThisValue ( envRecord, value ) | 2-4 | already initialized → ReferenceError | `dispatch_super_inner` | ✓ | yes |
 | ECMA-262 §9.1.1.3.3 GetThisBinding ( ) | 2-3 | uninitialized → ReferenceError | `Op::PushThis`; the entry's derived return | ✓ | yes |
-| ECMA-262 §9.4.3 GetThisEnvironment ( ) | 1-4 | arrows skip to the enclosing function environment | arrow `captured_this` readers (E-4) | ✓ | yes |
+| ECMA-262 §9.4.3 GetThisEnvironment ( ) | 1-2 (2.1-2.5) | arrows skip to the enclosing function environment | arrow `captured_this` readers (E-4) | ✓ | yes |
 | ECMA-262 §7.3.33 InitializeInstanceElements ( obj, ctor ) | — | seam only (Slice 2ab) | the entry; `dispatch_super_inner` | ✗ | yes |
 | ECMA-262 §10.5.13 [[Construct]] ( argList, newTarget ) | 7-11 | no receiver anywhere | future `#11-vm-proxy-reflect` caller of the entry | ✗ | yes |
 | ECMA-262 §28.1.2 Reflect.construct ( target, args [ , newTarget ] ) | 1-5 | newTarget ≠ target | future caller of the entry | ✗ | yes |
-| ECMA-262 §20.5.1.1 Error ( message [ , options ] ) | 1-2 | creation before ToString | `error_entry` | ✓ | yes |
+| ECMA-262 §20.5.1.1 Error ( message [ , options ] ) | 1-2 | NewTarget undefined → the active function; creation before ToString | `error_entry` | ✓ | yes |
 | ECMA-262 §20.5.6.1.1 NativeError ( message [ , options ] ) | 1-2 | same | `error_entry` | ✓ | yes |
+| ECMA-262 §20.5.7.1.1 AggregateError ( errors, message [ , options ] ) | 1-2 | same | `error_ctor_impl` | ✓ | yes |
+| ECMA-262 §23.1.1.1 Array ( ...values ) | 1-2 | NewTarget undefined → the active function; prototype `? Get` at step 2, then ArrayCreate | the `Array` constructor | ✓ | yes |
+| ECMA-262 §20.1.1.1 Object ( value ) | 1-3 | creates from NewTarget only when it is neither undefined nor the active function | the `Object` constructor | ✓ | yes |
+| ECMA-262 §22.1.1.1 String ( value ) | 2.a, 3-4 | Call mode returns a String; creation at step 4 after ToString | the `String` constructor | ✓ | yes |
+| ECMA-262 §21.1.1.1 Number ( value ) | 3-4 | Call mode returns a Number; creation at step 4 after ToNumeric | the `Number` constructor | ✓ | yes |
+| ECMA-262 §20.3.1.1 Boolean ( value ) | 2-3 | Call mode returns a Boolean; creation at step 3 | the `Boolean` constructor | ✓ | yes |
 | ECMA-262 §21.4.2.1 Date ( ...values ) | 1, 6-7 | Call mode returns a string; creation after ToNumber | `native_date_constructor` | ✓ | yes |
-| Web IDL §3.7.1 Interface object | 1.2, 7-9 | NewTarget undefined → TypeError (unchanged); create at step 8 after overload resolution at step 7 | the 62 Web IDL members | ✓ | yes |
+| Web IDL §3.7.1 Interface object | 1.2, 1.7-1.9 | NewTarget undefined → TypeError (unchanged); create at step 1.8 after overload resolution at step 1.7; constructor steps at 1.9 | the 62 Web IDL members and the 5 WebAssembly interfaces (`Module`, `Instance`, `Memory`, `Table`, `Global`: Web IDL interfaces under `[LegacyNamespace=WebAssembly]`) | ✓ | yes |
 | Web IDL §3.8 Platform objects implementing interfaces | internally create 2-9 | newTarget undefined / non-Object prototype → interface prototype; [[PrimaryInterface]] at step 8 | helper phases 1-2 (NEW) | ✓ | yes |
+| WASM JS API 2 §5.10 Error Objects | 2.1 | `CompileError`, `LinkError`, `RuntimeError` implement the NativeError Object Structure, so they create as §20.5.6.1.1 steps 1-2 (active function in Call mode) | the Wasm error installer (`vm/host/wasm/errors.rs:127`) | ✓ | yes |
 | Web IDL §3.12 Invoking callback functions | construct 1-11 | no receiver | `invoke_upgrade` → the entry | ✓ | yes |
 | WHATWG HTML §3.2.3 HTML element constructors | 9-16 | empty construction stack creates from NewTarget; else returns the stack element; step 11 fallback | `native_html_element_ctor`, `resolve_validated_prototype` | ✓ | yes |
 | WHATWG HTML §4.13.5 Upgrades | upgrade 11.3-11.4 | constructResult ≠ element → TypeError | `invoke_upgrade` | ✓ | yes |
 | WHATWG HTML §4.13.4 The CustomElementRegistry interface | define: prototype Get / TypeError | the only `define`-time prototype check (S-2) | `invoke_upgrade` pre-read (removed) | ✓ | yes |
 
 Numbers: `webref heading` / `aoid` at this draft (§10 M-6). ECMA-262 rows are keyed by AO name where one
-exists. `✗` rows are seams for future callers, not this program's behaviour.
+exists. `✗` rows are seams for future callers, not this program's behaviour. Breadth K = 4, M = 34, the
+split-default range: the program is split (§4), and each per-PR plan carries its own map over its rows. The
+`WASM JS API 2` label is the one `webref coverage-map` prints; `preflight.py` does not map it (a soft
+warning), so that row's number was checked by `webref heading wasm-js-api-2 5` and its step by `webref body
+wasm-js-api-2 error-objects`.
 
 ### §3.1 User-input touch audit
 
@@ -328,7 +349,22 @@ input across a process boundary.
   both, before R-JS changes the field set. After #625 (it reads `vm/frame.rs`).
 - **R-0c: split `vm/host/events_modern/data_transfer.rs`** (1226, L3) at its three interfaces:
   `DataTransfer` (`:1-803`), `DataTransferItem` (`:804-984`), `DataTransferItemList` (`:985-1226`) (§7).
-- **R-0d: `vm/host/websocket.rs`** (1001): verdict in the host chapter (§7).
+  The other candidate seam, moving the drag-data-store algorithms (format matching, item-list mutation;
+  HTML §6.11.2) out of `host/` into an engine-independent module, is not taken here: it is a content move
+  with a state-shape decision (`DataTransferState`), not a behaviour-neutral split, and R-NAT touches only
+  the constructor. It is a pre-existing layering debt with no slot (the PM ledger's two `#11-data-transfer-*`
+  slots are `-file-paired` and `-drag-image-paint`); reported to the PM, not homed by this program.
+- **R-0d: move WebSocket protocol-list validation to `elidex-api-ws`** (L3). `vm/host/websocket.rs` is
+  1001 lines and R-NAT edits its constructor. Its seam is a layering one: the RFC 7230 token check and the
+  duplicate check (`:496-523`) and `is_valid_protocol_token_char` (`:527-558`) are an engine-independent
+  algorithm inside `host/`. They move to `crates/api/elidex-api-ws/src/websocket.rs` as a protocol-list
+  validator (NEW, `&[String] -> Result<(), String>`) beside `validate_ws_url` (`:80`); `parse_protocols`
+  keeps the marshalling (JsValue → `Vec<String>`) and maps the `Err` to SyntaxError, as the constructor
+  already does for `validate_ws_url`. No new `host/` file (§7).
+- **Plan-review of the prerequisites.** R-0b, R-0c and R-0d have no plan memo and no `/elidex-plan-review`:
+  each is a behaviour-neutral move on one axis (A5; A9; A9 with the layering move), so the mandatory
+  trigger is not met and the skill's skip applies. The skip and its reason go in each landing memo; each
+  passes `/pre-push`.
 
 ### §4.2 R-JS (VM P4): ECMAScript `[[Construct]]` and SuperCall
 
@@ -354,7 +390,11 @@ derivation; it may yield children along those axes, and each child is plan-revie
   GetPrototypeFromConstructor(newTarget) and passes it as `this` — what natives receive today, moved from
   `do_new` into one place, inside `with_call_mode`'s closure (E-9). Fallback: unreachable in this stage
   (newTarget for a native is a built-in or a class, both with an Object `prototype`); it uses the
-  `%Object.prototype%` default with a `debug_assert`, and R-NAT gives each member its own default.
+  `%Object.prototype%` default with a `debug_assert`, and R-NAT gives each member its own default. The
+  edge that would make it reachable is `#11-vm-proxy-reflect` (a newTarget whose `prototype` is not an
+  Object reaching a native): it does not land between R-JS and R-NAT, where the default would be
+  `%Object.prototype%` instead of the member's own (§9.1 step 11). R-NAT's flip deletes this allocation and
+  its `debug_assert`.
 - **Upgrade.** `invoke_upgrade` loses `receiver` and `pre_alloc`; the pre-construct prototype read goes
   (S-2).
 - **Already closed by R-JS** (not waiting for R-NAT): both receiver vectors of
@@ -362,6 +402,32 @@ derivation; it may yield children along those axes, and each child is plan-revie
   minted by the native arm: a second `super()` gets a new one (then ReferenceError), and the upgrade no
   longer passes the wrapper. The double-`super()` debug panic goes with them.
 - **Wire #5, first half** (§4.6).
+- **Family homes (the VM-P4 family).** The entry memo (`docs/plans/2026-07-vm-p4-es-language-completeness.md`)
+  homes [C11] (§10.2.2 `[[Construct]]`) on a child of umbrella 2ab (the base-path field-initialisation
+  timing) and a child of umbrella 3 (both call entry points), and [C13] (§13.3.7.1 SuperCall) on children
+  of umbrellas 1a / 1b (argument layout, inline cache, the emit) and of umbrella 3 (the super-property emit
+  shape). Slice-plan umbrella 3 (`docs/plans/2026-07-vm-p4-slice-plan.md`, row **3**) owns `[[HomeObject]]`:
+  the frame field `home_class`, its move to the closure, and its threading through both call entry points.
+  The split:
+  - **R-JS takes** the this-binding axis of both clauses, the carve repo `:293` records ("carved rather
+    than folded into Slice 2ab"): [C11] steps 3, 6.a and 12-17; [C13] steps 6-9; the seam after each bind.
+  - **Stays with 2ab:** InitializeInstanceElements ([C11] step 6.b, [C13] step 12) (E-10).
+  - **Stays with 1a / 1b:** [C13] step 4 (ArgumentListEvaluation) and `op_super_call_spread`'s argument
+    layout and inline cache. R-JS changes what `dispatch_super_inner` does once the arguments are
+    evaluated, not how they are laid out.
+  - **Stays with umbrella 3:** the super-property emit shape, `[[HomeObject]]` on the closure, and
+    `home_class` through both entries. R-JS edits the same two functions (`call_internal`,
+    `push_js_call_frame`; §8.1) for `new_instance` only; `home_class`, its `None` in `call_internal` and
+    its rooting stay as they are.
+  - **Two edges to umbrella 3.** (1) R-0b folds the two frame-marking sites of `home_class`
+    (`vm/gc/roots.rs:297`, `vm/gc/trace.rs:357`) into the one frame-root function, so umbrella 3's
+    obligation to retire "the two frame-marking sites" reads one site afterwards. (2) The this-binding and
+    umbrella 3's closure-carried home object are both reached through GetThisEnvironment's walk (S's AO).
+    R-JS's plan decides only the this-binding, and shows that its representation leaves room for a home
+    object beside it without a second capture mechanism; whether and how the home object moves stays
+    umbrella 3's derivation.
+  - R-JS's plan PR adds R-JS to the "Used by" cells of [C11] and [C13] in the entry memo (a VM-P4 family
+    edit: the umbrella checker runs on it, CLAUDE.md "VM-P4 family").
 
 ### §4.3 R-NAT core and ECMA-262 chapter (VM P4)
 
@@ -370,9 +436,34 @@ derivation; it may yield children along those axes, and each child is plan-revie
     (born in R-JS, §4.2): ECMA-262 §10.1.14 and Web IDL §3.8 steps 2-3, which have the same shape;
   - phase 2, `alloc_with_kind(proto, kind) -> ObjectId`: OrdinaryObjectCreate / MakeBasicObject; the kind,
     and for a `HostObject` its brand (L3 brand-check PR-1, Web IDL §3.8 step 8), written once;
-  - `NativeContext::create_from_new_target(default_proto, kind)`: both, with the Call-mode branch (E-11).
-    Not spelled `if !ctx.is_construct()` nor as `let Some(..) = ctx.new_target() else` with the "new
-    operator" message, so trip-wires #1 / #3 stay silent.
+  - `NativeContext::create_from_new_target(default_proto, kind)`: both phases, for Construct mode only.
+    NewTarget is present there: by the dispatch gate for a `ConstructorOnly` member, by the member's own
+    Call-mode return for `Date` / `String` / `Number` / `Boolean`. It has no Call-mode branch;
+  - the active-function entry (NEW; its name is the per-PR plan's): for the constructors whose step 1
+    substitutes the active function (table below), and only for them. Phase 1 runs on NewTarget when
+    present. In Call mode the active function is the built-in itself, whose `prototype` is a non-writable,
+    non-configurable data property holding the default (§23.1.2.5, §20.5.2.2, §20.5.6.2.1, §20.5.7.2.1), so
+    the `? Get` is unobservable and the entry takes the default directly;
+  - every NEW function of the program (the entry, these helper functions, R-0b's frame-root function,
+    R-0d's validator) carries a docstring naming the AO or algorithm it implements: ECMA-262 by AO name,
+    numbers from `webref`;
+  - wires #1 / #3 and this module: §4.6.
+- **Call mode per constructor** (NewTarget undefined; the ECMA-262 28, steps from `webref body`):
+
+  | Constructors | Step | Call-mode behaviour | Helper in Call mode |
+  |---|---|---|---|
+  | `Array` (§23.1.1.1) | 1 | newTarget = the active function; creates (ArrayCreate) | the active-function entry |
+  | `Error` (§20.5.1.1), the 5 NativeErrors (§20.5.6.1.1), `AggregateError` (§20.5.7.1.1) | 1 | newTarget = the active function; creates at step 2 | the active-function entry |
+  | `Object` (§20.1.1.1) | 1-3 | creates from NewTarget only when it is neither undefined nor the active function (step 1.a); otherwise OrdinaryObjectCreate(%Object.prototype%) or ToObject(value) | never reached: phase 1 runs only under step 1.a (NewTarget is another constructor, so Construct mode) |
+  | `Date` (§21.4.2.1) | 1 | returns ToDateString(now); no object | never reached |
+  | `String` (§22.1.1.1) | 2.a, 3 | returns a String (SymbolDescriptiveString for a Symbol); no object | never reached |
+  | `Number` (§21.1.1.1) | 3 | returns the Number; no object | never reached |
+  | `Boolean` (§20.3.1.1) | 2 | returns the Boolean; no object | never reached |
+  | `Promise` (§27.5.3.1), `ArrayBuffer` (§25.1.4.1), `DataView` (§25.3.2.1), the 11 TypedArrays (§23.2.5.1) | 1 | TypeError | never reached |
+  | `%TypedArray%` (§23.2.1.1) | 1 | TypeError in both modes | never reached |
+
+  1 + 7 + 1 + 4 + 14 + 1 = 28. The host side has one more active-function group, the three WebAssembly
+  error classes (NativeError Object Structure, §3); every Web IDL constructor throws at step 1.2.
 - **The flip.** The entry's native arm passes *uninitialized* (`undefined`); the last pre-allocation goes.
 - **ECMA-262 members (28)**: each creates at its creation step. Step-position table, one row per member
   (constructor, spec step of creation, today's site, feature row). Inputs for its rows: L3 F1 / F1b /
@@ -388,23 +479,62 @@ derivation; it may yield children along those axes, and each child is plan-revie
 Written by L3 after this umbrella is ratified (the PM tells L3). It must contain:
 
 1. **The 70 rows**, by family, each with: the interface, Web IDL (or WebAssembly JS API) creation step,
-   today's site, the helper call, the feature row, and whether the member spawns ECS state. Population:
-   §1.1's host 70 (F1 29, F2 35, F3 2, F5 4); re-run `H/scripts/ctor_census.py` at the chapter's base.
-2. **Argument conversion before creation** (Web IDL step 7 → 8) per member, so no temporary rooting is
+   today's site, the helper call, the feature row, and three more columns. **Outside writes**: the classes
+   of item 3 the member is in, or none. **Layering**: the engine-independent crate that owns the member's
+   algorithm (argument validation, parsing), or "marshalling only"; an algorithm found in `host/` is
+   named with its destination crate (CLAUDE.md, Layering mandate), as R-0d does for WebSocket. **State
+   shape**: where the member's per-instance state lives (none; an ECS component on its entity; an
+   `ObjectId`-keyed side table, which is exception (a) of CLAUDE.md's side-store rule, a per-VM identity
+   key; shared state, exception (b)). R-NAT moves no state: a row that fails the rule is reported to the PM
+   as a slot candidate, not migrated in R-NAT. Population: §1.1's host 70 (F1 29, F2 35, F3 2, F5 4);
+   re-run `H/scripts/ctor_census.py` at the chapter's base. The 8 WebAssembly members: the 5 interfaces
+   create as Web IDL (step 1.8), the 3 error classes as NativeError (§3).
+2. **Argument conversion before creation** (Web IDL step 1.7 → 1.8) per member, so no temporary rooting is
    needed while user `valueOf` runs.
-3. **E-7 for every ECS-spawning member** (Worker, OffscreenCanvas, observers, WebSocket, EventSource, …):
-   the order prototype `[[Get]]` → side effects → allocation, and what a throw between them leaves.
+3. **Outside writes of the creation step (E-7).** Population, by property: **every member whose creation
+   step writes per-instance state outside the object it returns.** It is not a list of names: the chapter
+   takes the census at its base, by reading each of the 70 bodies (the "Outside writes" column), and the
+   single-line spelling `_states.insert(` (measured in M-9) is a lower bound for
+   class (b), not the population. Four classes; a member can be in several (WebSocket: b, c, d):
+
+   | Class | Example (`4b723d4b`) | Order | Window |
+   |---|---|---|---|
+   | (a) ECS entity or component | Worker (`worker.rs:386`), OffscreenCanvas (`offscreen_canvas/mod.rs:360`), `HTMLElement`'s sync path (`html_element.rs:236`) | phase 1 → spawn → phase 2 (the kind carries the entity) → `cache_wrapper` | spawn … allocation |
+   | (b) `VmInner` / `HostData` side table keyed by `ObjectId` | `websocket_states` (`websocket.rs:411`), `event_source_states` (`event_source.rs:323`) | phase 1 → phase 2 → insert | allocation … insert |
+   | (c) reverse map (external id → object or entity) | `ws_conn_to_object` (`websocket.rs:424`), `sse_conn_to_object` (`event_source.rs:334`), `worker_entities` (`worker.rs:387`) | right after the forward row or entity it points at; before a send whose reply resolves through it | forward write … reverse write |
+   | (d) external send (broker message, thread) | `WebSocketOpen` (`websocket.rs:433`), `EventSourceOpen` (`event_source.rs:341`), `spawn_worker` (`worker.rs:367`) | after every fallible step of the member; irreversible | send … return |
+
+   **The rule (stated here once; E-7, A5×A10, item 5 and S-1 refer to it): no orphan.** A constructor
+   that throws leaves no entity, side-table row, reverse-map entry or sent message without its object.
+   The property that gives it: **nothing fallible, and no user code, between the first outside write and
+   the last write that links the object to its state.** Its guarantor is the helper's shape: phase 1 (the
+   prototype `? Get`) is the last fallible, re-entrant step and precedes every outside write; phase 2 is
+   infallible by signature (`-> ObjectId`). Argument conversion, validation and capability checks precede
+   phase 1. Counter-example to fix in R-NAT: WebSocket checks for a bound `HostData` (`websocket.rs:405`,
+   a TypeError) after the kind write (`:380`); the check moves before phase 1. A throw after the creation
+   step is complete (for example user code a constructor runs later) leaves a whole object that is
+   garbage; its teardown is the kind's existing one, unchanged. Per member the chapter records the order,
+   the window, and a cell or a code-read verdict that the window is empty.
 4. **Shared helpers**: `create_fresh_event_object` (`vm/host/events.rs:299`; its Call-mode branch serves the
    4 VM-internal dispatchers), `build_ui_event_instance`, `build_event_subclass_instance`, `construct_rect`
    (`DOMRect`'s side store insert after allocation; PR-0A review IMP-4), `build_response_instance`, and
    `instantiate_module`, which also serves the non-constructor `WebAssembly.instantiate`
    (`vm/host/wasm/namespace.rs:578`) and holds CP-3b as its first statement (§8).
-5. **`HTMLElement`** (unchanged creation through the wrapper identity map; `resolve_validated_prototype`
-   folded onto phase 1, S-1) and `%TypedArray%`'s body (unchanged).
+5. **`HTMLElement`.** Creation stays through the wrapper identity map, and `resolve_validated_prototype`
+   folds onto phase 1 (S-1). The sync path (empty construction stack) is reordered under item 3's rule:
+   today it spawns the entity (`html_element.rs:236`) and creates the wrapper (`:248`) before the
+   prototype `? Get` (`:249`), so a `? Get` that throws (today also S-1's TypeError on a non-Object)
+   leaves an orphan entity. After R-NAT: phase 1 (`? Get` and the S-1 fallback) → spawn → wrapper →
+   prototype write, which is HTML §3.2.3 step 9.1's order (internally create, whose first fallible step is
+   that `? Get`, before steps 9.2-9.9). The window is latent today, as S-1 is: it needs a newTarget whose
+   `prototype` is an accessor or a non-Object, which arrives with Reflect.construct. R-NAT's verdict is a
+   code read; the script cell (a throwing getter on NewTarget's `prototype` spawns nothing) is recorded
+   on `#11-vm-proxy-reflect` (§5.2). `%TypedArray%`'s body is unchanged.
 6. **`DataTransfer` / `Touch`** (S-3): the subclass prototype, with cells.
 7. **`HostObject` hunks** for the PM at plan time (PM 642 (a)): the Worker / OffscreenCanvas allocations
    and their brand.
-8. **Touch-time verdicts** for its files over 1000 lines: R-0c, R-0d (§7).
+8. **Touch-time verdicts** for its files over 1000 lines: R-0c, R-0d (§7), re-measured at the chapter's
+   base.
 9. **L3's cells A-1 … A-9** re-expected under E-2 / E-6 / E-11, and the brand-check §6.2 cell that PM 664
    re-points (§5.1).
 
@@ -446,8 +576,9 @@ Written by L3 after this umbrella is ratified (the PM tells L3). It must contain
   `git merge origin/rnat-core` on `rnat-host`, before its next host commit or when VM P4 asks. The lane
   that makes a merge resolves its conflicts; a conflict in the other lane's chapter is resolved toward that
   lane's side and reported to it, and that lane re-checks it in the record.
-- **Ordering edges to L3's own work.** R-0c (the `data_transfer.rs` split, L3) lands on main before
-  `rnat-host` is created, and `rnat-host` is created from an `rnat-core` that contains it (if `rnat-core`
+- **Ordering edges to L3's own work.** R-0c (the `data_transfer.rs` split) and R-0d (the WebSocket
+  validator move), both L3's, land on main before `rnat-host` is created (§9.1 steps 8 / 9), and
+  `rnat-host` is created from an `rnat-core` that contains them (if `rnat-core`
   was cut earlier, VM P4 first merges `origin/main` into it). The host chapter (§4.4) stays L3's to author;
   VM P4 owns the PR, not the chapter.
 - **Intermediate green.** Every commit the squash covers — L3's, VM P4's and the merge commits — is checked
@@ -483,6 +614,15 @@ completed in R-NAT (`ensure_instance_or_alloc`, `promote_to_\w+\(`, and assignme
 value through `.kind =` or a `&mut` deref → 0, PR-0A review MIN-2), with a control mutant in the same
 commit.
 
+**Wires #1 / #3 and the helper module.** Their property is "no constructor body rejects a bare call
+itself" (the dispatch gate does, `CallShape::ConstructorOnly`). The helper's active-function entry reads
+the call mode for a different purpose: it substitutes, and never throws for the mode. So it is outside
+that property whatever its spelling, and the wires say so instead of relying on the spelling: R-NAT's wire
+commit excludes the helper module's file from #1 and #3 by path, with that reason in the script (the
+shape of wire #4's `vm/error.rs` exclusion), and wire #5 adds the complement inside that file: no
+call-mode TypeError (the "new operator" / "Illegal constructor" messages → 0 there). A control mutant
+for each direction lands in the same commit.
+
 ### §4.7 What must not ship
 
 - Natives migrated one at a time while the native arm still pre-allocates ("host first, ECMA-262 later").
@@ -493,7 +633,8 @@ commit.
 ## §5. Slot homing
 
 Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-ledger.md`) or the PM ledger
-(`project_open-defer-slots.md`), as each row says.
+(`project_open-defer-slots.md`), as each row says. PM-ledger line numbers were re-measured live on
+2026-11-15 (`grep -n` on the slot id); the ledger moves, so the PMO matches on the id, not the number.
 
 ### §5.1 Closed
 
@@ -501,22 +642,22 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
 |---|---|---|---|
 | `#11-vm-native-ctor-receiver-promotion-admission` | PM `:270` | R-NAT (the class) | R-JS already removes both vectors (§4.2). The PM 660 / 664 facets (`:271`; the 39 / 37 counts) concern a guard that is no longer written. |
 | `#11-vm-get-prototype-from-constructor-fallback` | PM `:268` | R-NAT | R-JS discharges the reachable facet (JS base, E-1); R-NAT gives every native its default. |
-| `#11-vm-derived-constructor-this-binding` | repo `:293` (PM pointer `:1301`) | R-JS (the derivation and its children) | the four regressions and base controls are R-JS's acceptance. PM 660 facet (`:1302`): the Worker / OffscreenCanvas guard is not written, because R-JS gives natives fresh objects. PM 664 facet: the brand-check §6.2 cell expects ReferenceError (`super()` path, R-JS) and TypeError (upgrade path, step 11.4). |
+| `#11-vm-derived-constructor-this-binding` | repo `:293` (PM pointer `:1326`) | R-JS (the derivation and its children) | the four regressions and base controls are R-JS's acceptance. PM 660 facet (PM `:1327`): the Worker / OffscreenCanvas guard is not written, because R-JS gives natives fresh objects. PM 664 facet: the brand-check §6.2 cell expects ReferenceError (`super()` path, R-JS) and TypeError (upgrade path, step 11.4). |
 
 ### §5.2 Edges changed
 
 | Slot | Ledger | Change |
 |---|---|---|
-| `#11-ce-upgrade-returned-object-typeerror` | PM `:1029` | not closed; its reachable set grows (every re-prototyped upgrade reaches step 11.4); its trigger fires on R-JS (`upgrade.rs`); its text's "step 10.4" is 11.4 today (P-11) |
+| `#11-ce-upgrade-returned-object-typeerror` | PM `:1045` | not closed; its reachable set grows (every re-prototyped upgrade reaches step 11.4); its trigger fires on R-JS (`upgrade.rs`); its text's "step 10.4" is 11.4 today, and P-11's 8 crate cites are proposed for its fix (L3) |
 | `#11-vm-arrow-lexical-super` (S), `#11-vm-arrow-lexical-new-target` (N) | repo `:287`, `:286` | S already waits on the derived-this derivation's `[[ThisBindingStatus]]` mint; R-JS mints it, decided with S and N (§4.2) |
-| `#11-step9-class-extras` (Slice 2ab) | repo `:321` | R-JS creates the InitializeInstanceElements seam (E-10); 2ab fills it |
-| `#11-vm-proxy-reflect` (slice-plan row 10a) | PM `:330` | unblocked: a caller of the single entry, no receiver |
+| `#11-step9-class-extras` (Slice 2ab; umbrella 3 adopts the same slot) | repo `:321` | R-JS creates the InitializeInstanceElements seam (E-10); 2ab fills it. Umbrella 3 is untouched, with two edges (§4.2, family homes) |
+| `#11-vm-proxy-reflect` (slice-plan row 10a) | PM `:330` | unblocked by R-NAT, and not before it (§4.2, the R-JS-stage fallback): a caller of the single entry, no receiver. It inherits the cells that need a newTarget with an accessor or non-Object `prototype`: E-1's accessor case, S-1, and the `HTMLElement` sync-path cell (§4.4 item 5) |
 | `#11-vm-typed-array-create-construct` | PM `:249` | unblocked: TypedArrayCreateFromConstructor calls the entry |
 | Array.from / Array.of (row 9a), PromiseResolve(C) (row 9da) | PM `:248` | unblocked the same way |
-| `#11-vm-function-constructor-global`, `#11-vm-map-set-collections`, `#11-vm-regexp-constructor-and-flags`, `#11-vm-float16array-global`, `#11-vm-weakref-finalization-registry` | repo / PM | each future constructor is born on (R): it creates through the helper |
+| `#11-vm-function-constructor-global`, `#11-vm-map-set-collections`, `#11-vm-regexp-constructor-and-flags`, `#11-vm-float16array-global`, `#11-vm-weakref-finalization-registry` | repo `:318` / PM `:328` / PM `:329` / repo `:315` / repo `:317` | each future constructor is born on (R): it creates through the helper |
 | `#11-vm-native-error-prototypes` | PM `:250` | E1 rebases onto R-NAT (§6) |
 | `#11-error-object-builtintag-dual-representation` | PM `:228` | unchanged owner (E1); E1 writes `ObjectKind::Error` through the helper |
-| `#11-vm-value-reexport-shim-retirement` | PM `:1490` | placement §9.2 |
+| `#11-vm-value-reexport-shim-retirement` | PM `:1544` | placement §9.2 |
 | `#11-vm-operand-rooting-by-construction` | repo `:306` | no new instance: the helper's `? Get` runs before allocation (A2×A5) |
 | `#11-bound-dispatch-soundness-by-contract` | PM | no effect (script-session trait surface) |
 
@@ -531,20 +672,45 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
   only at `define` (§4.13.4); a plain function's `prototype` stays writable, so `F.prototype = 1` after
   `define` makes elidex skip the constructor (its side effects) where the spec runs it and then fails at
   step 11.4. The read exists to pre-publish the wrapper's prototype for the receiver design (D-17b §6),
-  which R-JS removes. Home: R-JS.
+  which R-JS removes. The read is host-side marshalling (`vm/host/custom_elements/upgrade.rs`); the
+  crate `elidex-custom-elements` is not touched (§8.4). Home: R-JS.
 - **S-3 `DataTransfer` / `Touch` ignore the subclass prototype.** Both allocate with the fixed interface
   prototype (`vm/host/events_modern/data_transfer.rs:332-341`, `vm/host/events_modern/touch.rs:327-335`),
   so `class T extends Touch {}; new T(init) instanceof T` is false. Home: R-NAT host chapter.
 
-### §5.4 Ledger edits at ratification (for the PMO; listed, not made here)
+### §5.4 Ledger edits (listed, not made here)
+
+**For the PMO, at ratification** (PM ledger):
 
 - PM `:270`: owner "native construct protocol program" already reads R-NAT (PM 675); add "R-JS removes
   both vectors". PM `:268`: add "R-JS: reachable facet".
-- Repo `:293`: the PM 660 / 664 facets are restated as above, replacing the PR-0A wording of PM 665's
-  facet 1.
-- PM `:1029`: "step 10.4" → "step 11.4".
-- PM `:1298` points `#11-vm-class-instance-field-init` at the repo ledger, where `:386` records it as
+- PM `:271` and PM `:1327` (the PM 660 / 664 facets of the admission slot and of the derived-this pointer)
+  still say that brand-check PR-1 closes Worker / OffscreenCanvas with a guard ("`this` must be an
+  unminted Ordinary, else TypeError"). §5.1 retracts that guard, so both are restated: "no guard is
+  written; R-JS gives a native a fresh object and R-NAT creates from NewTarget", keeping PM 664's cell
+  expectation (ReferenceError on the `super()` path, TypeError at upgrade step 11.4).
+- PM `:1045`: "step 10.4" → "step 11.4"; add P-11's crate cites to the fix (L3, proposed).
+- PM `:1320` points `#11-vm-class-instance-field-init` at the repo ledger, where `:386` records it as
   withdrawn; re-point to `#11-step9-class-extras` (Slice 2ab).
+- PM `:330`: add "after R-NAT" and the inherited cells (§5.2).
+- **Re-eval dates that §9.1 passes** (the slot's date is earlier than the day the schedule acts on it;
+  the new date is proposed, the PM sets it): PM `:1326` (derived-this), `:1311` / `:1312` (N / S), `:1045`
+  and `:289` (`#11-step9-class-extras`) carry 2026-12-01, and R-JS lands 12-05 → 12-05; PM `:250`
+  (`#11-vm-native-error-prototypes`) carries 12-05, and E1 follows R-NAT (12-15) and Slice F → Slice F's
+  date; PM `:1544` (shim retirement) carries 12-15, and its PR is 12-16 → 12-16.
+
+**For VM P4, in the default-row rustdoc PR (11-25; PM 665, PM 687):** repo `:293`. The row today holds
+the carve, the four regressions with their base controls, the three axes, and the PM 374 severity
+paragraph (the double-`super()` panic, and why a guard before Construct is wrong). Its trigger cell reads
+"with umbrella 2ab's derivation … or the next call-frame PR" (`call_internal` / `push_js_call_frame`). It
+has no PM 660 / 664 facet: PM 665's facet-1 wording (the PR-0A admission helper) was never written
+there, and PR-0A is withdrawn (PM 675). The PR writes, in R-JS / R-NAT terms: closed by R-JS (this
+umbrella); the PM 660 facet as "no guard is written" (as above); the PM 664 facet as the brand-check
+§6.2 cell's expectation; the trigger's "next call-frame PR" resolved to R-JS. It is a VM-P4 family edit
+(the umbrella checker runs on the entry memo). The repo ledger has no row for
+`#11-vm-native-ctor-receiver-promotion-admission` (`grep -c` → 0), so PM 665's owner edit has no repo site.
+
+**For VM P4, in R-JS's plan PR:** the "Used by" cells of [C11] / [C13] (§4.2, family homes).
 
 ## §6. E1 (NativeError `[[ErrorData]]`)
 
@@ -565,7 +731,7 @@ lines when it resumes.
 | §4 T-PROMO-UPGRADE (`:662`) | pins base behaviour | expects the spec outcome above |
 | §4.2 M1 / M2 / M4 / M5 / M18 (`:690-716`) | mutants of `error_receiver` / `promote_to_error` | M18 withdrawn; the rest re-expressed on the helper call (wrong kind, wrong default prototype, bypassing the helper); new mutant "the constructor reuses `this`", which turns T-PROMO-UPGRADE and the double-`super()` cell red |
 | §5 hand-off bullets (`:744-758`) | receiver admission → its slot; trigger restated with `promote_to_error` | closed by R-NAT; nothing to restate |
-| §0.3 / §1.2 upgrade step numbers | 10.3 / 10.4 | 11.3 / 11.4 (P-11) |
+| §0.3 / §1.2 / §5 upgrade step numbers (`:245`, `:247`, `:755`) | 10.3 / 10.4 | 11.3 / 11.4 (P-11) |
 
 ## §7. 1000-line touch-time verdicts
 
@@ -574,12 +740,12 @@ files); the files over 1000:
 
 | File | Lines | Touch | Verdict |
 |---|---|---|---|
-| `vm/mod.rs` | 2797 | one `mod` line (the entry / helper module) | **no seam for this touch.** The file is the `VmInner` struct (`:188-2790`, 351 fields); its decomposition is a design program with its own home (memory `vm-inner-substruct-deferral`), not a touch-time split. A one-line declaration does not fire it (PM 654 Q-14 reasoning). |
+| `vm/mod.rs` | 2797 | one `mod` line (the entry / helper module) | **no seam for this touch.** The file is the `VmInner` struct (`:188-2790`, 351 fields); its decomposition is a design program with its own slot, `#11-vm-inner-substruct-decomposition` (PM `:1441`, PM 517), not a touch-time split. A one-line declaration does not fire it (PM 654 Q-14 reasoning). |
 | `vm/gc/trace.rs` | 1255 | R-JS: the suspended-frame `new_instance` (`:350`) and arrow `captured_this` (`:255`) | **real seam: R-0b** (one frame-root enumeration shared with `vm/gc/roots.rs`), a standalone prereq. The rest is `trace_work_list`'s match over `ObjectKind` (a flat case table, exempt); the file stays over 1000 after R-0b and that remainder is the exempt table. |
 | `vm/host/events_modern/data_transfer.rs` | 1226 | R-NAT: the `DataTransfer` constructor (S-3) | **real seam: R-0c** (three interfaces, three files), a standalone prereq before R-NAT's host commits. PM 654 Q-14 ruled a one-`..` mechanical ripple out of scope; R-NAT's hunk is a content change to the constructor, so that ruling does not cover it. |
 | `vm/value.rs` | 1176 | R-JS: `FunctionObject::captured_this` (`:598`) | **discharged by R-0a** (967 after #625). |
 | `vm/dispatch.rs` | 1104 | R-JS: `Op::PushThis` (`:738`), `complete_inline_frame` (`:1087`) | **no prereq split.** The file is `run()`'s opcode match (exempt, per the touch-time record) plus `complete_inline_frame` (17 lines), which R-JS rewrites and moves into the entry module (net −17). |
-| `vm/host/websocket.rs` | 1001 | R-NAT: the constructor (`:329`) | **seam exists** (construction and protocol validation, `:329-559`, as `websocket/construct.rs`); the verdict is the host chapter's, proposed: split before R-NAT, because R-NAT's hunk is a content change to that unit. |
+| `vm/host/websocket.rs` | 1001 | R-NAT: the constructor (`:329`) | **real seam, and it is a layering one: R-0d.** The protocol-list validation (`:496-523`, 28 lines) and its token predicate (`:527-558` and the blank after it, 33 lines) are an engine-independent algorithm; they move to `elidex-api-ws`, not to a new `host/` file (a `websocket/construct.rs` would keep the algorithm in `host/`, against the Layering mandate). Measured: 1001 − 61 + the call that replaces them (about 4 lines) ≈ 944, under 1000, so no host-side split follows. R-0d's PR re-measures; if the file is over 1000 at the host chapter's base, the chapter gives a new verdict. PM 667's Q-16 (no split for a mechanical one-hunk change) was for PR-0A; R-NAT's hunk is a content change to the constructor. |
 | `vm/object_kind.rs` | 1645 | only if R-JS changes `FunctionObject`'s home or the HostObject variant changes | conditional; if touched, the per-PR plan gives the verdict (PM 642 (a): a split is a standalone prereq ordered by the PM) |
 | `vm/tests/tests_custom_elements.rs` | 1321 | none: new cells go to a new test file | — |
 
@@ -598,9 +764,10 @@ Under 1000 and touched: `vm/ops.rs` 893, `vm/natives_promise.rs` 961, `vm/host/r
 | `dispatch_super_inner` (`vm/dispatch_class.rs:116`) | P0a-1 cites it as "mutates nothing before `with_call_mode`" | R-JS: Construct, then BindThisValue after the call | P0a-1 | R-JS keeps the claim true (nothing before the entry) |
 | `do_new` (`vm/ops.rs:681`) | none (JS `new` is inline; the native path's CP-1 is inside `call_construct_native`) | R-JS: the entry | — | — |
 | `call_dispatch` (`vm/interpreter_call.rs:17`) | PR-1b: the `WasmExportedFunction` arm (`:241-246`, CP-3a's caller) | none (§1.2) | — | — |
-| `push_js_call_frame` (`vm/interpreter_call.rs:505`) | PR-1 cites it (probe placement, `pr1.md:352-353`) | R-JS: the `new_instance` parameter (`:511`) and its literals (`:385`, `:420`, `:469`) | R-JS | PR-1 re-reads its anchors at its plan-review |
+| `call_internal` (`vm/interpreter_call.rs:270`) | P0a-1 cites its async branch (`p0a1.md:278`, `interpreter_call.rs:367-397`); PR-1 cites it (`pr1.md:353`) | R-JS: its three `new_instance: None` frame literals (`:385`, `:420`, `:469`); `home_class` stays (§4.2, family homes) | P0a-1 | R-JS. `:385` is inside the async branch P0a-1 cites: one field of its frame literal, not its control flow, so P0a-1's reading ("builds the initial frame … without pushing a frame") stays true. PR-1 re-reads its anchors at its plan-review |
+| `push_js_call_frame` (`vm/interpreter_call.rs:505`) | PR-1 cites it (probe placement, `pr1.md:352-353`) | R-JS: the `new_instance` parameter (`:511`) and its frame literals (`:619`, `:671`, `:718`) | R-JS | PR-1 re-reads its anchors at its plan-review |
 | `instantiate_module` (`vm/host/wasm/instance.rs:151`) | P0a-1 CP-3b: `check_entry` as the first statement | R-NAT: the receiver parameter and `.kind =` (`:188`) | P0a-1 | R-NAT |
-| `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads the `construct_synchronous` `Err` arm (`p0a2b.md:175-176`, `:225`) | R-JS: the call's arguments and S-2's pre-read | R-JS | P0a-2b re-checks the two anchors |
+| `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads two `Err` arms (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`:216`), and D-4, `construct_synchronous` (`:277`) | R-JS: S-2 removes the read and its two failure exits (D-3's site goes); the call's arguments change (D-4's `Err` arm stays) | R-JS | P0a-2b drops D-3's row and re-checks D-4's anchor |
 | `run_reaction` (`vm/natives_promise.rs:665`) | P0a-1 D-16: `ReactionTarget` in the reaction record, the `Err` arm | none; R-NAT edits `native_promise_constructor` (`:712`) in the same file | P0a-1 | — (different function) |
 | `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`roots.rs:416-428`, `trace.rs:284`) | R-0b / R-JS: the frame-root blocks (`roots.rs:277-313`, `trace.rs:335-372`) | either | the later one (different statements) |
 | `coroutine_types.rs` `Reaction` | P0a-1 D-16 changes the record | the shim retirement rewrites `value::Reaction` imports (§9.2) | P0a-1 | the retirement (script-regenerated) |
@@ -628,12 +795,19 @@ L3's ShadowRoot PR may touch this area. Every function in it that R-JS or R-NAT 
 
 - `invoke_upgrade` (`vm/host/custom_elements/upgrade.rs:129`), R-JS: its `construct_synchronous` call loses
   `JsValue::Object(wrapper_id)` / `Some(wrapper_id)` (the call becomes a receiver-less call of the single
-  entry); the pre-construct `prototype` read (`:216-222`) is removed (S-2); the step 11.4 SameValue test
-  and the `Err` arm are unchanged.
+  entry); the pre-construct `prototype` read (`:216-222`) is removed with its two failure exits (S-2); the
+  step 11.4 SameValue test and the construct's `Err` arm are unchanged; its stale step cites are fixed
+  (P-11).
 - `native_html_element_ctor` (`vm/host/custom_elements/html_element.rs:107`), R-NAT host chapter: the
-  construction-stack return (steps 12-16) and the sync path's wrapper creation are unchanged; its two
-  `resolve_validated_prototype` calls (`:204`, `:249`) go through the helper's phase 1 (S-1).
+  construction-stack return (steps 12-16) is unchanged; its two `resolve_validated_prototype` calls
+  (`:204`, `:249`) go through the helper's phase 1 (S-1); on the sync path phase 1 moves before the entity
+  spawn (`:236`) and the wrapper creation (`:248`) (§4.4 item 5).
 - `resolve_validated_prototype` (`html_element.rs:276`), R-NAT host chapter: folded onto phase 1 (S-1).
+- The engine-independent crate `elidex-custom-elements` is not touched by R-JS or R-NAT: `prepare_upgrade`,
+  `enter_constructor`, `finalize_success`, `finalize_failure`, the construction stack and
+  `spawn_custom_element_entity` keep their bodies and signatures (the host changes only when it calls the
+  last one). The upgrade algorithm stays there; what S-2 removes is a host-side read. Its stale step cites
+  are L3's (P-11).
 - Untouched: `invoke_upgrade`'s callers `invoke_one` (`vm/host/custom_elements/flush.rs:100`), the
   creation path (`creation.rs:238`) and the `upgrade()` walk (`lookup.rs:183`); `flush_ce_reactions`
   (`flush.rs:39`); `invoke_callback` (`flush.rs:156`; lifecycle callbacks are calls, not constructs);
@@ -655,27 +829,42 @@ Order, with the reason for each edge (dependency or regression):
    review).
 3. R-0b frame-root split — **11-24** (PM 688). After this umbrella's plan-review, so it is implemented
    against the reviewed umbrella; after #625 (it reads `vm/frame.rs`); before R-JS's implementation (both
-   copies change), which starts 11-28.
-4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link.
+   copies change), which starts 11-28. 11-24 holds while the umbrella is ratified by 11-23; if it is
+   later, R-0b is the day after the ratification, still ahead of R-JS's implementation (step 6).
+4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link. It also
+   carries repo-ledger `:293`, rewritten in R-JS / R-NAT terms (PM 665, PM 687; §5.4).
 5. P0a-1 implementation — **11-28** (PM 687; the stack-safety program's date). Before R-JS:
    P0a-1's ratified plan cites `call_construct_native` / `construct_synchronous` as they are today, and
    R-JS first would change a ratified surface (a re-review); P0a-1 first leaves R-JS a mechanical rebase of
    one cell.
-6. **R-JS — lands 12-05** (plan written 11-17 … 11-19, plan-review 11-20 … 11-24, implementation 11-28 …
-   12-04). After P0a-1 (above); before R-NAT (PM 675, E-4); before P0a-2a's PR, so P0a-2a's measured report
-   sees the final construct entries.
+6. **R-JS — lands 12-05 (estimate).** Its per-PR plan window opens when this umbrella is ratified (the
+   PM's go): a condition, not a date (PM 737). Estimate, for a ratification by 11-17: plan written 11-17 …
+   11-19, plan-review 11-20 … 11-24, implementation 11-28 … 12-04. The implementation starts at the later
+   of P0a-1's landing (11-28, step 5) and the end of the R-JS plan's own review (seven days after the
+   umbrella's ratification), so 11-28 holds while the umbrella is ratified by 11-20. Each day past 11-20
+   moves this row and steps 8-12 by a day; no date moves at the estimate. After P0a-1 (above); before
+   R-NAT (PM 675, E-4); before P0a-2a's PR, so P0a-2a's measured report sees the final construct entries.
 7. PR-D — **12-04** (unchanged; doc links only; whichever lands second rebases trivially).
-8. P0a-2a PR — after R-JS (**12-09**, proposed).
-9. **R-NAT — lands 12-15** (core chapter and host chapter written 11-26 … 12-02, plan-review 12-03 …
-   12-05, implementation 12-08 … 12-12, the two lanes in parallel). After R-JS; independent of P0a-2a's
-   PR.
-10. Shim retirement — **12-16** (§9.2).
-11. The classification → P0a-2b — the classification starts after step 10, at that main, so it measures
+8. **R-0c** (the `data_transfer.rs` split, L3) — **12-04, proposed; the PM confirms with L3.** Hard
+   edge: on main before `rnat-host` is created (§4.5.1), which is R-NAT's implementation start (12-08);
+   12-04 leaves four days. Earlier is free and better: landed before the host chapter is written (11-26),
+   the chapter cites post-split anchors; otherwise it re-reads its `DataTransfer` anchors at its
+   plan-review. It shares no file with R-JS.
+9. **R-0d** (the WebSocket validator move, L3) — **12-04, proposed; the PM confirms with L3.** The same
+   hard edge and reasoning; independent of R-0c (other files).
+10. P0a-2a PR — after R-JS (**12-09**, proposed).
+11. **R-NAT — lands 12-15** (core chapter and host chapter written 11-26 … 12-02, plan-review 12-03 …
+   12-05, implementation 12-08 … 12-12, the two lanes in parallel). The host chapter's window is
+   PM-confirmed (PM 745): L3 writes it in parallel with its tree-model PR-1. After R-JS; independent of
+   P0a-2a's PR. `#11-vm-proxy-reflect` and the other new callers of the entry (§5.2) start after this
+   step (§4.2, the R-JS-stage fallback).
+12. Shim retirement — **12-16** (§9.2).
+13. The classification → P0a-2b — the classification starts after step 12, at that main, so it measures
     R-JS's entries, R-NAT's helper rows and the retirement's import lines once (§8.2). Its dates are the
     stack-safety program's.
-12. Slice F — unchanged relative order (after P0a-2b); it shares no function with this program
+14. Slice F — unchanged relative order (after P0a-2b); it shares no function with this program
     (`vm/host/structured_clone.rs` has no `.kind =` line and no constructor).
-13. E1 — after R-NAT **and** Slice F (§6).
+15. E1 — after R-NAT **and** Slice F (§6).
 
 Effect on the current queue: P0a-2a's PR moves behind R-JS by about a week, and the classification behind
 R-NAT and the retirement. Nothing regresses in the window: R-JS keeps the native contract (centralised),
@@ -696,7 +885,7 @@ R-NAT each classify their own rows in their PRs (no `# pending` left, which is P
 `<names>` = `ObjectKind|ObserverKind|VmError|VmErrorKind` and the 11 public types of
 `vm/coroutine_types.rs`. 71 of the 73 files R touches are in the 309.
 
-**Proposal: immediately after R-NAT, as its own script-generated PR** (step 10 of §9.1).
+**Proposal: immediately after R-NAT, as its own script-generated PR** (step 12 of §9.1).
 
 - **Conflict.** Before or during R, the retirement would force R-JS, `rnat-core` and `rnat-host` (two lanes
   in parallel) to rebase over 309 files, 71 of them their own. After R-NAT no R branch is in flight, and
@@ -708,7 +897,7 @@ R-NAT each classify their own rows in their PRs (no `# pending` left, which is P
   at the PR's base (regenerated at rebase, never hand-merged).
 - **One rule for R's own lines:** code R-JS / R-NAT write imports `VmError`, `ObjectKind` etc. from their
   defining modules, so the retirement never revisits R's lines.
-- The retirement also precedes the classification (§9.1 step 11), so the import-line shift happens before
+- The retirement also precedes the classification (§9.1 step 13), so the import-line shift happens before
   the census is measured.
 
 ## §10. Measurements (provenance)
@@ -726,8 +915,31 @@ All at `4b723d4b` unless stated.
 - **M-4 adoption calls.** `git grep -n -P 'ensure_instance_or_alloc\(' 4b723d4b -- crates/script/elidex-js/src
   ':!*tests*'` → 15 lines (14 calls + the definition) in 11 files; `promote_to_\w+\(` → 6 calls.
 - **M-5 shims.** §9.2 (201 / 309).
-- **M-6 spec numbers.** `.claude/tools/webref coverage-map ecma262 10.2.2 ecma262 10.3.2 ecma262
-  BuiltinCallOrConstruct ecma262 OrdinaryCreateFromConstructor ecma262 GetPrototypeFromConstructor …
-  webidl 3.8 webidl 3.7.1 webidl 3.12 html 3.2.3 html 4.13.5`; step text from `webref body` on each anchor.
+- **M-6 spec numbers.** `.claude/tools/webref coverage-map ecma262 EvaluateNew ecma262 Construct ecma262
+  10.2.2 ecma262 OrdinaryCallBindThis ecma262 10.3.2 ecma262 BuiltinCallOrConstruct ecma262 10.4.1.2
+  ecma262 GetPrototypeFromConstructor ecma262 OrdinaryCreateFromConstructor ecma262 OrdinaryObjectCreate
+  ecma262 MakeBasicObject ecma262 13.3.7.1 ecma262 BindThisValue ecma262 9.1.1.3.3 ecma262
+  GetThisEnvironment ecma262 InitializeInstanceElements ecma262 10.5.13 ecma262 28.1.2 ecma262 20.5.1.1
+  ecma262 20.5.6.1.1 ecma262 20.5.7.1.1 ecma262 23.1.1.1 ecma262 20.1.1.1 ecma262 22.1.1.1 ecma262
+  21.1.1.1 ecma262 20.3.1.1 ecma262 21.4.2.1 webidl 3.7.1 webidl 3.8 wasm-js-api-2 5.10 webidl 3.12 html
+  3.2.3 html 4.13.5 html 4.13.4` (34 rows, re-run 2026-11-15); step text from `webref body` on each anchor
+  or AO name. §4.3's Call-mode table adds `webref heading ecma262` on 27.5.3.1, 25.1.4.1, 25.3.2.1,
+  23.2.5.1, 23.2.1.1 and the four `.prototype` sections it cites.
 - **M-7 line counts.** `git show 4b723d4b:<path> | wc -l` over `H/logs/r-touched-files-4b723d4b.txt`;
   `vm/value.rs` at `ab71cb43` → 967.
+- **M-8 stale upgrade cites (P-11).** `git grep -n -P 'step 10\.[234]|step 9\.[34]|step 10.s|C4\\?\] step
+  9\b|§4\.13\.5 step 9\b' 4b723d4b -- crates/dom/elidex-custom-elements/src
+  crates/script/elidex-js/src/vm/host/custom_elements crates/script/elidex-js/src/vm/construct_admission.rs`
+  (the pattern on one line) → 13 lines: 5 under `crates/script/elidex-js`, 8 under
+  `crates/dom/elidex-custom-elements`. The same command at `3e4a03a2` → the same 13 lines.
+- **M-9 outside writes (§4.4 item 3; a lower bound, not the population).** `git grep -c -P
+  '_states\s*\.insert\(' 4b723d4b -- crates/script/elidex-js/src ':!*tests*'` → 53 lines in 37 files.
+  The table's anchors: `git grep -n -P 'websocket_states\.insert\(|ws_conn_to_object\.insert|send\(RendererToNetwork::WebSocketOpen|\.kind =
+  ObjectKind::WebSocket|host_data\.as_deref_mut\(\)\.ok_or_else' 4b723d4b --
+  crates/script/elidex-js/src/vm/host/websocket.rs` (the pattern on one line) → `:380`, `:405`, `:411`,
+  `:424`, `:433` in the constructor (and `:830`, `:956` in `send` / `close`), and the same reading of `worker.rs`,
+  `event_source.rs`, `offscreen_canvas/mod.rs` and `custom_elements/html_element.rs`.
+- **M-10 R-0d.** `git show 4b723d4b:crates/script/elidex-js/src/vm/host/websocket.rs | wc -l` → 1001; the
+  moved ranges `:496-523` (28) and `:527-559` (33) by `grep -n` on their first and last lines.
+- **M-11 ledgers.** PM ledger: `grep -n -- '<slot id>'` on the live file, 2026-11-15. Repo ledger: `sed -n
+  293p docs/plans/2026-07-vm-p4-slot-ledger.md` at `d11c4df7` (no "PM 660", "PM 664" or "PR-0A" in it).
