@@ -16,7 +16,8 @@
 //!   infallible, with the error latch.  When `rsa` 0.10 is stable it moves to
 //!   the `rand_core` 0.10 infallible traits (keeping the latch and SplitMix64
 //!   fallback) and the 0.6 impl goes (`#11-closure-rng-rand-core-06-bridge`); [`TryClosureRng`] stays
-//!   for EC.
+//!   for EC.  Any `rsa` version change also triggers a re-check of `#11-rsa-keygen-search-budget`: the
+//!   keygen floor and exponent-cap derivations depend on rsa 0.9's internals.
 
 use elliptic_curve::rand_core as rand_core10;
 

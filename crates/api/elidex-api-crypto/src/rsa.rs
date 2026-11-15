@@ -37,6 +37,11 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
+mod keygen_params;
+pub(crate) use keygen_params::{
+    minimal_be, validate_rsa_generate_capability, validate_rsa_keygen_params,
+};
+
 mod oaep;
 pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 
@@ -70,6 +75,22 @@ pub(crate) const MAX_RSA_IMPORT_MODULUS_BITS: u32 = 16384;
 /// §20.9.3 sets no maximum → an over-cap `modulusLength` is an OperationError
 /// (the §20.9.3 step-4 generation-failure surface).
 pub(crate) const MAX_RSA_GENERATE_MODULUS_BITS: u32 = 8192;
+
+/// Smallest `modulusLength` [`generate`] attempts: a *sufficient* bound.  At or
+/// above it the rsa crate's prime search terminates with probability 1 for every
+/// accepted exponent (odd, 3 <= e <= `RsaPublicKey::MAX_PUB_EXPONENT` = 2^33 - 1):
+/// - a b-bit prime p with p - 1 = 2q (q prime, q > 2^33) has gcd(e, p - 1) = 1,
+///   because q exceeds every prime factor of e <= 2^33 - 1 and e is odd;
+/// - such primes exist among the candidates when b >= 35;
+/// - each prime is modulusLength / 2 bits, so modulusLength >= 2 * 35 = 70.
+///
+/// Below it the search may not terminate (measured: modulusLength 12 with
+/// e = 39 never returns), which is why a floor is needed; this does not claim
+/// every smaller input hangs.
+///
+/// The derivation depends on rsa 0.9's prime search; any rsa version change
+/// triggers `#11-rsa-keygen-search-budget`.
+pub(crate) const MIN_RSA_GENERATE_MODULUS_BITS: u32 = 70;
 
 /// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
 /// (RSASSA-PKCS1-v1_5 / RSA-PSS, which run on the pure-Rust `rsa` crate at any
@@ -107,6 +128,10 @@ pub(crate) const MAX_RSA_OAEP_MODULUS_BITS: u32 = 8192;
 const _: () = assert!(MAX_RSA_IMPORT_MODULUS_BITS as usize > RsaPublicKey::MAX_SIZE);
 const _: () = assert!(MAX_RSA_GENERATE_MODULUS_BITS <= MAX_RSA_IMPORT_MODULUS_BITS);
 const _: () = assert!(MIN_RSA_OAEP_MODULUS_BITS < MAX_RSA_OAEP_MODULUS_BITS);
+// The generate floor sits below both the generate ceiling and the OAEP minimum,
+// so it never narrows an otherwise-valid range.
+const _: () = assert!(MIN_RSA_GENERATE_MODULUS_BITS < MAX_RSA_GENERATE_MODULUS_BITS);
+const _: () = assert!(MIN_RSA_GENERATE_MODULUS_BITS <= MIN_RSA_OAEP_MODULUS_BITS);
 
 /// Whether an RSA modulus of `bits` is outside the OAEP backend's usable range
 /// for `variant`.  Only RSA-OAEP (the aws-lc-rs encrypt/decrypt backend) has a
@@ -467,7 +492,7 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 }
 
 // ---------------------------------------------------------------------------
-// generateKey (WebCrypto §20.9.3 / §21.4.3)
+// generateKey (WebCrypto §20.9.3 / §21.4.3 / §22.4.3)
 // ---------------------------------------------------------------------------
 
 /// `generateKey` for an RSA algorithm (WebCrypto §20.9.3 RSASSA-PKCS1-v1_5 /
@@ -476,11 +501,10 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// privateKey)` pair (the §17 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
-/// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
-/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.9.3
-/// step-4 OperationError from the rsa crate (honored as-is).
-/// ⚠ Contradicts WebCrypto §20.5 step 3; tracked by
-/// `#11-webcrypto-rsa-keygen-param-validation`.
+/// big-endian `BigInteger`.  Generate Key step 2 runs §20.5
+/// ([`validate_rsa_keygen_params`]) before any key generation; the rsa crate is
+/// reached only with parameters §20.5 and the capability bounds accept, and its
+/// failures are steps 3–4's OperationError.
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,
@@ -493,9 +517,17 @@ pub(crate) fn generate<F>(
 where
     F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
-    // §20.9.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
+    // §20.9.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify}, or
+    // §22.4.3 step 1: outside {encrypt, decrypt, wrapKey, unwrapKey}, is a
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
+    // §20.9.3 / §21.4.3 / §22.4.3 step 2 (§20.5).
+    // Strip leading zeros once; the checks accept any slice (they re-strip, O(1)
+    // on a minimal one) but `public_exponent` itself is kept for the stored key.
+    let e_min = minimal_be(public_exponent);
+    validate_rsa_keygen_params(modulus_length, e_min)?;
+    // Step 3 capability bounds: modulusLength floor + exponent cap.
+    validate_rsa_generate_capability(modulus_length, e_min)?;
     // Bound the script-controlled `modulusLength` BEFORE the rsa crate
     // allocates + prime-searches at that bit size.  WebCrypto §20.9.3 sets no
     // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an
@@ -518,7 +550,8 @@ where
             "RSA-OAEP modulusLength is outside the supported range (2048-8192 bits)",
         ));
     }
-    // §20.9.3 step 3-4: generate the RSA key pair (failure → OperationError).
+    // §20.9.3 step 3 generates the key pair; step 4 turns a failure into an
+    // OperationError (the elidex capability bounds above surface there too).
     let exp = BigUint::from_bytes_be(public_exponent);
     let privkey = {
         let mut rng = ClosureRng::new(&mut fill_random);
