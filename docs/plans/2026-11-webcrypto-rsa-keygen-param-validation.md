@@ -115,14 +115,16 @@ the final head, in a debug build, and the result goes in the PR body.**
 ml 64 / e = 65537 in 2.2 ms. Cause: only three 6-bit candidate primes exist (top two bits set: 53, 59, 61), every
 φ shares a factor with 39 = 3·13, and the rsa crate's `generate_multi_prime_key_with_exp` `'next: loop` never ends;
 the crate checks `MAX_PUB_EXPONENT` (2^33 − 1) only after that loop. RSA-OAEP is unaffected (its range is ≥ 2048).
-- Derivation: with e ≤ 2^33 − 1, e has at most 9 distinct odd prime factors (3·5·…·29 < 2^33 < 3·5·…·31); a b-bit
-  prime p with p − 1 = 2q (q prime, q > 2^33) gives gcd(e, p − 1) = 1 for every such e; such primes exist among the
-  candidates when b ≥ 35, so the loop ends with probability 1; each prime is modulusLength / 2 bits, so
-  modulusLength ≥ 2·35 = 70.
+- Derivation (70 is a *sufficient* bound, not a claim that smaller inputs hang): at or above it the crate's search
+  terminates with probability 1. A b-bit prime p with p − 1 = 2q (q prime, q > 2^33) gives gcd(e, p − 1) = 1 for
+  every odd e ≤ 2^33 − 1, because q exceeds every prime factor of such an e; such primes exist among the candidates
+  when b ≥ 35; each prime is modulusLength / 2 bits, so modulusLength ≥ 2·35 = 70. The measured hang above (ml 12,
+  e = 39) is why a floor is needed at all.
 - Decision: `MIN_RSA_GENERATE_MODULUS_BITS = 70` (unrounded: a rounded number has no derivation) and an exponent
   cap at the crate's `RsaPublicKey::MAX_PUB_EXPONENT`, compared on the bytes (no `BigUint`), both OperationError
-  (Generate Key's "generation fails" path, like the 8192 ceiling), in `rsa/keygen_params.rs`
-  `validate_rsa_generate_capability`, called right after §20.5.
+  (Generate Key's "generation fails" path, like the 8192 ceiling). The constant lives in `rsa.rs` beside
+  `MAX_RSA_GENERATE_MODULUS_BITS` and the OAEP bounds (with `const _` guards: floor < ceiling, floor ≤ OAEP minimum);
+  `rsa/keygen_params.rs` `validate_rsa_generate_capability` is called right after §20.5.
 - Rejected: a floor of 256 (a browser's value, not a derivation); no floor (the hang stays).
 - (The D5 above is the mutation-run decision; this one is D6 because D5 was taken.)
 
@@ -177,7 +179,7 @@ range), G6b (16384, §20.5 before the ceiling), G8 (ml 3, §20.5 before the floo
 RSASSA / PSS: the D6 regression), G11 (ml 69), G12 (e = 2^33 + 1), G13 / G14 (cap before the ceiling / the OAEP
 range). `generate_check_order_kinds`: G5 (usages SyntaxError before §20.5), G6c (empty private usages is
 OperationError, §14.3.6 is after the operation), G6d (same at ml 12 / e = 39).
-G7 (VM, RSA-PSS, ml 3, `[3]`): rejects with `OperationError` and a message containing `modulusLength` (D4; F3).
+G7 (VM, RSA-PSS, ml 3, `[3]`): rejects with `OperationError` and a message containing `WebCrypto §20.5`, which only §20.5's messages carry (the floor's does not; D4; F3).
 Existing tests use 65537 (or non-minimal `[0,1,0,1]`) at ml 512 / 1024 / 2048 / 16384, which both checks accept.
 
 ### §3.3 Mutations (D5)
@@ -193,10 +195,10 @@ Run on the final head (debug build); "red" = the named test fails.
 | M4 | `e[0] < 3` → `e[0] <= 3` | boundary table (B2, via e = 3) |
 | M5 | delete the "even" condition | boundary table, `generate_rejects_before_the_rsa_crate` (panic seam), `generate_check_order_kinds` |
 | M6 | drop the all-ones equality branch | boundary table (B9) |
-| M7 | no leading-zero strip in §20.5 | boundary table, `generate_preserves_non_minimal_public_exponent` (both by panic: shift overflow on a zero lead byte) |
+| M7 | no leading-zero strip in §20.5 | boundary table (B13) only: `generate` strips once before the calls, so `generate_preserves_non_minimal_public_exponent` no longer sees this mutant |
 | M8 | `bits == ml` always fails | boundary table (B10) |
-| M9 | delete the §20.5 call | `generate_rejects_before_the_rsa_crate`, `generate_check_order_kinds` (panic seam). G7 stays green (the floor's message also contains `modulusLength`) |
-| M9c | delete the §20.5 call and the capability call | same two (panic seam), and G7 (VM) |
+| M9 | delete the §20.5 call | `generate_rejects_before_the_rsa_crate`, `generate_check_order_kinds` (panic seam), and G7 (VM; its substring `WebCrypto §20.5` is only in §20.5's messages) |
+| M9c | delete the §20.5 call and the capability call | same as M9 (panic seam, and G7 (VM)) |
 | M10 | §20.5 call before the usages check | `generate_check_order_kinds` (G5) |
 | M11 | §20.5 call after the ceiling / OAEP range | `generate_rejects_before_the_rsa_crate` (G6) |
 | M12 | floor 70 → 69 | `keygen_capability_boundary_table` (C1), `generate_rejects_before_the_rsa_crate` (G11) |
