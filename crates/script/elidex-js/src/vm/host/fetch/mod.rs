@@ -296,10 +296,5 @@ fn extract_signal_from_init(
 /// surfaces the already-constructed `DOMException("AbortError")`
 /// (or the user-supplied value) without re-allocating.
 fn pre_flight_abort_reason(ctx: &NativeContext<'_>, signal_id: ObjectId) -> Option<JsValue> {
-    let state = ctx.vm.abort_signal_states.get(&signal_id)?;
-    if state.aborted {
-        Some(state.reason)
-    } else {
-        None
-    }
+    ctx.vm.abort_signal_states.get(&signal_id)?.reason
 }

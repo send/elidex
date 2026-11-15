@@ -251,6 +251,8 @@ impl Vm {
                 gc_enabled: false,
                 #[cfg(test)]
                 force_gc_before_next_alloc: false,
+                #[cfg(test)]
+                fail_next_abort_dispatch: false,
                 html_element_constructor: None,
                 object_constructor: None,
                 active_bound_key: None,
@@ -822,7 +824,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pending_timeout_signals: HashMap::new(),
                 #[cfg(feature = "engine")]
-                any_composite_map: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dispatched_events: HashSet::new(),
                 #[cfg(feature = "engine")]

@@ -270,13 +270,14 @@ pub enum ObjectKind {
     /// to trace.  The wrapper itself is kept alive by `wrapper_cache`
     /// (rooted via `HostData::gc_root_object_ids`).
     HostObject { entity_bits: u64 },
-    /// `AbortSignal` instance (WHATWG DOM §3.1).  An EventTarget that
+    /// `AbortSignal` instance (WHATWG DOM §3.2 Interface AbortSignal).  An EventTarget that
     /// is *not* a Node — its prototype chain skips `Node.prototype`
     /// and goes directly `AbortSignal.prototype → EventTarget.prototype
     /// → Object.prototype` (same shape as `Window`).
     ///
-    /// The mutable signal state (`aborted` flag, `reason` value,
-    /// registered `'abort'` callbacks, and back-references for
+    /// The mutable signal state (the optional abort `reason` — `None` ⇔
+    /// not aborted —, the DOM §3.2 dependent-signal links (dependent flag,
+    /// source signals, dependent signals), and back-references for
     /// `addEventListener({signal})` auto-removal) lives **out-of-band**
     /// in `VmInner::abort_signal_states`, keyed by this object's
     /// `ObjectId`.  Keeping the variant payload-free preserves
@@ -285,11 +286,11 @@ pub enum ObjectKind {
     /// lets GC trace state without widening `ObjectKind`.
     ///
     /// GC contract: the trace step looks up the entry in
-    /// `abort_signal_states` and marks `reason` + every
-    /// `abort_listeners` callback ObjectId.  After sweep, dead
-    /// AbortSignal entries are removed from the HashMap so the next
-    /// allocation that recycles the `ObjectId` slot does not inherit
-    /// stale state.
+    /// `abort_signal_states` and marks `reason` (when aborted).  The
+    /// source / dependent signal sets are weak and not traced.  After
+    /// sweep, dead AbortSignal entries are removed from the HashMap and
+    /// dead members from the surviving rows' sets, so the next allocation
+    /// that recycles the `ObjectId` slot does not inherit stale state.
     AbortSignal,
     /// `AbortController` instance (WHATWG DOM §3.1).  Carries the
     /// paired `AbortSignal`'s `ObjectId` as an internal slot — the

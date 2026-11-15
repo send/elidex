@@ -1440,6 +1440,13 @@ impl VmInner {
             let marks = &self.gc_object_marks;
             self.abort_signal_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // DOM §3.2 source signals / dependent signals are weak sets:
+            // drop every dead member from each surviving row, in the same
+            // pass and from the same mark bits as the row prune above, so
+            // no set holds a dead (recyclable) `ObjectId` after a sweep.
+            for state in self.abort_signal_states.values_mut() {
+                state.links.retain_live(|h| bit_get(marks, h.0));
+            }
             self.abort_listener_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
             // Live `MediaQueryList` registry (CSSOM-View §4.2): prune
@@ -1503,22 +1510,6 @@ impl VmInner {
             // so a recycled slot can't observe "already dispatching"
             // membership.
             self.dispatched_events.retain(|id| bit_get(marks, id.0));
-            // `any_composite_map` — input → composites fan-out.
-            // Prune entries whose key (input signal) was collected;
-            // for surviving entries, filter the composite list by
-            // live-ness.  Composites were roots during mark so a
-            // filtered-out composite indicates it was reachable
-            // only via this map (same pattern as
-            // `pending_timeout_signals`).  An empty list after
-            // filter is dropped so the map shrinks as inputs
-            // outlive their composites.
-            self.any_composite_map.retain(|input_id, composites| {
-                if !bit_get(marks, input_id.0) {
-                    return false;
-                }
-                composites.retain(|composite_id| bit_get(marks, composite_id.0));
-                !composites.is_empty()
-            });
             // `headers_states` — prune entries whose key `Headers`
             // instance was collected so a recycled slot does not
             // inherit a stale list / guard.  Matches the

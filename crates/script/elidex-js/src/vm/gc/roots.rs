@@ -255,11 +255,9 @@ pub(super) struct GcRoots<'a> {
     /// dispatch borrow-graph make in-place RAII non-trivial).
     #[cfg(feature = "engine")]
     pub(super) dispatched_events: &'a std::collections::HashSet<ObjectId>,
-    // `any_composite_map` is weak bookkeeping only — no GC roots
-    // live there.  The sweep pass prunes dead ObjectIds post-GC
-    // and `abort_signal`'s fan-out tolerates missing state — both
-    // routes avoid keeping composite signals alive through this
-    // map (see `mark_roots` step (k) for the rationale).
+    // The DOM §3.2 dependent-signal sets (`AbortSignalState::links`) are
+    // weak by spec — no GC roots live there.  The sweep tail prunes dead
+    // `ObjectId`s from them (see `mark_roots` step (k) for the rationale).
 }
 
 /// Scan all GC roots and enqueue reachable objects.
@@ -599,23 +597,23 @@ pub(super) fn mark_roots(
         mark_object(event_id, obj_marks, work);
     }
 
-    // (k) `AbortSignal.any` composite fan-out entries are weak
-    // bookkeeping only — NOT GC roots.  Marking composite values
-    // here would retain every `any([...])` result until every
-    // input signal also dies, letting a caller that discards the
-    // composite (e.g. `AbortSignal.any([a, b])` in a loop without
-    // storing results) accumulate unreachable composites
+    // (k) The DOM §3.2 source signals / dependent signals of an
+    // `AbortSignal` (`AbortSignalState::links`) are weak sets — NOT GC
+    // roots.  Marking a dependent from its source's set would retain every
+    // `any([...])` result until every input signal also dies, letting a
+    // caller that discards the result (e.g. `AbortSignal.any([a, b])` in a
+    // loop without storing results) accumulate unreachable dependents
     // indefinitely.
     //
-    // Rooting lives on the indirect path instead: a composite
-    // with an installed `'abort'` listener or `onabort` handler is
-    // kept alive through `abort_signal_states` (its listener
-    // callbacks are traced when the signal's own ObjectId is
-    // marked — and the signal is marked through whatever JS
-    // reference held it: stack frame, global, upvalue, etc.).
-    // A composite with no such anchor is correctly collected; the
-    // sweep tail prunes its any_composite_map entry and the
-    // fan-out path in `abort_signal` tolerates dead ObjectIds
-    // (`abort_signal` itself silently early-returns for
-    // already-aborted / missing state).
+    // Rooting lives on the indirect path instead: a dependent with an
+    // installed `'abort'` listener or `onabort` handler is kept alive
+    // through `abort_signal_states` (its listener callbacks are traced
+    // when the signal's own ObjectId is marked — and the signal is marked
+    // through whatever JS reference held it: stack frame, global, upvalue,
+    // etc.).  A dependent with no such anchor is collected; the sweep tail
+    // prunes it from every set (`DependentLinks::retain_live`).  The DOM
+    // §3.2.1 requirement that a *listenered* unreferenced dependent must
+    // not be collected is the keepalive arm of slot
+    // `#11-abort-signal-dependent-keepalive` — a new arm on the keepalive
+    // seam (`gc/keepalive.rs`), never a divergent root pass here.
 }
