@@ -1,6 +1,6 @@
 # Native construct protocol (R) — umbrella
 
-Status: **plan (pre-implementation), first draft**, for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4
+Status: **plan (pre-implementation), Rev 1.1** (§0.2), for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4
 lane. The R-NAT host chapter (§4.4) is L3's. The per-PR plans (R-JS; R-NAT core / ECMA-262 chapter; R-NAT
 host chapter) are written after this umbrella is ratified and each goes through `/elidex-plan-review`
 before code.
@@ -55,6 +55,13 @@ object's kind (and, for a host object, its brand) is written once, at allocation
 - **PM 642 (a)-(c), PM 654 E-9.** A plan touching `ObjectKind::HostObject` or `call_dispatch` sends its
   hunks to the PM at plan time; `interpreter_call.rs` hunks are written per function (per arm for
   `call_dispatch`); whichever of two overlapping PRs lands later rebases (§8.3).
+
+### §0.2 History
+
+| Rev | Change | Rulings |
+|---|---|---|
+| 1 | First draft (`6b62e89e`). | PM 675, PM 676 |
+| 1.1 | §9: R-0b moved to 11-24 (after this umbrella's plan-review); §9's dates are canonical; P0a-1's implementation fixed at 11-28; PR-A1 recorded as landed (#628 `c0578223`, 11-13). §4.5 / §4.5.1: R-NAT branch ownership, pull-in by merge, per-commit green record. No other design content changed. | PM 687, PM 688 |
 
 ## §1. Scope
 
@@ -407,15 +414,66 @@ Written by L3 after this umbrella is ratified (the PM tells L3). It must contain
   would hold two native contracts (the strangler PM 675 forbids), and "no release in between" cannot be
   enforced.
 - **Branches.** `rnat-core` (VM P4) from main after R-JS: helper phase 2 and the ECMA-262 chapter.
-  `rnat-host` (L3) stacked on `rnat-core`: the host chapter. The flip commit (VM P4) on top of `rnat-host`.
-  The PR is opened from the top branch. No two lanes push to one branch.
+  `rnat-host` (L3) based on `rnat-core`: the host chapter. The flip commit (VM P4) after the host commits.
+  The PR is opened from `rnat-core`. No two lanes push to one branch. Ownership, pull-in and the
+  per-commit record: §4.5.1.
 - **Commit order.** (1) helper phase 2; (2) ECMA-262 members; (3) host members (L3, one commit per family);
   (4) the flip, the deletions and wire #5. Commits 2 and 3 are green on their own: a member that creates
   its own object is valid under the pre-allocation contract (an Object return wins), so every commit
   builds and passes; only the squash reaches main.
 - **Review.** One `/elidex-review` and one Codex pass on the whole PR; L3 reviews the host commits and VM
-  P4 the rest. A rebase of `rnat-core` is followed by a rebase of `rnat-host` before the flip commit is
-  re-applied.
+  P4 the rest. When `rnat-core` moves, nothing is rebased (§4.5.1).
+
+### §4.5.1 Branch ownership (PM 687 (3))
+
+- **Owner and merger.** VM P4 owns the R-NAT PR: it opens it from `rnat-core` and squash-merges it after
+  the PM's "merge at head <sha>" for that head. L3 neither opens nor merges it.
+- **One writer per branch.** `rnat-core`: VM P4 only. `rnat-host`: L3 only, created from `rnat-core`.
+  Neither lane pushes to the other's branch; each works in its own worktree (CLAUDE.md, parallel sessions
+  and worktree isolation).
+- **Pull-in: merge, not cherry-pick.** VM P4 brings L3's commits in on `rnat-core` with
+  `git merge --no-ff origin/rnat-host`, at a sha L3 names. Reason: the hooks forbid amend and force-push,
+  so no branch of R-NAT is ever rewritten, and the pull-in must keep L3's shas. A cherry-pick copies L3's
+  commits under new shas: `rnat-host` and `rnat-core` then carry the same change twice, and L3's next sync
+  from `rnat-core` re-applies or conflicts with its own copies; and the per-commit record below, keyed by
+  sha, would leave the PR's copies unrecorded. Merge commits never reach main (the PR is squashed).
+- **Pull-in order.** `rnat-core`'s own commits (helper phase 2, ECMA-262 members) → the merge of
+  `rnat-host` (L3's host commits, one per family) → the flip commit (the flip, the deletions, wire #5),
+  which VM P4 makes only after L3 reports `rnat-host` complete at a named sha. Host commits L3 adds later
+  (review fixes) come in by a further merge; the record covers them at their own shas and at the merge.
+- **When `rnat-core` moves after L3 has branched** (a core fix, or main): nobody rebases. Main reaches
+  `rnat-core` by VM P4 merging `origin/main` into it; `rnat-core` reaches `rnat-host` by L3 running
+  `git merge origin/rnat-core` on `rnat-host`, before its next host commit or when VM P4 asks. The lane
+  that makes a merge resolves its conflicts; a conflict in the other lane's chapter is resolved toward that
+  lane's side and reported to it, and that lane re-checks it in the record.
+- **Ordering edges to L3's own work.** R-0c (the `data_transfer.rs` split, L3) lands on main before
+  `rnat-host` is created, and `rnat-host` is created from an `rnat-core` that contains it (if `rnat-core`
+  was cut earlier, VM P4 first merges `origin/main` into it). The host chapter (§4.4) stays L3's to author;
+  VM P4 owns the PR, not the chapter.
+- **Intermediate green.** Every commit the squash covers — L3's, VM P4's and the merge commits — is checked
+  at its own sha in a scratch worktree `S`, by a scripted run (not `git rebase -x`, which rewrites the
+  history it checks and drops merges):
+
+  ```sh
+  S=<scratch dir>; git fetch origin && git worktree add --detach "$S" origin/rnat-core
+  for c in $(git rev-list --reverse --topo-order origin/main..origin/rnat-core); do
+    git -C "$S" checkout -q --detach "$c" && ( cd "$S" &&
+      env -u RUSTUP_TOOLCHAIN cargo clippy -p elidex-js -- -D warnings &&
+      env -u RUSTUP_TOOLCHAIN cargo clippy -p elidex-js --features engine -- -D warnings &&
+      env -u RUSTUP_TOOLCHAIN cargo clippy -p elidex-js --all-targets --features engine,compat-webapi -- -D warnings &&
+      env -u RUSTUP_TOOLCHAIN cargo test -p elidex-js --features engine,compat-webapi )
+    echo "PER-COMMIT $c rc=$?"
+  done 2>&1 | tee "H/logs/rnat-per-commit-$(git rev-parse --short=12 origin/rnat-core).log"
+  ```
+
+  Rows: clippy (which includes `cargo check`) on the default row (lib only, as CI's default-features step),
+  on `--features engine`, and on `--features engine,compat-webapi` with `--all-targets`; tests on
+  `--features engine,compat-webapi` (elidex-js's `--all-features`, the row CI tests). Verdict: the number
+  of `PER-COMMIT` lines equals `git rev-list --count origin/main..origin/rnat-core`, and none has a
+  non-zero `rc`. **Recorded** in the PR body: one table row per sha (sha, the three rows, rc) and the log
+  path. Each new head re-runs the loop over the whole range; because nothing is rewritten, the shas already
+in the record are the same commits (only new shas add rows). The
+  PM's "merge at head <sha>" is given against a record whose last row is that head.
 
 ### §4.6 Wire #5 (`.claude/tools/native-ctor-guard-trip-wire.sh`)
 
@@ -585,15 +643,21 @@ L3's ShadowRoot PR may touch this area. Every function in it that R-JS or R-NAT 
 
 ## §9. Placement and dates
 
+The dates in §9 are canonical for this program (PM 687 (1)): any other mention of a date (in this memo, a
+per-PR plan or a lane SSoT) defers to them.
+
 ### §9.1 R-JS and R-NAT (proposal)
 
 Order, with the reason for each edge (dependency or regression):
 
 1. value.rs split (#625) — **11-18** (unchanged). R-0a; hard edge for R-JS.
-2. R-0b frame-root split — **11-20**. After #625 (it reads `vm/frame.rs`); before R-JS (both copies change).
-3. PR-A1 — **11-21** (unchanged). No shared function (assessment Q3, FP-3 of the PR-0A review).
+2. PR-A1 — **landed 11-13** (#628 `c0578223`). No shared function (assessment Q3, FP-3 of the PR-0A
+   review).
+3. R-0b frame-root split — **11-24** (PM 688). After this umbrella's plan-review, so it is implemented
+   against the reviewed umbrella; after #625 (it reads `vm/frame.rs`); before R-JS's implementation (both
+   copies change), which starts 11-28.
 4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link.
-5. P0a-1 implementation — **11-28** (proposed; its date is the stack-safety program's). Before R-JS:
+5. P0a-1 implementation — **11-28** (PM 687; the stack-safety program's date). Before R-JS:
    P0a-1's ratified plan cites `call_construct_native` / `construct_synchronous` as they are today, and
    R-JS first would change a ratified surface (a re-review); P0a-1 first leaves R-JS a mechanical rebase of
    one cell.
