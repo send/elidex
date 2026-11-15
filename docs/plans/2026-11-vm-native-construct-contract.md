@@ -6,7 +6,7 @@ host chapter) are written after this umbrella is ratified and each goes through 
 before code.
 
 **Base.** Code anchors are at `origin/main` = `4b723d4b` unless a row says otherwise. Facts about the
-in-flight value.rs split (#625, branch `vm-value-frame-split`) are at its head `ab71cb43`.
+value.rs split (#625, landed 11-11 as `439fa47c`) were measured at its PR head `ab71cb43`.
 
 **Provenance root.** `H` = `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/native-construct-umbrella`
 (outside the repo, durable): `H/scripts/` holds the census scripts, `H/logs/` their outputs at `4b723d4b`.
@@ -319,7 +319,7 @@ input across a process boundary.
 
 ### §4.1 Prerequisites (standalone, behaviour-neutral)
 
-- **R-0a: the value.rs split** (#625, in flight; `vm/value.rs` 1176 → 967, `CallFrame` → `vm/frame.rs`).
+- **R-0a: the value.rs split** (#625, landed 11-11 as `439fa47c`; `vm/value.rs` 1176 → 967, `CallFrame` → `vm/frame.rs`).
   R-JS then edits `vm/frame.rs`.
 - **R-0b: one GC frame-root enumeration** (NEW, VM P4). The live-frame block of `mark_roots`
   (`vm/gc/roots.rs:277-313`) and the suspended-frame block of `trace_work_list` (`vm/gc/trace.rs:335-372`)
@@ -650,7 +650,7 @@ per-PR plan or a lane SSoT) defers to them.
 
 Order, with the reason for each edge (dependency or regression):
 
-1. value.rs split (#625) — **11-18** (unchanged). R-0a; hard edge for R-JS.
+1. value.rs split (#625) — **landed 11-11** (`439fa47c`). R-0a; hard edge for R-JS.
 2. PR-A1 — **landed 11-13** (#628 `c0578223`). No shared function (assessment Q3, FP-3 of the PR-0A
    review).
 3. R-0b frame-root split — **11-24** (PM 688). After this umbrella's plan-review, so it is implemented
