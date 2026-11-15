@@ -1,30 +1,39 @@
-# HTML fragment serializer — *escaping a string* and the raw-text parents, incl. fail-safe noscript (per-PR plan-memo)
+# HTML fragment serializer — *escaping a string*, the raw-text parents, noscript always escaped (per-PR plan-memo)
 
-Slot `#11-html-fragment-serializer-conformance` (ledger: open, owner L3). This PR closes items **(d)** and **(e)**
-only (PM 724, 2026-11-13; this facet's Re-eval 2026-11-20); items (a) (b) (c) (f) stay in the slot with Re-eval
-2026-12-15. Base: `origin/main` `06bdfbbd`. Every code fact below was measured at `06bdfbbd` on 2026-11-13; line
-numbers move, the commands do not. Owner lane: L3 DOM/form. Security-relevant: both items are markup-injection
-(mXSS) surfaces of `innerHTML` / `outerHTML` / `getHTML` / `XMLSerializer`.
+Slot `#11-html-fragment-serializer-conformance` (ledger: open, owner L3). This PR closes item **(e)** and the
+security part of item **(d)** (PM 724, 2026-11-13; scope re-cut by **PM 731**, option C; this facet's Re-eval
+2026-11-20); items (a) (b) (c) (f) stay in the slot with Re-eval 2026-12-15, and (d)'s precise noscript rule moves to
+`#11-scripting-disabled-predicate-no-document` (§9). Base: `origin/main` `c0578223` (rebased from `06bdfbbd` on
+2026-11-15; `git diff --stat 06bdfbbd c0578223 -- crates/dom/elidex-dom-api crates/script/elidex-script-session
+crates/script/elidex-js/src/vm/host crates/script/elidex-js/src/vm/tests/mod.rs` is empty). Every code fact below was
+re-measured at `c0578223` on 2026-11-15; line numbers move, the commands do not. Owner lane: L3 DOM/form.
+Security-relevant: both items are markup-injection (mXSS) surfaces of `innerHTML` / `outerHTML` / `getHTML` /
+`XMLSerializer`.
 
-**Rev 1** (2026-11-13) — first draft.
+**Rev 1** (2026-11-13) — first draft (context-based noscript via a `ScriptingContext`).
+**Rev 2** (2026-11-15) — PM 731 option C: noscript text is always escaped; no scripting composition is added
+(`ScriptingContext`, `SerializeOptions.scripting`, the natives' context construction and every `bound_document` /
+`sandbox_flags` read are gone); D-5 withdrawn with it; accepted regressions (§7); plan-review fixes (axes 1-5).
 
 ## §0. Frame, premises, decisions
 
 ### §0.1 Frame
 
-The HTML fragment serialization algorithm (HTML §13.3) has two decisions this PR makes exact:
+The HTML fragment serialization algorithm (HTML §13.3) has two decisions this PR makes exact or safe:
 
-- **(e) Escaping a string** — steps 1-5 (`webref body html serialising-html-fragments`, the "Escaping a string"
-  list): 1 `&` → `&amp;`; 2 U+00A0 → `&nbsp;`; 3 `<` → `&lt;`; 4 `>` → `&gt;`; 5 *attribute mode only*: `"` →
-  `&quot;`. Steps 1-4 apply in both modes.
+- **(e) Escaping a string** (`#escapingString`) — steps 1-5 (`webref body html serialising-html-fragments`, the
+  "Escaping a string" list): 1 `&` → `&amp;`; 2 U+00A0 → `&nbsp;`; 3 `<` → `&lt;`; 4 `>` → `&gt;`; 5 *attribute mode
+  only*: `"` → `&quot;`. Steps 1-4 apply in both modes.
 - **(d) The Text-node branch of step 5.2** — "If the parent of current node is a style, script, xmp, iframe,
   noembed, noframes, or plaintext element, or if the parent of current node is a noscript element and scripting is
   enabled for the node, then append the value of current node's data literally. Otherwise, append the value of
   current node's data, escaped as described below." "*the node*" is the algorithm's input (the preamble: "takes as
   input a DOM Element, Document, or DocumentFragment referred to as the node"); when the Text node's parent is a
-  noscript, the recursion that reaches it has that noscript as *the node* (or, for step 3, a template's contents).
+  noscript, the recursion that reaches it has that noscript as *the node*. This PR makes the unconditional list exact
+  (adds plaintext, HTML namespace only) and takes the *otherwise* branch for every noscript (PM 731): the output is
+  exact wherever scripting is disabled for the node, and an escaped (safe) approximation where it is enabled (§7 R1).
 
-### §0.2 Premises re-measured at `06bdfbbd`
+### §0.2 Premises re-measured at `c0578223`
 
 - P1 (e): `escape_html` (`crates/dom/elidex-dom-api/src/util.rs:154`) maps `&`, `<`, `>` — no U+00A0.
   `escape_attr` (`util.rs:168`) maps `&`, `"` — no `<`, `>`, U+00A0. Two diverging copies of one spec algorithm.
@@ -36,27 +45,29 @@ The HTML fragment serialization algorithm (HTML §13.3) has two decisions this P
   serialized literally too (see D-4).
 - P3: the spec's "scripting is enabled for the node" is HTML §8.1.3.4 (`webref body html
   enabling-and-disabling-scripting`; dfn `#concept-n-script` / `#concept-n-noscript`): scripting is disabled for a
-  platform object if (1) it is disabled for the object's relevant settings object, or (2) "The object implements
-  Node, and object's node document's browsing context is null", or (3) a Window whose associated Document's browsing
-  context is null; enabled iff not disabled. So DOMParser documents and inert template documents (no browsing
-  context) are scripting-disabled.
-- P4: elidex already has the canonical, engine-independent composition of §8.1.3.4:
-  `elidex_script_session::scripting_disabled_for_platform_object(dom, target, bound_document, sandbox_flags)`
-  (`crates/script/elidex-script-session/src/scripting.rs:74`), used today by the event-handler compile gate
-  (`crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:543`, inputs from `HostData::document()` at
-  `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs:465` and `HostData::sandbox_flags()` at
-  `crates/script/elidex-js/src/vm/host_data/engine_feature/context_config.rs:111`). Clause (2) is modelled as
-  "node document ≠ the bound document" (single-browsing-context model). **Its unknown case is not fail-safe for
-  this consumer**: a node with no node document yields "not disabled" (`is_some_and` at `scripting.rs:84-85`).
-- P5: no document-level ECS fact "this Document has a browsing context" exists. `EcsDom::document_root()`
-  (`crates/core/elidex-ecs/src/dom/mod.rs:491`) is a cache set by any `create_document_root` call (tests, parsers)
-  and carries no sandbox flags, so it is not that fact. The parser has the fact only as an option
-  (`scripting_disabled`, `crates/dom/elidex-html-parser-strict/src/result.rs:123`; set true for DOMParser at
-  `crates/dom/elidex-form/src/inert_document.rs:147`). The positive fact's registered home is
-  `#11-browsing-context-state-ecs-components` (C1 memo `docs/plans/2026-10-eh-attrs-c1-template-owner-document.md`
-  D-C9, record R-8, PM 613).
-- P6: `elidex-dom-api` already depends on `elidex-script-session` and `elidex-plugin`
-  (`crates/dom/elidex-dom-api/Cargo.toml` lines 14/16), so the serializer can call P4 without a new edge.
+  platform object if it is disabled for the object's relevant settings object (whose sandbox condition is the
+  *sandboxed scripts browsing context flag*, HTML §7.1.5 `#sandboxed-scripts-browsing-context-flag`), or the object
+  implements Node and its node document's browsing context is null, or it is a Window whose associated Document's
+  browsing context is null; enabled iff not disabled.
+- P4: the ratified home of that answer is IBP-sandbox D8 / J12 / J13 (`docs/plans/2026-09-ibp-sandbox.md:202-205`,
+  `:406`, `:408-413`): **one composition**, `EcsDom::scripting_disabled_for` (NEW: N4), over a `ScriptingSubject`;
+  "no caller derives a node document for F10, evaluates a clause, or has a `None` branch"; one VM read route from N4.
+  Until N4, HEAD's interim composition is `elidex_script_session::scripting_disabled_for_platform_object`
+  (`crates/script/elidex-script-session/src/scripting.rs:74`), read by the event-handler compile gate
+  (`crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:543`); it fails **open** for a node with no node
+  document (`is_some_and` at `scripting.rs:84-85`; ratified interim, IBP-sandbox `:278-284`). A serializer reading of
+  that predicate would be a second composition or a second reading (Rev 1's `ScriptingContext` was both) — PM 731.
+- P5: no document-level ECS fact "this Document has a browsing context" exists (`EcsDom::document_root()`,
+  `crates/core/elidex-ecs/src/dom/mod.rs:491`, is a cache set by any `create_document_root` call). The node clause's
+  ratified final representation is the enriched `#11-domparser-full-document-parse-fidelity` null-browsing-context
+  marker (IBP-sandbox §6 OO → ECS row, `:661-663`; records `:706-710`).
+- P6: the parse side of the same fact is a literal. The innerHTML / setHTMLUnsafe setters
+  (`crates/script/elidex-js/src/vm/host/dom_inner_html.rs:403`, `:458` = `SetInnerHtmlOptions::default()`, whose
+  `scripting_disabled` is `false` per `crates/script/elidex-script-session/src/mutation/html_fragment.rs:36-42`;
+  `:421`, `:476` = literal `scripting_disabled: false`) parse every fragment with scripting enabled, in every document
+  — including DOMParser documents, where HTML §13.4 *HTML fragment parsing algorithm* step 10 ("Set parser's parser
+  scripting disabled to true if scripting is disabled for contextDocument") requires it disabled. Census: `git grep -n
+  'scripting_disabled: false\|SetInnerHtmlOptions::default()' -- crates ':!*tests*'`. Not changed here (§9, §7 R2).
 
 ### §0.3 Decisions (this PR)
 
@@ -65,79 +76,75 @@ The HTML fragment serialization algorithm (HTML §13.3) has two decisions this P
   { Text, Attribute }` (NEW), a private item of `markup.rs` (its only consumer; §13.3-specific, so it leaves
   `util.rs`). Rationale: the spec defines one algorithm with an attribute-mode flag; two copies are exactly how
   P1's divergence arose. `push_*` writes into the output buffer (the current functions allocate a `String` per
-  text node / attribute and the caller copies it). The match arms are spec steps 1-5 in order, step 5 guarded by
-  `mode == Attribute`.
-- **D-2 — one raw-text predicate.** `RAW_TEXT_ELEMENTS` becomes the spec's unconditional list (style, script, xmp,
-  iframe, noembed, noframes, **plaintext**; noscript removed), and both read sites (P2) call one function
-  `text_children_literal(dom, parent, opts) -> bool` (NEW) = `dom.is_html_namespace(parent)` ∧ (tag ∈ list ∨ (tag
-  = noscript ∧ scripting known enabled for `parent`)). The `in_raw_text: bool` threading of `serialize_node` stays.
-- **D-3 — where "scripting is enabled for the node" is answered (fail-safe; PM 724).** Raw only when scripting is
-  **known** enabled; every unknown escapes. The answer is P4's existing composition, fed by the engine:
-  - `ScriptingContext { bound_document: Entity, sandbox_flags: SandboxingFlagSet }` (NEW) in
-    `elidex-script-session::scripting`, next to the predicate, with `ScriptingContext::enabled_for_node(&self,
-    dom, node) -> bool` (NEW) = `dom.node_document(node).is_some() && !scripting_disabled_for_platform_object(dom,
-    node, self.bound_document, self.sandbox_flags)`. The §8.1.3.4 composition stays in one function; the only
-    addition is the fail-safe treatment of "no node document" (P4).
-  - `SerializeOptions` gains `scripting: Option<ScriptingContext>` (NEW field); `None` (the `Default`) = unknown =
-    escape. The VM natives (§4.3) fill it from `HostData::document()` + `HostData::sandbox_flags()`; every other
-    caller (the `GetInnerHtml` `DomApiHandler`, unit tests) passes `None` and escapes noscript text.
-  - Outcomes: bound page document, unsandboxed → raw (today's output kept); bound page under a sandbox without
-    `allow-scripts` → escaped (clause 1); DOMParser document / inert template document / any non-bound document →
-    escaped (clause 2); ownerless node → escaped (fail-safe); no context → escaped (fail-safe).
-  - **Candidates rejected.** (B) a marker component on Documents that have a browsing context, written at bind:
-    that is the positive fact `#11-browsing-context-state-ecs-components` owns (P5) — minting it here would put a
-    second source of truth for "has a browsing context" beside the bound-document input the event-handler gate
-    reads (two ways for one fact), and decide that program's writer/lifetime questions (bind/unbind, B1 root set)
-    from a serializer PR. (C) always escape noscript text: safe, but regresses the bound page whose output is
-    correct today, while the exact answer is computable now from P4. (D) `document_root()` as "the bound
-    document": unsound (P5).
-  - **What stays unknown, and who owns it.** Only the *input* of clause (2) is interim: elidex answers "this
-    document has a browsing context" as "it is the bound document" because no ECS fact exists. When
-    `#11-browsing-context-state-ecs-components` lands the fact, `ScriptingContext::bound_document` (NEW) retires in favour
-    of reading it, and the serializer is unchanged (it only calls `enabled_for_node`). Landing appends this as a
-    facet of that slot (§9). Clause (1)'s user-disable and WebDriver BiDi conditions are not modelled engine-wide
-    (as in P4's doc comment); unaffected here.
-- **D-4 — the HTML-namespace check is part of (d).** "a style, script, … element" in step 5.2 means HTML elements;
-  P2 shows the namespace-blind check. `<svg><style>` text containing `</style><img onerror=…>` is entity-decoded by
-  the parser (foreign content) and today re-emitted literally — the same injection class as (d). Fixed by D-2's
-  `is_html_namespace` conjunct (one predicate, no extra site). **PM to ratify as part of (d)**; if declined it
-  becomes slot item (g) and the conjunct is dropped (§10 Q-1).
-- **D-5 — every public serializer entry point takes `&SerializeOptions`.** Today `serialize_inner_html` /
-  `serialize_outer_html` / `serialize_node_to_string` hard-code `SerializeOptions::default()` and only
-  `serialize_inner_html_with_options` takes options. With D-3 the default means "scripting unknown", so a
-  convenience form would let an engine caller silently lose fidelity. The entry points become
-  `serialize_inner_html(entity, dom, opts)`, `serialize_outer_html(entity, dom, opts)`,
-  `serialize_node_to_string(entity, dom, opts)`; `serialize_inner_html_with_options` is deleted (its body becomes
-  `serialize_inner_html`). Every caller states its context (15 sites, verified 2026-11-13 by the §5.2 grep).
+  text node / attribute and the caller copies it). One per-character `match` whose arms are spec steps 1-5, step 5
+  guarded by `mode == Attribute`; each arm writes its entity with `push_str` (single pass, so no entity is re-scanned).
+- **D-2 — one raw-text predicate.** `RAW_TEXT_ELEMENTS` becomes exactly the spec's unconditional list (style, script,
+  xmp, iframe, noembed, noframes, **plaintext**; noscript removed), and both read sites (P2) call one function
+  `text_children_literal(dom, parent) -> bool` (NEW) = `dom.is_html_namespace(parent)` ∧ tag ∈ list
+  (`EcsDom::is_html_namespace`, `crates/core/elidex-ecs/src/dom/classify.rs:136`). The `in_raw_text: bool` threading
+  of `serialize_node` stays.
+- **D-3 — noscript text is always escaped (PM 731).** A noscript parent never makes its Text children literal, in any
+  document. Basis: the ratified one composition (P4) does not exist until N4, and reading HEAD's interim predicate
+  from the serializer would add a second reading of it (and Rev 1's `ScriptingContext` a second composition) beside
+  D8 — One issue, one way; the security defect (noscript re-emitted literally in a scripting-disabled document) is
+  closed structurally by this PR, with no input that could select the unsafe branch (Security by structure); unknown
+  → the safe side. The serializer reads **no** scripting state: no `ScriptingContext`, no `enabled_for_node`, no
+  `SerializeOptions.scripting`, no `HostData::document()` / `HostData::sandbox_flags()` read in the natives. The
+  doc comment on `RAW_TEXT_ELEMENTS` / `text_children_literal` cites step 5.2, says noscript is deliberately absent
+  (PM 731), and points at `#11-scripting-disabled-predicate-no-document`.
+  - **Candidates rejected (PM 731).** (B) keep Rev 1's context-based noscript as a declared D8 exception, registered
+    as an interim consumer in N4/N5's census: a second composition is a change to the ratified D8 surface, and
+    "interim consumer" is exactly the strangler state One issue, one way forbids. (A) wait for N4 and land the precise
+    rule with the one composition: delays the security fix for a fidelity gain.
+  - **What stays open, and who owns it.** The precise rule (raw iff scripting is enabled for the node) and the
+    parse-side scripting decision (P6) both read N4's `EcsDom::scripting_disabled_for` (NEW: N4); the obligation is a facet of
+    `#11-scripting-disabled-predicate-no-document` (PM 731, ledger). The node clause's final representation stays
+    with the ratified `#11-domparser-full-document-parse-fidelity` marker (P5). No facet on
+    `#11-browsing-context-state-ecs-components`.
+  - **The two readings (PM 728).** The slot's Defect names two readings of the §8.1.3.4 predicate: the canonical
+    function's fail-open no-document reading (P4) and the serializer's fail-safe one (Rev 1). The serializer side is
+    gone in this PR (it reads no predicate); the remaining one is aligned at IBP-sandbox N4
+    (`docs/plans/2026-09-ibp-sandbox.md` J13, `:408-413`).
+- **D-4 — the HTML-namespace check is part of (d) (decided, PM 728).** "a style, script, … element" in step 5.2
+  means HTML elements: HTML §2.1.3 XML compatibility (`#xml`): "Except where otherwise stated, all elements defined or
+  mentioned in this specification are in the HTML namespace". P2 shows the namespace-blind check. `<svg><style>` text
+  containing `</style><img onerror=…>` is entity-decoded by the parser (foreign content) and today re-emitted
+  literally — the same injection class as (d). Fixed by D-2's `is_html_namespace` conjunct (one predicate, no extra
+  site).
+- **D-5 — withdrawn (Rev 2).** Rev 1 made every public entry point take `&SerializeOptions` because its default meant
+  "scripting unknown". With no scripting field (D-3) that rationale is gone; the entry points
+  (`serialize_inner_html`, `serialize_outer_html`, `serialize_node_to_string`, `serialize_inner_html_with_options`)
+  and their callers are unchanged.
 
 ### §0.4 Spec citation table
 
-| Cite | Title | Anchor | Lookup (2026-11-13) |
+| Cite | Title | Anchor | Lookup (2026-11-15) |
 |---|---|---|---|
-| HTML §13.3 | Serializing HTML fragments | `#serialising-html-fragments` | `webref body html serialising-html-fragments` (step 5.2 Text branch; Escaping a string steps 1-5; preamble "the node") |
-| HTML §8.1.3.4 | Enabling and disabling scripting | `#enabling-and-disabling-scripting`, `#concept-n-script`, `#concept-n-noscript` | `webref body html enabling-and-disabling-scripting`; `webref dfn html 'scripting is disabled'` |
+| HTML §13.3 | Serializing HTML fragments | `#serialising-html-fragments`, `#escapingString` | `webref heading html 13.3`; `webref body html serialising-html-fragments` (step 5.2 Text branch; preamble "the node"); `webref dfn html 'escaping a string'` → `#escapingString` (steps 1-5) |
+| HTML §2.1.3 | XML compatibility | `#xml` | `webref heading html 2.1.3`; `webref body html xml` ("all elements … are in the HTML namespace") |
+| HTML §8.1.3.4 | Enabling and disabling scripting | `#enabling-and-disabling-scripting`, `#concept-n-script`, `#concept-n-noscript` | `webref heading html 8.1.3.4`; `webref body html enabling-and-disabling-scripting` |
+| HTML §7.1.5 | Sandboxing | `#sandboxed-scripts-browsing-context-flag` | `webref dfn html 'sandboxed scripts browsing context flag'` |
+| HTML §13.4 | Parsing HTML fragments | `#html-fragment-parsing-algorithm` | `webref heading html 13.4`; `webref body html parsing-html-fragments` (step 10, parser scripting disabled) |
 
-`webref coverage-map html 13.3 html 8.1.3.4` → spec = 1, step = 2 entries (verified 2026-11-13), "ok → single PR scope".
+`webref coverage-map html 13.3` → spec = 1, "ok → single PR scope" (2026-11-15). §2.1.3 / §8.1.3.4 / §7.1.5 / §13.4
+are definitional or context cites; this PR implements only §13.3 steps.
 
 ## §1. Shape and verdict
 
-One PR, one crate pair of algorithm changes (`elidex-dom-api` serializer, `elidex-script-session` context type) plus
-the VM natives that fill the context. **Not edge-dense** (PM agreed): two axes — (i) the character map of escaping,
-(ii) the raw-text decision for a Text node's parent. The scripting answer is an *input* to axis (ii) computed by an
-existing canonical function, not a third invariant axis; no new ECS state, no event/mutation/identity interaction.
-One normal `/elidex-plan-review`.
+One PR, one algorithm crate (`elidex-dom-api` serializer) plus VM end-to-end cells. **Not edge-dense**: two axes —
+(i) the character map of escaping, (ii) the raw-text decision for a Text node's parent (the unconditional list and
+the HTML-namespace conjunct). No scripting input, no new ECS state, no event / mutation / identity interaction. One
+normal `/elidex-plan-review`.
 
 ## §2. Invariants
 
 - I-1 (escaping): every non-literal Text datum and every attribute / `is` value passes through
   `push_escaped_string`; no other escaping code exists in `crates/` (concept sweep, §5.1).
 - I-2 (raw text): a Text child is emitted literally iff `text_children_literal(parent)`; the predicate is computed
-  in exactly one function used at both read sites.
-- I-3 (fail-safe): `text_children_literal` returns true for a noscript parent only if `opts.scripting` is `Some`
-  and `enabled_for_node` is true; every other path escapes.
-- I-1 × I-3: an attribute value inside a noscript in a scripting-disabled document is serialized with `<`/`>`
-  escaped, so re-parsing the output in a scripting-enabled context (where noscript is RAWTEXT) cannot close the
-  noscript early — the attribute cell of §6 pins this intersection.
+  in exactly one function used at both read sites, and is false for every noscript and every non-HTML-namespace
+  parent.
+- I-1 × I-2: an attribute value inside a noscript is serialized with `<`/`>` escaped, so re-parsing the output in a
+  scripting-enabled context (where noscript is RAWTEXT) cannot close the noscript early — V5 pins this intersection.
 
 ## §3. Spec coverage map
 
@@ -146,188 +153,219 @@ One normal `/elidex-plan-review`.
 | WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-4 | text mode (Text data outside raw-text parents) | `push_escaped_string(.., Text)` in `serialize_node` Text branch | ✓ | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-5 | attribute mode (attribute values; the synthetic `is` value) | `push_escaped_string(.., Attribute)` at the `is` and attribute-loop sites | ✓ | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent ∈ {style, script, xmp, iframe, noembed, noframes, plaintext}, HTML namespace → literal | `text_children_literal` | ✓ | yes |
-| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent noscript ∧ scripting enabled for the node → literal | `text_children_literal` → `ScriptingContext::enabled_for_node` | ✓ | yes |
+| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent noscript → escaped in every document (PM 731) | `text_children_literal` (false) | ✗ (the "scripting is enabled for the node" → literal branch is not taken; N4, §9) | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | otherwise (incl. same-named non-HTML-namespace parent) → escaped | `serialize_node` Text branch | ✓ | yes |
-| WHATWG HTML §13.3 Serializing HTML fragments | step 3 (template → template contents) | noscript inside template contents (inert template document) | `serialization_children_root` (unchanged) feeding clause (2) below | ✓ | yes |
-| WHATWG HTML §8.1.3.4 Enabling and disabling scripting | scripting is disabled for a platform object, clause 1 (relevant settings object) | sandboxed scripts flag set / unset | `scripting_disabled_for_platform_object` (unchanged) | ✗ (user-disable, WebDriver BiDi: not modelled engine-wide) | no |
-| WHATWG HTML §8.1.3.4 Enabling and disabling scripting | clause 2 (Node, node document's browsing context null) | bound document / other document / no node document (elidex-only, fail-safe) | `ScriptingContext::enabled_for_node` | ✓ | yes |
 
-**Breadth**: K=1 spec, M=8 entries (verified 2026-11-13: preflight `total entries (M): 8`). **Split decision**: single PR.
+**Breadth**: K=1 spec, M=5 entries (verified 2026-11-15: preflight `total entries (M): 5`). **Split decision**: single PR.
 
 ### §3.1 User-input touch audit
 
 - Text data, attribute values and `is` values are author-controlled (`textContent`, `setAttribute`,
   `createElement(.., {is})`, any parse). All four serializer natives emit them: `innerHTML` / `getHTML` / `outerHTML`
   getters (`crates/script/elidex-js/src/vm/host/dom_inner_html.rs:116`, `:317`, `:339`) and
-  `XMLSerializer.serializeToString` (`crates/script/elidex-js/src/vm/host/dom_parser.rs:404`). Exposure decreases.
+  `XMLSerializer.serializeToString` (`crates/script/elidex-js/src/vm/host/dom_parser.rs:404`). The natives are not
+  edited; exposure decreases through the shared serializer.
 - Adjacent pre-existing: the Comment branch (`markup.rs:382-386`, data verbatim per spec) and attribute-name
   filtering (`is_safe_attr_name`, `markup.rs:267`) — untouched; exposure unchanged.
 
 ## §4. Mechanism
 
-### §4.1 `elidex-script-session` — `scripting.rs`
-
-Add `ScriptingContext` (NEW; `Clone, Copy, Debug`) and `ScriptingContext::enabled_for_node` (NEW) as in D-3; re-export
-from `lib.rs` beside `scripting_disabled_for_platform_object` (`crates/script/elidex-script-session/src/lib.rs:66`).
-Doc comment: cites §8.1.3.4 clause (2), states the fail-safe "no node document ⇒ not enabled" and why it differs
-from the event-handler gate's polarity (that gate's reading is IBP-sandbox N4's, not this PR's; §10 Q-2).
-`scripting_disabled_for_platform_object` is not edited.
-
-### §4.2 `elidex-dom-api` — `markup.rs`
+### §4.1 `elidex-dom-api` — `markup.rs`
 
 - `EscapingMode` + `push_escaped_string` (NEW, private), D-1. `util.rs` loses `escape_html` / `escape_attr` and their
   two tests (moved as cells, §6).
-- `RAW_TEXT_ELEMENTS` per D-2 (doc comment cites step 5.2 and says noscript is conditional, decided by
-  `text_children_literal`).
-- `text_children_literal` (NEW, private) per D-2/D-3/D-4; called at the two read sites (P2).
-- `SerializeOptions.scripting` (NEW field) per D-3; public entry points per D-5; re-exports updated
-  (`crates/dom/elidex-dom-api/src/element/mod.rs:31-32`, `crates/dom/elidex-dom-api/src/lib.rs:92-93`).
-- `GetInnerHtml`'s `invoke` passes `&SerializeOptions::default()` (no engine context on the `SessionCore` path ⇒
-  noscript escapes, fail-safe).
+- `RAW_TEXT_ELEMENTS` per D-2 (doc comment per D-3).
+- `text_children_literal` (NEW, private) per D-2/D-4; called at the two read sites (P2).
+- `SerializeOptions`, the public entry points, `GetInnerHtml` and the re-export lists are unchanged (D-5 withdrawn).
 
-### §4.3 `elidex-js` — the four natives (marshalling only; Layering mandate)
+### §4.2 `elidex-js` — no native change
 
-Each native builds `ScriptingContext { bound_document: host.document(), sandbox_flags: host.sandbox_flags() }` from
-`HostData` (the natives already hold it bound, e.g. `dom_inner_html.rs:140-143`) and passes it in
-`SerializeOptions.scripting`; `getHTML` adds it to the options it already builds (`dom_inner_html.rs:312-315`). One
-private helper per file is acceptable if two natives share a file (`dom_inner_html.rs` has three). No algorithm in
-`vm/host/`: the decision is `enabled_for_node`, in `elidex-script-session`.
+The four natives are not edited (D-3: no context to marshal). `elidex-script-session` is not edited.
 
-### §4.4 ECS-native / layering check
+### §4.3 ECS-native / layering check
 
-No side-store, no new component. The interim input (`bound_document`) is engine state already passed the same way to
-the event-handler gate; its ECS replacement is owned by `#11-browsing-context-state-ecs-components` (D-3). Algorithms
-live in `elidex-dom-api` (§13.3) and `elidex-script-session` (§8.1.3.4); `vm/host/` only marshals.
+No side-store, no new component, no new state read. OO → ECS mapping of the concepts this PR touches (the scripting
+rows are IBP-sandbox §6's, `docs/plans/2026-09-ibp-sandbox.md:659-668`, not this PR's):
+
+| Spec / OO concept | elidex (ECS) | This PR |
+|---|---|---|
+| "an HTML element" (§2.1.3, namespace) | `EcsDom::is_html_namespace(entity)` | read (existing) |
+| element type's local name | `TagType` component | read (existing) |
+| Text node's data | `TextContent` component | read (existing) |
+| *escaping a string* (attribute-mode flag) | `push_escaped_string(.., EscapingMode)` — a pure function, no state | NEW |
+| "scripting is enabled for the node" | `EcsDom::scripting_disabled_for(.., ScriptingSubject)` (NEW: N4, D8); node clause = the `#11-domparser-full-document-parse-fidelity` marker | not read (D-3) |
+
+Algorithms live in `elidex-dom-api` (§13.3); `vm/host/` is untouched.
 
 ## §5. Populations
 
 ### §5.1 Escaping callers census
 
-`git grep -n -w 'escape_attr\|escape_html' -- crates` → 11 hits (verified 2026-11-13): definitions `util.rs:154`,
+`git grep -n -w 'escape_attr\|escape_html' -- crates` → 11 hits (verified 2026-11-15): definitions `util.rs:154`,
 `:168` (2); import `markup.rs:14` (1); production calls `markup.rs:373` (Text), `:421` (`is` value), `:436`
 (attribute loop) (3); comment `markup.rs:411` (1); test message `tests_markup.rs:200` (1); unit asserts
 `util.rs:225`, `:226`, `:231` (3). All 3 production calls become `push_escaped_string`; the comment and the test
 message are reworded to the new name. Concept sweep for other HTML-escaping code: `git grep -n "'&' =>\|&amp;\|&quot;"
--- crates` minus parser/tests → only `util.rs` (and an unrelated JS-lexer `b'&'`), so there is no third
-copy.
+-- crates ':!*tests*' ':!crates/dom/elidex-html-parser*'` → only `util.rs` (and an unrelated JS-lexer `b'&'`), so
+there is no third copy.
 
-### §5.2 Serializer entry-point call sites (D-5)
+### §5.2 Raw-text read sites
 
-`git grep -n -P '\b(serialize_inner_html|serialize_inner_html_with_options|serialize_outer_html|serialize_node_to_string)\(' -- crates | grep -v 'pub fn'`
-→ 15 sites (verified 2026-11-13): `markup.rs` lines 142/151/187/191 (4, internal); `tests_markup.rs` lines
-107/142/160/176/197/223/244 (7, pass `&SerializeOptions::default()`); `dom_inner_html.rs` lines 116/317/339 (3) and
-`dom_parser.rs` line 404 (1) (VM, pass the context). ⚠ `git grep -E '\b…'` returns a silent 0 here; use `-P`.
+`git grep -n -w 'RAW_TEXT_ELEMENTS' -- crates` → definition `markup.rs:22`, reads `:243` and `:445` (verified
+2026-11-15). Both reads become `text_children_literal`.
 
-### §5.3 Files touched (`wc -l` at `06bdfbbd`)
+### §5.3 Files touched (`wc -l` at `c0578223`)
 
 | File | Lines | Change |
 |---|---|---|
-| `crates/dom/elidex-dom-api/src/element/markup.rs` | 459 | D-1..D-5 (~+60) |
+| `crates/dom/elidex-dom-api/src/element/markup.rs` | 459 | D-1, D-2, D-4 (~+40) |
 | `crates/dom/elidex-dom-api/src/util.rs` | 233 | −2 fns, −2 tests (~−30) |
-| `crates/dom/elidex-dom-api/src/element/tests_markup.rs` | 246 | 7 call sites (verified 2026-11-13, §5.2) + new cells (~+150) |
-| `crates/dom/elidex-dom-api/src/element/mod.rs`, `src/lib.rs` | — | re-export lists |
-| `crates/script/elidex-script-session/src/scripting.rs` | 245 | `ScriptingContext` + tests (~+60) |
-| `crates/script/elidex-script-session/src/lib.rs` | — | re-export |
-| `crates/script/elidex-js/src/vm/host/dom_inner_html.rs` | 488 | 3 natives |
-| `crates/script/elidex-js/src/vm/host/dom_parser.rs` | 407 | 1 native |
+| `crates/dom/elidex-dom-api/src/element/tests_markup.rs` | 246 | new cells (~+120) |
 | `crates/script/elidex-js/src/vm/tests/tests_html_serialize_escape.rs` (NEW) | — | VM cells (~150) |
+| `crates/script/elidex-js/src/vm/tests/mod.rs` | 210 | `mod tests_html_serialize_escape;` |
 
 ## §6. Test and coverage plan
 
 Supported surface: §13.3 escaping and the step-5.2 Text branch, guarded by engine-independent unit cells in
-`elidex-dom-api` / `elidex-script-session` and VM end-to-end cells; no WPT subset is added by this PR.
+`elidex-dom-api` and VM end-to-end cells; no WPT subset is added by this PR.
 
-**Unit, `tests_markup.rs`** (fixtures: `EcsDom::create_document_root` = bound document; `create_document_node` =
-DOMParser-like; `create_element_with_owner`; `create_element_ownerless_fixture`):
+**Unit, `tests_markup.rs`** (fixtures: `EcsDom::create_document_root` = bound-like document; `create_document_node` =
+DOMParser-like document):
 - U1 text mode, one cell per character: `&`, U+00A0, `<`, `>` escaped; `"` **not** escaped in text.
 - U2 attribute mode, one cell per character: `&`, U+00A0, `<`, `>`, `"` escaped (attribute and `is` value sites).
-- U3 order: data `"\u{a0}<&"` → exactly `&nbsp;&lt;&amp;` (step 1 runs first, so an entity produced by steps 2-5
-  is never re-escaped to `&amp;nbsp;`; kills a sequential-replace form that runs `&` last).
+- U3 exact output, no re-escape: data `"\u{a0}<&"` → exactly `&nbsp;&lt;&amp;` (kills an arm that writes its entity
+  back through the escaper — e.g. `push_escaped_string(out, "&lt;", mode)` — giving `&amp;lt;`).
 - U4 each unconditional raw parent (script, style, xmp, iframe, noembed, noframes, plaintext) with data `<&>`
   emitted literally; `plaintext` is the new row.
 - U5 SVG-namespace `style` (and `script`) parent: data escaped (D-4).
-- U6 noscript, context `Some(bound)`, noscript owned by the bound document → literal.
-- U7 noscript owned by a second document (DOMParser-like), context `Some(bound)` → escaped.
-- U8 noscript inside a `<template>`'s contents (node document = inert template document), context `Some(bound)` →
-  escaped.
-- U9 ownerless noscript, context `Some(bound)` → escaped (fail-safe; kills the `is_some()` mutant).
-- U10 noscript in the bound document, context `None` → escaped (fail-safe default).
-- U11 noscript in the bound document, sandbox flags without `allow-scripts` → escaped (clause 1).
-- Both entry points: U6/U7 run through `serialize_inner_html(noscript, ..)` (entry read site, `markup.rs:243`) and
-  `serialize_outer_html(parent_of_noscript, ..)` (recursion read site, `:445`).
-
-**Unit, `scripting.rs`**: `enabled_for_node` for bound / other document / ownerless / sandboxed.
+- U6 noscript with data `<p>&` → escaped (`&lt;p&gt;&amp;`) in both fixtures (§7 R1), through both read sites:
+  `serialize_inner_html(noscript, ..)` (entry, `markup.rs:243`) and `serialize_outer_html(parent_of_noscript, ..)`
+  (recursion, `:445`).
 
 **VM end-to-end, `tests_html_serialize_escape.rs` (NEW)** (bound VM; real parse):
-- V1 page noscript stays raw: `div.innerHTML = '<noscript><p id=x></p></noscript>'` → `div.innerHTML` round-trips
-  unchanged (bound document, scripting enabled).
+- V1 page noscript escaped (§7 R1): `div.innerHTML = '<noscript><p id=x></p></noscript>'` →
+  `div.innerHTML === '<noscript>&lt;p id=x&gt;&lt;/p&gt;</noscript>'` (the setter parses with scripting enabled, so
+  the noscript holds one Text node `<p id=x></p>`; today the getter returns the input unchanged).
 - V2 DOMParser noscript escaped: `parseFromString('<noscript><p id=x></p></noscript>', 'text/html')` (bare form;
-  raw text today per `dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary`) → its noscript's `innerHTML`
-  is `&lt;p id=x&gt;&lt;/p&gt;`; `XMLSerializer` on the document likewise.
-- V3 template noscript escaped: `t.innerHTML = '<noscript>a<b</noscript>'` on a page `<template>` → serialized
-  noscript data escaped.
+  raw text today per `dom_parser_bare_noscript_stays_rawtext_fragment_mode_boundary`, `tests_dom_parser.rs:546`) →
+  its noscript's `innerHTML` is `&lt;p id=x&gt;&lt;/p&gt;`; `XMLSerializer` on the document likewise.
 - V4 mXSS, noscript text: in a DOMParser document, `ns.textContent = '</noscript><img src=x onerror=f()>'`; then
-  `d.innerHTML = ns.outerHTML` on a page `div` → `d.querySelector('img') === null`.
+  `d.innerHTML = ns.outerHTML` on a page `div` → `d.querySelector('img') === null`. Red on old code: the old getter
+  emits the text raw, so the page parse (noscript RAWTEXT) ends the noscript at the embedded `</noscript>` and builds
+  the `img`.
 - V5 mXSS, attribute `<`/`>`: in a DOMParser document, a noscript containing `<p title="</noscript><img src=x
-  onerror=f()>">` (built by `createElement` / `setAttribute`); `d.innerHTML = ns.outerHTML` → no `img`.
-- V6 nbsp: `p.textContent = 'a b'` → `p.innerHTML === 'a&nbsp;b'`; `setAttribute('title', 'a b')` →
+  onerror=f()>">` (built by `createElement` / `setAttribute`); `d.innerHTML = ns.outerHTML` → no `img`. Red on old
+  code independently of D-3: the `p` is an element child, so the old output already took the element path, and
+  `escape_attr` left `<`/`>` in the attribute, which the page's RAWTEXT noscript reads as its end tag.
+- V6 nbsp: `p.textContent = 'a b'` → `p.innerHTML === 'a&nbsp;b'`; `setAttribute('title', 'a b')` →
   `outerHTML` contains `title="a&nbsp;b"`.
 - V7 plaintext: `<plaintext>` created by `createElement`, `textContent = '<b>'` → `innerHTML === '<b>'`.
+- V10 / V11 round-trip growth (§7 R2), pinned expectations.
 
-**Existing tests whose expectations change** — census: `git grep -n "escape_attr\|escape_html\|noscript" -- crates`
-plus `&quot;|&lt;|&gt;|&amp;|nbsp` in serializer tests (2026-11-13): `util.rs` `escape_html_chars` /
-`escape_attr_chars` are deleted with their functions (their assertions are subsumed by U1/U2 with the same expected
-strings). `tests_markup.rs:20` (`hello &lt;world&gt;`) and `:199` (`is="x&quot; onclick=&quot;evil"`) keep their
-expectations. No VM test serializes a noscript or an attribute containing `<`, `>` or U+00A0 (the four noscript
-tests in `tests_dom_parser.rs` assert parse shape only). **No expectation flips.**
+Rev 1's U7-U11, the `scripting.rs` unit cells and V3 are removed: each distinguished a scripting context that no
+longer exists (bound / other / template / ownerless document, `None`, sandboxed); under D-3 all of them are U6.
+(Cell numbers are not reused.)
 
-**Mutants** (each must turn a named cell red): drop each of the 5 escape arms (U1/U2); unguard step 5 (U1 `"`);
-run the `&` replacement after the others (U3); remove plaintext (U4/V7); drop the namespace conjunct (U5); noscript always raw
-(U7/V4); noscript never raw (U6/V1); drop `node_document.is_some()` (U9); natives pass `None` (V1); `getHTML` omits
-the context (a `getHTML` variant of V1).
+**Existing tests whose expectations change** — census: `git grep -n -i 'noscript' -- crates/dom/elidex-dom-api
+crates/script/elidex-js/src/vm/tests crates/shell` plus `&quot;|&lt;|&gt;|&amp;|nbsp` and `<svg…><style|script>`
+in serializer tests (2026-11-15): `util.rs` `escape_html_chars` / `escape_attr_chars` are deleted with their
+functions (their assertions are subsumed by U1/U2 with the same expected strings). `tests_markup.rs:20`
+(`hello &lt;world&gt;`) and `:199` (`is="x&quot; onclick=&quot;evil"`) keep their expectations. No existing test
+serializes a noscript, an SVG style/script, or an attribute containing `<`, `>` or U+00A0 (the noscript tests in
+`tests_dom_parser.rs` assert parse shape only). **No expectation flips.**
 
-## §7. 1000-line audit
+**Mutants** (each must turn a named cell red): drop each of the 5 escape arms (U1/U2); unguard step 5 (U1 `"`); an
+arm re-escapes its own entity (U3); remove plaintext (U4/V7); drop the namespace conjunct (U5); put noscript back in
+the raw list (U6/V1/V2/V4); keep `escape_attr`'s old map at the attribute site (V5). Rev 1's per-native `None` /
+`getHTML`-omits-context mutants (axis-3 IMP-2) disappear: no native passes a context any more, so there is no
+per-native input to mutate; every native reaches the one serializer, whose mutants are above.
 
-All touched files are under 1000 lines at `06bdfbbd` (§5.3); the largest after the PR is `dom_inner_html.rs` (~500).
-VM cells go to a NEW file rather than `tests_dom_parser.rs` (823) or `tests_inner_html_mixin.rs` (749), which
-would approach the line.
+## §7. Accepted regressions (PM 731)
 
-## §8. Out of scope, and slots
+Copied verbatim into the PR body (§10 DoD 5). Each is pinned by a cell, so it is an expectation, not a hidden failure.
+
+- **R1 — page noscript text is escaped (today raw).** In a document where scripting is enabled for the node (the
+  bound page), step 5.2 makes noscript text literal; this PR escapes it until N4 makes the precise rule available
+  (`#11-scripting-disabled-predicate-no-document`). Fidelity loss in the safe direction: a re-parse in a
+  scripting-enabled context shows the entities as text. Cells: **U6** (unit) and **V1** (pins
+  `'<noscript>&lt;p id=x&gt;&lt;/p&gt;</noscript>'`).
+- **R2 — the innerHTML get/set round trip grows on noscript content.** Root cause = the parse side reads a fixed
+  `scripting_disabled: false` (P6): the setter parses noscript content as RAWTEXT, the getter escapes it, the next
+  set keeps the entities as literal text, and the next get escapes the `&` again. Page documents: arises under this
+  PR (R1). DOMParser documents: the parse-side defect already exists today (scripting is disabled for such a
+  document, HTML §13.4 step 10, yet the setter parses with it enabled); today's raw getter masks it as a stable
+  round trip, this PR's correct escaped getter makes it grow. Fixed only when the parse side reads N4's composition
+  (§9). Cells:
+  - **V10** (page `div`): `div.innerHTML = '<noscript><p></p></noscript>'; g1 = div.innerHTML; div.innerHTML = g1;
+    g2 = div.innerHTML` → `g1 === '<noscript>&lt;p&gt;&lt;/p&gt;</noscript>'`,
+    `g2 === '<noscript>&amp;lt;p&amp;gt;&amp;lt;/p&amp;gt;</noscript>'`.
+  - **V11** (an element `h` of `new DOMParser().parseFromString('<body><div id=h></div></body>', 'text/html')`): the
+    same steps and the same two pinned strings.
+
+## §8. 1000-line audit
+
+All touched files are under 1000 lines at `c0578223` (§5.3). VM cells go to a NEW file rather than
+`tests_dom_parser.rs` (823) or `tests_inner_html_mixin.rs` (749), which would approach the line.
+
+## §9. Out of scope, and slots
 
 - Slot items (a) void list, (b) step 1, (c) shadow-template attribute order + `shadowrootcustomelementregistry`,
   (f) attribute order (note: the spec says the order "is implementation-defined … must be stable", so (f) is a
   fidelity/allocation question, not an observable-deviation one — recorded for that facet, not decided here):
-  stay in `#11-html-fragment-serializer-conformance`, Re-eval 2026-12-15.
-- The ECS fact "Document has a browsing context": `#11-browsing-context-state-ecs-components` (D-3).
+  stay in `#11-html-fragment-serializer-conformance`, Re-eval 2026-12-15. Item (a) also gains the void check's
+  namespace defect (landing, §10): `VOID_ELEMENTS.contains` at `markup.rs:441` reads `TagType` only, so a
+  non-HTML-namespace element with a void local name loses its children and end tag (fidelity; same §2.1.3 reading as
+  D-4; not fixed here).
+- The precise noscript rule and the parse-side scripting decision (P6): `#11-scripting-disabled-predicate-no-document`
+  (PM 731 facet; trigger IBP-sandbox N4's per-PR plan). The node clause's final representation:
+  `#11-domparser-full-document-parse-fidelity` (ratified marker). ⚠ That slot is overdue (Re-eval 2026-11-01).
 - DOMParser's bare `<noscript>` parsing as raw text (html5ever fragment fallback ignores the scripting flag):
   `#11-domparser-full-document-parse-fidelity`; V2 serializes that parse shape and needs no change if the parse is
   later fixed (data would then be elements, serialized normally).
-- The event-handler gate's ownerless polarity (§10 Q-2): not touched.
+- `GetInnerHtml` (the `"innerHTML.get"` `DomApiHandler`, `markup.rs:128`, registered at `registry.rs:153`): left
+  untouched. Measured 2026-11-15: `git grep -n -F '"innerHTML.get"' -- crates` → only `markup.rs:132` (its
+  `method_name`), `registry.rs:153` (registration) and `registry.rs:567` (the registry presence test); the two
+  production name dispatchers (`elidex-js` `vm/host/dom_bridge.rs:475`, `elidex-wasm-runtime`
+  `src/host/funcs.rs:166`) never receive it — the wasm runtime's names are literals (`textContent.get` etc.), and no
+  `format!`/`concat!` builds a `*.get` handler name (`git grep -n -P '(format|concat)!\([^)]*\.(get|set)' -- crates/script
+  crates/shell` → test-only hits). So it is unreachable in production, but it is not alone: `"innerHTML.set"`,
+  `"className.get"`, `"id.get"` have the same shape (`git grep -l -F '"<name>"' -- crates` → handler + registry
+  only). Deleting one member would be a partial sweep of a class whose question is the registry's embedder surface,
+  not this PR's; and under D-3 it is no longer a divergent reading (it calls the same `serialize_inner_html`, with
+  the same output as the natives). Reported to the PM as a class (§11).
 
-## §9. Edges, hand-offs, definition of done
+## §10. Edges, hand-offs, definition of done
 
 DoD:
-1. D-1..D-5 implemented as §4; `escape_html` / `escape_attr` gone (`git grep -n -w 'escape_attr\|escape_html' --
-   crates` → 0).
+1. D-1..D-4 implemented as §4; `escape_html` / `escape_attr` gone (`git grep -n -w 'escape_attr\|escape_html' --
+   crates` → 0); no scripting read added (`git grep -n 'ScriptingContext\|enabled_for_node' -- crates` → 0;
+   `git diff origin/main -- crates/script/elidex-js/src/vm/host crates/script/elidex-script-session` → empty).
 2. Every cell of §6 present and green; every listed mutant observed red at the final head (mutation runs only at the
    final head; ≤2 in parallel).
-3. `cargo test -p elidex-dom-api -p elidex-script-session -p elidex-js --all-features`, then `mise run ci`.
-4. Comments in `markup.rs` cite §13.3 step 5.2 and "Escaping a string" by name; `scripting.rs` cites §8.1.3.4 —
-   numbers from §0.4's lookups only.
+3. `cargo test -p elidex-dom-api -p elidex-js --all-features`, then `mise run ci`.
+4. Comments in `markup.rs` cite §13.3 step 5.2, "Escaping a string" and §2.1.3 by name — numbers from §0.4's lookups
+   only.
+5. The PR body carries §7 (R1, R2 and their cells) verbatim.
+
+Landing order: this PR lands before the brand-check Rev 5.4 memo and the ecs-entity-lifetime io census. Under Rev 2
+it does not edit `dom_inner_html.rs` / `dom_parser.rs`, so brand-check's line cites there are unaffected; it does
+move `markup.rs` lines (the io census pins `markup.rs:256` / `:304`), so that memo re-pins after this lands.
 
 Landing (pmo, after merge):
-- `#11-html-fragment-serializer-conformance`: (d) (as ratified, D-4) and (e) closed by this PR; (a) (b) (c) (f) open,
-  Re-eval 2026-12-15.
-- `#11-browsing-context-state-ecs-components`: append facet — "`ScriptingContext::bound_document` (NEW)
-  (`elidex-script-session::scripting`) is the interim input of §8.1.3.4 clause (2) for the serializer (and the
-  event-handler gate's `bound_document` argument); retire both onto the positive fact when it lands."
+- `#11-html-fragment-serializer-conformance`: (e) closed; (d) closed except the precise noscript rule, which moves to
+  `#11-scripting-disabled-predicate-no-document` (PM 731); (a) gains "the void check (`markup.rs` `VOID_ELEMENTS`) has
+  no namespace check" (§9); (a) (b) (c) (f) open, Re-eval 2026-12-15. Item (b)'s text names
+  `serialize_inner_html_with_options`, which this PR keeps (D-5 withdrawn), so it stands as written.
+- `#11-scripting-disabled-predicate-no-document`: the PM 731 facet is already recorded; append "serializer side:
+  noscript always escaped since this PR; accepted regressions R1/R2 pinned by U6/V1/V10/V11 — flip those
+  expectations when N4 lands".
+- No facet on `#11-browsing-context-state-ecs-components` (PM 731).
 
-## §10. Open questions
+## §11. Open questions
 
-- Q-1 (PM): ratify D-4 (HTML-namespace conjunct) as part of (d), or split to slot item (g).
-- Q-2 (PM, report only): the event-handler compile gate treats a node with no node document as "scripting not
-  disabled" (P4) — i.e. it compiles the handler. That is the fail-open direction for a security gate; this PR does
-  not change it (IBP-sandbox N4 owns the gate's reading). Whether it needs a slot is PM's call.
-- Q-3 (implementer, scout-able): is the `"innerHTML.get"` `DomApiHandler` (`crates/dom/elidex-dom-api/src/registry.rs:153`)
-  reachable from any production dispatch? If yes, its `None` context escapes page noscript text (fail-safe, fidelity
-  loss); if not, it is dead code for a separate cleanup — not decided here.
+- Q-1 — decided (PM 728): the HTML-namespace conjunct is part of (d) (D-4).
+- Q-2 — decided (PM 728 / 731): the no-document reading is `#11-scripting-disabled-predicate-no-document`'s, aligned
+  at N4; this PR adds no reading (D-3).
+- Q-3 — decided here: `GetInnerHtml` untouched (§9). For the PM: the class "registry handlers with no production
+  dispatcher" (`innerHTML.get`, `innerHTML.set`, `className.get`, `id.get`, measured as in §9) has no slot; whether it
+  needs one is the PM's call.
