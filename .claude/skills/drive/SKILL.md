@@ -44,22 +44,27 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
 
 ## 1. 起動・再開 (`/drive <lane>`、compaction 後、restart 後)
 
-1. **repo `CLAUDE.md` を Read で通読する** (grep の断片や要約で代えない)。context に読み込まれた版は session
+1. **`git -C /Users/kazuaki/repos/send.sh/elidex fetch -q origin`** を先頭で走らせる (以降の `origin/main` /
+   `ls-remote` の比較を最新にする)。
+2. **lane SSoT を読む**: 引数の lane 名で MEMORY Active state の行を引き、その行が指す lane SSoT の冒頭 block
+   (§9 の 10 項目) を読む。worktree のパスはこの block が持つので、worktree は読んでから使う。冒頭が 10 項目の
+   block でない時 (移行期) は、今の冒頭から 10 項目に組み直して PM に報告する (§9)。
+3. **PM を確かめる**: PM の session 名 (§0) を `ListAgents` で確かめる。無ければ user に直接聞く (§2 の唯一の例外)。
+4. **repo `CLAUDE.md` を Read で通読する** (grep の断片や要約で代えない)。context に読み込まれた版は session
    起動時のものなので、自分の worktree の版を読み、`git -C <worktree> diff HEAD origin/main -- CLAUDE.md` が
    空でなければ origin/main の版 (`git show origin/main:CLAUDE.md`) も読む。
-2. **lane SSoT を読む**: 引数の lane 名で MEMORY Active state の行を引き、その行が指す lane SSoT の冒頭 block
-   (§9 の 10 項目) を読む。block は claim — git と突き合わせる:
+5. **block は claim — git と突き合わせる**:
    `git -C <worktree> log -1 --format=%h`、`git -C <worktree> status --short`、
-   `git -C <worktree> log --oneline origin/main..HEAD`、`git ls-remote origin <branch>`。
+   `git -C <worktree> log --oneline origin/main..HEAD`、`git -C <worktree> ls-remote origin <branch>`。
    食い違いは自分の block を直し、PM に報告する。自分が作っていない WIP / HEAD の移動を見たら止めて確かめる。
-3. **PM を確かめる**: PM の session 名 (§0) を `ListAgents` で確かめる。無ければ user に直接聞く (§2 の唯一の例外)。
-4. **memory の書き先**: `git -C <worktree> rev-parse --path-format=absolute --git-common-dir` が
-   `/Users/kazuaki/repos/send.sh/elidex/.git` でなければ、この session の auto-memory は `$MEM` に束縛されない →
-   memory は `$MEM` の絶対パスで書く。
-5. **brief の前提は claim**: PM の brief と lane SSoT に書かれた事実 (sha、PR の状態、「済み」) は 1 件ずつ
+6. **memory の書き先**: auto-memory は session を起動した dir で束縛される。確認は **session の primary cwd** で
+   走らせる (`git -C <worktree>` にしない — worktree の値は session の束縛を表さない):
+   `git rev-parse --path-format=absolute --git-common-dir` が `/Users/kazuaki/repos/send.sh/elidex/.git` でなければ、
+   この session の auto-memory は `$MEM` に束縛されない → memory は `$MEM` の絶対パスで書く。
+7. **brief の前提は claim**: PM の brief と lane SSoT に書かれた事実 (sha、PR の状態、「済み」) は 1 件ずつ
    git / `gh` で確かめる。前提の誤りは PM に報告し、回避しない。
-6. 走っている agent・背景 run が lane SSoT にあれば、その状態を先に確かめる (§8、§9)。
-7. lane SSoT の「次の 1 手」から始める。commit するブランチは専用 worktree で
+8. 走っている agent・背景 run が lane SSoT にあれば、その状態を先に確かめる (§8、§9)。
+9. lane SSoT の「次の 1 手」から始める。commit するブランチは専用 worktree で
    (`git worktree add -b <branch> <dir> origin/main`、規則の正は repo `CLAUDE.md` Workflow)。
 
 ## 2. 人間への確認はすべて PM へ
@@ -71,8 +76,7 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
 - **PM の答えが go**。go が許すのは名指ししたものだけ (次の push・次の merge には及ばない)。
 - **user に直接聞くのは PM の名が `ListAgents` に無い時だけ**。
 - harness の許可ダイアログは、この session の user が答えるもの。PM 経由で迂回しない。
-- **repo `CLAUDE.md` の文言**: 最終文言と前後の diff を PM に送る。PM が user に聞き、承認を持つ PM が自分の
-  commit で当てる。lane はその commit の上に自分の PR を積む (流れの正は `/pm` §3.4)。
+- **repo `CLAUDE.md` の文言**: 最終文言と前後の diff を PM に送る。その後の流れの正は `/pm` §3.4。
 - **聞く前に**: `/pm` §3.3 の 1 (lens block — 全行が同じ案なら聞かずに実行して報告)・3 (手段の前に目的)・
   5 (規則の読みは両側の先例を全部)・6 (lens が棄却する案を選択肢に混ぜない) を自分の問いに当てる。
 - **決定番号は PM だけが引く**。lane の記録・報告に書く PM 番号は PM の返信にあった番号だけ
@@ -84,12 +88,10 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
 2. **CI の判定は log で**: `EXIT=0` かつ log に `ERROR task failed` が無いこと。背景タスクの通知の exit code は
    最後の文の値なので判定に使わない (memory `feedback_background-task-exit-code-is-the-last-command.md`)。
    赤い local CI のまま push しない。signal で死んだ run は void — pass でも失敗でもなく、走らせ直す (§8)。
-3. **review の段**: `/pre-push` Stage 4 の表が正。表から外れる段を使う時だけ、理由を添えて **先に** PM に言う
-   (`/pm` §2 の review の段の行)。
+3. **review の段**: `/pre-push` Stage 4 の表が正。表から外れる段は `/pm` §2 の review の段の行に従う。
 4. push の go を PM に求める: gate の結果 (段ごとの結果と skip の理由)、head の sha、
    `git log --oneline origin/main..HEAD` を添える。
-5. **commit / push の直前**: `git branch --show-current` と `git log --oneline origin/main..HEAD` でスコープを目視し、
-   push は明示 branch ref (`git push origin <branch>`。`HEAD:<other>` にしない)。
+5. **commit / push の直前**: repo `CLAUDE.md` Workflow の「並行セッション / worktree 隔離」に従う (branch・スコープの目視と明示 ref の push)。
 
 ## 4. PR body
 
@@ -121,7 +123,7 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
    `gh pr view <N> -R send/elidex --json headRefOid,mergeStateStatus`。head が動いていたら merge せず聞き直す。
    `DIRTY` / `BEHIND` は main を **merge で** 取り込む (push 済みの branch を rebase しない、force-push しない) →
    CI を待って再報告。
-4. `gh pr merge <N> -R send/elidex --squash --match-head-commit <sha>`。`gh pr merge --auto` は使わない。
+4. `gh pr merge <N> -R send/elidex --squash --match-head-commit <sha>`。flag の禁止は repo `CLAUDE.md` Workflow の「Git」に従う。
 5. merge commit の sha を §7 の landing report として PM に送る。
 
 ## 7. Landing report
@@ -149,22 +151,22 @@ merge の後、PM に 1 通で送る:
   `reference_session-rustup-toolchain-env-stale.md`。
 - **user の状態に書く probe の隔離**: mise を測る probe は `MISE_DATA_DIR` / `MISE_CACHE_DIR` / `MISE_STATE_DIR` /
   `MISE_CONFIG_DIR` を隔離し、`MISE_GLOBAL_CONFIG_FILE` を空の file に向ける。隔離していない state dir で
-  `mise trust` しない。終わったら `~/.local/state/mise/trusted-configs` に scratchpad 向きの entry が無いことを
-  確かめる (PM 151 / 230、memory `feedback_mise-probes-isolate-state-dir.md`)。agent に測らせる brief にも同じことを書く。
+  `mise trust` しない。終わったら `~/.local/state/mise/trusted-configs` と `~/.local/state/mise/tracked-configs` に scratchpad 向きの entry が
+  無いことを確かめる (PM 151 / 230、memory `feedback_mise-probes-isolate-state-dir.md`)。agent に測らせる brief にも同じことを書く。
 - **並列度の上限**: 測定・corpus・mutation を走らせる agent の brief には並列度の上限を書く (既定は agent 1 体あたり
   同時 2 本まで)。agent を N 体並べる前に N × 各 agent の fan-out を数える。重い検査 (mutation run 等) は最終 head
   だけで走らせる。local の検証は review の fan-out と並走させない (wall-clock の assertion が負荷で落ちる)。
-  正は memory `feedback_cap-delegate-experiment-parallelism.md`。
+  経緯は memory `feedback_cap-delegate-experiment-parallelism.md`。
 - **背景ジョブは PID で止める**: 起動した時に PID を控える (harness の task なら task stop)。`pkill -f <pattern>` は
   使わない — 並行 lane の同じコマンドも殺す。kill の前に `pgrep -fl …` で一致を並べ、各々の cwd を確かめる
   (memory `feedback_kill-by-pid-not-pattern.md`)。
 - **disk**: PM が新しい測定 batch を止めたら (disk の下限、`/pm` §2 行 3) 新しい batch を始めない。clone は再利用し、
   batch の前に `df -h`。
-- 本節と §10 は、`/pm` §12 の一般核と一緒に global へ移す候補 (PM 736)。移すまでは本節が正。
+- 本節と §10 は、`/drive` の landing の後に `/pm` §12 の一般核と一緒に global へ移す (PM 736)。移すまでは本節が正。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 
-lane SSoT の冒頭に、次の 10 項目を書く (PM も pmo も書かない。PM は git と突き合わせて clear してよいかを user に伝える):
+lane SSoT の冒頭に、次の 10 項目を書く (冒頭が今これでない移行期は §1 の 2 で組み直す。PM も pmo も書かない。PM は git と突き合わせて clear してよいかを user に伝える):
 
 1. head / branch / worktree
 2. 未 push の commit
@@ -188,5 +190,4 @@ lane SSoT の冒頭に、次の 10 項目を書く (PM も pmo も書かない�
   CI 待ち / user の操作待ち / budget の cap)。Stop hook (`announced-next-step-gate.py`) は残作業に触れて理由の無い停止と
   未来形の約束を止める。
 - 「次は X」と書きかけたら、書かずに X の tool call を出す。待ち以外が残れば同じ turn で続ける。
-- **budget の停止は新しい単位だけ**: PM が止めたら、走っている agent・review・CI は最後まで走らせ、新しい単位
-  (agent、軸、wave、designer) を始めない (PM 321)。単位の境界で済 / 残を PM に報告して止まる。
+- **budget の停止**: 正は `/pm` §6 (新しい単位だけ止める、走行中の agent は止めない)。単位の境界で済 / 残を PM に報告して止まる。

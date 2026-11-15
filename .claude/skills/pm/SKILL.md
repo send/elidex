@@ -20,7 +20,7 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 |---|---|
 | elidex の設計原則・至上命題・根拠の順位・ブラウザ名タグの一覧 | repo `CLAUDE.md`「Design philosophy」先頭 bullet |
 | subagent の型・tier・昇格 | `~/.claude/CLAUDE.md`「サブエージェント振り分け」 |
-| 確認の経路、PM が決めるもの / user に上げるものの原文 | memory `feedback_consult-pm-before-asking-user.md` |
+| PM が決めるもの / user に上げるものの原文 | memory `feedback_consult-pm-before-asking-user.md` |
 | lens の回し方の incident 集 | memory `feedback_decide-via-philosophy-before-asking.md` |
 | 記録の書き方 (backup、行番号は測ったものだけ、一意一致の置換、タグ、台帳の形式) | `~/.claude/agents/pmo.md`「書き方の規則」 |
 | ECS 至上命題の guard の層と状態 | memory `project_ecs-mission-guard.md` |
@@ -70,7 +70,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    で終えたら、その報告と成果物を渡して新しい pmo を 1 体起こす (global 規則の「上限は引き継ぎ境界」)。
    pmo を起こせない時の扱いは §7。
 6. memory dir の束縛: lane が `/Users/kazuaki/repos/send.sh/elidex` の worktree でない checkout で
-   動いていたら、その session の auto-memory は `$MEM` に束縛されない → lane は `/drive` §1 の 4 で確かめ、
+   動いていたら、その session の auto-memory は `$MEM` に束縛されない → lane は `/drive` §1 の 6 で確かめ、
    `$MEM` の絶対パスで書く (確かめ方の正は `/drive` §1)。
 7. §2 の PM pass を 1 回回す。
 
@@ -106,7 +106,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 | 9 | **overdue triage** (常設) | 行 8 の overdue scan が 1 件以上なら、その pass で triage を始める: reviewer に行ごとの提案 (延長 + 理由 / 着手 / close) を出させ → PM が決め → pmo が適用。budget で延期する時は件数と延期日を §10.2 に載せる (延期できる回数は上の skip の上限)。前 pass より件数が増えた、または件数が不明なら延期しない |
 | 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの |
 
-- review の段: `/pre-push` Stage 4 の表が正 (PM 360 の訂正)。表から外れる段を使う時だけ、lane が理由を
+- review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 
@@ -327,6 +327,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
       定義にしない。ブラウザ名は `[evidence]` / `[contrast]` / `[history]` 等のタグ付きでだけ現れる
       (PM 421/424 [history] — PM が書いた slot が既存ブラウザ寄りの framing だった。PM 440 の
       `#11-implicit-submission-commits-change` は欠陥がブラウザの振る舞いでしか定義されていなかった)
+- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正 (PM 648 / 659・662)
 - [ ] **lane が出した slot の文案**: PM が前提を確かめてから登録する。文案の前提を lane の報告のまま採らない
       (PM 583 — `#11-no-engine-eventtarget-stubs-nonconforming` は前提が偽だった。由来は PM が確かめずに登録したこと)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
