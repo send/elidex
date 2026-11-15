@@ -117,7 +117,8 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
             // borrow-legal, but the precedence-defining checks run in order.
             // modulusLength and publicExponent values are not checked by
             // normalization; Generate Key step 2 (§20.5) checks them in
-            // `rsa::validate_rsa_keygen_params`.
+            // `rsa::validate_rsa_keygen_params`, and `rsa::validate_rsa_generate_capability`
+            // checks the modulusLength floor and the exponent cap.
             let modulus_length = raw
                 .modulus_length
                 .ok_or_else(|| required_member("modulusLength", "RsaHashedKeyGenParams"))?;

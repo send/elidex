@@ -10,21 +10,10 @@ use crate::error::AlgorithmError;
 
 use rsa::RsaPublicKey;
 
-use super::operation;
-
-/// Smallest modulusLength `generate` attempts.  Below it the rsa crate's prime
-/// search can fail to terminate for an odd exponent:
-/// - with e <= 2^33 - 1, e has at most 9 distinct odd prime factors
-///   (3*5*...*29 < 2^33 < 3*5*...*31);
-/// - a b-bit prime p with p - 1 = 2q (q prime, q > 2^33) gives
-///   gcd(e, p - 1) = 1 for every such e;
-/// - such primes exist among the candidates when b >= 35, so the crate's loop
-///   ends with probability 1;
-/// - each prime is modulusLength / 2 bits, so modulusLength >= 2 * 35 = 70.
-pub(crate) const MIN_RSA_GENERATE_MODULUS_BITS: u32 = 70;
+use super::{operation, MIN_RSA_GENERATE_MODULUS_BITS};
 
 /// §16: the minimal big-endian encoding (leading zero bytes stripped; empty is zero).
-fn minimal_be(bytes: &[u8]) -> &[u8] {
+pub(crate) fn minimal_be(bytes: &[u8]) -> &[u8] {
     let skip = bytes.iter().position(|&b| b != 0).unwrap_or(bytes.len());
     &bytes[skip..]
 }
@@ -86,8 +75,9 @@ pub(crate) fn validate_rsa_keygen_params(
     let ml = u64::from(modulus_length);
     // e >= 2^ml - 1 is `ml` one-bits: compare by bit length, never materializing
     // either number (ml is script-controlled up to `u32::MAX`).
-    let all_ones = e[0] == 0xFF >> lead_zeros && e[1..].iter().all(|&b| b == 0xFF);
-    if bits > ml || (bits == ml && all_ones) {
+    // The all-ones scan runs only when the bit lengths tie.
+    if bits > ml || (bits == ml && e[0] == 0xFF >> lead_zeros && e[1..].iter().all(|&b| b == 0xFF))
+    {
         return Err(operation(
             "RSA publicExponent must be less than 2^modulusLength - 1 (WebCrypto §20.5)",
         ));
