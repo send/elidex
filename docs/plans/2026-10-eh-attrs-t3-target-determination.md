@@ -103,7 +103,7 @@ and are re-run at the commit the branch is actually cut from (§9 item 1).
   T3 lands after io (umbrella x12); the flush point on ig's guard is T3-pre's (x13).
 - **PM decisions 718–720** (2026-11-13; 721 is another lane's): 718, L3's R3 on its split plans at `6d31ced1`, the
   snapshot H-T32 reads (L3's plans cited by symbol and section; the changes it announces are not relied on); 719,
-  `#11-custom-element-upgrade-at-fragment-creation` **registered** (owner L3, trigger T3's landing, Re-eval
+  `#11-custom-element-upgrade-at-fragment-creation` **registered** (owner L3, trigger T3-pre's landing (PM 732), Re-eval
   2026-12-31; §8.1 item 5); 720, the flush shape (δ) (the T3-pre memo §4.4, P-P1).
 - **PM decision 722 (R1 F1):** split. **T3-pre** (Layout, on L3's surface; its plan-review takes L3's confirmation
   through the PM) carries the `CloneCreated` → `SubtreeCreated` generalisation and every consumer migration, the
@@ -1397,7 +1397,7 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
    the foreign interface has (e.g. `SVGScriptElement`'s `type`). **Trigger:** an SVG / MathML DOM interface PR, the
    `M4-13:#svg` program's plan, or a WPT `svg/` / `mathml/` subset. **Re-eval:** 2026-12-31. ⚠ No remedy reviewed."
 5. **The custom-element upgrade at a fragment-parsed element's creation** — **registered** by the PM (PM 719,
-   2026-11-13) as `#11-custom-element-upgrade-at-fragment-creation` (owner L3; trigger T3's landing; Re-eval
+   2026-11-13) as `#11-custom-element-upgrade-at-fragment-creation` (owner L3; trigger T3-pre's landing (PM 732); Re-eval
    2026-12-31), from this memo's rev 4.8 draft (O-12 closed by PM decision 711 (4) as (c)+(a); the registry-less side
    from L3's review, PM decision 713 (6)). Its one home is the ledger; nothing is handed to the PM for it (until rev 5:
    "proposed id … registered at T3's landing"). It is closed by a later L3 PR adding the `SubtreeCreated { cause:

@@ -543,8 +543,8 @@ Own deferrals: **0**.
   `walkers.rs`; L3 umbrella §8 hand-offs) (R1 M18): no ordering edge with T3-pre (T3-pre edits only `walkers.rs` docs);
   merge contact. Its edge with T3's creation walk is the T3 memo's (§8.2).
 - **`#11-custom-element-upgrade-at-fragment-creation`** (L3, registered): the arm it adds matches T3-pre's
-  `SubtreeCreated { cause: FragmentParse }`. Its ledger *Trigger* reads T3's landing; the event exists from T3-pre's
-  (§10 Q-P1).
+  `SubtreeCreated { cause: FragmentParse }`. Its ledger *Trigger* is T3-pre's landing (PM 732); the event exists from T3-pre's
+  (§10 Q-P1, closed).
 
 ### §8.3 Records for existing slots (for the PM, exact texts; at T3-pre's landing)
 
@@ -587,8 +587,8 @@ returns `pending` from the same replacement; `set_mutation_dispatcher` on `Taken
 empty list unless unwinding (§4.4). L3 confirms them with the [L3 surface] sections.
 
 **For the PM:**
-- **Q-P1.** `#11-custom-element-upgrade-at-fragment-creation`'s ledger *Trigger* reads "T3 の着地"; the event its arm
+- **Q-P1 (closed).** `#11-custom-element-upgrade-at-fragment-creation`'s ledger *Trigger* reads "T3 の着地"; the event its arm
   needs exists from T3-pre's landing. Whether the trigger moves to T3-pre's landing is the PM's and L3's call (no
-  T3-pre text depends on it).
+  T3-pre text depends on it). **Answered by PM 732:** the trigger = T3-pre's landing (ledger updated by pmo).
 
 No browser measurement is needed: no outcome changes (§1.1).
