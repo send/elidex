@@ -44,9 +44,11 @@ on main (rev 4.5; rev 4.4 read them on their plan branches), cited by their own 
 
 **Scheduling (PM decision 153, user, 2026-10-31).** Order: **N1's implementation → C0 → C1 → T3 → slice b**; inside C0,
 C0a → C0b → C0c (PM decision 244). The option text the user saw: 「順番を N1 → C0 → C1 → T3 → slice b にして、R-A と R-B は T3 の前に閉じます。R-C（clone）は slice b の S-1 の該当部分を T3 に移して閉じ、R-D（SVG の body）も T3 の中で閉じるかを designer に検討させます。閉じられないものが残ったら、改めて伺います。T3 は大きくなり、入るのも遅くなります。」
-**Order after C1 (PM decisions 711, 714, 722).** L3's PR (is) → PR (ig) → {**T3-pre** (Layout, after ig: its flush
-sits on ig's guard) ∥ L3's PR (io) (T3-pre does not use `WalkScope`)} → **T3** (after both T3-pre and io) → slice b.
-T3 is Layout's next unit after T3-pre (the T3-pre memo DoD item 7).
+**Order after C1 (PM decisions 711, 714, 722; 730, 740, 741).** L3's PR (is) → PR (ig) → {**T3-pre** (Layout, after
+ig: its flush sits on ig's guard) ∥ L3's tree-model program (PM 730) → L3's PR (io) (T3-pre uses neither)} → **T3**
+(after both T3-pre and io) → slice b. T3-pre's order is unchanged by PM decisions 740 (1) and 741 (1); the window in
+which its `FragmentParse` arms are no-ops runs until T3 lands, and its sequence, bound and escalation are the T3-pre
+memo DoD item 7 (until the T3-pre memo rev 2 this line read "T3 is Layout's next unit after T3-pre").
 **T3's base** ("the base") is main when T3's implementation branch is cut, after C1, T3-pre and io land: `4fd85f4e` (N1's
 implementation and #585 landed) plus C0a, C0b and C0c with their D-14 splits, RC-2a (PM decision 359: D-T10; from
 rev 5 edge x11 points at T3-pre, which generalises RC-2a's event, and T3 follows it through x14), C1-pre0, C1-pre and
@@ -123,7 +125,11 @@ test (PM decision 133, D-T5); the attribute change steps' step 1 namespace test 
 D-T8); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130); the
 foreign-element interfaces other than `body`'s (§8.1 item 4); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 5* (2026-11-13; structural): PM decisions 722, 723 and plan-review R1 on rev 4.8.2 (`571cd9c8`).
+**Changelog.** *Rev 5, edited in place* (2026-11-15; no rev bump, T3's own next revision is a separate PM decision):
+four sentences that state something about T3-pre follow the T3-pre memo rev 2 (PM decisions 740, 741) — the header's
+*Order after C1* (the tree-model program, PM 730; the no-op window instead of "Layout's next unit"), P-T20's pointer
+(P-P1 closed, P-P2's remedies ig's), §6.4's row of the event's own mutants, and §8.2's T3-pre entry. Nothing else of
+rev 5 is touched. *Rev 5* (2026-11-13; structural): PM decisions 722, 723 and plan-review R1 on rev 4.8.2 (`571cd9c8`).
 (722) Split: rev 4.8.2's §4.5 items 1–5 and item 6's other consumers, P-T20, H-T29 to H-T31 and H-T32's PR (ig) half,
 cells U-T10 / U-T11 and their mutants, and DoD 4's event greps move to the new **T3-pre memo** (moved, not
 restated; this memo refers to its sections); §4.5 is now the event-handler consumer's arm and walk only; the header,
@@ -355,7 +361,8 @@ New in rev 4.8:
   rustdoc (§5.3).
 - **P-T20 (moved to the T3-pre memo P-P1, rev 5; PM decision 722).** PM decision 711's flush point and its shape (δ),
   decided by PM 720; with it, the T3-pre memo's new P-P2 (the snapshot's restore goes through
-  `set_mutation_dispatcher`, which would drop the queue; R1 M2).
+  `set_mutation_dispatcher`, which would drop the queue; R1 M2). (T3-pre memo rev 2: P-P1 is closed, L3's plan
+  carries (δ) itself; P-P2's two remedies are ig's, PM decision 740 (2).)
 
 ### §0.4 Decisions (this PR)
 
@@ -1314,7 +1321,7 @@ and the note said the build's event "is dropped … and the parsed document gets
 | fragment path's Creation not asking step 3 (the bound document's Window for every fragment) | T-22c |
 | step 3 asking whether the element is connected (not its node document's activeness) | T-8a, T-8b, T-23, T-24 |
 | fragment path delivering EW once at the first insertion instead of at creation (O-10 (b), rejected) | T-15b for DOMParser's build (its first insertion that reaches a consumer is the move into A, where the mutant delivers to the page Window); for the other entry points none: each is placed by its caller in the same call with no script between (H-T29; `createContextualFragment` is a stub), so the outcome is equal at T3's base; a `createContextualFragment` implementation (`#11-range-full-impl`) would add a killer (until rev 4.8: "DOMParser's build drops the event, H-T30") |
-| the event's own mutants (fired inside the build, first root only, asserting / dropped while `Taken`, flushed before the restore or at a nested close, on unwind, not discarded at unbind, a dead root dispatched, the restore through `set_mutation_dispatcher`) | the T3-pre memo §6.2 (moved in rev 5); T3's VM cells kill some of them too: T-22, T-22b (fired inside the build), T-15b, T-22c, T-26 (asserting or dropped while `Taken`, flushed before the restore) |
+| the event's own mutants (fired inside the build, first root only, asserting / dropped while `Taken`, flushed before the restore or at a nested close, on unwind, not discarded at unbind, a dead root dispatched, the restore function dropping the queue) | the T3-pre memo §6.2 (moved in rev 5; the restore *through `set_mutation_dispatcher`* is ig's mutant since PM decision 740 (2), the T3-pre memo §8.2); T3's VM cells kill some of them too: T-22, T-22b (fired inside the build), T-15b, T-22c, T-26 (asserting or dropped while `Taken`, flushed before the restore) |
 | fragment walk = the insertion-time set (rev 4.7: no shadow trees, no template contents, capped), or `ShadowIncludingTree` | U-T9, T-27, T-28 |
 | fragment walk on `LifetimeUnit` | none: an equivalent mutant from a fragment root (only a Document carries the inert-document link, H-T32); excluded by D-T12's wording, not by a cell |
 | fragment Creation skipping a class, or not marking OR | U-T9, T-25, T-26, T-28 |
@@ -1439,8 +1446,9 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
   walks (§8.3 item 11); if its PR lands first, they take its rule (§9 item 1).
 - **T3-pre** (PM decision 722; umbrella x14: T3 after T3-pre): T3 relies on the event as the T3-pre memo §4.2–§4.6
   states it (both causes, the fragment fire's order against the placement, the queue's flush at the outermost close,
-  the `Clone` cause unchanged, I-RC1 to I-RC3) and adds only the event-handler consumer's arm (§4.5). T3 is Layout's
-  next unit after T3-pre (its DoD item 7).
+  the `Clone` cause unchanged, I-RC1 to I-RC3) and adds only the event-handler consumer's arm (§4.5). T3's landing
+  ends the no-op window of T3-pre's `FragmentParse` arms (the T3-pre memo DoD item 7: its sequence, bound and
+  escalation; PM decisions 740 (1), 741 (1)).
 - **L3's ecs-entity-lifetime PR io** (PM decisions 711, 714; umbrella x12: T3 after io): T3 relies on io's `pub` walker
   taking `WalkScope::WithTemplateContents` (§4.5), cited by symbol and section from the PR (io) plan and the L3
   umbrella at the snapshot H-T32 names, re-pinned to L3's ratified sha before T3 is ratified and re-pulled at io's
