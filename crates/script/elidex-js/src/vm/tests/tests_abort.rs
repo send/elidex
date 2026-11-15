@@ -17,13 +17,13 @@ use super::super::Vm;
 /// engine-side callback store shared with the node path).  No DOM is
 /// needed — an `AbortController` has no document — only the installed
 /// `HostData`; production installs it at engine construction.
-fn new_vm() -> Vm {
+pub(super) fn new_vm() -> Vm {
     let mut v = Vm::new();
     v.install_host_data(super::super::host_data::HostData::new());
     v
 }
 
-fn eval_bool(vm: &mut Vm, source: &str) -> bool {
+pub(super) fn eval_bool(vm: &mut Vm, source: &str) -> bool {
     match vm.eval(source).unwrap() {
         JsValue::Boolean(b) => b,
         other => panic!("expected bool, got {other:?}"),

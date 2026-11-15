@@ -10,22 +10,7 @@
 
 use super::super::value::JsValue;
 use super::super::Vm;
-
-/// A `Vm` with an (unbound) `HostData` installed so an `AbortSignal`'s
-/// unified `vm_event_listeners` callbacks resolve without a DOM bind
-/// (see `super::tests_abort::new_vm`).
-fn new_vm() -> Vm {
-    let mut v = Vm::new();
-    v.install_host_data(super::super::host_data::HostData::new());
-    v
-}
-
-fn eval_bool(vm: &mut Vm, source: &str) -> bool {
-    match vm.eval(source).unwrap() {
-        JsValue::Boolean(b) => b,
-        other => panic!("expected bool, got {other:?}"),
-    }
-}
+use super::tests_abort::{eval_bool, new_vm};
 
 /// (e) 10 000 nested `any([s])` with every intermediate kept, then a source
 /// abort.  A dependent's source signals are never dependent (create a
@@ -130,7 +115,7 @@ use std::time::{Duration, Instant};
 use super::super::value::{NativeContext, ObjectId, VmError};
 
 /// The `ObjectId` of the signal a JS expression evaluates to.
-fn signal_id(vm: &mut Vm, expr: &str) -> ObjectId {
+pub(super) fn signal_id(vm: &mut Vm, expr: &str) -> ObjectId {
     match vm.eval(expr).unwrap() {
         JsValue::Object(id) => id,
         other => panic!("`{expr}` is not an object: {other:?}"),

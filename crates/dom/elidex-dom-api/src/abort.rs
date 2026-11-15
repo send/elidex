@@ -55,7 +55,7 @@ impl<H: Copy + Eq + Hash> OrderedSet<H> {
     }
 
     fn take(&mut self) -> Vec<H> {
-        self.members.clear();
+        self.members = HashSet::new();
         std::mem::take(&mut self.order)
     }
 }
@@ -244,6 +244,13 @@ pub struct AbortPlan<H> {
     pub dependents: Vec<H>,
 }
 
+/// DOM §3.2 "signal abort" step 1's condition: `signal` is a signal and is
+/// not already aborted.  Hosts use it to skip the whole algorithm — and any
+/// allocation of a default reason — on a no-op abort.
+pub fn can_signal_abort<G: AbortSignalGraph>(g: &G, signal: G::Handle) -> bool {
+    g.links(signal).is_some() && g.abort_reason(signal).is_none()
+}
+
 /// DOM §3.2 "signal abort" steps 1-4.
 ///
 /// Returns `None` when `signal` is already aborted (step 1) or is no signal
@@ -261,9 +268,8 @@ pub fn signal_abort<G: AbortSignalGraph>(
     signal: G::Handle,
     reason: G::Reason,
 ) -> Option<AbortPlan<G::Handle>> {
-    g.links(signal)?;
     // Step 1.
-    if g.abort_reason(signal).is_some() {
+    if !can_signal_abort(&*g, signal) {
         return None;
     }
     // Step 2.

@@ -79,7 +79,7 @@
 
 use std::collections::HashMap;
 
-use elidex_dom_api::abort::{signal_abort, AbortSignalGraph, DependentLinks};
+use elidex_dom_api::abort::{can_signal_abort, signal_abort, AbortSignalGraph, DependentLinks};
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -479,12 +479,7 @@ fn native_abort_signal_get_aborted(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_abort_signal_this(ctx, this, "aborted")?;
-    let aborted = ctx
-        .vm
-        .abort_signal_states
-        .get(&id)
-        .is_some_and(|s| s.reason.is_some());
-    Ok(JsValue::Boolean(aborted))
+    Ok(JsValue::Boolean(ctx.vm.abort_reason(id).is_some()))
 }
 
 fn native_abort_signal_get_reason(
@@ -493,13 +488,7 @@ fn native_abort_signal_get_reason(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_abort_signal_this(ctx, this, "reason")?;
-    let reason = ctx
-        .vm
-        .abort_signal_states
-        .get(&id)
-        .and_then(|s| s.reason)
-        .unwrap_or(JsValue::Undefined);
-    Ok(reason)
+    Ok(ctx.vm.abort_reason(id).unwrap_or(JsValue::Undefined))
 }
 
 // ---------------------------------------------------------------------------
@@ -580,19 +569,11 @@ pub(super) fn abort_signal(
 ) -> Result<(), VmError> {
     // Step 1 (before materialising the default reason): no such signal, or
     // already aborted — a no-op.
-    if ctx
-        .vm
-        .links(signal_id)
-        .is_none_or(|_| ctx.vm.abort_reason(signal_id).is_some())
-    {
+    if !can_signal_abort(&*ctx.vm, signal_id) {
         return Ok(());
     }
 
-    let materialised_reason = if matches!(reason, JsValue::Undefined) {
-        create_default_abort_error(ctx)
-    } else {
-        reason
-    };
+    let materialised_reason = materialise_abort_reason(ctx, reason);
 
     // Steps 1-4: reasons set, plan fixed, before any JS runs.
     let Some(plan) = signal_abort(&mut *ctx.vm, signal_id, materialised_reason) else {
@@ -732,10 +713,21 @@ fn run_abort_steps(ctx: &mut NativeContext<'_>, signal_id: ObjectId) -> Result<(
 /// populated — `reason.code === 20`,
 /// `reason instanceof DOMException`, `reason instanceof Error` all
 /// hold as a result.
-pub(super) fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
+fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
     let name = ctx.vm.well_known.abort_error;
     ctx.vm
         .build_dom_exception(name, "signal is aborted without reason")
+}
+
+/// An abort reason as the spec sets it: `reason` if given, otherwise a new
+/// `"AbortError"` `DOMException` ("signal abort" step 2 / the static
+/// `abort(reason)` method steps step 2).
+pub(super) fn materialise_abort_reason(ctx: &mut NativeContext<'_>, reason: JsValue) -> JsValue {
+    if matches!(reason, JsValue::Undefined) {
+        create_default_abort_error(ctx)
+    } else {
+        reason
+    }
 }
 
 /// Entry point for the timer drain path — synthesises a

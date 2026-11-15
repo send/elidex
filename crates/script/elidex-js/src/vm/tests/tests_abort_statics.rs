@@ -8,6 +8,7 @@
 
 use super::super::value::JsValue;
 use super::super::Vm;
+use super::tests_abort_dependent::signal_id;
 
 /// A `Vm` with an (unbound) `HostData` installed so an `AbortSignal`'s
 /// unified `vm_event_listeners` callbacks (in `HostData::listener_store`)
@@ -317,14 +318,8 @@ fn any_duplicate_input_fires_composite_only_once() {
         .unwrap(),
         JsValue::Number(1.0)
     );
-    let a_sig = match vm.eval("a.signal;").unwrap() {
-        JsValue::Object(id) => id,
-        other => panic!("{other:?}"),
-    };
-    let c_sig = match vm.eval("c;").unwrap() {
-        JsValue::Object(id) => id,
-        other => panic!("{other:?}"),
-    };
+    let a_sig = signal_id(&mut vm, "a.signal;");
+    let c_sig = signal_id(&mut vm, "c;");
     assert_eq!(
         vm.inner.abort_signal_states[&c_sig].links.source_signals(),
         &[a_sig],
@@ -345,13 +340,9 @@ fn any_dependents_emptied_after_source_aborts() {
          a.abort('x');",
     )
     .unwrap();
-    let id = |vm: &mut Vm, e: &str| match vm.eval(e).unwrap() {
-        JsValue::Object(id) => id,
-        other => panic!("{other:?}"),
-    };
-    let a_sig = id(&mut vm, "a.signal;");
-    let b_sig = id(&mut vm, "b.signal;");
-    let c_sig = id(&mut vm, "c;");
+    let a_sig = signal_id(&mut vm, "a.signal;");
+    let b_sig = signal_id(&mut vm, "b.signal;");
+    let c_sig = signal_id(&mut vm, "c;");
     let states = &vm.inner.abort_signal_states;
     assert!(states[&a_sig].links.dependent_signals().is_empty());
     assert_eq!(states[&b_sig].links.dependent_signals(), &[c_sig]);
@@ -369,10 +360,7 @@ fn any_composite_with_user_ref_survives_gc_and_propagates_abort() {
     )
     .unwrap();
     vm.inner.collect_garbage();
-    let a_sig = match vm.eval("a.signal;").unwrap() {
-        JsValue::Object(id) => id,
-        other => panic!("{other:?}"),
-    };
+    let a_sig = signal_id(&mut vm, "a.signal;");
     assert_eq!(
         vm.inner.abort_signal_states[&a_sig]
             .links

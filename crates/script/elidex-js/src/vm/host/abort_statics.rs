@@ -21,7 +21,7 @@ use elidex_dom_api::abort::{create_dependent_abort_signal, AbortSignalGraph, Dep
 
 use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
-use super::abort::create_default_abort_error;
+use super::abort::materialise_abort_reason;
 
 /// `AbortSignal.abort(reason?)` — returns an already-aborted signal
 /// (DOM §3.2 "The static abort(reason) method steps").  Observably
@@ -42,13 +42,8 @@ pub(super) fn native_abort_signal_static_abort(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let signal_id = ctx.vm.create_abort_signal();
-    let reason = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        // Static abort(reason) method steps step 2: "Set signal's abort
-        // reason to reason if it is given; otherwise to a new "AbortError"
-        // DOMException."
-        JsValue::Undefined => create_default_abort_error(ctx),
-        given => given,
-    };
+    // Static abort(reason) method steps step 2.
+    let reason = materialise_abort_reason(ctx, args.first().copied().unwrap_or(JsValue::Undefined));
     ctx.vm.set_abort_reason(signal_id, reason);
     Ok(JsValue::Object(signal_id))
 }

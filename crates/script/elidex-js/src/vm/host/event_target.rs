@@ -38,6 +38,7 @@ use super::dispatch_target::{target_from_this, DispatchTarget};
 use super::event_target_dispatch::dispatch_script_event;
 #[cfg(feature = "engine")]
 use super::event_target_dispatch_vm::dispatch_vm_event;
+use elidex_dom_api::abort::AbortSignalGraph;
 
 impl VmInner {
     /// Populate `self.event_target_prototype` with the `EventTarget`
@@ -172,12 +173,7 @@ pub(super) fn native_event_target_add_event_listener(
     // have nothing to detach anyway.  Read-only borrow keeps this off the
     // hot path for the common `signal === None` case.
     if let Some(signal_id) = options.signal {
-        if ctx
-            .vm
-            .abort_signal_states
-            .get(&signal_id)
-            .is_some_and(|s| s.reason.is_some())
-        {
+        if ctx.vm.abort_reason(signal_id).is_some() {
             return Ok(JsValue::Undefined);
         }
     }

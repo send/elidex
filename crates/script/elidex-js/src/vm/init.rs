@@ -824,7 +824,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pending_timeout_signals: HashMap::new(),
                 #[cfg(feature = "engine")]
-                #[cfg(feature = "engine")]
                 dispatched_events: HashSet::new(),
                 #[cfg(feature = "engine")]
                 vm_event_listeners: HashMap::new(),
