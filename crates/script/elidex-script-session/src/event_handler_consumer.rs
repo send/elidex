@@ -49,9 +49,9 @@
 use elidex_ecs::{EcsDom, Entity, MutationEvent};
 
 use crate::event_handler_processing::{
-    clear_inline_handler, event_handler_attr_lookup, process_before_handler_write,
-    process_bound_document, process_handler_content_attributes, resolve_handler_target,
-    set_inline_handler, ProcessingTiming,
+    clear_inline_handler, event_handler_attr_lookup, is_event_handler_content_attribute_of,
+    process_before_handler_write, process_bound_document, process_handler_content_attributes,
+    resolve_handler_target, set_inline_handler, ProcessingTiming,
 };
 
 /// Which mixin / interface an event-handler IDL attribute belongs to
@@ -219,7 +219,9 @@ pub const WORKER_EVENT_HANDLER_ATTRS: &[&str] = &[
 /// [`EVENT_HANDLER_ATTRS`], so [`event_handler_attr_event_type`] resolves each.
 pub const WORKER_OBJECT_EVENT_HANDLER_ATTRS: &[&str] = &["onmessage", "onmessageerror", "onerror"];
 
-/// If `name` is a known event-handler content attribute, return its
+/// If `name` is a name in the event handler table (whether it is a content
+/// attribute *of an element* is `is_event_handler_content_attribute_of`'s
+/// question), return its
 /// event type (the name with the leading `on` stripped). Linear scan —
 /// only on attribute mutations / element inserts, not a hot path.
 #[must_use]
@@ -405,6 +407,14 @@ fn handle_attribute_change(
     let Some((event_type, scope)) = event_handler_attr_lookup(name) else {
         return;
     };
+    // Attribute change steps step 1, local-name half (WHATWG HTML §8.1.8.1
+    // Event handlers): a name that is not an event handler content attribute of
+    // `node` returns, with no set and no clear, before the policy filter. The
+    // namespace half is not realised (no attribute namespace is modelled;
+    // slot `#11-attribute-namespace-model`).
+    if !is_event_handler_content_attribute_of(dom, node, name) {
+        return;
+    }
     // A2: gate the content-attribute install seam by the same source as the IDL seam.
     // A `Legacy` handler attr (`onstorage`) excluded in `BrowserCore`/`App` must not be
     // wired here either — else the content-attribute path re-exposes `window.onstorage`
@@ -512,7 +522,11 @@ mod spec_level_tests {
 
         fn wires_onstorage(policy: elidex_plugin::SpecLevelPolicy) -> bool {
             let mut dom = EcsDom::new();
-            let el = dom.create_element_ownerless_fixture("div", Attributes::default());
+            // A `body`: `onstorage` is a WindowEventHandlers name, an event handler
+            // content attribute of body and frameset only (T3-a, HTML §8.1.8.2). With
+            // no Window in this bare DOM it lands on the element
+            // (`resolve_handler_target`'s fallback).
+            let el = dom.create_element_ownerless_fixture("body", Attributes::default());
             let mut consumer = EventHandlerAttributeConsumer::with_policy(policy);
             consumer.handle(
                 &MutationEvent::AttributeChange {

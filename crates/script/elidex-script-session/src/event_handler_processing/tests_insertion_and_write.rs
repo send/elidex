@@ -7,11 +7,12 @@
 //! parts are separate tests: the HEAD part is a guard, the new-state part is
 //! red-first.
 
-use elidex_ecs::{EcsDom, Entity, ShadowRootMode};
+use elidex_ecs::{EcsDom, Entity, Namespace, ShadowRootMode};
 use elidex_plugin::EngineMode;
 
 use super::test_support::{
-    append, compat, elem, entry, init_fresh, install, is_marked, page, raw, take_uncompiled, Entry,
+    append, compat, elem, entry, foreign_elem, init_fresh, install, is_marked, page, raw,
+    take_uncompiled, Entry,
 };
 use super::{
     is_window_delegating_pair, process_before_handler_write,
@@ -72,10 +73,18 @@ fn core_policy() -> elidex_plugin::SpecLevelPolicy {
 }
 
 // ---- U3 (i) guard part: a policy-excluded ordinary pair is never wired ----
+// `onstorage` is class W, so an excluded *ordinary* pair exists only on an SVG
+// element (SVG2 §15.8); on a `div` it is not an event handler content attribute
+// and the cell would not reach the policy filter (T3-a, plan §5.2).
 #[test]
 fn u3_i_excluded_ordinary_pair_not_wired() {
     let (mut dom, p1, p2) = live_page(core_policy());
-    let d = elem(&mut dom, "div", &[("onstorage", "globalThis.hit = 1")]);
+    let d = foreign_elem(
+        &mut dom,
+        "rect",
+        Namespace::Svg,
+        &[("onstorage", "globalThis.hit = 1")],
+    );
     append(&mut dom, p1, d);
     assert_eq!(entry(&dom, d, "storage"), Entry::Absent);
     append(&mut dom, p2, d);
@@ -86,11 +95,16 @@ fn u3_i_excluded_ordinary_pair_not_wired() {
 #[test]
 fn u3_i_excluded_ordinary_pair_marks_element() {
     let (mut dom, p1, _p2) = live_page(core_policy());
-    let d = elem(&mut dom, "div", &[("onstorage", "globalThis.hit = 1")]);
+    let d = foreign_elem(
+        &mut dom,
+        "rect",
+        Namespace::Svg,
+        &[("onstorage", "globalThis.hit = 1")],
+    );
     append(&mut dom, p1, d);
     assert!(
         is_marked(&dom, d),
-        "U3 (i): the div is marked after the first append (I1×I6)"
+        "U3 (i): the SVG rect is marked after the first append (I1×I6)"
     );
 }
 
