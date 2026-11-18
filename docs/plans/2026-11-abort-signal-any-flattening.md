@@ -709,7 +709,7 @@ collected. Where the module can meet it: (i) `create_dependent_abort_signal`'s `
 `signals` — the VM has brand-checked each (`abort_statics.rs:137-141`), and a brand-checked live `AbortSignal` has a
 row, so the module treats a `None` here as a caller bug (`debug_assert!`, then skip the handle; for `result` the
 test comes first, before step 2, so the module never calls `set_abort_reason` on a handle with no row — a `result`
-with no row is a no-op on the row: nothing is written and, the call returning `()`, there is no status to choose); (ii) a member of a
+with no row makes the call return immediately: no row and no input's dependent set is written); (ii) a member of a
 `source_signals` / `dependent_signals` set — never `None`: a member's row and its set entries die in the same sweep
 (A × B), and no sweep runs between planning and the plan loop on the native paths, while on the timer path the plan
 handles are rooted (D-4); (iii) `signal_abort`'s `signal` — `None` returns `None` (contract above). The VM impl of
@@ -788,7 +788,7 @@ classification PR-1 §5.3 makes ("`abort_signal` is cut on A-1").
   (exception (a)). No `HashMap<Entity, _>` is introduced; `any_composite_map` (an `ObjectId`-keyed side-store that
   duplicated a fact of the row) is deleted in favour of the row's own field — one fact, one place.
 - Layering mandate: `vm/host/abort*.rs` after PR-A contains brand checks, allocation, `DOMException` materialisation,
-  listener detach, fetch rejection, event fire, and calls into `elidex_dom_api::abort` (NEW) for the graph algorithms. No
+  listener detach, fetch rejection, event fire, and calls into `elidex_dom_api::abort` (NEW) for the graph algorithms; the static `abort()`'s one reason store goes through the trait's `set_abort_reason` (D-5, §2 D: it reads no graph state). No
   selector / tree / graph algorithm is written in `host/` (DoD 3 checks that `source_signals` / `dependent_signals`
   are not mutated outside the module).
 - One issue, one way: there is one way a signal learns its dependents (the row's set) and one way an abort reaches them
@@ -1243,10 +1243,10 @@ Every command is re-runnable at the PR head.
       `create_dependent_abort_signal` step 2 (control at `8d04643e`, the same pipeline over
       `git show 8d04643e:crates/dom/elidex-dom-api/src/abort.rs` → 2 lines, `:276` and `:285`; the same file without
       the `awk` cut → 3, the third being the test module's `:394`, so the cut is measured to exclude tests).
-    - host, any direct store into a row's reason: `git grep -nP '\.reason\s*=(?!=)' -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/tests'`
+    - host, any direct store into a row's reason: `git grep -nP '\.reason\s*=(?!=)|reason:\s*Some\(|\.reason\.(replace|get_or_insert|insert)\(' -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/tests'`
       → exactly **1 line**, `state.reason = Some(reason);` inside `impl AbortSignalGraph for VmInner`'s
       `set_abort_reason` — i.e. **0 outside the trait impl**; that one line is the command's own positive control
-      (control at `8d04643e`: the same 1 line, `vm/host/abort.rs:160`). `(?!=)` keeps `===` comparisons out.
+      (control at `8d04643e`: the same 1 line, `vm/host/abort.rs:160`). `(?!=)` keeps `===` comparisons out. The two added alternatives (a struct-literal `reason: Some(..)`, an `Option` method store) have no hit at `8d04643e` or at the head; `reason: None` (`vm/host/abort.rs:140` at `8d04643e`, the row constructor) does not match them, and the widening is measured, not assumed: the same command over `8d04643e` → the same 1 line (`:160`).
     Together with the first command of this item: one host writer (`native_abort_signal_static_abort`), the trait
     impl as the only store, and the module's three.
 
@@ -1409,21 +1409,21 @@ VM cell of §6 (the observable behaviour is the same; cells (b) and (d) gain ass
 
 **Why.**
 
-- *Layering mandate* (`vm/host/` marshals; algorithm steps live in the engine-independent crate). Setting
-  resultSignal's abort reason is a numbered step of a DOM algorithm, and "is the signal already aborted" is step 1
-  of another; neither is prototype install, brand check or value marshalling. What stays in the host is what is
-  engine-bound: allocating the result object and constructing the `DOMException`.
-  *Why the static `abort(reason)` set stays in the host under the same mandate* (Rev 2.5). "Numbered DOM step" alone
-  is not the test — the static method's step 2 is one too. The mandate's test is whether the host would be running
-  an *algorithm* (a step that reads DOM state and decides on it) rather than marshalling. "Create a dependent abort
-  signal" step 2 reads the graph: which input is aborted, and that input's reason, are graph state the module's loop
-  has in hand, so returning the value for the host to store split one algorithm step across the boundary. The static
-  step 2 reads no graph state: its object is the one the native has just allocated (step 1), its value is either the
-  JS argument passed through (marshalling) or a `DOMException` (engine-bound construction, D-4), and the one store
-  goes through the module's own trait method `set_abort_reason` — the same boundary the module writes through. Moving
-  it into the module would add an exported function whose body is that one trait call, with no test and no read:
-  a wrapper, not an algorithm. What the mandate forbids — the host deciding on DOM state — has nothing to act on
-  there. (If the static path ever gains a read of another signal, it moves to the module under this same test.)
+- *Layering mandate* (`vm/host/` marshals; algorithm steps live in the engine-independent crate). **One test: does
+  the host read DOM state and decide on it?** If so it is running an algorithm and the step belongs to the module;
+  if it only passes a value through or builds an engine object, it is marshalling. "Create a dependent abort signal"
+  step 2 reads the graph — which input is aborted, and that input's reason, are graph state the module's loop has in
+  hand — so returning the value for the host to store split one algorithm step across the boundary. "Signal abort"
+  step 1 reads the signal's own state and decides (return or go on), so the host's pre-check was the host deciding on
+  DOM state. What stays in the host is what is engine-bound: allocating the result object and constructing the
+  `DOMException`.
+  The same test keeps the static `abort(reason)` set in the host (Rev 2.5). Its step 2 reads no graph state: its
+  object is the one the native has just allocated (step 1), its value is either the JS argument passed through
+  (marshalling) or a `DOMException` (engine-bound construction, D-4), and the one store goes through the module's own
+  trait method `set_abort_reason` — the same boundary the module writes through. Moving it into the module would add
+  an exported function whose body is that one trait call, with no test and no read: a wrapper, not an algorithm.
+  There is nothing for the host to decide on. (If the static path ever gains a read of another signal, it moves to
+  the module under this same test.)
 - *One issue, one way.* Each step has one performer: step 2 of "create a dependent abort signal" in
   `create_dependent_abort_signal`, step 1 of "signal abort" in `signal_abort`. Rev 2.3 had the first split across
   the crate boundary and the second written twice.
