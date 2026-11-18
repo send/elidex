@@ -133,6 +133,7 @@ D-T8; its namespace half is applicability facet (2), which has no case at the ba
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
 **Changelog.** *Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
+*Clerical* (2026-11-18; no rev bump): clerical (PM 780): §8.1 item 3 is a site record, not a separate registration.
 *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): D-T3 (A) quotes B1 §5 req 5 as written;
 L3's plans are unratified readings (H-T32); the re-pin moves to L3's ratification, the umbrella §8.5, with R7's
 checks (rev 4.8.1 note, §0.1, R7, §8.2, §9 item 1).
@@ -1578,7 +1579,7 @@ compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
 | `body`'s interface; foreign elements' HTML interfaces other than `body`'s | T3-b's D-T11; the general fix needs the SVG / MathML interface families | the T3-b memo D-T11; its proposed defect text (the T3-b memo §8.2 item 1); the class is recorded on `#11-html-element-type-tests-without-namespace` (PM 780) |
 | **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (registered at T3-b's landing, the T3-b memo §8.3 item 2; T3's append: §8.3 item 9) |
 | **attribute change steps step 1**: its local-name half; its namespace half (a non-null attribute namespace) | the local-name half is T3-a's (PM decision 741 (3)); the namespace half has no case at the base and needs attribute-namespace modelling and a namespaced writer first (the T3-a memo H-A8; H-T19) | the T3-a memo D-T8; the namespace half (applicability facet (2)) → `#11-attribute-namespace-model` symptom (4), owner L3 (PM decisions 768, 770; the T3-a memo §8.3 item 1 has the prerequisites and the ledger's old → new; until rev 6.2: the applicability slot's facet (2), its owner an open question, Q-A6) |
-| `document.body`'s tag-only class test (H-T12) | PM decision 133: T3's steps 3–4 do not use "the body element" | proposed defect text (§8.1 item 3); a site of `#11-html-element-type-tests-without-namespace` (PM 780) |
+| `document.body`'s tag-only class test (H-T12) | PM decision 133: T3's steps 3–4 do not use "the body element" | not registered; site of `#11-html-element-type-tests-without-namespace` (PM 780; §8.1 item 3 is the site record) |
 | attribute change steps step 5.1 (CSP) | not modelled | `#11-csp-inline-handler-enforcement` |
 | multi-realm step 4 | B1 | hand-off (§8.2) |
 | the unbind caveat (`HostData::window_entity` is not cleared on unbind, H-T15) | a stated defect of the base, relied on as a caller contract (D-T3); B1 makes it structural | `#11-browsing-context-state-ecs-components` (appended at T3's landing, §8.3 item 12; until rev 6.2 its only home was the B1 hand-off, which is not a slot) |
@@ -1597,7 +1598,7 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 1. (moved to §8.3 item 9: registered at landing, PM 377; in rev 6.3 the registration and its text moved to the
    T3-b memo §8.3 item 2, the first landing that cites the id, and §8.3 item 9 is T3's append; number kept.)
 2. (moved to §8.3 item 8, and from there to the T3-ab memo in rev 6, now the T3-a memo §8.3 item 1; number kept.)
-3. **`document.body`'s class test** (pre-existing; PM decision 133 keeps it out of T3). The class (an element-type check that reads the tag without a namespace test) is recorded on `#11-html-element-type-tests-without-namespace` (PM 780), whose census includes this site (`document_props.rs:171`); this item's text is kept as the record of this site. Text: "HTML §3.1.7
+3. **`document.body`'s class test: a site record kept for this memo, not a separate registration** (pre-existing; PM decision 133 keeps it out of T3). The class (an element-type check that reads the tag without a namespace test) is recorded on `#11-html-element-type-tests-without-namespace` (PM 780), whose census includes this site (`document_props.rs:171`); this item's text is kept as the record of this site. Text: "HTML §3.1.7
    DOM tree accessors: *the body element* is the first child of the `html` element that is either a body element or a
    frameset element, both HTML-namespace elements. `first_body_or_frameset_child`
    (`crates/dom/elidex-dom-api/src/char_data/document_props.rs:167-171` at `cee74989`; the `document.body` getter and the
@@ -1921,7 +1922,8 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
 5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-form --all-features` green
    (`elidex-form`: the rustdoc of `inert_document.rs`; the other crates T3-pre's migration touched are T3-pre's DoD);
    `mise run ci` before push.
-6. §8.1 item 3 and the §8.3 texts handed to the PM in the PR description (§8.1 item 5's slot is registered, PM
+6. The §8.3 texts handed to the PM in the PR description (§8.1 item 3 is not registered: site of
+   `#11-html-element-type-tests-without-namespace`; §8.1 item 5's slot is registered, PM
    719; nothing for it is handed over; §8.1 item 4 is the T3-b memo's and §8.3 item 8 the T3-a memo's; §8.3 item 9
    is an append, the registration being the T3-b memo §8.3 item 2's).
 7. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
