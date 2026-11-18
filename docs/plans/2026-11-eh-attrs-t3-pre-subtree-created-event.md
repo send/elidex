@@ -3,7 +3,7 @@
 Nested PR **T3-pre** of the standalone program `EH-attrs-at-creation` (umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md`, "the umbrella"; its in-place edits for this PR are carried by
 the T3 memo's *Rev 8.<t>* entry, since both memos land in one plan PR, PM decision 722). It is the prerequisite of
-**T3** (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 5), split out of T3 rev 4.8.2 by
+**T3** (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 6), split out of T3 rev 4.8.2 by
 **PM decision 722** (plan-review R1 F1 on T3 rev 4.8.2 `571cd9c8`: the queue / window cluster is edge-dense on its own,
 §1.3). It carries the creation event and its queue; T3 carries the event-handler consumer of it.
 
@@ -57,7 +57,10 @@ restore function's direct slot write and `set_mutation_dispatcher`'s `Taken` ass
 upgrade at a fragment-parsed element's creation (`#11-custom-element-upgrade-at-fragment-creation`, L3, registered by
 PM 719; §7); RC-2b's use of the event (L3, PM decision 723).
 
-**Changelog.** *Rev 2* (2026-11-15): plan-review R2 on rev 1 (`38451533`; CRIT 0 / IMP 2 / MIN 14), L3's
+**Changelog.** *Rev 2.1* (2026-11-18; PM decision 756, pre-R3): DoD 7 states T3-ab's condition on the window (T3-ab
+lands before io; raised to the PM when at risk of missing it), replacing rev 2's "judged when that slice is planned"
+sentence; the header cites the T3 memo at rev 6.
+*Rev 2* (2026-11-15): plan-review R2 on rev 1 (`38451533`; CRIT 0 / IMP 2 / MIN 14), L3's
 confirmation of the [L3 surface] sections (CRIT 0 / IMP 4 / MIN 7) and PM decisions 740, 741. **P1:** §3's §13.4 row
 cites steps 5 and 7. **P2 (= L3 IMP-1):** L3's plans are re-read at `23aa745a`, where ig already has the private
 restore function and a `close` that calls it and checks a postcondition; so T3-pre *changes* ig's restore (it gains
@@ -775,9 +778,14 @@ Own deferrals: **0**.
    would stop those too (not chosen, PM 740 (1), 741 (1)). **Upper bound (PM 741 (1)):** the trigger and the Re-eval
    date of the umbrella's slot `#11-eh-attrs-creation-time-call-sites` (umbrella §8.2: *Trigger* "N1, C0, C1, T3-pre
    and T3 landed", *Re-eval* 2026-12-31). **Escalation:** it is raised to the PM if the window grows beyond that
-   sequence (another unit placed before T3, or T3 re-sliced so that it no longer lands right after io), or if T3 has
-   not landed by the bound. (PM 741 (3) puts a prerequisite slice of T3 before T3; whether it lengthens the window is
-   judged against this condition when that slice is planned, not here.) Each `FragmentParse` no-op arm carries its
+   sequence (another unit placed before T3, other than T3-ab, whose condition follows; or T3 re-sliced so that it no longer lands right after io), or if T3 has
+   not landed by the bound. **T3-ab (PM decision 756).** T3-ab, the prerequisite slice of T3 that PM decision 741 (3)
+   placed before it (umbrella x15 T3-ab → T3), depends on nothing unlanded and is not in the sequence; the window
+   keeps its length on the condition that **T3-ab lands before io lands**. If T3-ab is not landed by io's landing,
+   T3's landing, and so the window's close, is delayed. The point to raise with the PM is when T3-ab is at risk of
+   missing that condition, not when it has already missed it. (Until rev 2.1: "PM 741 (3) puts a prerequisite slice
+   of T3 before T3; whether it lengthens the window is judged against this condition when that slice is planned, not
+   here.") Each `FragmentParse` no-op arm carries its
    pointer and the sequence (§4.6).
 8. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` exit 0.
@@ -785,8 +793,8 @@ Own deferrals: **0**.
 ## §10. Open questions
 
 **Decided:** the split (PM decision 722); the flush shape (δ) (PM 720, P-P1); RC-2b's order and the three properties
-(PM decision 723); the order, unchanged, and the no-op window until T3 lands, with its bound and escalation (PM
-decisions 740 (1), 741 (1); DoD item 7); the owner of R1 M2's two remedies, the restore function's direct slot write
+(PM decision 723); the order, unchanged, and the no-op window until T3 lands, with its bound and escalation, and T3-ab's
+condition on it (PM decisions 740 (1), 741 (1), 756; DoD item 7); the owner of R1 M2's two remedies, the restore function's direct slot write
 and `set_mutation_dispatcher`'s assertion while `Taken`: ig (PM decisions 740 (2), 741 (2); P-P2). T3-pre's own, within
 PM 713 / 720 / 740 (not new decisions): the restore function returns `pending` from its one replacement; `close`
 flushes after it; `Drop` asserts an empty list unless unwinding (§4.4). L3 confirmed the [L3 surface] sections of rev 1

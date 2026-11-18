@@ -32,10 +32,10 @@ implementation is cut from main after that.
 
 **Changelog.** *Rev 8.<t>* (carried by T3's plan PR, branch `layout-eh-target-determination-plan`, with the T3 memo
 `docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 6, the T3-pre memo
-`docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` rev 2 and the T3-ab memo
-`docs/plans/2026-11-eh-attrs-t3-applicability-and-body-prototype.md` rev 1. **The PM decisions Rev 8.<t> applies, the
+`docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` rev 2.1 and the T3-ab memo
+`docs/plans/2026-11-eh-attrs-t3-applicability-and-body-prototype.md` rev 1.1. **The PM decisions Rev 8.<t> applies, the
 one list** (the three memos refer here and keep no list of their own): 129–131, 153, 168, 359, 699, 705, 711, 713,
-714, 718–720, 722, 723, 730, 732, 740, 741 (721 is another lane's; until T3 memo rev 6 this entry, the T3 memo's
+714, 718–720, 722, 723, 730, 732, 740, 741, 756 (721 is another lane's; until T3 memo rev 6 this entry, the T3 memo's
 header and its §8.4 heading each kept a different list). `<t>` is
 assigned at landing, as for C1's *Rev 8.7* (PM 223 O-1 / 232; PM decision 699); until T3 memo rev 4.6: "the next number
 after main's when T3 rebases, the C0 program memo D-9's rule"). PM decision 129 (the user's choice for T3 memo
@@ -63,7 +63,8 @@ after PM 740 (2), and x14 points at the no-op window of the T3-pre memo DoD item
 (PM decision 741 (3); T3 plan-review R2 on rev 5):** applicability facets (1) and (3) (T3 memo rev 5's D-T8) and the
 HTML-interface choice for a foreign `<body>` (D-T11) are carved out of T3 into the new nested PR **T3-ab**, a
 prerequisite of T3 that needs nothing beyond main (new §1.2 row; the Order line gains it beside T3-pre; new edge x15
-T3-ab → T3; PM decision 168 is revised: those facets close at T3-ab's landing); **new §4.1** decides once the final
+T3-ab → T3, whose no-op-window sentence points at the T3-pre memo DoD item 7 from the T3-pre memo rev 2.1, PM decision
+756; PM decision 168 is revised: those facets close at T3-ab's landing); **new §4.1** decides once the final
 shape of the two functions both PRs edit; §8.1's applicability bullet, §1.2's T3 and slice b rows and §10.2 / §10.3
 follow; §1.5's G5 / K3, K2 and X-W bullets and §8.2's defects (2), (3), (7) and classification now point at T3 memo
 §8.3 item 2 instead of restating it (R2 Axis 5 MIN); §1.5's heading and its K-2 / K-3, G2 rest, post-bind width cap
@@ -529,7 +530,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x13 | L3 ecs-entity-lifetime PR (ig) (external) → T3-pre (rev 8.<t>) | code predecessor (PM decisions 713, 714, 722) | T3-pre's creation-event queue is flushed at the outermost close of ig's dispatcher-take guard, a change T3-pre makes to `DispatcherTake::close` (NEW: ig), relying on ig's guarantees (a) and (b) (the PR (ig) plan `docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md` §8 *T3 intersection*; the T3-pre memo §4.4, H-P5, cited at its snapshot and re-pinned, its R-P3) and, from the T3-pre memo rev 2, on ig's private restore function writing the slot directly and on `set_mutation_dispatcher`'s assertion while `Taken`, both ig's by PM decision 740 (2) (the T3-pre memo §4.4 (c) to (f)); T3-pre also changes that restore function (it gains the queue as its return value). No edge between T3-pre and L3's PR (io): T3-pre does not use `WalkScope` |
 | x11 | L3 RC-2a (external) → T3-pre (rev 8.<t>; until T3 memo rev 5: → T3) | semantic precondition (PM decisions 359, 722) | T3-pre generalises RC-2a's `MutationEvent::CloneCreated` (landed by #596) to `SubtreeCreated`, keeping its `Clone` cause as RC-2a's (the T3-pre memo I-RC1 to I-RC3); T3's clone arm (T3 memo D-T10) consumes it and walks RC-2a's uncapped `for_each_clone_created` (PM 367), so RC-2a precedes T3 through x11 and x14 |
 | x14 | T3-pre → T3 (rev 8.<t>) | code predecessor + semantic precondition (PM decision 722) | T3's consumer arm matches T3-pre's `SubtreeCreated` (T3 memo §4.5), and DOMParser's build reaches it only through T3-pre's queue (T3 memo D-T13); T3's landing ends the no-op window of T3-pre's `FragmentParse` arms, whose sequence (ig → T3-pre → tree-model program → io → T3), bound and escalation are the T3-pre memo DoD item 7 (PM decisions 740 (1), 741 (1); until the T3-pre memo rev 2: "T3 is Layout's next unit after T3-pre") |
-| x15 | T3-ab → T3 (rev 8.<t>) | code predecessor + decision precondition (PM decisions 153, 741 (3)) | T3 rewrites the two functions T3-ab edits (§4.1: T3-ab's parts are in their final place, T3 adds around them), and T3's no-worse analysis is made on a base that has T3-ab (T3 memo §2.1); PM decision 153's strict reading closes R-D before or in T3, and T3-ab closes it before. T3-ab has no other edge: it reads no creation event, dispatcher window, walker or tree link (the T3-ab memo §8.1, H-A9), so it is unordered against is, ig, T3-pre, the tree-model program and io. Whether it bears on the no-op window of the T3-pre memo DoD item 7 is put to the PM with the facts (the T3-ab memo §8.1, Q-A3) |
+| x15 | T3-ab → T3 (rev 8.<t>) | code predecessor + decision precondition (PM decisions 153, 741 (3)) | T3 rewrites the two functions T3-ab edits (§4.1: T3-ab's parts are in their final place, T3 adds around them), and T3's no-worse analysis is made on a base that has T3-ab (T3 memo §2.1); PM decision 153's strict reading closes R-D before or in T3, and T3-ab closes it before. T3-ab has no other edge: it reads no creation event, dispatcher window, walker or tree link (the T3-ab memo §8.1, H-A9), so it is unordered against is, ig, T3-pre, the tree-model program and io. Its landing against io is a condition of the no-op window, stated in the T3-pre memo DoD item 7 (PM decision 756; until the T3-ab memo rev 1.1: "Whether it bears on the no-op window of the T3-pre memo DoD item 7 is put to the PM with the facts (the T3-ab memo §8.1, Q-A3)") |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
 

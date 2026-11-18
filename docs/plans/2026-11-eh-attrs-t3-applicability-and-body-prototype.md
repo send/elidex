@@ -7,7 +7,7 @@ carried by the T3 memo's *Rev 8.<t>* entry, since the three memos land in one pl
 decision 741 (3)** after plan-review R2 on T3 rev 5 (`38451533`; finding T1). It carries two decisions, with their ids
 kept from the T3 memo rev 5: **D-T8** (which names are event handler content attributes of an element) and **D-T11**
 (the VM gives `HTMLBodyElement.prototype` to an HTML `body` only). The label `T3-ab` is this memo's proposal; the PM
-assigns the final one. Rev 1 (2026-11-15).
+assigns the final one. Rev 1.1 (2026-11-18).
 
 **Owner: Layout lane (L2)**, plan and implementation (PM decision 741 (3)). No surface of another lane is changed.
 
@@ -42,7 +42,11 @@ HTML-namespace test of step 1's class in `is_body_or_frameset` (T3 memo D-T5); t
 other than `body` (§8.2 item 1); `document.createElementNS` (`#11-vm-create-element-ns-missing`, L3); the
 `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`, compat, PM decision 130).
 
-**Changelog.** *Rev 1* (2026-11-15): new memo, PM decision 741 (3). Moved from the T3 memo rev 5 without restating
+**Changelog.** *Rev 1.1* (2026-11-18; PM decision 756, pre-R3): §1.3 gives the reason for one slice despite
+preflight's SPLIT-RECOMMENDED, with R3 Axis 3 ruling one vs two; §8.1 and Q-A2, Q-A3 record PM 756's answers; §8.3
+item 3 records the NS slot's Trigger as unchanged, with the reason; Q-A4 answered (Window lacks `oncopy` / `oncut` /
+`onpaste`; for the PM to slot).
+*Rev 1* (2026-11-15): new memo, PM decision 741 (3). Moved from the T3 memo rev 5 without restating
 there: D-T8 and D-T11, H-T18, H-T19, H-T22, H-T23 (here H-A4, H-A8, H-A2), P-T14 (here P-A4), rows FN-1b, FN-3, FN-4,
 FN-5 and OR-1's local-name half, cells T-19, T-21, U-T8 and their mutants, the §3 rows for SVG2 §15.8, MathML Core
 §2.1.4 and DOM §4.5, the slot texts for the applicability slot and for foreign-element interfaces, and §9 item 4's
@@ -96,7 +100,7 @@ name is `body` or `frameset`.
   names on `body` / `frameset` only, and no Document-only name"); `HandlerScope` has four (H-A1). The fourth,
   `DocumentElement` (`oncopy`, `oncut`, `onpaste`), is in HTML's "all HTML elements" list and in `GlobalEventHandlers`
   (H-A2), so it is in class G. Its enum doc ("`DocumentAndElementEventHandlers` — Document + Element") names a mixin
-  the HTML IDL no longer has; the doc and what the VM installs for it are not T3-ab's (§10 Q-A4, a scout question).
+  the HTML IDL no longer has; the doc and what the VM installs for it are not T3-ab's (§10 Q-A4, answered).
 - **P-A2 (T3 rev 5's cells T-9, T-9b, T-19, T-21).** Their scripts call `document.createElementNS`, which the VM does
   not have (H-A6), and no other script path creates a foreign `body` (H-A7). The cells cannot run as written. T-19
   and T-21 (here) take their elements from the harness (§6.1); T-9 and T-9b stay T3's and take the same harness
@@ -232,7 +236,25 @@ two VM tests) and no cell.
 - What keeping them together costs and buys: one plan-review and one PR instead of two, for a D-T11 that is two
   conjuncts and one cell and whose reach is harness-only (P-A5); against that, a reviewer reads two unrelated
   mechanisms in one PR. PM decision 741 (3) names one slice; this memo follows it and does not argue that the split
-  is impossible. Whether to split further is the PM's (§10 Q-A2).
+  is impossible.
+
+**Why the program keeps one slice for now, although preflight says SPLIT-RECOMMENDED (K = 4, M = 6; PM decision
+756).** The two parts share no code, but they share one review and landing question:
+- *One residual, one precondition.* D-T8 closes R-D2 and D-T11 closes R-D1 (P-A5), the two halves of PM decision 153's
+  R-D, which x15 makes a decision precondition of T3 (§1.2: T3 before them would leave R-D open). One unit closes R-D.
+- *One element, two sides.* On a foreign `body` × class W, D-T8 decides the content attribute (row FN-4) and D-T11
+  the IDL accessor (row FN-3). §1.2's no-worse argument for that element is made over both sides together (one on
+  the spec and one base-equal is not worse than both off it), and so is T3's reason for needing both before it (T3
+  memo §1.3, seam S1: T3's namespaced step 1 without D-T8 and D-T11 puts FN-4 and FN-3 on neither base nor spec).
+  One review reads that row pair in one §2.1 table.
+- *One fact, one fixture.* Both read the namespace through `EcsDom::namespace_of` (B2×B4). Their foreign-`body` cells
+  (T-21, T-19) use the same harness-built elements and are recorded together on `#11-vm-create-element-ns-missing`
+  (§8.3 item 3).
+- Splitting would not clear the preflight flag for D-T11 (K = 4 on its own, above).
+
+So the split buys the reviewer one mechanism per PR, and costs reading FN-3 and FN-4 in separate reviews against the
+one R-D they close together. **R3's Axis 3 rules explicitly between one slice and two; if it rules a split, the
+program splits (PM 227).** (Until rev 1.1: "Whether to split further is the PM's (§10 Q-A2).")
 
 **A split inside D-T8** (two readers now, the D-8 count later; or HTML now, MathML later) would leave two answers to
 one question on main between the parts, in either order (D-T8 *Rejected*).
@@ -545,7 +567,7 @@ The D-8 entry and the mark are also run through the rewritten U3 (i) cells (§5.
 | foreign elements' HTML interfaces other than `body`'s | needs the SVG / MathML interface families (D-T11) | proposed defect text (§8.2 item 1; PM to route) |
 | `document.createElementNS` | not this program's | `#11-vm-create-element-ns-missing` (L3; §8.3 item 3) |
 | an element outside the three namespaces | no representation (P-A3) | recorded in §8.3 item 1's text; arises with a fourth `Namespace` variant |
-| `HandlerScope::DocumentElement`'s doc and IDL install | not applicability | §10 Q-A4 (scout question first) |
+| `HandlerScope::DocumentElement`'s doc and IDL install | not applicability | §10 Q-A4 (answered: Window lacks the three accessors; the PM slots it) |
 
 Own deferrals: **0**. Residuals: **0**.
 
@@ -579,8 +601,9 @@ except T3; (2) the window's two ends are T3-pre's landing and T3's landing, and 
 it lands before io does, since T3's cut waits on io regardless; (3) it would lengthen the window only if T3-ab were
 still unlanded when io lands, which is a question of the Layout lane's capacity (T3-ab and T3-pre's implementation
 are both Layout's and overlap from ig's landing), not of dependency; (4) DoD item 7's escalation clause "another
-unit placed before T3" matches T3-ab literally. Whether (4) is an escalation or is discharged by (1) to (3) is the
-PM's (§10 Q-A3).
+unit placed before T3" matches T3-ab literally. **Ruled (PM decision 756; §10 Q-A3):** T3-ab is not an escalation;
+the T3-pre memo DoD item 7 now states T3-ab's condition on the window and when it is raised with the PM (the one
+statement; not restated here).
 
 **Edge (umbrella §1.3, added by this plan PR):** **x15** T3-ab → T3, code predecessor + decision precondition (PM
 decisions 153, 741 (3)).
@@ -645,6 +668,15 @@ decisions 153, 741 (3)).
    HTML-namespace local name creatable (`createElementNS(html, 'BODY')`), which the ASCII-case-insensitive tag
    predicates (`tag_matches_ascii_case`, the session's `is_body_or_frameset`, `EcsDom::is_base_element`) would then
    treat as the lowercase element (T3 memo §7)."
+   **Trigger, old → new (PM decision 756): Trigger unchanged.** Old: the row has no *Trigger* field; its fields end
+   "**Owner**: L3。**Re-eval-date**: 2026-12-15。" (`project_open-defer-slots.md`, the row
+   `#11-vm-create-element-ns-missing`, read 2026-11-18). New: the same. Because the wait runs from the slot to these
+   outcomes, not the other way: the outcomes R-D1 / R-D2 (and the T3 memo's FN rows on a foreign `body`) are on the
+   spec at T3-ab's and T3's landings on harness-built elements, and no script can build a foreign `body` before the
+   wiring (H-A7), so nothing becomes wrong or reachable that would call for starting the wiring. What waits on it is
+   the cells' script form, an obligation of the wiring PR, which the appended sentence above states ("When
+   `createElementNS` is wired those cells take their script form"). A Trigger tied to T3-ab or T3 would schedule L3's
+   work on an event that changes no reachable outcome.
 
 ### §8.4 Hand-offs
 
@@ -699,13 +731,22 @@ the predicate (D-T8); `DocumentElement` is class G (P-A1); the foreign `body` ce
   741 (3)'s condition means that T3-ab must also write the final *signature*, D-T3's type, constructor and
   marshalling would have to move into T3-ab with the parameter unread until T3; this memo does not do that. A ruling
   is asked on which reading holds.
-- **Q-A2 (a further split).** D-T8 and D-T11 can land as two PRs in either order with no row worse (§1.3). One slice
-  or two?
-- **Q-A3 (the no-op window).** §8.1's four facts; is T3-ab an escalation under the T3-pre memo DoD item 7?
-- **Q-A4 (scout question, then the PM's routing).** `HandlerScope::DocumentElement`'s doc says "Document + Element"
-  for `oncopy`, `oncut`, `onpaste`, which the HTML IDL now lists in `GlobalEventHandlers` (also on Window). Does
-  `window.oncopy` have an accessor in the VM (`git grep -n 'DocumentElement' -- crates/script/elidex-js/src/vm`)? If
-  not, that is a pre-existing IDL-surface defect outside this program.
+- **Q-A2 (a further split) — answered (PM decision 756): one slice for now**, for the reason §1.3 states; R3's Axis 3
+  rules between one slice and two, and a split ruling is followed (PM 227).
+- **Q-A3 (the no-op window) — answered (PM decision 756): not an escalation**; T3-ab's condition is the T3-pre memo
+  DoD item 7's (§8.1).
+- **Q-A4 (scout question, then the PM's routing) — answered (2026-11-18, at `27ca7d1e`): no.** `window.oncopy`,
+  `window.oncut` and `window.onpaste` have no accessor in the VM. The three names are `HandlerScope::DocumentElement`
+  only (`git show 27ca7d1e:crates/script/elidex-script-session/src/event_handler_consumer.rs | sed -n 164,166p`);
+  Window's prototype installs the `Global` and `Window` scopes only (`git show
+  27ca7d1e:crates/script/elidex-js/src/vm/host/window.rs | sed -n 601,604p`), while Document (`git show
+  27ca7d1e:crates/script/elidex-js/src/vm/host/document.rs | sed -n 347,349p`) and HTMLElement (`git show
+  27ca7d1e:crates/script/elidex-js/src/vm/host/html_element_proto.rs | sed -n 137,138p`) install `DocumentElement`.
+  The HTML IDL lists all three in `GlobalEventHandlers` (`.claude/tools/webref idl html GlobalEventHandlers`), which
+  Window includes, and has no `DocumentAndElementEventHandlers` mixin (`.claude/tools/webref idl html
+  DocumentAndElementEventHandlers` → no IDL block). So the absence on Window is a pre-existing IDL-surface defect,
+  outside this program and unchanged by T3-ab (D-T8 reads content attributes, not the Window's accessors). **For the
+  PM to slot** (owner L3 or the IDL surface's owner); this memo opens no slot. (Until rev 1.1 the question was open.)
 - **Q-A5 (the label).** `T3-ab` is a proposal.
 
 No browser measurement is needed: every outcome in §2.1 is spec-defined (H-A2).
