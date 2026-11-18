@@ -17,9 +17,13 @@
 //! values are handed out through `mk()`, which drops the pool's reference),
 //! then the collection is armed at the k-th allocation of `expr`:
 //! - k = 1 uses the `force_gc_before_next_alloc` one-shot;
-//! - k = 2 pins the pressure trigger (`gc_bytes_since_last` /
-//!   `gc_threshold`) so it fires exactly at the second `alloc_object`
-//!   (`collect_garbage` resets the threshold, so it fires once).
+//! - k >= 2 zeroes `gc_bytes_since_last` and sets `gc_threshold` to
+//!   `k * OBJECT_ALLOC_ESTIMATE`, so the counter crosses it exactly at the
+//!   k-th `alloc_object` (`collect_garbage` resets the threshold, so it fires
+//!   once).  This is not the "low `gc_threshold` alone" that
+//!   `tests_member_compound_assign_gc.rs` rules out: against a non-zero
+//!   counter that fires at the script's first allocation, whereas zeroing the
+//!   counter first is what places the k-th.
 //!
 //! The trailing "a collection happened" assertions are weaker witnesses than
 //! the placement argument (they prove some allocation collected, not that it
@@ -63,11 +67,39 @@ fn eval_with_gc_at(setup: &str, k: usize, expr: &str) -> (Vm, Result<JsValue, Vm
     (vm, result)
 }
 
+/// Like `eval_with_gc_at`, but the armed window is a host `Vm::call` of the
+/// global function `name` (no `this`, no arguments).
+fn call_with_gc_at(setup: &str, name: &str, k: usize) -> (Vm, Result<JsValue, VmError>) {
+    let mut vm = Vm::new();
+    vm.eval(setup).expect("probe setup must succeed");
+    let Some(JsValue::Object(f)) = vm.get_global(name) else {
+        panic!("`{name}` must be a function object");
+    };
+    arm_gc_at_alloc(&mut vm, k);
+    let result = vm.call(f, JsValue::Undefined, &[]);
+    assert!(
+        armed_gc_fired(&vm, k),
+        "no collection was placed — calling `{name}` never reached allocation {k}"
+    );
+    (vm, result)
+}
+
+/// Assert `result` is `Number(expected)`.
 fn assert_number(result: Result<JsValue, VmError>, expected: f64, what: &str) {
     match result {
         Ok(JsValue::Number(n)) if n == expected => {}
         other => panic!("{what}: expected Number({expected}), got {other:?}"),
     }
+}
+
+/// Assert the global `name` holds `Number(expected)`.
+fn assert_global_number(vm: &Vm, name: &str, expected: f64, what: &str) {
+    assert_number(
+        vm.get_global(name)
+            .ok_or_else(|| VmError::internal("global not set")),
+        expected,
+        what,
+    );
 }
 
 const POOL: &str = "globalThis.pool = []; globalThis.mk = function () { return pool.pop() }; ";
@@ -119,23 +151,13 @@ fn generator_rest_array_survives_generator_allocation() {
 /// allocated (allocation 1 = the rest array, allocation 2 = the Generator).
 #[test]
 fn host_call_generator_rest_array_survives_generator_allocation() {
-    let mut vm = Vm::new();
-    vm.eval("globalThis.g = function* (...r) { yield r.length };")
-        .expect("setup");
-    let Some(JsValue::Object(g)) = vm.get_global("g") else {
-        panic!("g must be a function object");
-    };
-    arm_gc_at_alloc(&mut vm, 2);
-    let gen = vm.call(g, JsValue::Undefined, &[]).expect("generator call");
-    assert!(
-        armed_gc_fired(&vm, 2),
-        "no collection at the Generator allocation"
-    );
-    vm.set_global("G", gen);
+    let setup = "globalThis.g = function* (...r) { yield r.length };";
+    let (mut vm, r) = call_with_gc_at(setup, "g", 2);
+    vm.set_global("G", r.expect("generator call"));
     assert_number(vm.eval("G.next().value"), 0.0, "rest array length");
 }
 
-/// `push_js_call_frame` async branch → `make_async_coroutine_and_drive`: the
+/// `push_js_call_frame` async branch → `drive_new_async_coroutine`: the
 /// receiver of an async method call is dropped from the stack before the
 /// wrapper Promise (allocation 1) and the coroutine (allocation 2) are
 /// allocated.
@@ -147,15 +169,15 @@ fn async_method_receiver_survives_coroutine_allocation() {
     );
     let (vm, r) = eval_with_gc_at(&setup, 1, "mk().m().then(v => { globalThis.out = v })");
     r.expect("async call");
-    assert_number(
-        vm.get_global("out")
-            .ok_or_else(|| VmError::internal("no out")),
+    assert_global_number(
+        &vm,
+        "out",
         7.0,
         "receiver read through `this` after the first await",
     );
 }
 
-/// `make_async_coroutine_and_drive`: the wrapper Promise (allocation 1) is
+/// `drive_new_async_coroutine`: the wrapper Promise (allocation 1) is
 /// held only by a Rust local while the coroutine (allocation 2) that will
 /// own it is allocated.
 #[test]
@@ -172,31 +194,15 @@ fn async_wrapper_promise_survives_coroutine_allocation() {
 /// (allocation 1), wrapper Promise (allocation 2), coroutine (allocation 3).
 #[test]
 fn host_call_async_rest_array_survives_coroutine_allocation() {
-    let mut vm = Vm::new();
-    vm.eval(
-        "globalThis.out = -1; \
-         globalThis.f = async function (...r) { await 0; globalThis.out = r.length };",
-    )
-    .expect("setup");
-    let Some(JsValue::Object(f)) = vm.get_global("f") else {
-        panic!("f must be a function object");
-    };
-    arm_gc_at_alloc(&mut vm, 3);
-    vm.call(f, JsValue::Undefined, &[]).expect("async call");
-    assert!(
-        armed_gc_fired(&vm, 3),
-        "no collection at the coroutine allocation"
-    );
+    let setup = "globalThis.out = -1; \
+         globalThis.f = async function (...r) { await 0; globalThis.out = r.length };";
+    let (mut vm, r) = call_with_gc_at(setup, "f", 3);
+    r.expect("async call");
     vm.eval("0").expect("microtask checkpoint");
-    assert_number(
-        vm.get_global("out")
-            .ok_or_else(|| VmError::internal("no out")),
-        0.0,
-        "rest array length after the first await",
-    );
+    assert_global_number(&vm, "out", 0.0, "rest array length after the first await");
 }
 
-/// Initial drive inside `make_async_coroutine_and_drive`: after the body
+/// Initial drive inside `drive_new_async_coroutine`: after the body
 /// suspends at its first `await` of a non-Promise, `drive_async_coroutine`
 /// allocates the awaited Promise (allocation 3) while the coroutine and its
 /// wrapper are held only by Rust locals.
@@ -205,11 +211,12 @@ fn async_initial_drive_coroutine_survives_await_promise_allocation() {
     let setup =
         "globalThis.out = 0; globalThis.f = async function () { await 0; globalThis.out = 7 };";
     let (vm, r) = eval_with_gc_at(setup, 3, "f() instanceof Promise");
-    let ok = matches!(r, Ok(JsValue::Boolean(true)));
-    let out = vm.get_global("out");
-    assert!(
-        ok && matches!(out, Some(JsValue::Number(n)) if n == 7.0),
-        "r={r:?} out={out:?}"
+    assert!(matches!(r, Ok(JsValue::Boolean(true))), "r={r:?}");
+    assert_global_number(
+        &vm,
+        "out",
+        7.0,
+        "body ran to completion after the first await",
     );
 }
 
@@ -228,9 +235,10 @@ fn async_awaited_object_survives_await_promise_allocation() {
     );
     let (vm, r) = eval_with_gc_at(&setup, 4, "f(); 0");
     r.expect("call");
-    let out = vm.get_global("out");
-    assert!(
-        matches!(out, Some(JsValue::Number(n)) if n == 7.0),
-        "out={out:?}"
+    assert_global_number(
+        &vm,
+        "out",
+        7.0,
+        "awaited object read after the second await",
     );
 }

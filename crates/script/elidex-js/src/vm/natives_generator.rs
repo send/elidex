@@ -8,7 +8,7 @@
 //! `.return()` / `.throw()` and full `yield*` support land with PR2.5
 //! (generator spec completion).
 
-use super::frame::UpvalueState;
+use super::frame::{CallFrame, UpvalueState};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     FrameCompletion, GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind,
@@ -87,53 +87,70 @@ pub(crate) fn op_yield_suspend(
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// Allocate a Generator in `SuspendedStart` with **no** frame yet.
+    /// Create a coroutine (a Generator in `SuspendedStart`) that owns the
+    /// initial frame `frame` built by a call site, taking the frame's
+    /// locals off the VM stack.  The one creation path for generator and
+    /// async calls: `call_internal` and `push_js_call_frame` both end here.
     ///
-    /// First half of the creation protocol whose second half is
-    /// [`Self::install_initial_frame`].  [`VmInner::alloc_object`] may
-    /// collect before it inserts its object and requires every `ObjectId`
-    /// reachable only through that object to be rooted already.  The
-    /// initial frame's values (locals and the rest array on the VM stack,
-    /// callee and receiver below `base`, the upvalues reachable through the
-    /// callee) are rooted only while they are still on the stack, so the
-    /// call sites allocate this shell **first**, then take the values off
-    /// the stack, then install — with no allocation between the values
-    /// leaving the stack and their installation.
+    /// `frame.base..` is the locals region (including the rest array) and
+    /// `frame.cleanup_base` the stack height to restore (callee and
+    /// receiver below `base`; equal to `base` when there is nothing to
+    /// drop).  The frame itself holds no GC-heap allocation — only
+    /// `ObjectId`s that are rooted by the caller (on the VM stack below
+    /// `base`, or by the caller's contract).
     ///
-    /// The shell is traceable as-is (`suspended: None` marks nothing), so a
-    /// collection that this allocation triggers sees a well-formed object.
-    pub(crate) fn alloc_generator_shell(&mut self) -> ObjectId {
-        let proto = self.generator_prototype;
-        self.alloc_object(Object {
-            kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
-                status: GeneratorStatus::SuspendedStart,
-                suspended: None,
-                wrapper: None,
-            })),
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: proto,
-            extensible: true,
-        })
-    }
-
-    /// Install the initial frame into a shell from
-    /// [`Self::alloc_generator_shell`], back-linking the frame to it.
-    /// Allocation-free: callers move the frame's values off the VM stack
-    /// immediately before this call.
-    pub(crate) fn install_initial_frame(
+    /// Invariant: values leave the VM stack only into an already-allocated
+    /// container, with no allocation between the drain and the install.
+    /// [`VmInner::alloc_object`] may collect before it inserts its object
+    /// and requires every `ObjectId` reachable only through that object to
+    /// be rooted already; the locals, callee and receiver are rooted only
+    /// while they are still on the stack.  So the shell is allocated
+    /// **first** (its `suspended: None` is traceable as-is), then the
+    /// locals are drained, then the frame is installed and back-linked.
+    ///
+    /// Async coroutines also get their wrapper Promise here, returned as
+    /// the second element.  The wrapper is a fresh object held only by a
+    /// Rust local while the coroutine is allocated, so it is rooted across
+    /// that allocation and stored into the coroutine before the scope ends.
+    /// `push_temp_root` would be the single-value guard but it is
+    /// engine-only, and coroutines exist in every row.
+    pub(crate) fn create_coroutine(
         &mut self,
-        gen_id: ObjectId,
-        mut suspended: SuspendedFrame,
-    ) {
-        suspended.frame.generator = Some(gen_id);
-        let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
-            unreachable!("install_initial_frame: target is not a Generator");
+        is_async: bool,
+        mut frame: CallFrame,
+    ) -> (ObjectId, Option<ObjectId>) {
+        let wrapper = is_async.then(|| super::natives_promise::create_promise(self));
+        let gen_id = {
+            let mut scope = self.push_stack_scope();
+            if let Some(w) = wrapper {
+                scope.stack.push(JsValue::Object(w));
+            }
+            let proto = scope.generator_prototype;
+            scope.alloc_object(Object {
+                kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
+                    status: GeneratorStatus::SuspendedStart,
+                    suspended: None,
+                    wrapper,
+                })),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            })
         };
-        debug_assert!(
-            state.suspended.is_none() && matches!(state.status, GeneratorStatus::SuspendedStart),
-            "install_initial_frame: target is not a fresh generator shell"
-        );
-        state.suspended = Some(suspended);
+        // No allocation from here to the install below.
+        let stack_slice: Vec<JsValue> = self.stack.drain(frame.base..).collect();
+        self.stack.truncate(frame.cleanup_base);
+        frame.cleanup_base = frame.base;
+        frame.generator = Some(gen_id);
+        let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
+            unreachable!("create_coroutine: allocated object is not a Generator");
+        };
+        state.suspended = Some(SuspendedFrame {
+            frame,
+            stack_slice,
+            upvalue_slots: Vec::new(),
+        });
+        (gen_id, wrapper)
     }
 }
 
@@ -603,64 +620,22 @@ fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId
     })
 }
 
-impl VmInner {
-    /// Allocate an async coroutine (a Generator in `SuspendedStart` with
-    /// **no** frame yet) together with its wrapper Promise.
-    ///
-    /// First half of the async creation protocol whose second half is
-    /// [`make_async_coroutine_and_drive`]; the async counterpart of
-    /// [`Self::alloc_generator_shell`].  Call sites allocate this **while
-    /// the initial frame's values are still on the VM stack**, because
-    /// [`VmInner::alloc_object`] may collect before it inserts its object
-    /// and requires every `ObjectId` reachable only through that object to
-    /// be rooted already.
-    ///
-    /// The wrapper Promise is a fresh object held only by a Rust local
-    /// while the coroutine is allocated, so it is rooted on the VM stack
-    /// for that allocation and installed into the coroutine before the
-    /// scope ends.  On return the wrapper is reachable through the
-    /// coroutine, which is itself unrooted: the caller must reach
-    /// [`make_async_coroutine_and_drive`] with no allocation in between.
-    pub(crate) fn alloc_async_coroutine_shell(&mut self) -> ObjectId {
-        let wrapper = super::natives_promise::create_promise(self);
-        let mut scope = self.push_stack_scope();
-        scope.stack.push(JsValue::Object(wrapper));
-        let gen_id = scope.alloc_generator_shell();
-        let ObjectKind::Generator(state) = &mut scope.get_object_mut(gen_id).kind else {
-            unreachable!("alloc_generator_shell returned a non-Generator");
-        };
-        state.wrapper = Some(wrapper);
-        gen_id
-    }
-}
-
-/// Install the initial frame into a coroutine from
-/// [`VmInner::alloc_async_coroutine_shell`] and drive its first step.
-/// Returns the wrapper Promise (the async function's return value).
+/// Drive the first step of a coroutine freshly made by
+/// [`VmInner::create_coroutine`] for an async call.  Returns the wrapper
+/// Promise (the async function's return value).
 ///
-/// Callers move the frame's values off the VM stack immediately before
-/// this call, with no allocation since the shell was allocated.  The
-/// install is allocation-free; the coroutine is then rooted on the VM
-/// stack for the whole initial drive — once the body suspends its frame
-/// has left `frames`, and `drive_async_coroutine` allocates (the Promise
-/// wrapping a non-Promise `await` operand; the Error object for a
-/// non-`ThrowValue` abrupt completion) while the coroutine and its wrapper
-/// are otherwise held only by Rust locals.  `alloc_object` may
-/// collect before inserting, so they must be rooted across it.  After a
-/// suspension the coroutine is reachable through the continuation steps
-/// subscribed to the awaited Promise.
-pub(crate) fn make_async_coroutine_and_drive(
+/// The coroutine is rooted on the VM stack for the whole initial drive —
+/// once the body suspends its frame has left `frames`, and
+/// `drive_async_coroutine` allocates (the Promise wrapping a non-Promise
+/// `await` operand; the Error object for a non-`ThrowValue` abrupt
+/// completion) while the coroutine and its wrapper are otherwise held only
+/// by Rust locals.  After a suspension the coroutine is reachable through
+/// the continuation steps subscribed to the awaited Promise.
+pub(crate) fn drive_new_async_coroutine(
     vm: &mut VmInner,
     gen_id: ObjectId,
-    suspended: super::value::SuspendedFrame,
+    wrapper: ObjectId,
 ) -> Result<JsValue, VmError> {
-    vm.install_initial_frame(gen_id, suspended);
-    let ObjectKind::Generator(state) = &vm.get_object(gen_id).kind else {
-        unreachable!("make_async_coroutine_and_drive: target is not a Generator");
-    };
-    let wrapper = state
-        .wrapper
-        .expect("async coroutine shell carries its wrapper Promise");
     let mut scope = vm.push_stack_scope();
     scope.stack.push(JsValue::Object(gen_id));
     // Initial drive: arg value is ignored for SuspendedStart (it's never
