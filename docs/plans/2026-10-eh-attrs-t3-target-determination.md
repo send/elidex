@@ -128,11 +128,33 @@ creation-equivalent point is the first bind, umbrella K-6, S-2; slice b; until r
 build, and declarative shadow content and template contents created by a fragment parse); the custom-element
 consumer's fragment cause (§8.1 item 5, L3); the creation event itself, its fire points, its queue and every other consumer's migration (T3-pre, PM decision 722); insertion adoption (C0) and template contents' owner document (C1), both landed before T3; `document.body`'s class
 test (PM decision 133, D-T5); the attribute change steps' step 1 (its local-name half is T3-a's, the T3-a memo
-D-T8; its namespace half is applicability facet (2), which has no case at the base, the T3-a memo §8.3 item 1); the `HTMLFrameSetElement` interface
-(`#11-htmlframesetelement-interface`, compat, PM decision 130); `body`'s interface (the T3-b memo D-T11) and the
+D-T8; its namespace half is applicability facet (2), which has no case at the base and is `#11-attribute-namespace-model`'s, PM decision 770, the T3-a memo §8.3 item 1); the `HTMLFrameSetElement` interface
+(`#11-htmlframesetelement-interface`, compat, PM decision 130; registered at T3-b's landing, the T3-b memo §8.3 item 2); `body`'s interface (the T3-b memo D-T11) and the
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 6.2* (2026-11-18; references only, no design change): the T3-pre memo rev 2.3 (Step 4.5 re-check
+**Changelog.** *Rev 6.3* (2026-11-18; plan-review R3 wave 2 on rev 6.2, `10af92ee`: CRIT 0 / IMP 2 / MIN 18; PM
+decisions 756, 761, 770). **IMP (Axis 2; entered at the rev 6 carve):** §5.2 said T3 does not change the outcomes
+of T3-a's cells and DoD item 3 kept them green, while DoD item 4 requires 0 hits of `resolve_handler_target`, which
+T3-a's U-T8 reads. T3 owns the rewrite: §5.2 lists T3-a's session cells T3 rewrites, each with its expectation at
+T3's head (U-T8's three legs, `onstorage_content_attribute_gated_by_policy`, and the callers whose signature gains
+`active`), says "predicate values T3 does not change" where it said "outcomes", DoD item 3 reads "rewritten per
+§5.2", and §2.1's FN-4 and FN-5 point at the rewritten cells. **IMP (Axis 5): PM decision 770 folded:** applicability
+facet (2) is `#11-attribute-namespace-model`'s (owner L3), not slice b's (header, §2.1, §7, §8.2, §8.3 item 1, §10
+O-7). **One design change, flagged for the re-check (Axis 1):** C1-pre's D-4 predicate
+`document_has_browsing_context` delegates to `HostData::active_document()`, so the VM reads the browsing-context ↔
+Document association in one place (D-T3 with its ground; §4.1, §4.2, §4.4, §5.3, §8.2, DoD item 4). **MINs:** Q-T1
+and Q-T2 are decided (PM decision 756; §1.3, §10); §2 gains A7×A15; §4.4's attribute-change row reads steps 2–5 and
+gains rows for `HostData::active_document()`, D-4, the VmObject pair and the module docs that become false at T3
+(three timings, X-W, `frameset`; §5.3 too); §4.5's `frameset`-in-`template` ground adds the frameset-ok flag; §3
+gains a relied-on parser row; §8.2's tree-model entry is re-pulled from draft 2 (`1593a5ad`: tp → ta → tc → tr → tf
+→ tm → te → ts, then io) and the walker entry follows PM decision 761 (1), without the "slice 1 after T3" branch;
+the unbind caveat's home is `#11-browsing-context-state-ecs-components` (§7, §8.3 item 12);
+`#11-htmlframesetelement-interface` is registered at T3-b's landing, the first that cites it, and T3 only cites it
+and appends (D-T9, §7, §8.3 item 9); DoD item 4's `EcsDom`-call count covers the rebinding form; §5.3's
+`inert_document.rs` rewrite keeps what the form slot's fix may have added; H-T15's caveat command uses a POSIX class
+with a control (`\s` under `git grep -E` matches nothing); an SVG `body`'s interface is "not `HTMLBodyElement`"
+(the T3-b memo H-B1).
+*Rev 6.2* (2026-11-18; references only, no design change): the T3-pre memo rev 2.3 (Step 4.5 re-check
 N2) states the no-op window of T3-pre's `FragmentParse` arms as ending at the first of T3's landing and the fixes of
 `#11-custom-element-upgrade-at-fragment-creation` and `#11-form-control-state-template-contents-fragment-parse`
 (either slot can land before T3), and words the custom-element arm's comment so that it names only its own slot and
@@ -326,7 +348,7 @@ names (`DispatcherTake`, its `close`) are the T3-pre memo's (its §0.1, H-P5); T
 | H-T12 | The body-or-frameset class test is written three times | `git grep -n 'eq_ignore_ascii_case("body")' cee74989 -- crates` | `mod.rs:231` (`is_body_or_frameset`), `mod.rs:261` (`is_body_element`), `crates/dom/elidex-dom-api/src/char_data/document_props.rs:171` (`first_body_or_frameset_child`, the `document.body` getter). None checks the HTML namespace; the precedent `EcsDom::is_base_element` (`ecs/dom/classify.rs:39-46`) does, through `EcsDom::is_html_namespace` (`classify.rs:136`) |
 | H-T13 | Slice a's window pins that name T3 | `git grep -n 'T3' cee74989 -- crates/script/elidex-js/src/vm/tests/tests_event_handler_attrs_window_delegating.rs` | C17 (`:39`), C18 (`:64`), C19b (`:122`), C19c (`:132`), P3 (`:172`) say "reached after T3 and slice b" or "T3 facet 3" |
 | H-T14 | `<body onload>` never runs at HEAD | `git show cee74989:crates/shell/elidex-shell/src/pipeline.rs \| sed -n 462,474p` | the document `load` event is dispatched at the Window entity (`:470`), non-bubbling; `<body onload>` lands on the body element (H-T2), so it never runs. Same for an initial `<body onerror\|onfocus\|onblur\|onresize\|onscroll>` against Window-targeted events |
-| H-T15 | One bound document and one Window per `EcsDom`; other Documents have no Window | `git grep -n 'create_window_root()' cee74989 -- crates`; `git grep -n 'create_document_node()' cee74989 -- crates`; `git show cee74989:crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs \| sed -n 492,510p` | the Window root is created at one site, `vm_api.rs:236`, only when `HostData::window_entity` is `None`; `HostData::set_window_entity` asserts on a second set (`bind.rs:504-510`). Every iframe, navigation and worker gets a new `EcsDom` and `Vm` (`elidex-shell/src/pipeline.rs:226`, `:733`; `content/iframe/load.rs:470-489`; `content/navigation.rs:276-290`; `app/navigation.rs:323`; workers use `create_worker_global_scope_root`). Production `create_document_node()` callers besides `create_document_root` (`ecs/dom/mod.rs:460`): `inert_document.rs:119` (DOMParser: a **second, unbound, windowless Document in the page `EcsDom`**, persistent), `ecs/dom/tree/teardown.rs:309` (the fragment parser's throwaway document, destroyed at `finish_detached_fragment`, `:345-350`; since C0b only the parser's root `html` element is in it, the parsed nodes being created in the context's node document, `teardown.rs:329-334`, see P-T17) and, since C1 (landed), `ecs/dom/template_owner.rs:55`, the inert template document (C1 memo D-C1), also windowless. **Caveat (a stated defect, not T3's):** `HostData::window_entity` is initialised `None` once (`host_data/mod.rs:600`) and is **not cleared on unbind** (`git grep -n -E 'window_entity\s*=\s*None' cee74989 -- crates/script/elidex-js/src` → none), so a `Vm` re-bound to a different `EcsDom` would keep a Window entity of the old World. "One World per `Vm`" is a caller contract (doc comments), not enforced; no production path rebinds across `EcsDom`s. Unverified: whether `elidex-wasm-runtime`'s bind (`host/state.rs:50`, `:125`) shares the JS `EcsDom`; no Wasm path reaches the handler consumer (`git grep -n 'EventHandlerAttributeConsumer' cee74989 -- crates/script/elidex-wasm-runtime` → none) |
+| H-T15 | One bound document and one Window per `EcsDom`; other Documents have no Window | `git grep -n 'create_window_root()' cee74989 -- crates`; `git grep -n 'create_document_node()' cee74989 -- crates`; `git show cee74989:crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs \| sed -n 492,510p` | the Window root is created at one site, `vm_api.rs:236`, only when `HostData::window_entity` is `None`; `HostData::set_window_entity` asserts on a second set (`bind.rs:504-510`). Every iframe, navigation and worker gets a new `EcsDom` and `Vm` (`elidex-shell/src/pipeline.rs:226`, `:733`; `content/iframe/load.rs:470-489`; `content/navigation.rs:276-290`; `app/navigation.rs:323`; workers use `create_worker_global_scope_root`). Production `create_document_node()` callers besides `create_document_root` (`ecs/dom/mod.rs:460`): `inert_document.rs:119` (DOMParser: a **second, unbound, windowless Document in the page `EcsDom`**, persistent), `ecs/dom/tree/teardown.rs:309` (the fragment parser's throwaway document, destroyed at `finish_detached_fragment`, `:345-350`; since C0b only the parser's root `html` element is in it, the parsed nodes being created in the context's node document, `teardown.rs:329-334`, see P-T17) and, since C1 (landed), `ecs/dom/template_owner.rs:55`, the inert template document (C1 memo D-C1), also windowless. **Caveat (a stated defect, not T3's):** `HostData::window_entity` is initialised `None` once (`host_data/mod.rs:600`) and is **not cleared on unbind** (`git grep -n -E 'window_entity[[:space:]]*=[[:space:]]*None' cee74989 -- crates/script/elidex-js/src` → none; control, the same expression with `Some`: `bind.rs:509`; until rev 6.2 the command used `\s`, which matches nothing under `git grep -E`, so its "none" proved nothing, though the result holds), so a `Vm` re-bound to a different `EcsDom` would keep a Window entity of the old World. "One World per `Vm`" is a caller contract (doc comments), not enforced; no production path rebinds across `EcsDom`s. Unverified: whether `elidex-wasm-runtime`'s bind (`host/state.rs:50`, `:125`) shares the JS `EcsDom`; no Wasm path reaches the handler consumer (`git grep -n 'EventHandlerAttributeConsumer' cee74989 -- crates/script/elidex-wasm-runtime` → none) |
 | H-T16 | Which nodes have no resolvable node document | `git show cee74989:crates/core/elidex-ecs/src/dom/node_document.rs \| sed -n 12,45p`; `git show cee74989:crates/core/elidex-ecs/src/dom/mod.rs \| sed -n 392,447p` and `sed -n 873,887p`; `git grep -n -E 'create_element_ns\(\|create_element_with_owner\(' cee74989 -- crates`; the C0 memo D-8, D-17 | C0b landed: every production creator takes a `NewNodeOwner`, which production code gets only from `node_document_for_new_nodes(source)`, so a node is ownerless only when its source has none (`node_document.rs:12-23`); the argumentless ownerless creators are fixtures (`create_element_ownerless_fixture`, `ecs/dom/mod.rs:398`, `cfg(any(test, feature = "fixtures"))`; C0b D-17); `owner_document` reads `node_document` (`mod.rs:881-886`). The landed docstrings (`mod.rs:874-879`, `scripting.rs:59-62`) give three `None` classes: a node whose document entity is gone (C1 memo D-C7's dangling guard), a node created ownerless (a fragment parse whose context has none; creation on behalf of a non-node source such as a Window / Worker), and a test-built node. The production creators of an element with a caller-chosen local name, so of a `body` / `frameset` (the only classes step 3 is reached for, D-T2), all take a node source: the dom-api `createElement` (the receiver document, `elidex-dom-api/src/document.rs:237-241`, so `dp.createElement('body')` is owned by `dp`), the parsers (the parent's, or the fragment context's, node document, C0b D-8, D-10), the cloner (the source's) and the custom-element spawn (`elidex-custom-elements` `entity_spawn.rs:58-59`). So for those classes `None` is still dangling or test-built only. (At `4fd85f4e`: `EcsDom::create_element` passed no owner and `owner_document` fell back to the tree root.) Cells XW-13, EW-18 and U-T1's unresolvable row build it with the test-only creator |
 | H-T17 | A `frameset` wrapper's prototype | `git show cee74989:crates/script/elidex-js/src/vm/host/elements.rs \| sed -n 119,135p` and `sed -n 216,305p` | no `frameset` arm in `tag_specific_html_prototype` / `tag_specific_t2b_prototype`, so `HTMLElement.prototype` (`:131-133`). T-7's `f.onload` reaches `HTMLElement.prototype`'s normal pair; a WindowEventHandlers name on a `frameset` has no accessor (an ordinary property; `#11-htmlframesetelement-interface`) |
 | H-T18 | (rev 4; **moved to the T3-b memo H-A4**, rev 6, rev 6.1) Foreign elements take HTML prototypes | the T3-b memo H-A4 | the VM chooses a tag-specific prototype by local name alone, so on `cee74989` an SVG or MathML `body` gets `HTMLBodyElement.prototype`; T3-b ends that for `body` (its D-T11), so on T3's base a foreign `body` has `HTMLElement.prototype`. `host_data/` is split since #578 (`mod.rs` 712 lines) |
@@ -456,6 +478,22 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   `document_has_browsing_context` reads (the bound document): step 3 asks D-4's question in the session, and
   `HostData::active_document()` is host marshalling beside D-4, in the same layer (until rev 4.5: "the VM helper
   building `ActiveDocument`").
+  **D-4 delegates to the constructor (rev 6.3; R3 wave 2 Axis 1).** `document_has_browsing_context`
+  (`elidex-js/vm/host/document_accessors.rs:53-59`) reads `HostData::document_entity_opt()` itself, and its rustdoc
+  calls it "The one place the VM's single browsing-context ↔ Document association is read" (`:44-48`). T3's
+  constructor reads the same association, so from T3 that sentence is false and the association has two readers.
+  Decided: D-4's body becomes `host.active_document().is_some_and(|a| a.document == doc)`, and its rustdoc names
+  `HostData::active_document()` as the one place. *Ground: one issue, one way* (CLAUDE.md): one reader of the
+  association, and D-4 a question asked of it; B1 then replaces one function, not two (§8.2). *Not taken:* keeping
+  D-4's body and rewording its rustdoc to "one of two places" (a §5.3 doc edit only): it records the duplication
+  instead of removing it. *Behaviour: equal on every reachable path.* On a Window VM `Vm::bind` resolves the Window
+  in the scope that binds the document (`vm_api.rs:222-238`), so after any bind `active_document()` is `Some`
+  exactly when `document_entity_opt()` is, with the same document, and unbound both are `None`. On a worker VM
+  `bind_worker` (`vm_api.rs:396-416`) sets no Window, so the delegated D-4 answers `false` where the base answers
+  `true` for the worker's internal document; that is the direction D-4's own rustdoc asks for ("On a worker / SW VM
+  the internal bound document would wrongly answer `true`, so no non-Window path may call this", `:50-52`), on a
+  path no script reaches (`Document.prototype` natives exist only on Window VMs, C1-pre's G1). C1-pre's cells on
+  D-4's six call sites (`document_accessors.rs:66`, `:282`, `:327`, `:367`, `:409`, `:612`) stay green (§5.2).
   `EcsDom::window_entity` loses its last production reader and is deleted (H-T11; dead-code rule). **PM decision 132:**
   marshalling is accepted; the active document and its Window are browsing-context state, not a per-element fact, so the
   side-store→component rule does not apply, and their move into ECS components is
@@ -540,7 +578,8 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   (A7×A12). T3's D-T5 adds the HTML namespace to `is_body_or_frameset`, which the predicate's HTML arm calls; inside
   that arm the clause is redundant, so the predicate's answers do not change at T3.
 - **D-T9 — `frameset`'s interface is compat (PM decision 130).** `#11-htmlframesetelement-interface` is registered at
-  landing (§8.3 item 9), in the compat layer: `frameset` is an obsolete feature (HTML §16.3.2 Frames, under §16.3 Requirements for
+  T3-b's landing, the first of this plan PR's landings to cite the id (the T3-b memo §8.3 item 2, which has its
+  text; until rev 6.2: at T3's landing, §8.3 item 9, which is now T3's one-sentence append), in the compat layer: `frameset` is an obsolete feature (HTML §16.3.2 Frames, under §16.3 Requirements for
   implementations), so its interface belongs to a compat plugin, not core (CLAUDE.md core/compat/deprecated). Owner: none
   until the compat plugin work starts. T3 changes only target determination for a `frameset`; its interface is not
   added.
@@ -763,8 +802,9 @@ T3 (PM decision 699).
 Seven own axes (A1–A7) meet in one algorithm with three spec callers and two creation causes, and eight external
 couplings (A8–A15) bound it (§2). So CLAUDE.md "Edge-dense work" applies and plan-review is mandatory (rule (b)).
 Breadth (all §3 rows): `.claude/tools/webref coverage-map html 8.1.8.1 html 8.1.8.2 html 7.3.2 html 8.1.3.3.4 html
-13.2.6.1 html 13.4 html 13.2.6.4.4 html 8.5.1 html 16.3.2 dom 4.4 dom 4.9` → K = 2 specs, 11 unique sections, "ok →
-single PR scope"; preflight counts the 15 table rows as M (verified 2026-11-15; rev 5: K = 4, M = 18, "分割推奨").
+13.2.6.1 html 13.4 html 13.2.6.4.4 html 13.2.6.4.7 html 8.5.1 html 16.3.2 dom 4.4 dom 4.9` → K = 2 specs, 12 unique
+sections, "ok → single PR scope"; preflight counts the 16 table rows as M (verified 2026-11-18, with rev 6.3's
+relied-on row for §13.2.6.4.7; rev 6: 11 sections, 15 rows; rev 5: K = 4, M = 18, "分割推奨").
 
 **Splits: each seam, in both directions.** A direction passes when the part that lands first has no row of §2.1
 worse than its own base (K-0's criterion, §1.2). (Until rev 6 this paragraph tested only "T3 first, the part later";
@@ -774,20 +814,22 @@ R2 T1.)
 |---|---|---|---|
 | S1 — D-T8 and D-T11 (applicability; `body`'s interface) | passes, for each half alone and in either order (the T3-a and T3-b memos §1.2) | fails: with D-T5 and without D-T8 a MathML `body`'s WindowEventHandlers attribute is on the element, and without D-T11 an SVG `body`'s body pair writes the element (FN-4, FN-3: neither the base nor the spec); PM decision 153 closes R-D in or before T3 | **carved, the part first, as two PRs: T3-a (D-T8) and T3-b (D-T11)** (PM decisions 741 (3), 767) |
 | S2 — the creation event, its fire points and the window's queue | passes (behaviour-neutral, the T3-pre memo §1.1) | fails: T3's arm has no event to match | **carved, the part first: T3-pre** (PM decision 722) |
-| S3 — steps 3–4 for the pairs HEAD already delegates (XW): `determine_event_handler_target` over `ActiveDocument`, called by every spec caller, with HEAD's steps 1–2 (D-T1, D-T3, D-T4, D-T6; facets (1) and (2)) | passes: XW in a non-active document goes to the spec's null (XW-3 to XW-5, XW-7, XW-8, XW-10); every EW, FN and OR row stays base-equal; no creation path changes | fails: EW moved to the Window with no step 3 delivers a DOMParser `body`'s reflecting names to the page Window, where the base writes the element (EW-5, EW-6) | **passes in one direction; not taken** (below; §10 Q-T1) |
+| S3 — steps 3–4 for the pairs HEAD already delegates (XW): `determine_event_handler_target` over `ActiveDocument`, called by every spec caller, with HEAD's steps 1–2 (D-T1, D-T3, D-T4, D-T6; facets (1) and (2)) | passes: XW in a non-active document goes to the spec's null (XW-3 to XW-5, XW-7, XW-8, XW-10); every EW, FN and OR row stays base-equal; no creation path changes | fails: EW moved to the Window with no step 3 delivers a DOMParser `body`'s reflecting names to the page Window, where the base writes the element (EW-5, EW-6) | **passes in one direction; not taken: decided, PM decision 756 (Q-T1)** (below) |
 | S4 — the content-attribute callers / the IDL callers of D-T1 | fails: `body.setAttribute('onfocus', X)` writes the Window while `body.onfocus` reads the element (EW-2 against EW-4) | fails, mirrored | no |
 | S5 — D-T7's timing for EW (the end of X-W) / EW's target (D-T2, D-T5) | fails: EW no longer delivered at insertion while still element-targeted, so a fragment-parsed EW attribute is delivered nowhere | fails: EW on the Window and still re-raw'd at every insertion (rev 1's W1, W2; PM decision 129) | no |
 | S6 — the clone path (D-T10) | fails: Creation on HEAD's target rule writes the page Window at the creation of a clone of a DOMParser `body` (the base writes nothing for a never-inserted clone; XW-14) | fails: after D-T7 EW has no Insertion delivery, so a cloned EW attribute is delivered nowhere (EW-12) | no |
 | S7 — the fragment path (D-T12, D-T13) | fails: Creation on HEAD's target rule writes the page Window when DOMParser's build creates `<body onhashchange>` (XW-12; umbrella x3's reason) | fails: R-E (EW-20: neither) | no |
 
-**S3, the facts** (for the PM; not decided here). Its part needs neither T3-pre nor io, so it could be cut from main
+**S3, the facts** (decided: PM decision 756, Q-T1, keeps steps 3–4 inside T3, so that no intermediate state of
+D-T1 lands; the facts are kept as the record of what was weighed). Its part needs neither T3-pre nor io, so it could be cut from main
 like T3-a and T3-b. It would carry `ActiveDocument`, its constructor and both marshalling points (D-T3), D-T4, D-T6 and the
 `active` parameter of the two shared functions (the umbrella's §4.1 would give that signature change to the part).
 Its costs: `determine_event_handler_target`'s steps 1–2 would be written twice (HEAD's rule in the part,
 `is_window_delegating_pair` in the rest, D-T2), and slice a's window pins rewritten in two PRs (C17, C18 in the part;
-C19b, C19c, P3 in the rest). The rest would keep A1, A2, A6, A7 and both creation causes; the part A3, A4, A5. This
-memo keeps S3 inside T3: the umbrella's rev 8 put facets 1, 3 and 4 in one PR ("T3 must carry facets 1, 3 and 4"),
-no PM decision since asks otherwise, and the instruction for rev 6 was the carve of PM decision 741 (3) only.
+C19b, C19c, P3 in the rest). The rest would keep A1, A2, A6, A7 and both creation causes; the part A3, A4, A5. S3 stays
+inside T3 by PM decision 756 (Q-T1): the umbrella's rev 8 put facets 1, 3 and 4 in one PR ("T3 must carry facets 1,
+3 and 4"), and a part that lands the target function with HEAD's steps 1–2 would be an intermediate state of D-T1
+on main. (Until rev 6.2: "no PM decision since asks otherwise".)
 
 T3 is a narrowly-scoped per-PR slice under the approved EH-attrs umbrella (§1.2 row T3, as edited by PM decisions 129,
 153, 699, 705, 711, 722 and 741), the rule's base case (c). External couplings: N1, C0, C1 (landed), RC-2a (x11,
@@ -845,6 +887,11 @@ the umbrella's *Rev 8.<t>* list, and PM 132 and 133, which bear on T3 alone.
   flush is skipped (Q3×Q8), so the arm never walks a dead root.
 - **A7×A14** — the fragment walk's set is `WalkScope::WithTemplateContents`'s (io), and its order the walker's (§4.5,
   cell T-29); a change to either in io or in the DOM-walker program's slice 1 is re-pulled (§8.2).
+- **A7×A15** — the clone walk's set and order are RC-2a's `for_each_clone_created(root, scope, …)` (the copy's
+  elements in creation order, uncapped; landed), followed by each first-level template's contents through io's
+  walker (A14). T3 adds no walk of its own for the `Clone` cause and reads RC-2a's as T3-pre keeps it (the T3-pre
+  memo I-RC1, I-RC3); the order is pinned by cell T-16b, and a change in RC-2a's or T3-pre's landed walk re-derives
+  D-T10 (§8.2's RC-2a entry). (Rev 6.3: A15 was named as an axis in §1 and had no pair here.)
 - **A2×A9** — N1's C8h (`dd.body.setAttribute('onfocus', 'A')`) keeps its outcome (getter null, nothing runs) but by
   step 3 now: no entry is written (cell U-T3).
 - **A5×A9** — the getter determines before N1's reconcile (getter step 1 before step 3).
@@ -904,9 +951,9 @@ or MathML `body` is a harness-built element (P-T21).
 | FN-1 | FN: SVG `body` × the reflecting six; SVG `frameset` × any of the 24; MathML `body` / `frameset` × the reflecting six | AC, set | any | element | element | element (H-T22; `MathMLElement includes GlobalEventHandlers`, H-T23) | both | T-9b |
 | FN-1b | (id kept; no elidex case: no element outside the HTML, SVG and MathML namespaces is representable, the T3-a memo P-A3) | — | — | — | — | — | — | — |
 | FN-2 | FN: SVG `body` × a WindowEventHandlers name | AC | any | Window (tag-only) | element | element (H-T22) | spec | T-9 |
-| FN-3 | FN: SVG or MathML `body` × a WindowEventHandlers name | set, get (IDL) | any | an ordinary property (‡; the T3-b memo D-T11) | the same | an ordinary property (no such attribute on `SVGElement` / `MathMLElement`) | both (R-D1, ‡) | the T3-b memo T-19 |
-| FN-4 | FN: MathML `body` × a WindowEventHandlers name | AC; ins (first, unmarked) | any | nothing (‡; the T3-a memo D-T8) | nothing | nothing (H-T23) | both (R-D2, ‡) | the T3-a memo T-21, U-T8 |
-| FN-5 | FN: MathML `frameset` × a WindowEventHandlers name | AC | any | nothing (‡) | nothing | nothing (H-T23) | both (‡) | the T3-a memo U-T8 |
+| FN-3 | FN: SVG or MathML `body` × a WindowEventHandlers name | set, get (IDL) | any | an ordinary property (‡; the T3-b memo D-T11) | the same | an ordinary property (the element is not an `HTMLBodyElement`; no such attribute on `Element`, `SVGElement` or `MathMLElement`, the T3-b memo H-B1) | both (R-D1, ‡) | the T3-b memo T-19 |
+| FN-4 | FN: MathML `body` × a WindowEventHandlers name | AC; ins (first, unmarked) | any | nothing (‡; the T3-a memo D-T8) | nothing | nothing (H-T23) | both (R-D2, ‡) | the T3-a memo T-21 (unchanged at T3); U-T8 as T3 rewrites it (§5.2) |
+| FN-5 | FN: MathML `frameset` × a WindowEventHandlers name | AC | any | nothing (‡) | nothing | nothing (H-T23) | both (‡) | U-T8 as T3 rewrites it (§5.2) |
 | FN-6 | FN pairs of FN-1, FN-2 (SVG, and the reflecting six on MathML) | ins→A, ins→P | any | re-raw at every insertion (tag-only X-W; onto the Window for FN-2's pairs) | the ordinary once rule (not Window-delegating at T3) | nothing at insertion | as OR-1 (FN-2's pairs leave the Window: spec there) | U-T6 |
 | OR-1 | OR | every timing except clone, fragment parse and parse | any | element where the name is the element's event handler content attribute; nothing otherwise (‡; the T3-a memo §2.1) | the same | element, or nothing where step 1 returns | both for the local-name test (‡); no case for a non-null attribute namespace (facet (2), the T3-a memo H-A8) | U-T1 |
 | OR-2 | OR | clone | any | nothing at creation; processed at the first insertion (once) | processed at creation (element; marked); not at the insertion | processed at creation | spec (umbrella G5 / K3; defect (2)) | T-20, C9, C5 (iii), C12 |
@@ -925,7 +972,7 @@ context is XW-7's case (until rev 4.6 the memo said the throwaway document, whic
 `body` is kind P's case with a cloned Document in place of the DOMParser document (not active; spec null).
 
 **Rows worse than the base: 0** (PM decisions 699, 705, 711, 741 (3); EW-20 is on the spec because T3 processes the fragment path at
-creation, OR-3 is base-equal or on the spec, and OR-4 to OR-6 are on the spec). OR-1's namespaced-attribute half is base-equal (slice b).
+creation, OR-3 is base-equal or on the spec, and OR-4 to OR-6 are on the spec). OR-1's namespaced-attribute half has no case at the base and is `#11-attribute-namespace-model`'s (PM decision 770; until rev 6.2: "base-equal (slice b)").
 
 ## §3. Spec coverage map
 
@@ -942,6 +989,7 @@ creation, OR-3 is base-equal or on the spec, and OR-4 to OR-6 are on the spec). 
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 6 (document = targetParent's node document, after the insertion-location redirection of step 2), step 21 (append each attribute) | a fragment parse's elements are created in the context's node document, their attributes appended at creation | `process_created_subtree` at Creation from the consumer's `SubtreeCreated` arm, cause `FragmentParse` (D-T12, §4.5); the event is fired by `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) per returned root (T3-pre, the T3-pre memo §4.3) | ✗ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 1–2 (the parser's own new `Document`; the fragment in target's node document) | the elements are not created in step 1's Document (P-T17) | C0b's `node_document_for_new_nodes` redirection (landed); T3 reads it through D-T4 | ✗ | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | a `template` start tag with `shadowrootmode` (declarative shadow root) | the shadow root's children are created by *create an element for a token* inside the fragment parse (rev 4.8, PM decision 711) | `process_created_subtree`'s `FragmentParse` walk, `WalkScope::WithTemplateContents` (io; D-T12) | ✗ | yes |
+| WHATWG HTML §13.2.6.4.7 The "in body" insertion mode | start tags "body" and "frameset" (**relied on, not touched**; rev 6.3) | a second `body` is never created; a `frameset` start tag is ignored when the stack's second element is not a `body` or the frameset-ok flag is "not ok", which the `template` start tag sets (§13.2.6.4.4 step 3): no `body` or `frameset` is created inside a `template` or a declarative shadow root | no site of T3's: the parsers are not edited. §4.5's *Visit order* claim rests on it (the Window-delegating elements a fragment parse creates are light-tree `body` / `frameset` elements); witness cell T-29 | ✗ | yes |
 | WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (a new Document; "Since document does not have a browsing context, scripting is disabled") | the build's elements are created in that Document; their creation event is queued in the build's window and dispatched at its close (rev 4.8, PM decisions 711, 713) | the arm's Creation processing of the build's elements at the window's close (D-T12, D-T13; the queue is T3-pre's, the T3-pre memo §4.4); the rustdoc of `parse_into_inert_document` (`crates/dom/elidex-form/src/inert_document.rs`, P-T19) | ✗ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | attribute change steps 5.5–5.6 (raw uncompiled value, activate); *get the current value of the event handler* step 3.2 (null while the node document's browsing context is null) | a creation in a document without a browsing context sets the raw handler; compilation reads null there (D-T13) | the Creation timing of `process_handler_content_attributes`; N1's compile gate (`scripting_disabled_for_platform_object`, `crates/script/elidex-script-session/src/scripting.rs`, unchanged) | ✗ | yes |
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4; *handle attribute changes* step 3 | the attribute change steps run for each appended attribute | `ProcessingTiming::Creation` (NEW) in `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:50` | ✗ | yes |
@@ -999,6 +1047,11 @@ and `parsing-main-inhead` ("Anything else"), `the-after-head-insertion-mode` (st
 element for the token. Switch the insertion mode to "in frameset""), `parsing-main-inbody` (start tag "frameset"),
 `creating-and-inserting-nodes` (*insert an HTML element* → *insert a foreign element*), `tag-name-state` (the
 lowercase version of an ASCII upper alpha is appended).
+Rev 6.3 (2026-11-18), for §4.5's `frameset`-in-`template` ground: `webref heading html 13.2.6.4.16` (The "in
+template" insertion mode, `#parsing-main-intemplate`); step texts `webref body html parsing-main-inhead` (start tag
+"template", step 3: "Set the frameset-ok flag to "not ok""), `parsing-main-inbody` (start tag "frameset": "If the
+frameset-ok flag is set to "not ok", ignore the token"), `parsing-main-intemplate` ("Any other start tag": push "in
+body" and reprocess).
 
 ### §3.1 User-input touch audit
 
@@ -1025,6 +1078,7 @@ no new delivery target: each delivery is D-T1's. Security boundaries (CSP, sandb
 |---|---|---|
 | target determination | `determine_event_handler_target` (NEW), free fn, `session/event_handler_processing/mod.rs` | D-T1 |
 | active-document context | `ActiveDocument` (NEW), `Copy` struct of two `pub` entities, same module; constructed only by `HostData::active_document()` (NEW, `host_data/engine_feature/bind.rs`; PM 441; both NEW unless the event-path PR-B landed first); held by `EventHandlerAttributeConsumer` (constructor `EventHandlerAttributeConsumer::new(policy, active)`, replacing `with_policy`; `Default` derive removed), which `Vm::bind` builds from it; read per call by the VM accessors through it (PM 455) | D-T3 |
+| "this Document has a browsing context" (C1-pre D-4) | `document_has_browsing_context` (existing, `pub(super)`, `elidex-js/vm/host/document_accessors.rs`): its body asks `HostData::active_document()` (rev 6.3), so the association has one reader | D-T3 |
 | node document | `EcsDom::node_document` (C0b D-1, landed), read only | D-T4 |
 | step-1 class | `is_body_or_frameset` (existing, session-private, gains the HTML namespace) | D-T5 |
 | steps 1–2 | `is_window_delegating_pair` (kept) | D-T2 |
@@ -1096,11 +1150,14 @@ the definition and one call (the consumer's `SubtreeCreated` arm, both causes; r
 that delegates to `HostData::active_document()` (D-T3; PM 441: no second constructor; `None` = unbound → the accessor's
 existing silent no-op, G7; until rev 4.5: "`ActiveDocument` from `host.document_entity_opt()` and
 `host.window_entity()`"). It reads `HostData` only (marshalling,
-Layering mandate). **T3 adds no direct `EcsDom` method call in `vm/host/`**: the accessors pass the dom to the
+Layering mandate). C1-pre's `document_has_browsing_context` asks the same constructor (D-T3, rev 6.3):
+`ctx.vm.host_data.as_deref().and_then(HostData::active_document).is_some_and(|a| a.document == doc)`, replacing
+its own `document_entity_opt` read (`document_accessors.rs:54-58`). **T3 adds no direct `EcsDom` method call in `vm/host/`**: the accessors pass the dom to the
 session's `determine_event_handler_target`, as they already pass it to `process_before_handler_write`
-(`event_handler_attrs.rs:610`), and call nothing on it themselves. DoD item 4 counts it: the direct calls in
+(`event_handler_attrs.rs:610`), and call nothing on it themselves. DoD item 4 counts it, in three forms (chained, bound to a name, called on a bound name; rev 6.3, the T3-b memo
+H-A11): the direct calls in
 `event_handler_attrs.rs` and `elements.rs` are 0 and 1 on T3's base (T3-b's one namespace read, in `is_html_body_element`; rev 6: 1 and 1) and 0 and 1 at T3's
-head (R2 Axis 1; until rev 6 the limit was stated and not checked). The marked shortcut (`mod.rs:85`) no longer applies at Creation (D-T10
+head (R2 Axis 1; until rev 6 the limit was stated and not checked; until rev 6.2 only the chained form was counted). The marked shortcut (`mod.rs:85`) no longer applies at Creation (D-T10
 *Canonical writer*); at the other timings its "only `body` / `frameset` have Window-delegating pairs" stays a sound
 over-approximation.
 
@@ -1129,12 +1186,16 @@ the result on the listener store.
 |---|---|
 | `determine_event_handler_target` (NEW) | HTML §8.1.8.1 *determine the target of an event handler* steps 1–4; step 3 = "not an active document" in the single-browsing-context model (H-T6); B1 hand-off; the node document is `EcsDom::node_document` (C0b) |
 | `ActiveDocument` (NEW) | HTML §7.3.2 *active document*; §8.1.3.3.4 *relevant global object*; §7.3.1 (active window = active document's relevant global); `#11-browsing-context-state-ecs-components` (PM decision 132); the unbind caveat (H-T15) |
+| `HostData::active_document()` (NEW unless the event-path PR-B landed it) | HTML §7.3.2 *active document* and §8.1.3.3.4 *relevant global object*, in the single-browsing-context model: the bound document and the VM's Window; the one construction of `ActiveDocument` and the one place the VM reads the browsing-context ↔ Document association (PM 441; D-T3); `None` when unbound or when no Window was bound (a worker VM); the unbind caveat and its home, `#11-browsing-context-state-ecs-components` (rev 6.3) |
+| `document_has_browsing_context` (C1-pre D-4; rustdoc `document_accessors.rs:44-52`) | HTML §7.3.2 Browsing contexts (kept); "The one place the VM's single browsing-context ↔ Document association is read" → the question is asked of `HostData::active_document()`, which is that place; the worker sentence reads "answers `false` on a worker / SW VM, which binds no Window" (rev 6.3; D-T3) |
 | `is_body_or_frameset` | HTML §8.1.8.1 step 1 ("a body element or a frameset element", HTML namespace); §16.3.2 `frameset`; the clause "as [`is_body_element`] compares it" (`mod.rs:224-225`) is removed with that function (D-T1) |
 | `is_window_delegating_pair` | "Reads the tag and the name only" (`mod.rs:213-215`) → the tag, the namespace (D-T5) and the name |
 | `is_x_w_pair` (NEW) | umbrella §0.5 X-W as narrowed by PM decision 129; removed by slice b's S-5; slot `#11-eh-attrs-creation-time-call-sites` defect (7) |
 | `process_created_subtree` (NEW), `ProcessingTiming::Creation` (NEW) | DOM §4.4 *clone a single node* step 2.5; HTML §13.2.6.1 *create an element for a token* step 21; DOM §4.9 *append an attribute* step 4, *handle attribute changes* step 3; umbrella S-1 (clone path, PM decision 153; fragment path, PM decision 705); the entry point slice b's other paths call (S-6) |
 | `native_event_handler_get` / `_set`, body pair | HTML §8.1.8.1 event handler IDL attribute getter steps 1–3 / setter steps 1–4 |
-| `handle_attribute_change`, `process_handler_content_attributes` | HTML §8.1.8.1 attribute change steps 1–3 (the docstring's "Not realised: step 3" at `mod.rs:64-68` is removed; the X-W paragraph `:70-75` is rewritten for D-T7) |
+| `native_vm_event_handler_get` / `_set` (the VmObject handler pair; rev 6.3) | HTML §8.1.8.1 *determine the target of an event handler* step 1, by type: its receivers are never `body` / `frameset` elements, so the target is the receiver and the function is not called (D-T1); getter steps 1–3 / setter steps 1–4 otherwise as the normal pair |
+| `handle_attribute_change`, `process_handler_content_attributes` | HTML §8.1.8.1 attribute change steps **2–5** (rev 6.3; until rev 6.2 "1–3", stale since the rev 6 carve): step 2 by `determine_event_handler_target`, step 3 the null return, steps 4–5 as on the base (5.1 not modelled). Step 1 is not T3's text: its local-name half is T3-a's sentence in the same docstrings and its namespace half T3-a's "Not realised" (`#11-attribute-namespace-model`), neither edited. The docstring's "Not realised: step 3" at `mod.rs:64-68` is removed; the X-W paragraph `:70-75` is rewritten for D-T7 |
+| the module doc of `event_handler_consumer.rs` (`:1-31`) and `ProcessingTiming`'s doc (`mod.rs:46-48`), false at T3 as written (rev 6.3; R3 wave 2 Axis 3) | "at three timings (`ProcessingTiming`), each element processed once" (`event_handler_consumer.rs:6-9`) → four, with **Creation** (the `SubtreeCreated` arm: a clone's, a fragment parse's and a DOMParser build's elements; DOM §4.9 *append an attribute* step 4); the Insert bullet's "which realises the creation-time attribute processing at insertion" (`:21-22`) → for the elements no creation event reached (the interim mechanism of `#11-eh-attrs-creation-time-call-sites` as T3 narrows it, §8.3 item 2); "Window-delegating `<body>` / `<frameset>` pairs (X-W) are delivered at bind and insertion and never at the first write" (`:30-31`) → X-W is `body` × the WindowEventHandlers names only (PM decision 129): delivered at bind, creation and insertion; `body` × the Window-reflecting names and every Window-delegating name on a `frameset` are delivered at bind and creation and are not re-raw'd at insertion; none at the first write. `ProcessingTiming`'s "umbrella K-0's T-a1 / T-a2 / T-a3. No spec step defines it" → gains `Creation`, which is the spec's own point (the attribute change steps when an attribute is appended at creation); "no spec step defines it" stays for the other three |
 | `EventHandlerAttributeConsumer::handle`, the `SubtreeCreated` arm | T3 memo §4.5 (the arm) and the T3-pre memo §4.2 (the event); DOM §4.4 *clone a node* steps 5 and 6.7 (the clone walk's order, D-T10); the fragment walk = every node the parse created, `WalkScope::WithTemplateContents` (D-T12), whose order is the parser's creation order wherever it is observable: HTML §13.2.6.1 Creating and inserting nodes, *insert an HTML element* → *insert a foreign element* → *create an element for a token* (an element is created, with its attributes, when its start tag token is processed), witness cell T-29 (T3 memo §4.5 *Visit order*); HTML §8.1.8.1 attribute change steps 5.5–5.6 and *get the current value of the event handler* step 3.2 (D-T13) |
 | `parse_into_inert_document`'s rustdoc (`inert_document.rs:64-90`, corrected) | HTML §8.1.8.1 attribute change steps (no scripting test) and *get the current value of the event handler* step 3.2; HTML §8.5.1 `parseFromString` step 4's note (scripting disabled because no browsing context); D-T13, P-T19; the queue: the T3-pre memo §4.4 |
 
@@ -1168,7 +1229,11 @@ once, in the T3-pre memo §4.2–§4.6; L3 confirms it there (PM decision 722). 
   `frameset` elements in the light tree: template contents are in I (step 3 null, H-T21), and no insertion mode
   creates a `body` or a `frameset` inside a `template` or a declarative shadow root (HTML §13.2.6.4.7 The "in body"
   insertion mode, start tags "body" and "frameset": ignored when the stack of open elements has only one node, or its
-  second element is not a `body`, "fragment case or there is a template element on the stack"). A second `<body>` start
+  second element is not a `body`, "fragment case or there is a template element on the stack"; and, for a `frameset`,
+  also "If the frameset-ok flag is set to "not ok", ignore the token", the flag the `template` start tag sets: HTML
+  §13.2.6.4.4 The "in head" insertion mode, start tag "template", step 3. So inside a `template`, where HTML
+  §13.2.6.4.16 The "in template" insertion mode sends any other start tag to "in body", a `frameset` start tag is
+  ignored on two grounds, the stack test and the flag; rev 6.3 adds the second). A second `<body>` start
   tag never creates a second `body` (the same section: ignored, or its attributes added to the existing `body`). A
   `frameset` is created by HTML §13.2.6.4.6 The "after head" insertion mode (start tag "frameset"), by §13.2.6.4.7
   (which first removes the `body`), and nested in another by §13.2.6.4.18 The "in frameset" insertion mode; each
@@ -1222,12 +1287,30 @@ on H-T27 or H-T28 (static evidence).
 
 Kept green and checked: `tests_event_handler_attrs.rs` F-12 (`:235`), F-12b (`:446`), F-14 (`:263`); N1's C8h (outcome
 unchanged, mechanism now step 3); `tests_call_listener.rs:97`; the shell E1–E8 (`content_eh_attrs_bind_tests.rs`); C1's
-cells (the C1 memo §6); T3-a's and T3-b's cells (their memos' §6), whose outcomes T3 does not change (‡ rows; T-A4 stays
-`true,true` once the clone is processed at its creation). The tests the applicability test changes are T3-a's (the
-T3-a memo §5.2, measured there); one of them, `onstorage_content_attribute_gated_by_policy`, builds its consumer
-with `with_policy`, which T3 replaces by `new(policy, active)` (§4.1). The session tests at `tests_insertion_and_write.rs:60`, `:101`,
+cells (the C1 memo §6); C1-pre's cells on the browsing-context facts D-4 gates (its module doc's list: `defaultView`, `cookie`,
+`referrer`, `hidden`, `visibilityState`, `hasFocus`, `getSelection`; D-T3's delegation is behaviour-neutral on a
+Window VM); T3-b's cell
+T-19 and T3-a's VM cells T-21 and T-A1 to T-A4 (their memos' §6.1: scripts through `with_page`, which name no session
+function; ‡ rows; T-A4 stays `true,true` once the clone is processed at its creation). For T3-a's and T3-b's cells
+what T3 does not change is the **predicate values** (which names are an element's event handler content attributes;
+whether an element is an HTML `body`), not every outcome their oracles read (until rev 6.2: "whose outcomes T3 does
+not change"). The session tests at `tests_insertion_and_write.rs:60`, `:101`,
 `:237` read `dom.window_entity()` and switch to the harness's Window (`test_support::install` / `init_fresh` take
 `ActiveDocument`).
+
+**T3-a's session cells that T3 rewrites** (rev 6.3; R3 wave 2 Axis 2, from the dry-run's gap; in the same commit
+as the table above). T3-a's oracles are stated for T3-a's base and hold there (the T3-a memo §5.2, §6.2; its §8.4
+hands these cells to this list). Three of them read HEAD's target rule or HEAD's insertion delivery besides the
+predicate, and every session cell calls a function whose signature T3 changes:
+
+| T3-a cell | On T3's base (T3-a's oracle) | At T3's head | Why |
+|---|---|---|---|
+| U-T8 leg (ii) (first insertion of an element carrying the attribute) | an entry on HEAD's target iff the predicate is true | an entry iff the predicate is true **and the pair is not EW**: the 30 EW rows (HTML `frameset` × the 18 WindowEventHandlers names and × the reflecting six; HTML `body` × the reflecting six; §5.1) get **no entry at insertion**. XW (HTML `body` × the 18) is on the Window; every other applicable pair on its element | D-T7: `(true, Insertion) => is_x_w_pair` (§4.2); an EW pair is delivered at bind and at creation only, and U-T8's harness-built elements fire no creation event |
+| U-T8 legs (i) (an `AttributeChange` set) and (iii) (a removal after `set_inline_handler`) | the target is read from `resolve_handler_target` | the target is read from T3's function, `determine_event_handler_target(dom, element, name, active)`; the deleted `resolve_handler_target` is not named (DoD item 4). By it: HTML `frameset` × the 18 and × the reflecting six, and HTML `body` × the reflecting six → `active.window` (base: the element); HTML `body` × the 18 → `active.window` (as on the base); an SVG `body` × the 18 → the element (base: the Window, tag-only; FN-2); every other pair → the element. "Set iff / cleared iff the predicate is true" is unchanged | D-T1, D-T2, D-T5. The harness takes an `ActiveDocument` (a document and a Window), and U-T8's elements resolve to it (owned by that document, or ownerless: D-T4). More pairs now share the Window's one entry per event type, so the T3-a memo §6.2's "a fresh DOM per (pair, leg)" is kept for legs (i) and (ii) |
+| `onstorage_content_attribute_gated_by_policy` (`session/event_handler_consumer.rs:507`; on a `body` since T3-a) | an ownerless `body` × `onstorage` in a bare `EcsDom`: wired **on the element** under BrowserCompat (no Window: `resolve_handler_target`'s fallback, `mod.rs:251`), not under BrowserCore / App | the consumer is `EventHandlerAttributeConsumer::new(policy, active)` over a DOM with a document and a Window; the ownerless `body` resolves to `active.document` (D-T4), so the pair lands on `active.window`. The positive control reads **the Window's** `storage` entry (present under BrowserCompat); the negative controls read the Window's entry (absent under BrowserCore / App) and the element's (absent under all three) | T3 has no element fallback (§4.2: `Some(active.window)` or `None`), so the oracle moves, not only the constructor (until rev 6.2 this section named the constructor swap alone) |
+| U-A1; U-A2, U-A3; the two U3 (i) cells (on an SVG `rect` since T3-a); every other caller of `test_support::install` / `init_fresh` / `live_page`, of `with_policy`, and of `process_before_handler_write` | compile against the base's signatures | the `active` argument is added (`process_before_handler_write(dom, div, "onclick", compat(), active)`; `new(policy, active)`; the harness taking `ActiveDocument`). Expected values unchanged: their pairs are ordinary or not applicable, so no target and no timing of theirs moves | D-T3; mechanical |
+
+T3-b's cell and T3-a's VM cells need no rewrite (above).
 
 ### §5.3 Touched files
 
@@ -1235,12 +1318,13 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
 2026-11-04, `4fd85f4e`).
 
 - `crates/script/elidex-script-session/src/event_handler_processing/mod.rs` — D-T1/D-T2/D-T3/D-T5/D-T7/D-T10 (T3-a's
-  predicate and its two reader sites here are not edited, umbrella §4.1);
+  predicate and its two reader sites here are not edited, umbrella §4.1); `ProcessingTiming`'s doc (`:46-48`; §4.4);
   deletions; harness (`test_support::install` / `init_fresh` take `ActiveDocument`). 410 lines + T3's (< 1000; if it
   nears 1000 at the base, the clone-path walk is the seam to split out first, as a standalone prereq).
 - `crates/script/elidex-script-session/src/event_handler_consumer.rs` — constructor, both arms, the new `SubtreeCreated`
-  arm (D-T10, D-T12, D-T13); `handle_insert` unchanged (its set is not shared with the fragment walk since rev 4.8)
-  (545 lines).
+  arm (D-T10, D-T12, D-T13); `handle_insert` unchanged (its set is not shared with the fragment walk since rev 4.8);
+  the module doc (`:1-31`: the timings, the Insert bullet, the X-W sentence; §4.4); the rewritten
+  `onstorage_content_attribute_gated_by_policy` (§5.2) (545 lines).
 - `crates/script/elidex-script-session/src/lib.rs` — exports.
 - `crates/core/elidex-ecs/src/dom/mod.rs` — delete `EcsDom::window_entity` (a deletion; 959 lines at `cee74989`, with
   C0b and C1; 926 at `4fd85f4e`). **R1 M19:** L3's is, ig and io and T3-pre all edit this file before T3's base (the
@@ -1254,8 +1338,11 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
   `SubtreeCreated` arm.
 - `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs` — `HostData::active_document()` (NEW, beside
   `document_entity_opt` `:474`; D-T3, PM 441), unless the event-path PR-B landed it first (573 lines).
+- `crates/script/elidex-js/src/vm/host/document_accessors.rs` (616 at `cee74989`) — `document_has_browsing_context`'s
+  body (`:53-59`) and rustdoc (`:44-52`) only (D-T3's delegation, rev 6.3; §4.4); its six callers are not edited.
 - tests: `session/event_handler_processing/tests_target.rs` (NEW), `tests_bind.rs`, `tests_insertion_and_write.rs`
-  (harness); `elidex-js/vm/tests/tests_event_handler_target.rs` (NEW), `tests_event_handler_attrs_window_delegating.rs`
+  (harness; T3-a's two U3 (i) cells' signatures), `tests_applicability.rs` (T3-a's file: U-T8's three legs and U-A1
+  to U-A3, §5.2); `elidex-js/vm/tests/tests_event_handler_target.rs` (NEW), `tests_event_handler_attrs_window_delegating.rs`
   and `tests_event_handler_attrs_once.rs` (§5.2); `crates/shell/elidex-shell/src/content_eh_attrs_bind_tests.rs` (cell
   T-E1; 390 lines).
 - `crates/dom/elidex-form/src/inert_document.rs` (291 at `cee74989`) — the rustdoc of `parse_into_inert_document`
@@ -1264,7 +1351,11 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
   (HTML §8.1.8.1 *get the current value of the event handler* step 3.2, N1's gate), replacing "HTML §8.1.3.4 does NOT
   process event-handler attrs when scripting is disabled … Leaving both off is the CORRECT inert behavior" (P-T19,
   D-T13); `CustomElementReactionConsumer` enqueues no upgrade for the build, its document's registry being null (§8.1
-  item 5; until rev 6.2 "still ignores the `FragmentParse` cause", false once that slot's fix lands). Cells T-26, T-26b,
+  item 5; until rev 6.2 "still ignores the `FragmentParse` cause", false once that slot's fix lands). **The rewrite
+  replaces the two wrong sentences and nothing else** (rev 6.3; re-check F7): the form slot
+  `#11-form-control-state-template-contents-fragment-parse` can land before T3 and its fix edits this function, so
+  any sentence that fix has put in this rustdoc on T3's base (what the form arm does for the build) is kept as it
+  stands; the rustdoc is re-read at the base before the edit (§9 item 1). Cells T-26, T-26b,
   T-27, T-28, T-29 are in `tests_event_handler_target.rs` (above).
 - The creation event, its fire points, the queue and the other consumers' migration (`elidex-ecs`,
   `elidex-html-parser`, `elidex-dom-api`, `elidex-custom-elements`, `elidex-form`'s reconciler and clone code, and
@@ -1312,7 +1403,7 @@ rename in them is T3-pre's (rev 4.7 to 4.8.2 listed it as T3's).
   ratified every such citation in this memo and in the umbrella's x12 row is re-pinned to L3's ratified sha, and a
   citation whose symbol or section is gone there is re-derived, not carried (PM 718's announced changes, H-T32, are not
   relied on). (2) T3 lands after T3-pre and io (umbrella x14, x12), so their landed code is T3's base: the walker's
-  names and order are re-pulled at io's head (and at the DOM-walker program's slice 1 if it landed, §8.2), and the
+  names and order are re-pulled at T3's base, which has io and whatever of the DOM-walker program's slice 1 has landed (§8.2), and the
   arm's match at T3-pre's head (§9 item 1). (3) L3's tree-model program lands before io (PM 730), so on T3's base
   too: the facts T3 reads from the tree's links are re-pulled there (§8.2's tree-model entry, §9 item 1). **Stop condition:** T3 stops for the PM if T3-pre lands with a different
   event shape or cause set than the T3-pre memo §4.2 states, if io lands without a `pub` walker taking
@@ -1461,11 +1552,12 @@ compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
 | creation-time processing on S-1's other paths (declarative shadow content and template contents created by the pre-bind document parse) | slice b's S-1 (PM decision 153 moved the clone path; PM decisions 699, 705 and 711 the whole fragment path, DOMParser's build, declarative shadow content and template contents it creates included, D-T12; until rev 4.8 those three stayed here) | slice b S-1 |
 | the custom-element consumer's `FragmentParse` arm (the upgrade enqueue at a fragment-parsed element's creation) | T3 does not change custom-element behaviour (PM decision 711 (4)) | L3-owned slot `#11-custom-element-upgrade-at-fragment-creation` (**registered** 2026-11-13, PM 719; §8.1 item 5), closed by a later L3 PR |
 | `body`'s interface; foreign elements' HTML interfaces other than `body`'s | T3-b's D-T11; the general fix needs the SVG / MathML interface families | the T3-b memo D-T11; its proposed defect text (the T3-b memo §8.2 item 1; PM to route) |
-| **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (§8.3 item 9) |
-| **attribute change steps step 1**: its local-name half; its namespace half (a non-null attribute namespace) | the local-name half is T3-a's (PM decision 741 (3)); the namespace half has no case at the base and needs attribute-namespace modelling and a namespaced writer first (the T3-a memo H-A8; H-T19) | the T3-a memo D-T8; `#11-event-handler-content-attribute-applicability` facet (2), whose prerequisites, trigger and owner question are the T3-a memo §8.3 item 1 and Q-A6 |
+| **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (registered at T3-b's landing, the T3-b memo §8.3 item 2; T3's append: §8.3 item 9) |
+| **attribute change steps step 1**: its local-name half; its namespace half (a non-null attribute namespace) | the local-name half is T3-a's (PM decision 741 (3)); the namespace half has no case at the base and needs attribute-namespace modelling and a namespaced writer first (the T3-a memo H-A8; H-T19) | the T3-a memo D-T8; the namespace half (applicability facet (2)) → `#11-attribute-namespace-model` symptom (4), owner L3 (PM decisions 768, 770; the T3-a memo §8.3 item 1 has the prerequisites and the ledger's old → new; until rev 6.2: the applicability slot's facet (2), its owner an open question, Q-A6) |
 | `document.body`'s tag-only class test (H-T12) | PM decision 133: T3's steps 3–4 do not use "the body element" | proposed defect text (§8.1 item 3; PM to route) |
 | attribute change steps step 5.1 (CSP) | not modelled | `#11-csp-inline-handler-enforcement` |
-| multi-realm step 4; the unbind caveat | B1 | hand-off (§8.2) |
+| multi-realm step 4 | B1 | hand-off (§8.2) |
+| the unbind caveat (`HostData::window_entity` is not cleared on unbind, H-T15) | a stated defect of the base, relied on as a caller contract (D-T3); B1 makes it structural | `#11-browsing-context-state-ecs-components` (appended at T3's landing, §8.3 item 12; until rev 6.2 its only home was the B1 hand-off, which is not a slot) |
 | Range element clones (`cloneContents`, `extractContents`' partial element clone) | not implemented (H-T26); through the canonical cloner from RC-2b they fire `SubtreeCreated` (`Clone` cause; D-T10; PM decision 723) | `#11-range-full-impl` |
 | the ASCII-case-insensitive tag compare in `is_body_or_frameset` (an HTML-namespace element whose local name is `BODY` would count as `body`) | **unreachable at the base, so no outcome differs**: no production path creates an HTML-namespace element with a non-lowercase local name. `createElement` lowercases (`crates/dom/elidex-dom-api/src/document.rs:197`), the HTML tokenizer lowercases tag names (HTML §13.2.5.8 Tag name state), DOMParser HTML-parses every MIME type, so no XML document exists (`#11-domparser-xml-real-parsing`), and the VM has no `createElementNS` (the T3-a memo H-A6). It is the engine-wide tag-predicate convention (`EcsDom::is_base_element`, `tag_matches_ascii_case`), so the fix is not one predicate's | recorded on `#11-vm-create-element-ns-missing`, whose wiring makes it reachable (the T3-b memo §8.3 item 1); until rev 6: "not changed; noted", with no home |
 | a bubbling event at an element not reaching the Window (H-T27) | not T3's mechanism; no T3 cell depends on it | `#11-event-path-window-missing` |
@@ -1478,7 +1570,8 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 
 ### §8.1 Slot texts (for the PM; defects only)
 
-1. (moved to §8.3 item 9: registered at landing, PM 377; number kept.)
+1. (moved to §8.3 item 9: registered at landing, PM 377; in rev 6.3 the registration and its text moved to the
+   T3-b memo §8.3 item 2, the first landing that cites the id, and §8.3 item 9 is T3's append; number kept.)
 2. (moved to §8.3 item 8, and from there to the T3-ab memo in rev 6, now the T3-a memo §8.3 item 1; number kept.)
 3. **`document.body`'s class test** (pre-existing; PM to route; PM decision 133 keeps it out of T3). Text: "HTML §3.1.7
    DOM tree accessors: *the body element* is the first child of the `html` element that is either a body element or a
@@ -1503,11 +1596,12 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 - **B1** (`docs/plans/2026-06-agent-scoped-ecsdom-world.md` §5 req 5 / req 7): `ActiveDocument` is the single-browsing-
   context form of steps 3–4. Under a multi-realm World, "active" and "relevant global" become per document; B1's plan
   replaces `ActiveDocument`'s one constructor, `HostData::active_document()`, which both marshalling points read (the
-  consumer's construction in `Vm::bind`, the VM accessor helper; PM 441, 455), and C1-pre's
-  `document_has_browsing_context` (D-4; same source, D-T3) with a per-document resolution, and `determine_event_handler_target`'s body; no caller
+  consumer's construction in `Vm::bind`, the VM accessor helper; PM 441, 455) and which C1-pre's
+  `document_has_browsing_context` asks since T3 (D-4; D-T3, rev 6.3: one function to replace, where rev 6.2 named
+  two), with a per-document resolution, and `determine_event_handler_target`'s body; no caller
   changes. BFCache (a document kept non-active with its Window) is the case that makes this a real distinction. The
   unbind caveat (H-T15) becomes structurally impossible under "1 agent = 1 World = 1 Vm". The ECS home of the pair is
-  `#11-browsing-context-state-ecs-components` (PM decision 132).
+  `#11-browsing-context-state-ecs-components` (PM decision 132), which also records the caveat (§8.3 item 12).
 - **N4** (node memo §0.4 D8): none from T3. C0 D-15 re-states N4's planned `effective_node_document` as C0b's
   `node_document`, which T3 only reads (D-T4).
 - **Slice b**: S-5 removes X-W for XW and the D-8 restriction; it inverts C8, U2, C17's last four values and C18's
@@ -1517,7 +1611,7 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
   path, DOMParser's build and the clone path are T3's, through `SubtreeCreated` (§4.5; PM decisions 705, 711), so a
   slice-b path that reaches a consumer through that event adds a cause there (until rev 4.8 the list of remaining paths also
   held the DOMParser build and the declarative shadow content and template contents a fragment parse creates). `#11-event-handler-content-attribute-applicability`: facets (1) and (3) closed by T3-a;
-  facet (2) (the attribute namespace, H-T19) has no case at the base and closes with the PR that makes a namespaced attribute writable, which extends the callers of T3-a's predicate with the namespace test (the T3-a memo §8.3 item 1; whether that stays slice b's is the T3-a memo Q-A6).
+  facet (2) (the attribute namespace, H-T19) has no case at the base and is **not slice b's**: PM decision 770 moves it to `#11-attribute-namespace-model` (owner L3), and it closes with the PR that makes a namespaced attribute writable, which extends the callers of T3-a's predicate with the namespace test (the T3-a memo §8.3 item 1; PM decision 168's premise that slice b adds a namespace to the event is revised; until rev 6.2: "whether that stays slice b's is the T3-a memo Q-A6").
 - **C0** (landed: #595, #608, #611): T3 relies on C0b D-4 / D-5 (every insertion adopts, before `link_node` and the Insert event,
   so X-W's re-raw at T-a2 reads the adopted document), D-1 (`node_document`, including a contents fragment's), D-7 (a)
   (clause (b) reads the same function) and D-10, D-11, D-20 (every production creation stamps its node document). If
@@ -1547,8 +1641,10 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
   sha before T3 is ratified and re-pulled at io's landed head (R7, §9 item 1). At that snapshot the walker's visitor
   is `FnMut(Entity, Option<OwnedEntity>)`; T3's two calls ignore the second argument. L3's ig reaches T3 only through
   T3-pre (the T3-pre memo x13, R-P3).
-- **L3's tree-model program** (PM 730; slices ta → tc / tm / tr / tf → te → ts, between ig and io, so before T3's
-  base; no edge). **What T3 reads (the answer to that program's Q-10, given to L3 on 2026-11-15):** T3's planned code
+- **L3's tree-model program** (PM 730; no edge; **re-pulled in rev 6.3** from its umbrella's draft 2, `git show
+  "1593a5ad:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md"`, §5.1: eight slices in the order **tp →
+  ta → tc → tr → tf → tm → te → ts, then PR (io) rewritten on this base**, so all of it is before T3's base; until
+  rev 6.2: "slices ta → tc / tm / tr / tf → te → ts"). **What T3 reads (the answer to that program's Q-10, given to L3 on 2026-11-15):** T3's planned code
   reads no stored parent and no raw child link. `determine_event_handler_target` reads the tag, the namespace and
   `EcsDom::node_document`, a stored fact "never derived from the node's position" (H-T7); `process_created_subtree`
   reaches nodes only through `for_each_clone_created` and `for_each_uncapped_shadow_inclusive`; `handle_insert`, which
@@ -1560,18 +1656,25 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
   `fire_after_insert` fires no `Insert` when the node or its **parent** is a shadow root
   (`ecs/dom/tree/mutation.rs:528-529`, a test on its arguments): row OR-3 and cell T-25 (an element placed directly
   under a shadow root is not processed at the placement on the base), D-T10's *Canonical writer* (CI-1's population
-  excludes a shadow root's direct children) and cell T-16b rest on it. L3 may change it in slice ts (the tree-model
-  umbrella §7.3 Q-4) and notifies Layout; if it has changed at T3's base, OR-3's *Base* cell, T-25's kind (red or
+  excludes a shadow root's direct children) and cell T-16b rest on it. Draft 2 answers its Q-4 (§2 MEV × TREE): the **parent** half of the guard, the one T3
+  relies on, "is not touched"; the **node** half becomes unreachable in slice `ts` and is deleted there, and L3
+  tells Layout when `ts`'s plan is written (its §7.2). So the premise holds as planned; it is still read at T3's
+  base, and if it has changed there, OR-3's *Base* cell, T-25's kind (red or
   guard) and CI-1's population are re-derived before implementation. (b) H-T27: `build_propagation_path` climbs by
-  `get_parent`, which slice ta replaces by a chosen relation; the Window stays off every element's path either way
+  `get_parent`, which slice `ta` deletes (tests included) for a chosen relation; the Window stays off every element's path either way
   (it has no `TreeRelation`), and the cells resting on H-T27 are re-run at the base.
-- **L3's DOM-walker program, slice 1** (`#11-dom-walkers-iterative-over-ecs-links`; R1 M18): it stacks on io and
+- **L3's DOM-walker program, slice 1** (`#11-dom-walkers-iterative-over-ecs-links`; R1 M18; re-placed in rev 6.3):
+  **after `ta`** (PM decision 761 (1): is → ig → tp → ta → walker slice 1, which may run in parallel with `tc` and
+  the later slices; PM 694's "on PR (i), using `owned_entities`" kept), no longer "stacks on io". It
   touches `walkers.rs` (L3 umbrella §8 hand-offs, H-T32), where T3's creation walks' set and order live
   (`for_each_uncapped_shadow_inclusive`, §4.5; cells U-T9, T-27, T-28, T-29). No ordering edge (no semantic
-  dependency either way); **re-pull:** if slice 1 lands before T3's branch is cut, T3 re-reads the walker's signature,
-  `visit` type and visit order at that head (§9 item 1), and T-29 / U-T9 are the cells that catch an order or set
-  change; if it lands after T3, slice 1 inherits T3's two creation-walk callers in its census (they are listed in
-  `#11-capped-walker-deep-element-processing`'s census, §8.3 item 11).
+  dependency either way). **Re-pull:** slice 1 starts after `ta`, seven tree-model slices and io ahead of T3's
+  cut; T3 re-reads the walker's signature,
+  `visit` type and visit order at its base (§9 item 1), with whatever of io and slice 1 is on it, and T-29 / U-T9
+  are the cells that catch an order or set
+  change. T3's creation-walk callers are in `#11-capped-walker-deep-element-processing`'s census (§8.3 item 11).
+  (Until rev 6.2 this entry also had a branch for slice 1 landing after T3, written when slice 1 stacked on io;
+  dropped with PM decision 761 (1).)
 - **RC-2a** (landed: #596; edge x11, from rev 5 to T3-pre): T3 relies on the RC-2a plan §2 A (one emitter, after the
   whole copy exists), §4.3 (the walk's set and order) and §4.7 (no clone inside a dispatcher window), all kept for the
   `Clone` cause by T3-pre (the T3-pre memo I-RC1, I-RC3). If RC-2a's or T3-pre's landed code changes any of them, D-T10
@@ -1591,7 +1694,10 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
    (`#11-template-contents-owner-document`), so step 3 reads the spec's node document for template contents and after
    cross-document moves. Related defects homed elsewhere: the `frameset` interface → `#11-htmlframesetelement-interface`;
    foreign-element interfaces other than `body`'s → <the PM's home for the T3-b memo §8.2 item 1>; the attribute change steps' step 1
-   namespace test → `#11-event-handler-content-attribute-applicability` facet (2)." In the same edit, the row's first
+   namespace test → `#11-attribute-namespace-model` (PM 770; it was facet (2) of
+   `#11-event-handler-content-attribute-applicability`, whose row reads "facet (2) → `#11-attribute-namespace-model`
+   (PM 770)")." (Rev 6.3: the last clause follows the ledger as T3-a's landing leaves it, the T3-a memo §8.3 item 1;
+   until rev 6.2 it named the applicability slot's facet (2).) In the same edit, the row's first
    paragraph: "(`…/event_handler_processing/mod.rs:249`) … code as of `fd6955e8`" →
    "(`crates/script/elidex-script-session/src/event_handler_consumer.rs:328` at `fd6955e8`;
    `event_handler_processing/mod.rs:249` since #563)", "in three ways" → "in four ways (facet (4) below)", and
@@ -1655,8 +1761,11 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 8. (moved in rev 6; now the T3-a memo §8.3 item 1: `#11-event-handler-content-attribute-applicability` is registered at
    T3-a's landing, with facets (1) and (3) closed by T3-a; PM decision 741 (3), revising PM 377's "at T3's landing"
    and PM decision 168; number kept. Rev 5's text had M15's correction; the moved text keeps it.)
-9. `#11-htmlframesetelement-interface` — **register** (PM decision 130, compat layer) with rev 3's §8.1 item 1 text
-   (header pointer), unchanged.
+9. `#11-htmlframesetelement-interface` — **append** (the row is registered at T3-b's landing, with the text of the
+   T3-b memo §8.3 item 2; until rev 6.2 this item registered it, with rev 3's §8.1 item 1 text at a `74e15df1`
+   coordinate and no Re-eval date): "Since T3 (#<PR>, `<squash>`) a `frameset`'s handler content attributes and the
+   six Window-reflecting IDL attributes it inherits from `HTMLElement.prototype` act on the Window (HTML §8.1.8.1
+   *determine the target of an event handler* steps 1–2); its interface is still absent."
 10. `#11-unbound-attribute-writes-bypass-consumers` — append: "Since T3-pre (#<PR>, `<squash>`) and T3 (#<PR>,
     `<squash>`) an element cloned or fragment-parsed while unbound gets no creation processing: with no dispatcher
     installed `EcsDom::fire_subtree_created` delivers nothing, for both causes, `Clone` and `FragmentParse` (the T3-pre
@@ -1672,7 +1781,14 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
     `children_iter_rev`'s `MAX_ANCESTOR_DEPTH` per-parent cap), which shares `handle_insert`'s collector".)
 12. `#11-browsing-context-state-ecs-components` — append to C1-pre's R-11 defect: "T3 (#<PR>, `<squash>`) adds readers
     of the same association: `ActiveDocument`, constructed by `HostData::active_document()` and read at bind for the
-    handler consumer and by the VM handler accessors (T3 memo D-T3)."
+    handler consumer and by the VM handler accessors (T3 memo D-T3); `document_has_browsing_context` asks the same
+    constructor, so the association has one reader in the VM. **Relied-on caveat, homed here** (T3 memo H-T15):
+    `HostData::window_entity` is set once and is not cleared on unbind (`git grep -n -E
+    'window_entity[[:space:]]*=[[:space:]]*None' -- crates/script/elidex-js/src` → none at `cee74989`), so a `Vm`
+    re-bound to a different `EcsDom` would give `ActiveDocument` the old World's Window, and step 4 of *determine
+    the target of an event handler* would return it. 'One `EcsDom` per `Vm`' is a caller contract (doc comments),
+    not enforced; no production path rebinds across `EcsDom`s. B1's '1 agent = 1 World = 1 Vm' makes it
+    structural." (Rev 6.3: the caveat's sentences are new; until rev 6.2 it had no slot.)
 
 ### §8.4 Umbrella in-place edits carried by this PR (PM decisions: the one list in the umbrella's *Rev 8.<t>* entry)
 
@@ -1697,7 +1813,7 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
    implementation starts. Rev 5 (PM decisions 714, 722): the branch
    is cut after **T3-pre and L3's PR (io)** land (umbrella x14, x12; so after is and ig); the walker's names and order
    (`WalkScope`, `for_each_uncapped_shadow_inclusive`'s signature and `visit` type) are re-pulled at io's head against
-   H-T32, and at the DOM-walker program's slice 1 if it landed (§8.2); the arm's match is written on T3-pre's landed
+   H-T32, and with the DOM-walker program's slice 1 as far as it is on the base (§8.2; it starts after `ta`, PM decision 761 (1)); the arm's match is written on T3-pre's landed
    `SubtreeCreated` (the T3-pre memo §4.2) and T3 stops for the PM on R7's stop condition; before T3 is ratified, every
    L3 citation is re-pinned from the H-T32 snapshot to L3's ratified sha (R7 premise 1). (Until rev 5 this item
    re-pulled ig's take / restore anchors and checked ig's guard for (δ); those are the T3-pre memo §9 item 1.)
@@ -1710,9 +1826,13 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
 2. `/elidex-plan-review` passes on this memo (mandatory, §1.3).
 3. Red-first: T-1–T-9, T-14, T-15, T-15b, T-16, T-16b, T-16c, T-17, T-20, T-20b, T-22, T-22b, T-22c, T-23, T-24,
    T-25, T-26, T-27, T-28, T-29, U-T1–U-T3, U-T6, U-T7, U-T9, T-E1
-   committed failing (U-T10 / U-T11 are T3-pre's, the T3-pre memo §9 item 3; T-21 and U-T8 are T3-a's and T-19 is T3-b's, their
-   memos' §9 item 3, green on T3's base and kept green); the fix makes them and §5.2's rewritten
-   cells green; the guards (T-6b, T-8a, T-9b, T-16d, T-18, T-26b, U-T4)
+   committed failing (U-T10 / U-T11 are T3-pre's, the T3-pre memo §9 item 3). Of T3-a's and T3-b's cells (their
+   memos' §9 item 3, all green on T3's base): T-19 (T3-b) and T-21, T-A1 to T-A4 (T3-a) are kept green; T3-a's
+   session cells (U-T8, U-A1 to U-A3, the two U3 (i) cells, `onstorage_content_attribute_gated_by_policy`) are
+   **rewritten per §5.2**, not kept as written: they call signatures T3 changes, and U-T8 names
+   `resolve_handler_target`, of which item 4 requires 0 hits (until rev 6.2 this item said "kept green" of U-T8,
+   which item 4 contradicted). The fix makes them and §5.2's rewritten
+   cells, T3-a's included, green; the guards (T-6b, T-8a, T-9b, T-16d, T-18, T-26b, U-T4)
    are green at the head; the static-marked expectations (§5.2, T-6b) are confirmed by their runs.
 4. `/usr/bin/grep -rn 'resolve_handler_target\|is_body_element' crates` and `/usr/bin/grep -rn 'fn window_entity'
    crates/core/elidex-ecs` → 0 hits (`HostData::window_entity`, `bind.rs:492`, and the `HostDriver` trait item
@@ -1734,16 +1854,29 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
    (§4.5); `git grep -n 'LifetimeUnit' -- crates/script/elidex-script-session` → 0 (D-T12). (The event's greps,
    `CloneCreated` → 0, `fire_subtree_created(` → two calls, `Taken { pending }`, are the T3-pre memo §9 item 4, moved in
    rev 5.)
-   The direct `EcsDom` method calls in `vm/host/` (§4.2; R2 Axis 1): `for f in
-   crates/script/elidex-js/src/vm/host/event_handler_attrs.rs crates/script/elidex-js/src/vm/host/elements.rs; do
-   /usr/bin/grep -c -E 'dom_shared\(\)\.|\.dom\(\)\.' $f; done` → 0 and 1 at T3's head, equal to T3's base (T3-b's
-   one `is_html_namespace` read, in `is_html_body_element`; 0 and 0 at `cee74989`; rev 6: 1 and 1): T3 adds none. (Until rev 6 this item paired each
+   The direct `EcsDom` method calls in `vm/host/` (§4.2; R2 Axis 1; rev 6.3, R3 wave 2 Axis 1: the rebinding form
+   too), three counts per file `f` of `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs` and
+   `crates/script/elidex-js/src/vm/host/elements.rs`: (A) chained, `/usr/bin/grep -c -E
+   'dom_shared\(\)\.|\.dom\(\)\.' $f`; (B) a dom bound to a name, `/usr/bin/grep -c -E
+   '=[[:space:]]*[^;=]*\.(dom|dom_shared)\(\)[[:space:]]*;' $f`; (C) a call on a name `dom`, `/usr/bin/grep -c -E
+   '(^|[^_[:alnum:].])dom\.[a-z_]+\(' $f` → 0, 0, 0 and 1, 0, 0 at T3's head, equal to T3's base (T3-b's
+   one `is_html_namespace` read, in `is_html_body_element`; 0, 0, 0 in both at `cee74989`; rev 6: 1 and 1 by (A)): T3 adds none.
+   A (B) hit means a dom was bound to a name; every use of that name is then read at the diff and counted. Positive
+   controls, run with the counts: (B) on `crates/script/elidex-js/src/vm/host/html_table_proto.rs` → at least 1
+   (`:143` at `cee74989`); (C) on `crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs` → at least 1
+   (`:159`). (The same three counts on `crates/script/elidex-js/src/vm/host/document_accessors.rs` are equal at T3's
+   base and head: D-4's new body calls a `HostData` method.)
+   D-4's delegation (D-T3, rev 6.3): `git grep -c 'document_entity_opt' --
+   crates/script/elidex-js/src/vm/host/document_accessors.rs` → no hit (1 at `cee74989`, D-4's body), and `git grep
+   -c 'active_document' -- crates/script/elidex-js/src/vm/host/document_accessors.rs` → at least 1 (0 at
+   `cee74989`). (Until rev 6 this item paired each
    `tag_matches_ascii_case(entity, "body")` with its namespace read; the T3-b memo §9 item 4 has its successor.)
 5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-form --all-features` green
    (`elidex-form`: the rustdoc of `inert_document.rs`; the other crates T3-pre's migration touched are T3-pre's DoD);
    `mise run ci` before push.
 6. §8.1 item 3 and the §8.3 texts handed to the PM in the PR description (§8.1 item 5's slot is registered, PM
-   719; nothing for it is handed over; §8.1 item 4 is the T3-b memo's and §8.3 item 8 the T3-a memo's).
+   719; nothing for it is handed over; §8.1 item 4 is the T3-b memo's and §8.3 item 8 the T3-a memo's; §8.3 item 9
+   is an append, the registration being the T3-b memo §8.3 item 2's).
 7. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-10-eh-attrs-t3-target-determination.md` and the same on the umbrella exit 0 (the T3-pre, T3-a and T3-b
    memos' are their own DoD items).
@@ -1753,7 +1886,7 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
 **Decided:** O-1 → PM decision 129 (D-T7); O-2 → PM decision 130 (D-T9); O-3 → PM decision 131 (§8.4); O-4 → PM
 decision 132 (D-T3); O-5 → the PM's reading of PM decision 133 (D-T5); O-6 → PM decision 153 (order; R-A, R-B by C0 /
 C1; R-C, R-D1 in T3; **R-D1 moved to T3-ab by PM decision 741 (3), now T3-b, PM decision 767**); **O-7 → (a), PM decision 168** (D-T8: T3 takes applicability facets (1) and (3); facet (2) stays
-with slice b; §2.1 has 0 rows worse than the base; **revised by PM decision 741 (3): T3-ab, now T3-a (PM decision 767), takes them, before T3**); **O-8 → PM decision 359** (D-T10: the clone path consumes RC-2a's
+with slice b; §2.1 has 0 rows worse than the base; **revised by PM decision 741 (3): T3-ab, now T3-a (PM decision 767), takes them, before T3; and by PM decision 770: facet (2) leaves slice b for `#11-attribute-namespace-model`, owner L3**); **O-8 → PM decision 359** (D-T10: the clone path consumes RC-2a's
 `CloneCreated`; edge x11); **O-10 → (a), PM decision 699** (D-T7: a fragment-parsed element is processed at its
 creation; its node document is the context's, and steps 3–4 of *determine the target of an event handler* (HTML
 §8.1.8.1) ask whether that document is active, not whether the element is connected, the step-3 note's disconnected
@@ -1775,6 +1908,9 @@ created, `WalkScope::WithTemplateContents`) and its drop inside a dispatcher win
 close); PM decision 713 settles the queue's home and the flush (the T3-pre memo §4.4) and the raw-handler requirement (D-T13);
 PM decision 714 assigns the guard to L3's ig and the walk scope to io (T3 after io, umbrella x12); PM decision 722
 moves the event and the queue to T3-pre (T3 after T3-pre, x14).
+**Q-T1 → PM decision 756:** steps 3–4 stay inside T3 (§1.3's seam S3 is not carved; no intermediate state of D-T1
+lands). **Q-T2 → PM decision 756:** in `handle_attribute_change` the target is determined before
+`process_before_handler_write` (§4.2 item 2; umbrella §4.1 step 4), the order D-T6 gives the IDL setter.
 **O-12 → (c)+(a), PM decision 711 (4)** (§7, §8.1 item 5): T3 does not change custom-element behaviour;
 the defect is the L3-owned slot `#11-custom-element-upgrade-at-fragment-creation`, **registered** by PM 719
 (2026-11-13), closed by a later L3 PR adding the `SubtreeCreated(FragmentParse)` arm; L3's registry-less point (PM
@@ -1786,15 +1922,16 @@ Q-12 → H-T25; Q-13 → H-T21, P-T16; Q-14 → D-T11 (moot: `host_data/` split 
 RC-2a plan §4.3; PM decision 359 folded it into the plan-review), cell T-16b. Rev 1's
 Q-1 to Q-6 → H-T15 to H-T20.
 
-**For the PM (designer's findings, not decided here):**
-- **Q-T1 (rev 6; §1.3's seam S3).** After the two carves one more seam passes in one direction: steps 3–4 for the
+**Closed questions (kept as the record):**
+- **Q-T1 (rev 6; §1.3's seam S3) — decided (PM decision 756): steps 3–4 stay in T3.** After the two carves one more
+  seam passes in one direction: steps 3–4 for the
   pairs HEAD already delegates (facets (1) and (2): `determine_event_handler_target` over `ActiveDocument` with HEAD's
   steps 1–2, every caller) could land before the rest of T3 with no row worse, and it needs neither T3-pre nor io.
-  §1.3 lists what it would carry and cost. Kept inside T3 in this revision; whether to carve it is the PM's.
-- **Q-T2 (rev 6; made explicit, not changed).** In `handle_attribute_change` the target is determined before
-  `process_before_handler_write` (§4.2 item 2; umbrella §4.1 step 4), the order D-T6 gives the IDL setter. Rev 5 gave
-  the order for the setter only. No outcome depends on it (`mod.rs:156`). Flagged because the umbrella's §4.1 now
-  fixes it.
+  §1.3 lists what it would carry and cost. Not carved: it would land an intermediate state of D-T1.
+- **Q-T2 (rev 6) — decided (PM decision 756): the target determination comes before
+  `process_before_handler_write`** in `handle_attribute_change` (§4.2 item 2; umbrella §4.1 step 4), the order D-T6
+  gives the IDL setter. Rev 5 gave
+  the order for the setter only. No outcome depends on it (`mod.rs:156`).
 - **P-T20 *Residual* — closed (PM 720): option (δ)**; moved with the queue to the T3-pre memo (P-P1, §4.4).
 - **O-9 — closed (PM 367): (b), owner L3.** RC-2a's implementation PR makes `for_each_clone_created` uncapped (iterative, creation order) with its own deep-tree cell; T3's deep-element processing rests on it (edge x11).
 
