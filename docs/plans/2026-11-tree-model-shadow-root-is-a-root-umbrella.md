@@ -1,9 +1,10 @@
 # Tree model: a shadow root is a tree root; every climb chooses whether it crosses — program umbrella
 
-Status: **umbrella, draft 3.1** (pre-implementation). Draft 1 was plan-reviewed (R1: CRIT 1 / IMP 21 / MIN 24) and
+Status: **umbrella, draft 3.2** (pre-implementation). Draft 1 was plan-reviewed (R1: CRIT 1 / IMP 21 / MIN 24) and
 draft 2 answered it; draft 2 was plan-reviewed (R2: CRIT 0 / IMP 7 / MIN 27), and this draft answers R2 (fix
 decisions F1 to F7) and writes in PM 758, 759, 761, 765, 768 and 794. Draft 3.1 closes Q-19 (PM 800; §1.6) and
-Q-18 (PM 800; §2 CHILD × SHELL) and records the registrations of PM 790 and PM 794 (§7.1). Its changes are structural (one declared
+Q-18 (PM 800; §2 CHILD × SHELL) and records the registrations of PM 790 and PM 794 (§7.1). Draft 3.2 moves
+pre-remove step 1 out of `apply_remove_child` onto the `removeChild` path only (§1.6, Q-19). Its changes are structural (one declared
 behaviour change in `ta`, child-side naming), so `/elidex-plan-review` runs in full again on this umbrella, and on
 each per-PR plan before its code (CLAUDE.md, *Edge-dense work*). Owner: L3. Base: `84fee8fa`; every code anchor is
 at that commit. Drafts 1 and 2 were written at `c0578223`: `git diff --name-only c0578223..84fee8fa -- crates`
@@ -136,7 +137,7 @@ beside the old representation, the coexistence *One issue, one way* forbids.
   teardown, the child index) reads the stored link itself (population P-REL), not a named relation. Four P-UP lines
   become such reads in `ta` (census C-2, "raw"), and `ts` re-reads each. The three mutators' own check
   (`is_child_of`) is storage maintenance too until `ts` (PM 800). The spec's question about a node a script
-  supplied ("is child's parent parent?") is not maintenance: it is asked once, in the mutation layer (§1.6).
+  supplied ("is child's parent parent?") is not maintenance: it is asked once, in the engine-independent layer (§1.6).
 - **The interim cost** is one component lookup per `tree_parent` step, and one per child-side step from `tc`
   (§1.3). `ta`'s plan benchmarks the selector and style paths at its head against its base and escalates a
   regression beyond noise to the PM with the numbers (PM 747 Q-9).
@@ -262,12 +263,20 @@ shadow root is "yes" (§0.1 item 6).
     by hand take `tree_parent` (census C-2, class "T2": `child_node/mod.rs:268`, `:451`, `element/tree.rs:158`,
     `mutation/child_list.rs:284`, `:439`).
   - *pre-remove* step 1 ([D13]: "If child's parent is not parent, then throw a \"NotFoundError\" DOMException."):
-    one new check, `tree_parent(child) == Some(parent)`, at the top of `apply_remove_child`
-    (`crates/script/elidex-script-session/src/mutation/child_list.rs:356`), beside the two step-3 checks of that
-    file. At `84fee8fa` the script path is `native_node_remove_child` (`vm/host/node_proto.rs:712`) →
-    `invoke_dom_api("removeChild")` → the `RemoveChild` handler's `invoke` (`element/tree.rs:199`) → `apply_remove_child` →
-    `EcsDom::remove_child`, and the only "is a child" test on that path is `is_child_of` inside the last call
-    (`tree/mutation.rs:72`); the handler maps `None` to "NotFoundError".
+    one new check, `tree_parent(child) == Some(parent)`, on the `removeChild` path only. *Pre-remove* is run by
+    `removeChild` alone; the shared *remove* building block `apply_remove_child`
+    (`crates/script/elidex-script-session/src/mutation/child_list.rs:356`) is also called by algorithms that run
+    *remove* without *pre-remove*, so the check does not go there. Its home is a new validity function in
+    `crates/dom/elidex-dom-api/src/child_node/mod.rs` (`ensure_pre_remove_validity`, NEW; the name follows its
+    siblings), which the `RemoveChild` handler's `invoke` (`element/tree.rs:199`) calls before
+    `apply_remove_child` and which returns "NotFoundError". Reason: the pre-insert and replace validity steps
+    already live in that file as functions that the method's handler calls before the shared primitive
+    (`ensure_pre_insertion_validity` `:251`, `ensure_replace_validity` `:437`), so pre-remove step 1 takes the
+    same form and place (one home for the spec's validity steps, in the engine-independent layer); writing it
+    inline in the handler would be the one validity step without that form. At `84fee8fa` the script path is
+    `native_node_remove_child` (`vm/host/node_proto.rs:712`) → `invoke_dom_api("removeChild")` → the `RemoveChild`
+    handler → `apply_remove_child` → `EcsDom::remove_child`, and the only "is a child" test on that path is
+    `is_child_of` inside the last call (`tree/mutation.rs:72`); the handler maps `None` to "NotFoundError".
 
   From `ta` on, `removeChild`, `insertBefore` and `replaceChild` throw "NotFoundError" for the host's own shadow
   root. This is not a compensating copy: it is the spec step in its algorithm's home, and it stays after `ts`, where
@@ -288,13 +297,11 @@ shadow root is "yes" (§0.1 item 6).
   **tree** child of the originating element), `crates/script/elidex-script-session/src/mutation/html_fragment.rs:222`
   (`insertAdjacentHTML("afterbegin")`; raw first child at `:216`: the first tree child of the target), `:251`
   (`"afterend"`; raw next sibling at `:243`: the next tree sibling of the target). §5 `tc` and §3.1 carry them.
-- **The other callers of `apply_remove_child`.** It is also the *remove* primitive for callers that derive the
-  parent from the child and run no pre-remove step: `child_node/mutations.rs:180`, `:220` (`ChildNode.remove`,
-  `replaceWith`), `element/select.rs:260`, `:350`, `range/mutation.rs:182`, `:218`. For them the new check is
-  vacuous exactly when the parent they pass is the child's tree parent. `ta`'s plan lists them, states for each the
-  relation its parent comes from at `ta`'s head and whether the child can be a shadow root (`range/mutation.rs:182`
-  reads through `children_iter`, which skips one at base), and declares any that is not vacuous as part of this
-  behaviour change, with a cell.
+- **The other callers of `apply_remove_child` are unaffected.** They run *remove* without *pre-remove* in the
+  spec, so the new check is not on their path and `apply_remove_child` is unchanged; each keeps base behaviour
+  (`child_node/mutations.rs:180`, `:220`, `element/select.rs:260`, `:350`, `range/mutation.rs:182`, `:218`, and the
+  deferred-flush arm `Mutation::RemoveChild` of `apply_mutation`, `mutation/mod.rs:204`, whose only constructors at
+  `84fee8fa` are tests: `git grep -n -P '\bRemoveChild\s*\{' 84fee8fa -- crates`).
 - This is a **declared behaviour change of `ta`**, the only one: `ta`'s plan carries a cell per method (with the
   links and the child list checked after the refused call) and a mutant per site, the new check included.
 - Slot: `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; closed by `ta`; §7.1).
@@ -314,7 +321,7 @@ dom-api handlers (census C-10).
 |---|---|---|---|
 | TREE × LINK | attach writes the link pair and no tree edge; the backward fact is read through `shadow_host` (R-TREE 2) | ta, ts | ts structure cells (attach; the child list of a host) |
 | TREE × WR (the node half) | elidex-ecs has one site that writes a parent (`link_node`) and three callers; none refuses a shadow root as the **node** today. `ts` adds the refusal beside the cycle guard in `append_child`, `insert_before`, `replace_child` (they return `false`), and `link_node` asserts it | ts | ts cells: each of the three refuses a shadow-root node; mutant: remove one refusal |
-| TREE × WR (the child half) | the mutators' "is a child of parent" check, and the five hand-written copies outside elidex-ecs, accept a shadow root as the **child** today (§0.1 item 6). From `ta` the spec's steps ask the tree-parent question in the mutation layer: the five T2 lines and one new pre-remove check in `apply_remove_child` (§1.6). The mutators' own check stays a stored-link read until `ts` (PM 800, Q-19 (b′)); the three engine callers that pass a raw child as the reference are `tc`'s | ta (mutation layer); ts (elidex-ecs, by the storage) | ta cells: `removeChild`, `insertBefore`, `replaceChild` with the host's shadow root throw "NotFoundError" and leave the links and the child list as they were; mutant per site |
+| TREE × WR (the child half) | the mutators' "is a child of parent" check, and the five hand-written copies outside elidex-ecs, accept a shadow root as the **child** today (§0.1 item 6). From `ta` the spec's steps ask the tree-parent question in the engine-independent layer: the five T2 lines and one new pre-remove check on the `removeChild` path only (`ensure_pre_remove_validity`, NEW; `apply_remove_child` is unchanged; §1.6). The mutators' own check stays a stored-link read until `ts` (PM 800, Q-19 (b′)); the three engine callers that pass a raw child as the reference are `tc`'s | ta (engine-independent layer); ts (elidex-ecs, by the storage) | ta cells: `removeChild`, `insertBefore`, `replaceChild` with the host's shadow root throw "NotFoundError" and leave the links and the child list as they were; mutant per site |
 | TREE × VER | attach reaches `rev_version(host)` today only through `append_child` (`mutation.rs:54`), and the shell repaints when the document root's version moves (`crates/shell/elidex-shell/src/content/event_loop.rs:444`, `crates/shell/elidex-shell/src/content/mod.rs:369`). The version is a shadow-including-descendants version (`rev_version` climbs by the shadow-including step), and attaching changes the host's shadow-including descendants, so `ts`'s attach calls `rev_version(host)` itself | ts | ts cell: `attachShadow` alone moves the document root's version; mutant: drop the call |
 | TREE × UP-T / UP-S | `tree_parent(sr)` is `None` and `shadow_including_parent(sr)` is the host at every head (§1.1) | ta, ts | ta cells (accessor contracts); ts: the same cells, unchanged |
 | UP-T × UP-S × DER | every climb takes exactly one named step; every derived relation is on a disposition list (§1.2) | ta | the compiler; ta re-runs census C-6 at its head and accounts for every row |
@@ -406,9 +413,9 @@ Script-observable changes, by slice; all are **predicted from the code** and pro
 (§5.2).
 
 - `ta`: one, declared (§1.6): `removeChild`, `insertBefore` and `replaceChild` given the host's own shadow root as
-  the child throw "NotFoundError" instead of succeeding (the checks in the mutation layer; elidex-ecs unchanged,
-  PM 800). Nothing else, unless `ta`'s plan finds a non-vacuous internal caller of `apply_remove_child` (§1.6),
-  which it then declares here.
+  the child throw "NotFoundError" instead of succeeding (the checks in the engine-independent layer, pre-remove
+  step 1 on the `removeChild` path only; elidex-ecs unchanged, PM 800). Nothing else: the other callers of
+  `apply_remove_child` run no *pre-remove* step and are unchanged (§1.6).
 - `ts`: none for script. One residual reaches the user through input, not through script: the order of hit-test
   layer 6 for a positioned shadow-tree node against a positioned light child (§2 ORD × RENDER) decides the target
   of a pointer event, and so `event.target`. The flat-tree order belongs to `#11-shadow-slot-assignment-flat-tree`.
@@ -561,8 +568,9 @@ Every "P:" row and every "T, g" / "T1" equality of the census is a reading of th
   a dom-api handler test that pins the disagreement of an **unreachable** handler with its VM native (PM 748 (b);
   reachability from census C-10; each test is listed). A reachable handler's cells do not change. The pending
   counts per name and per `Flip` variant are recorded in the allowlist; the benchmark of §1.1 is in the plan.
-  elidex-ecs's `is_child_of` and the three mutators are unchanged (PM 800); the pre-remove check is in
-  `apply_remove_child`, and the plan's list of that function's internal callers (§1.6) is complete.
+  elidex-ecs's `is_child_of` and the three mutators are unchanged (PM 800); pre-remove step 1 is in the new
+  `ensure_pre_remove_validity` beside `ensure_pre_insertion_validity` and `ensure_replace_validity`, called only by
+  the `RemoveChild` handler, and `apply_remove_child` is unchanged (§1.6).
   **Before `ta` lands**: the §1.5 selector relation cites its owner `#11-shadow-tree-style-isolation` (PM 794), and
   the landing list of §7.4 is with the PM. (`#11-shadow-root-accepted-as-ref-or-old-child` is registered, PM 790.)
 - `tc`, `tr`, `tf`, `tm`, `te`: probes run before review; each changed behaviour has a cell and a mutant on the
@@ -629,7 +637,7 @@ empty the same way. After `ts`, direct field access is confined by visibility; w
 | Slot | Why deferred | Trigger | Re-eval |
 |---|---|---|---|
 | `#11-shadow-root-is-a-tree-root` (registered, PM 747; owner L3) | the storage cannot change before every reader names its relation (§0.2), so the two homes of §0.1 item 1 stay until the last slice | **this umbrella's ratify**; closed by `ts` | 2026-12-31 |
-| `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; owner L3; paydown (c)) | §0.1 item 6: wrong in production today; fixed at the first slice that has the vocabulary, in the mutation layer (§1.6, PM 800) | `ta`; closed by `ta` | 2026-12-31 |
+| `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; owner L3; paydown (c)) | §0.1 item 6: wrong in production today; fixed at the first slice that has the vocabulary, in the engine-independent layer (§1.6, PM 800) | `ta`; closed by `ta` | 2026-12-31 |
 | `#11-shadow-tree-style-isolation` (Layout, CV-details; owner of the selector relation by PM 794) | owns `pending_selector_parent` (§1.5): the featureless host in the combinator walk is built by CV-details | the slot's own | the slot's own |
 | `#11-dom-selector-api-rejects-shadow-pseudos` (registered, PM 794; owner L3) | neighbour: `querySelector` / `matches` reject `:host` and `::slotted` with a SyntaxError in every tree; not a relation, so not this program's | `ta`'s landing or `#11-shadow-tree-style-isolation`'s landing, whichever is first | 2027-01-15 |
 | `#11-element-lifecycle-hooks` (P1) | owns the shell's link and label lookups (activation target, DOM §2.9), which carry `pending_event_parent` after `ta` (PM 759) | the slot's own | the slot's own |
@@ -746,15 +754,20 @@ Remaining:
   `tc`'s cells include "the focusables of a shadow tree come right after the host (§6.6.2 steps 2.2 / 2.3)".
 - **Q-19 (closed: driver, lens converged; approved PM 800).** §1.6: the elidex-ecs half of the child-of question.
   Option (b′): `is_child_of` and the three mutators stay storage maintenance (a stored-link read, population
-  P-REL, §1.1) until `ts`; in `ta` the spec's steps live once in the engine-independent mutation layer
-  (`apply_remove_child` gains pre-remove step 1 as a `tree_parent` question; the step-3 checks of
-  `mutation/child_list.rs:284`, `:439` and the dom-api T2 lines take `tree_parent`). The three engine callers keep
-  base behaviour in `ta` and are `tc`'s. Lens, all rows agreeing: spec, the "NotFoundError" cases are met in `ta`
-  through the script-facing path; Layering, the check is in the algorithm layer, not in elidex-ecs storage; *One
-  issue, one way*, one home per spec step (pre-insert step 3, replace, pre-remove step 1, all in the mutation and
-  dom-api layer) and one meaning for elidex-ecs (storage); fail-safe direction, an unknown internal caller keeps
-  base behaviour instead of silently losing an insert; ECS-native, the storage relation and the algorithm relation
-  are separate. Rejected: (a) the tree-parent equality in `is_child_of` from `ta` (silently breaks the three
+  P-REL, §1.1) until `ts`; in `ta` the spec's steps live once in the engine-independent layer (pre-remove step 1
+  as a `tree_parent` question in a new `ensure_pre_remove_validity` in dom-api `child_node/mod.rs`, called only
+  by the `RemoveChild` handler; the step-3 checks of `mutation/child_list.rs:284`, `:439` and the dom-api T2 lines
+  take `tree_parent`). The three engine callers keep base behaviour in `ta` and are `tc`'s. Lens, all rows
+  agreeing: spec, the "NotFoundError" cases are met in `ta` through the script-facing path, and *pre-remove* is run
+  by `removeChild` alone; Layering, the check is in the algorithm layer, not in elidex-ecs storage; *One issue, one
+  way*, one home per spec step (pre-insert step 3, replace, pre-remove step 1, each a validity function of
+  dom-api `child_node/mod.rs`; the deferred-flush re-checks of `child_list.rs:284`, `:439` ask the same
+  `tree_parent` question) and one meaning for elidex-ecs (storage); fail-safe direction, an unknown internal
+  caller keeps base behaviour instead of silently losing an insert, and the callers of `apply_remove_child` that
+  run no *pre-remove* keep base behaviour; ECS-native, the storage relation and the algorithm relation are
+  separate. Draft 3.2 (driver correction): draft 3.1 put the check inside `apply_remove_child`, the *remove*
+  building block that `ChildNode.remove` / `replaceWith`, the select-option code and Range also call; per spec
+  they run no *pre-remove*, so the check moved to the `removeChild` path. Rejected: (a) the tree-parent equality in `is_child_of` from `ta` (silently breaks the three
   callers' inserts, whose results are discarded, and any caller not read); a separate guard PR (a compensation `ts`
   deletes). Evidence: `git grep -n -P '\.(remove_child|insert_before|replace_child)\(' 84fee8fa -- crates ':!*tests*'`
   (53 lines; census C-9).
