@@ -631,7 +631,7 @@ fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId
 /// completion) while the coroutine and its wrapper are otherwise held only
 /// by Rust locals.  After a suspension the coroutine is reachable through
 /// the continuation steps subscribed to the awaited Promise.
-pub(crate) fn drive_new_async_coroutine(
+pub(crate) fn make_async_coroutine_and_drive(
     vm: &mut VmInner,
     gen_id: ObjectId,
     wrapper: ObjectId,

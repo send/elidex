@@ -157,7 +157,7 @@ fn host_call_generator_rest_array_survives_generator_allocation() {
     assert_number(vm.eval("G.next().value"), 0.0, "rest array length");
 }
 
-/// `push_js_call_frame` async branch → `drive_new_async_coroutine`: the
+/// `push_js_call_frame` async branch → `make_async_coroutine_and_drive`: the
 /// receiver of an async method call is dropped from the stack before the
 /// wrapper Promise (allocation 1) and the coroutine (allocation 2) are
 /// allocated.
@@ -177,7 +177,7 @@ fn async_method_receiver_survives_coroutine_allocation() {
     );
 }
 
-/// `drive_new_async_coroutine`: the wrapper Promise (allocation 1) is
+/// `make_async_coroutine_and_drive`: the wrapper Promise (allocation 1) is
 /// held only by a Rust local while the coroutine (allocation 2) that will
 /// own it is allocated.
 #[test]
@@ -202,7 +202,7 @@ fn host_call_async_rest_array_survives_coroutine_allocation() {
     assert_global_number(&vm, "out", 0.0, "rest array length after the first await");
 }
 
-/// Initial drive inside `drive_new_async_coroutine`: after the body
+/// Initial drive inside `make_async_coroutine_and_drive`: after the body
 /// suspends at its first `await` of a non-Promise, `drive_async_coroutine`
 /// allocates the awaited Promise (allocation 3) while the coroutine and its
 /// wrapper are held only by Rust locals.

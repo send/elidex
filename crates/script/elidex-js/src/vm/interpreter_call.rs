@@ -392,7 +392,9 @@ impl VmInner {
         if is_async || is_generator {
             let (gen_id, wrapper) = self.create_coroutine(is_async, frame);
             return match wrapper {
-                Some(w) => super::natives_generator::drive_new_async_coroutine(self, gen_id, w),
+                Some(w) => {
+                    super::natives_generator::make_async_coroutine_and_drive(self, gen_id, w)
+                }
                 None => Ok(JsValue::Object(gen_id)),
             };
         }
@@ -549,12 +551,14 @@ impl VmInner {
         if is_async || is_generator {
             let (gen_id, wrapper) = self.create_coroutine(is_async, frame);
             let result = match wrapper {
-                // `drive_new_async_coroutine` settles the wrapper Promise
+                // `make_async_coroutine_and_drive` settles the wrapper Promise
                 // on throw and returns Ok; any Err is an internal bug.
                 // Fall back to undefined so the caller's stack shape
                 // stays valid.
-                Some(w) => super::natives_generator::drive_new_async_coroutine(self, gen_id, w)
-                    .unwrap_or(JsValue::Undefined),
+                Some(w) => {
+                    super::natives_generator::make_async_coroutine_and_drive(self, gen_id, w)
+                        .unwrap_or(JsValue::Undefined)
+                }
                 None => JsValue::Object(gen_id),
             };
             self.stack.push(result);
