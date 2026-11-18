@@ -14,7 +14,7 @@ lane: L3 DOM/form. Security-relevant: closes the markup-injection (mXSS) defects
 Stated in the umbrella and only referred to here: the split, the order and the exposure window (S-1..S-3), the
 shared premises P1 / P2 with the HEAD literal set, I-1, I-3, the pair matrix, the cross-lane pins and the ledger
 edits. IDs are program-wide (umbrella §1 index); an ID not defined in this memo is defined in the file that index
-names. Revision history: the umbrella (Rev 1-6 of the retired single memo; Rev 7 = this split).
+names. Revision history: the umbrella (Rev 1-6 of the retired single memo; Rev 7 = this split; Rev 8 = R1 fixes).
 
 ## §0. Frame, premises, decisions
 
@@ -57,10 +57,16 @@ umbrella §0.2. P7 (the XMLSerializer path): PR-X §0.2.
   (`crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:543`); it fails **open** for a node with no node
   document (`is_some_and` at `scripting.rs:84-85`; ratified interim, IBP-sandbox `:278-284`). A serializer reading of
   that predicate would be a second composition or a second reading (Rev 1's `ScriptingContext` was both) — PM 731.
-- P5: no document-level ECS fact "this Document has a browsing context" exists (`EcsDom::document_root()`,
-  `crates/core/elidex-ecs/src/dom/mod.rs:491`, is a cache set by any `create_document_root` call). The node clause's
-  ratified final representation is the enriched `#11-domparser-full-document-parse-fidelity` null-browsing-context
-  marker (IBP-sandbox §6 OO → ECS row, `:661-663`; records `:706-710`).
+- P5: no general document-level ECS fact "this Document has a browsing context" exists (`EcsDom::document_root()`,
+  `crates/core/elidex-ecs/src/dom/mod.rs:491`, is a cache set by any `create_document_root` call). One document kind
+  carries the null case by construction: the inert template document, which
+  `appropriate_template_contents_owner_document` creates with `create_document_node` and marks
+  `InertTemplateDocument` (`crates/core/elidex-ecs/src/dom/template_owner.rs:55-56`; the marker's doc: "an inert
+  template document, whose browsing context is null", `crates/core/elidex-ecs/src/components.rs:388-394`). The node
+  clause's ratified final representation is the enriched `#11-domparser-full-document-parse-fidelity`
+  null-browsing-context marker (IBP-sandbox §6 OO → ECS row, `:661-663`; records `:706-710`; PM 795: owner L2
+  Layout, lands at IBP-sandbox N5), which must read or merge that existing component rather than add a second
+  writer of the same fact — a facet recorded on that slot at this PR's landing (umbrella §5).
 - P6: the parse side of the same fact is a literal. HTML §13.4 *initialize an HTML fragment parser*
   (`#initialize-an-html-fragment-parser`, called from the *HTML fragment parsing algorithm*'s step 3) step 10: "Set
   parser's parser scripting disabled to true if scripting is disabled for contextDocument; otherwise false." elidex
@@ -265,6 +271,22 @@ rows are IBP-sandbox §6's, `docs/plans/2026-09-ibp-sandbox.md:659-668`, not thi
 | *escaping a string* (attribute-mode flag) | `push_escaped_string(.., EscapingMode)` — a pure function, no state | NEW |
 | "scripting is enabled for the node" | `EcsDom::scripting_disabled_for(.., ScriptingSubject)` (NEW: N4, D8); node clause = the `#11-domparser-full-document-parse-fidelity` marker | not read (D-3) |
 
+**The namespace read and its writers.** D-4 makes `text_children_literal` read the parent's namespace through
+`EcsDom::is_html_namespace` → `namespace_of`, which returns the `Namespace` component if present and
+`Namespace::Html` if absent (`crates/core/elidex-ecs/src/dom/classify.rs:76-79`, at `c0578223`): the component marks
+only the foreign exception. Its production writers (`git grep -n -w 'Namespace' c0578223 -- crates ':!*tests*'`,
+read per hit, 2026-11-18): `EcsDom::create_element_ns` inserts it for a non-HTML namespace
+(`crates/core/elidex-ecs/src/dom/mod.rs:444`), reached from the strict parser's *insert a foreign element*
+(`elidex-html-parser-strict/src/tree_builder/insert.rs:116`) and the tolerant parser's conversion
+(`elidex-html-parser/src/convert.rs:258`); a clone copies it (`crates/core/elidex-ecs/src/dom/tree_clone.rs:308`
+reads the source's, `:359-360` adds it to the clone). `elidex-custom-elements/src/created_element.rs` takes the
+namespace as a parameter and writes no `Namespace`. elidex-js has no `createElementNS` native (`git grep -n -F
+'createElementNS' c0578223 -- crates/script ':!*tests*'` → 0; control: `'"createElement"'` → `document.rs:373`). So an element is foreign to this read iff a parser
+or a clone of a parsed foreign element made it so; any other element reads as HTML, and on the raw-text decision
+that is the literal (unsafe) side for a foreign element whose local name is in the list. That is the engine-wide
+representation, not this PR's (D-4 reads it as it is); a future foreign-element creator must write the component
+through `create_element_ns`.
+
 Algorithms live in `elidex-dom-api` (§13.3 in `element/markup.rs`); `vm/host/` is untouched (§4.2).
 
 ## §5. Populations
@@ -312,7 +334,9 @@ by `push_text_data`'s `HtmlFragment` arm alone.
 
 Supported surface: §13.3 escaping and the step-5.2 Text branch, guarded by engine-independent unit cells in
 `elidex-dom-api` and VM end-to-end cells; no WPT subset is added by this PR. U1-U6 and V1-V13 exercise the §13.3
-entry points. PR-X's cells (XT / XA, X1-X5) are not edited and stay green — the independence check of DoD 1.
+entry points. PR-X's cells (XT / XA, X1-X5, XC2) are not edited and stay green — the independence check of DoD 1.
+XC2 (U+0009 raw in an attribute value through `outerHTML`) is exact for D-1 too: *escaping a string* has no U+0009
+step.
 
 **Unit, `tests_markup.rs`** (fixtures: `EcsDom::create_document_root` = the cached document root, "bound-like";
 `create_document_node` = a plain cache-free Document, "plain-document". Neither is distinguishable to this PR's
@@ -407,8 +431,8 @@ passes `HtmlFragment` in its outer arm (X1, X3, X4's element half, X5 red; X2, X
 children arm (X2, X4's fragment half red; X1, X3, X4's element half, X5 green); `push_text_data`'s
 `XmlSerialization` arm calls `push_escaped_string` (X1's Text assertion); `push_attribute_value`'s
 `XmlSerialization` arm calls `push_escaped_string` (X1's attribute assertion, X3); and the reverse, an
-`HtmlFragment` arm calling the DOM Parsing function (V6's Text half / V6's `title` half and U2's `>` cell) — the
-two mutants PR-X could not observe (PR-X §6 (a), (b)).
+`HtmlFragment` arm calling the DOM Parsing function (V6's Text half / V6's `title` half, U2's `>` cell and XC2) —
+mutant (a), which PR-X could not observe, and mutant (b), whose attribute half PR-X kills with XC2 (PR-X §6).
 **The family gate, re-run at this PR's head** (the (ii) × (iii) conjunct; PR-X ran it with XC1): drop it, so the
 `XmlSerialization` arm emits the data verbatim when `in_raw_text` (X4, both halves, red; U4 green); and the
 reverse, the `HtmlFragment` arm ignoring `in_raw_text` (U4-entry, U4-recursion, V7 red; X4 green).
@@ -459,12 +483,14 @@ by this PR.
     real DOMParser document. **Gap the split depends on**: the split is by the spec value; obligation (2) fixes a
     given document only if N4's composition returns "disabled" for it, which under the ratified representation means
     the document carries the null-browsing-context marker. The marker's stated writers are DOMParser's build and
-    *destroy a document* (`docs/plans/2026-09-ibp-sandbox.md:706-710`); the inert template document
-    (`crates/core/elidex-ecs/src/dom/template_owner.rs:55`, a plain `create_document_node`) and other
-    no-browsing-context documents have no stated writer, although HTML §4.12.3 step 1.1.1 creates the inert template
-    document with "its browsing context is null". Until a writer covers them, N4 answers "enabled" for template
-    content and its round trip is neither of the two cases above. Recorded as a writer obligation on the slot
-    (umbrella §5, PR-H item (ii)); no cell here depends on it (V11 / V13 use DOMParser documents).
+    *destroy a document* (`docs/plans/2026-09-ibp-sandbox.md:706-710`). The inert template document already carries
+    the same fact in another component: `InertTemplateDocument`, inserted at its creation
+    (`crates/core/elidex-ecs/src/dom/template_owner.rs:55-56`; HTML §4.12.3 step 1.1.1, "its browsing context is
+    null"; P5). So the obligation is not a new writer but that the marker read or merge that component (one fact, one
+    component); until it does, N4 answers "enabled" for template content and its round trip is neither of the two
+    cases above. Recorded as a facet of `#11-domparser-full-document-parse-fidelity`, which PM 795 made the home of
+    the marker's obligations (umbrella §5, PR-H items); other no-browsing-context documents, if any are created,
+    fall under the same slot. No cell here depends on it (V11 / V13 use DOMParser documents).
 
   Cells (each comments the slot id and its obligation, §6):
   - **V10** (page `div`): `div.innerHTML = '<noscript><p></p></noscript>'; g1 = div.innerHTML; div.innerHTML = g1;
@@ -518,7 +544,8 @@ All touched files are under 1000 lines at `c0578223` (§5.3) and stay so with PR
   document, is spec-exact and does not flip). Obligation (1) is about §13.3's step 5.2 and so applies to the
   `HtmlFragment` family only: on the XMLSerializer path a noscript's Text stays escaped (§5.2.1.5 reads no parent;
   D-6). Obligation (2) flips V11 / V13 (§7 R2). The node clause's final representation:
-  `#11-domparser-full-document-parse-fidelity` (ratified marker). ⚠ That slot is overdue (Re-eval 2026-11-01).
+  `#11-domparser-full-document-parse-fidelity` (ratified marker; Re-eval-date 2027-01-31, extended by PM 795, which
+  places its content at IBP-sandbox N5, owner L2 Layout).
 - DOMParser's bare `<noscript>` parsing as raw text (html5ever fragment fallback ignores the scripting flag):
   `#11-domparser-full-document-parse-fidelity`; V2 serializes that parse shape and needs no change if the parse is
   later fixed (data would then be elements, serialized normally).
@@ -549,9 +576,9 @@ All touched files are under 1000 lines at `c0578223` (§5.3) and stay so with PR
    `xml_serialization_tests.rs` (both under `crates/dom/elidex-dom-api/src/`), to
    `crates/script/elidex-script-session` and to `crates/script/elidex-js/src/vm/host` → empty; `git diff <base> --
    crates/script/elidex-js/src/vm/tests/tests_html_serialize_escape.rs | /usr/bin/grep -c -E '^-[^-]'` → 0 (lines
-   are only added, so X1-X5 are unedited); `git grep -n -F 'XmlSerialization' -- crates ':!*tests*'` → the same
-   non-comment hits as at `<base>` (the variant, the two `match` arms, one construction); X1-X5, XT1-XT3 and
-   XA1-XA3 green.
+   are only added, so X1-X5 and XC2 are unedited); `git grep -n -F 'XmlSerialization' -- crates ':!*tests*'` → the
+   same non-comment hits as at `<base>` (the variant, the two `match` arms, one construction); X1-X5, XC2, XT1-XT3
+   and XA1-XA3 green.
 2. Every cell of §6 present and green; every listed mutant observed red at the final head (mutation runs only at the
    final head; ≤2 in parallel).
 3. `cargo test -p elidex-dom-api -p elidex-js --all-features`, then `mise run ci`.

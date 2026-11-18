@@ -16,10 +16,18 @@ Slices — each is a per-PR plan-memo, self-sufficient for its own `/elidex-plan
 
 Base: `origin/main` `c0578223` (the branch's merge-base; rebased from `06bdfbbd` on 2026-11-15). Every code fact in
 the three memos was measured at `c0578223` (2026-11-15, or 2026-11-18 where marked); line numbers move, the commands
-do not. `origin/main` was `1146380f` on 2026-11-18: `git diff --stat c0578223 origin/main --
-crates/dom/elidex-dom-api crates/script/elidex-script-session crates/script/elidex-js/src/vm/host
-crates/script/elidex-js/src/vm/tests/mod.rs` touches, among the files the three memos cite, only
-`crates/script/elidex-js/src/vm/tests/mod.rs` (+1 line).
+do not. **Base drift** (re-dated by Rev 8): `origin/main` was `ae6a11a8` on 2026-11-18, and `git diff --stat
+c0578223 ae6a11a8 -- crates/dom crates/core/elidex-ecs crates/script/elidex-script-session
+crates/script/elidex-js/src/vm/host crates/script/elidex-js/src/vm/tests/mod.rs` touches 7 files. Among the files
+the three memos cite, it touches `crates/dom/elidex-html-parser/src/convert.rs` (#636: `as_ref()` → `as_str()`,
+one line for one line, so the cited `:24` and `:258` hold at `ae6a11a8`) and
+`crates/script/elidex-js/src/vm/tests/mod.rs` (+1 line). The other five files (`elidex-html-parser/src/lib.rs`,
+#636; four `elidex-script-session` event-handler files, #639) are cited by no memo of the program. The census
+commands of the per-PR memos (P6's construction census and its call complement, P7's caller grep, PR-X §5.1, the
+`RAW_TEXT_ELEMENTS` grep, the `serializeToString` test grep) give the same counts at `ae6a11a8` as at `c0578223`, so
+the drift is neutral. (Rev 7's pathspec left out `crates/dom/elidex-html-parser`, and its "only `mod.rs`" was
+measured at `1146380f`, which already contains #639's `elidex-script-session` changes; it held only through
+"among the files the three memos cite".)
 
 **This memo states each program-level rule once** (the split, the order, the exposure window, the shared premises
 P1 / P2, I-1, I-3, the pair matrix, the cross-lane pins, the ledger edits). The per-PR memos refer here for those
@@ -71,6 +79,16 @@ escapers each PR's `HtmlFragment` arms actually call (PR-X §6, PR-H §6); (4) M
 Text HEAD emits literally is corrected and stated once (P2); (5) MIN, Axis 4: the header-cite check counts module
 header lines only (PR-X DoD 4); (6) the pin census excludes this program's memos by their new common name prefix
 (§4.2; re-run, the same 8 lines).
+**Rev 8** (2026-11-18) — R1 plan-review fixes (5 axes over the three files; CRIT 0 / IMP 5 / MIN 16). The inert
+template document already carries `InertTemplateDocument`, so the obligation is that the null-browsing-context
+marker of `#11-domparser-full-document-parse-fidelity` (PM 795) reads or merges it — a facet of that slot, not a
+new writer (§5, PR-H §0.2 P5 / §7 R2); `#11-range-create-contextual-fragment` (closed) → `#11-range-full-impl`; the
+`#11-domparser-xml-real-parsing` landing item re-cut against the row as PM 795 left it; §3 names where preflight runs;
+S-3 gains its end condition and a ratify-time Re-eval move (PM 803); Q-5 decided by the PM's instruction (Axis 3
+chooses the cell) → XC2 (PR-X §6); the five XMLSerializer `§8.5.8` cites outside PR-X's two files go to the
+html-section renumber sweep (§5); `markup.rs`'s three `§4.4.6` cites → §8.5.4 in PR-X; base drift re-dated to
+`ae6a11a8`; §4.2's census result marked as a dated snapshot; PR-H §4.3 lists the `Namespace` writers; PR-X D-6
+quotes the Note it does not weigh.
 
 ## §0. Frame, shared premises, program decisions
 
@@ -89,7 +107,8 @@ are the program's three axes:
   escapers and the §13.3 literal branch.
 
 PR-X introduces (iii) and gives the XML family its two algorithms; PR-H makes (i) and (ii) exact or safe on the
-HTML fragment family. The spec text and the design of each are in the per-PR memos (§0.1 / §0.3 of each).
+HTML fragment family. The spec text and the design of each are in the per-PR memos (§0.1 / §0.3 of each), and so
+is the ECS-native / layering check with its OO → ECS mapping (§4.3 of each; neither PR adds a component).
 
 ### §0.2 Shared premises (re-measured at `c0578223`)
 
@@ -141,8 +160,12 @@ path) is PR-X's.
   `<` / `>` on those entries (D-1; V5). Between PR-X's landing and PR-H's, `innerHTML` / `outerHTML` / `getHTML`
   behave exactly as at HEAD — the window adds no exposure and removes none on those entries. It is bounded by
   process: PR-H is stacked on PR-X and is filed immediately after PR-X lands; PR-H's implementation may be stacked
-  on PR-X's branch before PR-X lands. **If PR-X's landing is expected past 2026-12-05, the driver reports to the
-  PM, who re-decides the order** (PM 797). PR-X's PR body states this window (PR-X DoD 5).
+  on PR-X's branch before PR-X lands. **End condition (PM 803): if PR-X's landing is expected past 2026-12-05, or
+  PR-H's past 2026-12-12, the driver reports to the PM, who re-decides, the order included** (PM 797 set the
+  2026-12-05 report; PM 803 added PR-H's date and made the re-decision cover the order, (B)). The slot's (d) / (e)
+  Re-eval follows PR-H's target date: it moves from 2026-11-20 to 2026-12-12 at this umbrella's ratify (§5, "At the
+  umbrella's ratify"); until then a triage that reaches the 2026-11-20 date records it as "awaiting ratify, PM 803".
+  PR-X's PR body states this window (PR-X DoD 5).
 - **S-4 — review units.** The umbrella and both per-PR memos are written together (PM 797). Each per-PR memo goes
   through its own full `/elidex-plan-review` before its implementation; the coupled-invariant enumeration the
   skill's Pre-condition #3 asks of an edge-dense plan is §2 of this memo, and each per-PR §2 names the rows it pins.
@@ -151,7 +174,7 @@ path) is PR-X's.
 
 | Slice | Axes it moves | Decisions | Cells | Accepted regressions | Depends on |
 |---|---|---|---|---|---|
-| PR-X | (iii) introduced; (i) on the XML family; (ii) unchanged, gated off the XML family | D-6 | XT1-XT3, XA1-XA3, X1-X5, XC1 | none | — |
+| PR-X | (iii) introduced; (i) on the XML family; (ii) unchanged, gated off the XML family | D-6 | XT1-XT3, XA1-XA3, X1-X5, XC1, XC2 | none | — |
 | PR-H | (i) on the HTML fragment family; (ii) | D-1, D-2, D-3, D-4 (D-5 withdrawn) | U1-U6, V1, V2, V4-V7, V10-V13 | R1, R2 | PR-X |
 
 | IDs | Defined in |
@@ -165,7 +188,7 @@ path) is PR-X's.
 | I-1, I-3, the pair matrix | this memo §2 |
 | I-2, I-1 × I-2 | per family: `HtmlFragment` in PR-H §2, `XmlSerialization` in PR-X §2 |
 | U1-U6, V1-V13 (cell numbers absent from that range in Rev 6 are not reused) | PR-H §6 |
-| XT1-XT3, XA1-XA3, X1-X5, XC1 | PR-X §6 |
+| XT1-XT3, XA1-XA3, X1-X5, XC1, XC2 | PR-X §6 |
 | R1, R2 | PR-H §7 |
 | Q-1..Q-3 | PR-H §11 |
 | Q-4, Q-5 | PR-X §11 |
@@ -198,13 +221,15 @@ that lands each cell:
 | Pair | Intersection | Cells (PR) | Exact from |
 |---|---|---|---|
 | (i) × (ii) | A literal Text bypasses escaping entirely; every other Text goes through the family's Text function, and an attribute value is never literal (no raw-text decision reads it): the noscript argument of I-1 × I-2 holds through `<` | U4, U6, V5 (PR-H); X5 (PR-X) | `XmlSerialization`: PR-X; `HtmlFragment`: PR-H |
-| (i) × (iii) | The family picks the whole character map, never mixed in one walk: `HtmlFragment` → `push_escaped_string(Text \| Attribute)` (HEAD's `escape_html` / `escape_attr` between the PRs), `XmlSerialization` → `push_xml_text` / `push_xml_attribute_value` | U1-U3, V6 (PR-H) vs XT1-XT3, XA1-XA3, X1-X3, X5 (PR-X) | the selection: PR-X; the `HtmlFragment` map: PR-H |
+| (i) × (iii) | The family picks the whole character map, never mixed in one walk: `HtmlFragment` → `push_escaped_string(Text \| Attribute)` (HEAD's `escape_html` / `escape_attr` between the PRs), `XmlSerialization` → `push_xml_text` / `push_xml_attribute_value` | U1-U3, V6 (PR-H) and XC2 (PR-X: U+0009 raw in an attribute value on `HtmlFragment`, exact for §13.3 before and after PR-H) vs XT1-XT3, XA1-XA3, X1-X3, X5 (PR-X) | the selection: PR-X; the `HtmlFragment` map: PR-H |
 | (ii) × (iii) | The raw-text decision is read only on the `HtmlFragment` family: literal iff `HtmlFragment` ∧ the walk's `in_raw_text`; through XMLSerializer every Text is escaped, a script / style parent included | XC1 (literal on `HtmlFragment`, PR-X; generalised to U4 by PR-H) vs X4 (escaped on `XmlSerialization`, PR-X) | PR-X (the gate); the predicate behind `in_raw_text`: PR-H |
 
 ## §3. Spec coverage, by slice
 
 This memo implements no spec step of its own; each per-PR memo carries the preflight-parsable `§3. Spec coverage
-map` and the citation table (§0.4) for its slice.
+map` and the citation table (§0.4) for its slice. **`/elidex-plan-review` Step 0 (the coverage-map preflight, a
+hard gate) runs on the two per-PR memos**, which hold the maps; the table below is an index of them, not a third
+map, and repeats none of their rows.
 
 | Slice | Rows | Specs |
 |---|---|---|
@@ -215,8 +240,8 @@ map` and the citation table (§0.4) for its slice.
 
 ### §4.1 Order and stacking
 
-PR-X, then PR-H (S-2); the window and the 2026-12-05 report are S-3. PR-H's premises cite `markup.rs` lines at
-`c0578223`; PR-X moves them, so PR-H re-measures its cites at its own base (PR-X's head while stacked, `origin/main`
+PR-X, then PR-H (S-2); the window and its end condition (the 2026-12-05 / 2026-12-12 reports) are S-3. PR-H's
+premises cite `markup.rs` lines at `c0578223`; PR-X moves them, so PR-H re-measures its cites at its own base (PR-X's head while stacked, `origin/main`
 once PR-X has landed) before implementation — by the commands its §0.2 / §5 give, which do not move.
 
 ### §4.2 Cross-lane pins
@@ -239,7 +264,11 @@ follow the same rule. The program moves lines in:
   done | grep -v html-fragment-serializer- | sort -u
   ```
   (The `grep -v` drops this program's own memos; Rev 6's pattern was the retired memo's name.)
-  Result (8 lines): branch `ecs-shadow-root-lifetime-plan` @`23aa745a` — the pr-ig memo
+  **The result below is a dated snapshot** (Rev 7, 2026-11-18), not a standing list: refs move, and the census is
+  re-run before each PR lands. Re-run by Rev 8 the same day, it gives 9 lines: the ecs-entity-lifetime and
+  focus-fixup lines as below, and branch `tree-model-shadow-root-plan` moved to `a6a0722f`, where the census memo's
+  hits are `:110`, `:232` (`markup.rs:307`) and `:428` (`markup.rs:70`).
+  Snapshot (8 lines): branch `ecs-shadow-root-lifetime-plan` @`23aa745a` — the pr-ig memo
   (`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md:154`, `markup.rs:117`) and the pr-io memo
   (`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md:982` / `:1045`, `markup.rs:304` /
   `:256`); branch `tree-model-shadow-root-plan` @`1593a5ad` — `docs/plans/2026-11-tree-model-census.md` `:93` (the
@@ -260,29 +289,51 @@ follow the same rule. The program moves lines in:
 
 ## §5. Ledger and slot edits (pmo, after each merge)
 
+Old texts are quoted from the rows of `project_open-defer-slots.md` as read on 2026-11-18 (after PM 795's triage);
+the pmo re-reads each row before the edit and reports any difference instead of applying.
+
+**At the umbrella's ratify** (PM 803; S-3):
+- `#11-html-fragment-serializer-conformance`: replace
+  - old: "**Re-eval: 2026-11-20** (because of (d) and (e))."
+  - new: "**Re-eval: 2026-12-12** (because of (d) and (e); PR-H's target landing date, umbrella S-3; moved from
+    2026-11-20 at the umbrella's ratify, PM 803)."
+
+  and append "(PM 803) (d)(e) は umbrella + PR-X + PR-H の 3 本の plan で直す (PM 797)。(d)(e) の Re-eval は
+  PR-H の着地目標 2026-12-12。PR-X の着地が 12-05 より後、または PR-H の着地が 12-12 より後になりそうなら、driver
+  が PM に報告し、PM が順序を含めて決め直す。" (a) (b) (c) (f) keep Re-eval 2026-12-15. Until the ratify, a triage
+  that reaches the 2026-11-20 date records "awaiting ratify, PM 803" and edits nothing.
+
 **At PR-X's landing:**
 - `#11-html-fragment-serializer-conformance`: add "PR-X landed (the XMLSerializer path escapes by DOM Parsing);
   items (d) and (e) stay open until PR-H — the §13.3 entries behave as before in between (umbrella S-3)". No item
   closes.
-- `#11-domparser-xml-real-parsing` (PM 785): the two escaping functions (parts of its XML serializer) landed in
-  PR-X. In the row (`project_open-defer-slots.md`, read 2026-11-18), replace
-  - old: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace prefixes) +
+- `#11-domparser-xml-real-parsing` (PM 785, PM 795): the two escaping functions (parts of its XML serializer) landed
+  in PR-X. Three replacements in the row, nothing appended beside them:
+  - scope — old: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace
+    prefixes) + `XMLSerializer.serializeToString` **Attr-root** contract."
+  - scope — new: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace
+    prefixes and declarations, the doctype's public / system identifiers, the *require well-formed* = true checks) +
     `XMLSerializer.serializeToString` **Attr-root** contract."
-  - new: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace prefixes,
-    the *require well-formed* = true checks) +
-    `XMLSerializer.serializeToString` **Attr-root** contract. **Landed in serializer PR-X (PM 785)**: the two
-    escaping functions (parts) — `push_xml_text` (DOM Parsing §5.2.1.5 *XML serializing a Text node*, steps 3-5) and
-    `push_xml_attribute_value` (§5.2.1.1.3 *serializing an attribute value*, step 3), in
-    `crates/dom/elidex-dom-api/src/xml_serialization.rs`; `serialize_node_to_string` already calls them, on the HTML
-    walk without §13.3's literal raw-text branch (every Text escaped by §5.2.1.5). The XML serializer extends that
-    module and uses both as they are."
+  - **Why deferred** — old: "all 5 accepted MIME currently HTML-parsed + HTML-serialized = **boa parity** (boa
+    HTML-parsed all MIME, serialized element/text-only, no Attr root) → VM ≥ boa, narrowing would be a boa
+    regression; a real XML parser + XML serializer is a separable feature."
+  - **Why deferred** — new: "all 5 accepted MIME currently HTML-parsed + serialized by the HTML walk (with DOM
+    Parsing's two escapes since serializer PR-X); a real XML parser needs an XML parser backend, which enters through
+    a plugin trait (PM 795; the boa-parity ground is gone since #458)."
+  - PM 795 note — old: "部品は serializer の PR (PM 785) で入る。"
+  - PM 795 note — new: "部品のうち escape の 2 関数は serializer の PR-X (PM 785、<PR 番号> `<merge sha>`) で入った:
+    `push_xml_text` (DOM Parsing §5.2.1.5 *XML serializing a Text node* の step 3-5) と `push_xml_attribute_value`
+    (§5.2.1.1.3 *serializing an attribute value* の step 3)、`crates/dom/elidex-dom-api/src/xml_serialization.rs`。
+    `serialize_node_to_string` は既にこの 2 つを呼び、HTML の walk のまま §13.3 の literal (raw text) の分岐を通らない
+    (Text はすべて §5.2.1.5 で escape)。XML serializer はこの module を広げ、2 つの関数をそのまま使う。"
 
-  and in the same row's **Why deferred**, replace
-  - old: "all 5 accepted MIME currently HTML-parsed + HTML-serialized"
-  - new: "all 5 accepted MIME currently HTML-parsed + serialized by the HTML walk (with DOM Parsing's two escapes
-    since serializer PR-X)"
-
-  The rest of the row (the boa-parity ground, Trigger, Date) is unchanged by PR-X.
+  The rest of the row (owner L3, Trigger, Date, the rest of the PM 795 note, **Re-eval-date** 2027-01-31) is
+  unchanged by PR-X.
+- `project_html-section-renumber-sweep` (the cite-sweep record): PR-X fixes the XMLSerializer cite `HTML §8.5.8` →
+  §8.5.9 only in the two files it edits (`markup.rs`, `dom_parser.rs`; PR-X §9). Append "(serializer PR-X, PM 797)
+  XMLSerializer の cite `HTML §8.5.8` (正: §8.5.9 *The XMLSerializer interface*) が残る 5 箇所:
+  `crates/script/elidex-js/src/vm/globals.rs:830`, `vm/host/structured_clone.rs:321`, `vm/object_kind.rs:720`,
+  `vm/tests/tests_dom_parser.rs:1`, `:713` (`c0578223`、grep で引き直す)。"
 
 **At PR-H's landing:**
 - `#11-html-fragment-serializer-conformance`: (e) closed; (d) closed except the precise noscript rule, which moves to
@@ -305,17 +356,26 @@ follow the same rule. The program moves lines in:
   unreachable handlers), DOMParser's inert build), measured by construction of `SetInnerHtmlOptions` /
   `ParseFragmentOptions`, not by vocabulary. Their defect shows wherever scripting is **disabled** for the context
   document: DOMParser documents, a page `<template>`'s content (inert template document), and other documents with
-  no browsing context. **Writer obligation this depends on**: obligation (2) reaches a document only if N4's
-  composition answers disabled for it; the null-browsing-context marker's stated writers are DOMParser's build and
-  *destroy a document*, so the inert template document (`template_owner.rs`, HTML §4.12.3 *appropriate template
-  contents owner document* step 1.1.1: 'its browsing context is null') and any other document created with a null
-  browsing context need a writer too, or N4 answers enabled for them and template content keeps the round-trip
-  growth. A future production fragment-parse path (e.g. `#11-range-create-contextual-fragment`'s
-  `createContextualFragment`) joins this population, measured by the same construction census";
+  no browsing context. Obligation (2) reaches a document only if N4's composition answers disabled for it, which
+  for the inert template document depends on the null-browsing-context marker's facet recorded on
+  `#11-domparser-full-document-parse-fidelity` (serializer PR-H). A future production fragment-parse path (e.g.
+  `#11-range-full-impl`'s RC-4 `createContextualFragment`) joins this population, measured by the same
+  construction census";
   (iii) "the Defect's premise 'the same predicate is read two ways' (the serializer's fail-safe reading) no longer
   holds after PR-H: the serializer reads no predicate; the Resolution's serializer-side item (removing the
   serializer's separate reading) is done by PR-H. What remains of the Defect is the canonical function's fail-open
   no-document reading (aligned at N4) and obligations (1) / (2)".
+- `#11-domparser-full-document-parse-fidelity` (owner L2 Layout, lands at IBP-sandbox N5; PM 795 put the marker
+  obligations here): append "(serializer PR-H) facet — the inert template document already carries the
+  null-browsing-context fact: `appropriate_template_contents_owner_document` creates it with `create_document_node`
+  and inserts the `InertTemplateDocument` marker (`crates/core/elidex-ecs/src/dom/template_owner.rs:55-56` at
+  `c0578223`), whose doc says 'an inert template document, whose browsing context is null' (HTML §4.12.3
+  *appropriate template contents owner document* step 1.1.1; `components.rs:388-394`). The null-browsing-context
+  marker (stated writers: DOMParser's build and *destroy a document*) must cover it by reading or merging that
+  existing component — one component for the one fact, not a second writer — so that N4's
+  `EcsDom::scripting_disabled_for` answers disabled for template content and obligation (2) of
+  `#11-scripting-disabled-predicate-no-document` reaches it. Until then N4 answers enabled for template content,
+  so its getter→setter round-trip growth falls in neither of the two cases of serializer PR-H's R2 (PR-H §7 R2)."
 - `#11-dom-api-handlers-unreachable-from-production` (registered, PM 583/744): cite PR-H in that slot (it left
   `GetInnerHtml` untouched pending the class, PR-H §9); the parse side (P6 F6 / F7, `"insertAdjacentHTML"` /
   `"innerHTML.set"`) also belongs to obligation (2)'s population.
@@ -334,8 +394,9 @@ is not in one of those two lists.
 ## §7. Definition of done (program), open items
 
 1. PR-X landed with its DoD (PR-X §10); §5's PR-X items applied.
-2. PR-H landed with its DoD (PR-H §10), X1-X5 / XT / XA green and unedited at its head; §5's PR-H items applied.
+2. PR-H landed with its DoD (PR-H §10), X1-X5 / XC2 / XT / XA green and unedited at its head; §5's PR-H items
+   applied.
 3. I-1's end state holds at PR-H's head (PR-H DoD 1).
 
-Open: none at the program level. The per-PR open question is Q-5 (PR-X §11). Standing condition: S-3's 2026-12-05
-report.
+Open: none at the program level, and no per-PR open question (Q-5 decided, PR-X §11). Standing condition: S-3's end
+condition (the 2026-12-05 / 2026-12-12 reports, PM 803); §5's ratify-time item.

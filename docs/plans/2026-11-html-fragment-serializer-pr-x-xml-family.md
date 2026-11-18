@@ -12,7 +12,7 @@ the two markup-injection defects of the `XMLSerializer` path (P7); the §13.3 en
 Stated in the umbrella and only referred to here: the split, the order and the exposure window (S-1..S-3), the
 shared premises P1 / P2 with the HEAD literal set, I-1, I-3, the pair matrix, the cross-lane pins and the ledger
 edits. IDs are program-wide (umbrella §1 index); an ID not defined in this memo is defined in the file that index
-names. Revision history: the umbrella (Rev 1-6 of the retired single memo; Rev 7 = this split).
+names. Revision history: the umbrella (Rev 1-6 of the retired single memo; Rev 7 = this split; Rev 8 = R1 fixes).
 
 ## §0. Frame, premises, decisions
 
@@ -65,8 +65,9 @@ umbrella §0.2.
   - **`>` in an attribute value — ruling.** Step 3's list, the normative text, has no `>`; the Note under it says
     the algorithm goes beyond XML's AttValue grammar "by also replacing ">" characters". The two disagree, and
     elidex's basis order decides by the normative text: the numbered steps are normative, a Note is informative,
-    so `>` is **not** replaced (XA2, X3). The Note's stated ground is an observation about existing
-    implementations, which is not a basis for core behaviour (CLAUDE.md, basis order), so it is not weighed.
+    so `>` is **not** replaced (XA2, X3). The Note's stated ground is its first clause, "This matches behavior
+    present in browsers" — existing implementations' behaviour, which is not a basis for core behaviour
+    (CLAUDE.md, basis order), so it is not weighed [contrast].
     Safety does not depend on `>` (I-1 × I-2, §2). If DOM Parsing moves `>` into the steps, the change is one arm
     plus flipping XA2's `>` cell and X3. The docstring of `push_xml_attribute_value` states this ruling and its
     basis (DoD 4).
@@ -129,8 +130,8 @@ umbrella §0.2.
 
 | Cite | Title | Anchor | Lookup (2026-11-15) |
 |---|---|---|---|
-| HTML §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7 | HTML serialization methods / The innerHTML property / The outerHTML property / The insertAdjacentHTML() method | `#html-serialization-methods`, `#the-innerhtml-property`, `#the-outerhtml-property`, `#the-insertadjacenthtml()-method` | `webref heading html 8.5.4` … `8.5.7` (2026-11-18; `8.5.3` → *HTML streaming methods*, which `markup.rs`'s header names as §8.5.3 *HTML serialization methods* at `c0578223`; the header's numbers fixed by this PR, §4.1) |
-| HTML §8.5.8 | The createContextualFragment() method | `#the-createcontextualfragment()-method` | `webref heading html 8.5.8` (the number the code's XMLSerializer cites carry today; fixed to §8.5.9 by this PR, §4.1 / §4.2 / §9) |
+| HTML §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7 | HTML serialization methods / The innerHTML property / The outerHTML property / The insertAdjacentHTML() method | `#html-serialization-methods`, `#the-innerhtml-property`, `#the-outerhtml-property`, `#the-insertadjacenthtml()-method` | `webref heading html 8.5.4` … `8.5.7` (2026-11-18; `8.5.3` → *HTML streaming methods*, which `markup.rs`'s header names as §8.5.3 *HTML serialization methods* at `c0578223`; the header's numbers fixed by this PR, §4.1). `webref dfn html 'getHTML'` → `getHTML(options)` (Element, ShadowRoot) in §8.5.4, `#dom-element-gethtml` / `#dom-shadowroot-gethtml`; `webref heading html 4.4.6` → *The ul element* (2026-11-18; `markup.rs`'s three `§4.4.6` getHTML cites, fixed to §8.5.4 by this PR, §4.1) |
+| HTML §8.5.8 | The createContextualFragment() method | `#the-createcontextualfragment()-method` | `webref heading html 8.5.8` (the number the XMLSerializer cites carry today; fixed to §8.5.9 by this PR in the two files it edits, `markup.rs` and `dom_parser.rs` — §4.1 / §4.2; the five other sites go to the renumber sweep, §9) |
 | HTML §8.5.9 | The XMLSerializer interface | `#the-xmlserializer-interface` | `webref heading html 8.5.9`; `webref body html the-xmlserializer-interface` (`serializeToString(root)` step 1: "Return the XML serialization of root given false.") |
 | DOM Parsing §5.2.1 | XML Serialization | `#xml-serialization` | `webref heading DOM-Parsing 5.2.1` (2026-11-18; the module name of D-6; subsections §5.2.1.1 … §5.2.1.8) |
 | DOM Parsing §5.2.1.5 | XML serializing a Text node | `#xml-serializing-a-text-node` (heading), `#dfn-xml-serializing-a-text-node` (algorithm) | `webref heading DOM-Parsing 5.2.1.5`; `webref dfn DOM-Parsing 'XML serializing a Text node'` → §5.2.1.5 `#dfn-xml-serializing-a-text-node`; `webref body DOM-Parsing dfn-xml-serializing-a-text-node` (2026-11-18: steps 1-6; 2 = the *require well-formed* check; 3-5 = "&" → "&amp;", "<" → "&lt;", ">" → "&gt;") |
@@ -155,7 +156,8 @@ event / mutation / identity interaction. One normal `/elidex-plan-review`.
 
 I-1 (with its staging: what holds between this PR and PR-H), I-3 and the three-axis pair matrix are the umbrella's
 (§2). This PR pins the matrix's (ii) × (iii) row (XC1 vs X4), the `XmlSerialization` side of (i) × (iii) (XT, XA,
-X1-X3, X5) and the `XmlSerialization` side of (i) × (ii) (X5). Its own invariants:
+X1-X3, X5) with one `HtmlFragment` contrast on the attribute map (XC2), and the `XmlSerialization` side of
+(i) × (ii) (X5). Its own invariants:
 
 - I-2 (raw text), **`XmlSerialization`** (`serialize_node_to_string`): no Text is emitted literally — every Text,
   whatever its parent (including a script / style / … parent), goes through `push_xml_text` (§5.2.1.5 reads no
@@ -231,6 +233,14 @@ instead). **Split decision**: single PR (a slice of the umbrella).
   (`webref heading html 8.5.3` … `8.5.9`, 2026-11-18: §8.5.3 is now *HTML streaming methods*, §8.5.8 *The
   createContextualFragment() method*, §8.5.9 *The XMLSerializer interface*). The rewritten header writes each
   number with its title on one line (DoD 4's check).
+- The same file's three `getHTML` cites `HTML §4.4.6` (`markup.rs:197`, `:212`, `:275` at `c0578223`: the
+  `SerializeOptions` docstring, its `explicit_shadow_roots` field and the shadow-root emission decision) become
+  §8.5.4: §4.4.6 is *The ul element*, and `getHTML(options)` is defined in §8.5.4 *HTML serialization methods*
+  (§0.4). Comment-only; same renumbering class as the header (DoD 4).
+- `CharacterEscaping`'s doc comment cites the ground of each variant — `XmlSerialization`: HTML §8.5.9
+  `serializeToString(root)` step 1; `HtmlFragment`: HTML §13.3 — and `push_text_data`'s two arms cite their
+  algorithm — `HtmlFragment`: §13.3 step 5.2 (literal list, *otherwise* escaped); `XmlSerialization`: DOM Parsing
+  §5.2.1.5 (DoD 4). Numbers from §0.4 and PR-H §0.4.
 - `SerializeOptions`, the public entry points' signatures, `GetInnerHtml` and the re-export lists are unchanged.
 
 ### §4.1a `elidex-dom-api` — `xml_serialization.rs` (NEW)
@@ -293,13 +303,13 @@ so on `XmlSerialization` no Text is literal (I-2).
 
 | File | Lines | Change |
 |---|---|---|
-| `crates/dom/elidex-dom-api/src/element/markup.rs` | 459 | D-6's selection, `Walk`, the two dispatch functions, header / docstring cites (~+45) |
+| `crates/dom/elidex-dom-api/src/element/markup.rs` | 459 | D-6's selection, `Walk`, the two dispatch functions, header / docstring cites, the three `§4.4.6` cites (~+45) |
 | `crates/dom/elidex-dom-api/src/xml_serialization.rs` (NEW) | — | D-6's two functions (~60) |
 | `crates/dom/elidex-dom-api/src/xml_serialization_tests.rs` (NEW) | — | XT / XA cells (~90) |
 | `crates/dom/elidex-dom-api/src/lib.rs` | 132 | two `mod` lines |
 | `crates/dom/elidex-dom-api/src/element/tests_markup.rs` | 246 | XC1 (~+25) |
 | `crates/script/elidex-js/src/vm/host/dom_parser.rs` | 407 | comments only (§4.2) |
-| `crates/script/elidex-js/src/vm/tests/tests_html_serialize_escape.rs` (NEW) | — | X1-X5 (~80); PR-H adds its V cells to this file |
+| `crates/script/elidex-js/src/vm/tests/tests_html_serialize_escape.rs` (NEW) | — | X1-X5, XC2 (~90); PR-H adds its V cells to this file |
 | `crates/script/elidex-js/src/vm/tests/mod.rs` | 210 | `mod tests_html_serialize_escape;` |
 
 ## §6. Test and coverage plan
@@ -353,14 +363,21 @@ which is PR-H's and whose new row is plaintext, not literal at HEAD):
     onerror=f()>"></p></noscript>'` (`<` escaped, `>` raw), and `d.innerHTML` of that output on a page `div` (noscript
     RAWTEXT) → `d.querySelector('img') === null`. Red on old code: `escape_attr` left `<` raw, so the page parse ends
     the noscript inside the attribute.
+- **XC2** (NEW in Rev 8; Q-5, the PM's instruction that Axis 3 chooses the cell) — the `HtmlFragment` side of the
+  (i) × (iii) attribute map: `div.setAttribute('title', 'a\tb')` → `div.outerHTML === '<div title="a\tb"></div>'`
+  (U+0009 raw). Exact for §13.3 at HEAD (`escape_attr` maps only `&` and `"`, P1), after this PR (the
+  `HtmlFragment` arm still calls it) and after PR-H (*escaping a string* has no U+0009 step, PR-H §0.1), so it pins
+  no HEAD defect and does not change at PR-H. It is the cell that kills mutant (b) below: an `HtmlFragment` arm of
+  `push_attribute_value` calling `push_xml_attribute_value` emits `&#9;`.
 
 X1 and X3 are green at HEAD too (HEAD's escapers leave U+00A0, and an attribute value's `>`, raw, as DOM Parsing
 does); they pin the family against a later change of the §13.3 escapers (PR-H's U+00A0 → `&nbsp;` and attribute
-`>` → `&gt;`) and are the cells the `&nbsp;` / `>` arm mutants turn red. X2, X4 and X5 are red at HEAD.
+`>` → `&gt;`) and are the cells the `&nbsp;` / `>` arm mutants turn red. X2, X4 and X5 are red at HEAD; XC2 is
+green at HEAD, after this PR and after PR-H.
 
 VM test function names: `x1_xml_serializer_nbsp_raw`,
 `x2_xml_serializer_attr_lt_escaped`, `x3_xml_serializer_attr_gt_raw`, `x4_xml_serializer_raw_text_parent_text_escaped`,
-`x5_xml_serializer_noscript_attr_lt_escaped`.
+`x5_xml_serializer_noscript_attr_lt_escaped`, `xc2_html_fragment_attr_tab_raw`.
 
 The X / XT / XA / XC cells are not accepted regressions and name no slot.
 
@@ -389,16 +406,17 @@ expectation. The §13.3 entries' output is unchanged (D-6, staging), so no test 
 - **The family gate** (the (ii) × (iii) conjunct): drop it, so the `XmlSerialization` arm emits the data verbatim
   when `in_raw_text` (X4, both halves, red; XC1 green); and the reverse, the `HtmlFragment` arm ignoring
   `in_raw_text` (XC1-entry, XC1-recursion red; X4 green).
-- **Not observable in this PR, and what checks each instead.** (a) `push_text_data`'s `XmlSerialization` arm calls
+- **(a) Not observable in this PR, and what checks it instead.** `push_text_data`'s `XmlSerialization` arm calls
   `escape_html` on every Text (still ignoring `in_raw_text`): `escape_html` and `push_xml_text` have the same three
   replacements (P7), so no output differs. DoD 1's grep requires the one `escape_html` call to be in the
   `HtmlFragment` arm; at PR-H the function is deleted, and Rev 6's form of this mutant (the arm calling
-  `push_escaped_string`; X1's Text assertion red) is PR-H's. (b) The reverse, an `HtmlFragment` arm calling the DOM
-  Parsing function: for Text the output is identical for the same reason; for an attribute value the §13.3
-  entries' output would change (`<` and the three character references) with no cell of this PR red — DoD 1's grep
-  (one `push_xml_attribute_value` call, in the `XmlSerialization` arm; one `escape_attr` call, in the
-  `HtmlFragment` arm) is this PR's check, and PR-H's V6 / U2 are the executable one (PR-H §6). Whether this PR
-  should carry a cell for it is Q-5.
+  `push_escaped_string`; X1's Text assertion red) is PR-H's.
+- **(b)** The reverse, an `HtmlFragment` arm calling the DOM Parsing function: for Text the output is identical for
+  the same reason (not observable; DoD 1's grep, one `push_xml_text` call, in the `XmlSerialization` arm); for an
+  attribute value, `push_attribute_value`'s `HtmlFragment` arm calling `push_xml_attribute_value` → **XC2 red**
+  (`&#9;`). DoD 1's grep (one `push_xml_attribute_value` call, in the `XmlSerialization` arm; one `escape_attr`
+  call, in the `HtmlFragment` arm) stays as the structural check; PR-H's V6 / U2 kill it again at PR-H's head
+  (PR-H §6).
 
 ## §7. Accepted regressions
 
@@ -417,13 +435,19 @@ All touched files are under 1000 lines at `c0578223` (§5.3). VM cells go to a N
 - The `HtmlFragment` family — §13.3's *escaping a string*, the raw-text list, noscript, the namespace conjunct:
   **PR-H**, same slot (`#11-html-fragment-serializer-conformance` (d) / (e)). This PR leaves the §13.3 entries'
   mXSS defects open; the window and its bound are umbrella S-3.
-- The XMLSerializer cite "HTML §8.5.8" (`markup.rs:7`, `:168`; `dom_parser.rs:1`, `:322`) is fixed to §8.5.9 by this PR,
-  which rewrites those comments for D-6 (§4.1, §4.2). The other section numbers in `markup.rs`'s module header,
-  stale by the same renumbering, are fixed in the same header block by this PR (§8.5.4-§8.5.7, §4.1; DoD 4).
+- The XMLSerializer cite "HTML §8.5.8" is fixed to §8.5.9 by this PR **in the two files it edits** (`markup.rs:7`,
+  `:168`; `dom_parser.rs:1`, `:322`), which it rewrites for D-6 (§4.1, §4.2). The other section numbers in
+  `markup.rs` stale by the same renumbering — the module header's (§8.5.4-§8.5.7) and the three `getHTML` cites
+  `§4.4.6` → §8.5.4 — are fixed in the same file by this PR (§4.1; DoD 4). **Not fixed here**: the five other
+  XMLSerializer `§8.5.8` cites, in files this PR does not edit — `crates/script/elidex-js/src/vm/globals.rs:830`,
+  `vm/host/structured_clone.rs:321`, `vm/object_kind.rs:720`, `vm/tests/tests_dom_parser.rs:1` and `:713` (`git grep
+  -n -F '8.5.8' c0578223 -- crates` → 9 hits = these 5 + the 4 above; the same 9 at `ae6a11a8`). They belong to the
+  HTML §8.5 renumbering that the html-section renumber sweep record already holds (its PM 607 entry), and are handed
+  to it at PR-X's landing (umbrella §5).
 - The rest of the XML serialization: `#11-domparser-xml-real-parsing` (PM 785). This PR lands only its two escaping
-  functions (D-6). Staying there: the XML walk itself — void self-closing, namespace prefixes and declarations (the
-  remainder of §5.2.1.1.3), the Attr-root contract, the doctype's public / system identifiers — and the
-  *require well-formed* = true checks. Not staying there: the Text under an HTML raw-text parent on the
+  functions (D-6). Staying there (the slot's scope as the umbrella §5 landing item rewrites it): void self-closing,
+  namespace prefixes and declarations (the remainder of §5.2.1.1.3), the doctype's public / system identifiers, the
+  *require well-formed* = true checks, and the Attr-root contract. Not staying there: the Text under an HTML raw-text parent on the
   XMLSerializer path — escaped by this PR (D-6, I-2, X4), since keeping §13.3's literal branch on this path was a
   deviation from §5.2.1.5 in the unsafe direction.
 
@@ -447,23 +471,27 @@ All touched files are under 1000 lines at `c0578223` (§5.3). VM cells go to a N
    touches `dom_parser.rs` only and every changed line is a comment: `git diff origin/main --
    crates/script/elidex-js/src/vm/host | /usr/bin/grep -E '^[+-]' | /usr/bin/grep -v -E
    '^(\+\+\+|---)|^[+-][[:space:]]*//'` → no output.
-2. Every cell of §6 present and green; every listed mutant observed red at the final head (mutation runs only at the
-   final head; ≤2 in parallel).
+2. Every cell of §6 present and green (XT1-XT3, XA1-XA3, XC1, X1-X5, XC2); every listed mutant observed red at the
+   final head, mutant (b)'s attribute half by XC2 (mutation runs only at the final head; ≤2 in parallel).
 3. `cargo test -p elidex-dom-api -p elidex-js --all-features`, then `mise run ci`.
 4. The docstrings of `push_xml_text` / `push_xml_attribute_value` carry DOM Parsing §5.2.1.5
    `#dfn-xml-serializing-a-text-node` and §5.2.1.1.3 `#dfn-serializing-an-attribute-value` with the steps they
    implement and the *require well-formed* note (D-6), and `push_xml_attribute_value`'s also the `>` ruling — step
    3's list is normative and has no `>`, the Note that says `>` is replaced is informative and not followed (D-6);
    the XMLSerializer cite is HTML §8.5.9 in `markup.rs` and `dom_parser.rs`, and `markup.rs`'s module header names
-   §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7 (§4.1): `git grep -n -F -e '8.5.3' -e '8.5.8' --
-   crates/dom/elidex-dom-api/src/element/markup.rs crates/script/elidex-js/src/vm/host/dom_parser.rs` → 0, and for
+   §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7, and its `getHTML` cites §8.5.4 (§4.1): `git grep -n -F -e '8.5.3' -e '8.5.8'
+   -e '4.4.6' -- crates/dom/elidex-dom-api/src/element/markup.rs crates/script/elidex-js/src/vm/host/dom_parser.rs`
+   → 0 (the five `§8.5.8` sites outside these two files are the sweep's, §9), and for
    each of the five strings `§8.5.4 HTML serialization methods`, `§8.5.5 The innerHTML property`, `§8.5.6 The
    outerHTML property`, `§8.5.7 The insertAdjacentHTML() method`, `§8.5.9 The XMLSerializer interface`: `git grep -n
    -F -e '<string>' -- crates/dom/elidex-dom-api/src/element/markup.rs | /usr/bin/grep -c -E '^[^:]+:[0-9]+://!'` →
    exactly 1. **The count is of module-header lines (`//!`) only.** `serialize_node_to_string`'s docstring (`///`)
    cites "HTML §8.5.9" and may write the title after it; it is not a `//!` line, so it is not counted and cannot
    fail the check (Rev 6 counted every line of the file, which a docstring carrying the title would have made 2).
-   Numbers from §0.4's lookups only.
+   `CharacterEscaping`'s doc comment cites HTML §8.5.9 `serializeToString(root)` step 1 for `XmlSerialization` and
+   HTML §13.3 for `HtmlFragment`; `push_text_data`'s `HtmlFragment` arm cites §13.3 step 5.2 and its
+   `XmlSerialization` arm DOM Parsing §5.2.1.5 (§4.1; checked by reading the diff). Numbers from §0.4's lookups (and
+   PR-H §0.4's for §13.3) only.
 5. The PR body states that the §13.3 entries (`innerHTML` / `outerHTML` / `getHTML`) are unchanged by this PR and
    that their defects close at PR-H, with the window's bound (umbrella S-3).
 
@@ -473,9 +501,8 @@ Cross-lane pins and the landing (ledger) items of this PR: umbrella §4.2 and §
 
 - Q-4 — decided (PM 785): the XMLSerializer path uses DOM Parsing's two escaping algorithms as two functions, not a
   mode of `push_escaped_string` (D-6, option (b2)).
-- Q-5 — **open (raised by the split, Rev 7)**: mutant (b) of §6 — an `HtmlFragment` arm of `push_attribute_value`
-  calling `push_xml_attribute_value` — has no red cell in this PR; in Rev 6's single PR it was killed by V6 / U2,
-  which are now PR-H's. This PR checks it by DoD 1's grep and PR-H kills it executably. A cell that would kill it
-  here without pinning a HEAD defect exists (an attribute value containing U+0009 through `outerHTML` stays raw —
-  exact for §13.3 at HEAD and after PR-H); Rev 7 does not add it, because the split was to change no design
-  content beyond XC1. For the plan-review of this memo, or the PM, to decide.
+- Q-5 — decided (Rev 8; the PM's instruction: the plan-review's Axis 3 chooses the cell; Axis 3, R1, chose it):
+  mutant (b) of §6 — an `HtmlFragment` arm of `push_attribute_value` calling `push_xml_attribute_value` — had no red
+  cell in this PR after the split (in Rev 6's single PR, V6 / U2 killed it; they are PR-H's). This PR adds **XC2**
+  (§6): U+0009 in an attribute value stays raw through `outerHTML`, exact for §13.3 at HEAD and after PR-H, so it
+  pins no HEAD defect.
