@@ -144,6 +144,24 @@ fn generator_rest_array_survives_generator_allocation() {
     assert_number(r, 7.0, "rest element read after the first resume");
 }
 
+/// `push_js_call_frame` generator branch: an excess argument (no rest
+/// parameter) is cleared from its stack slot and is then held only by the
+/// initial frame's `actual_args` (a Rust `Vec`) while the Generator
+/// (allocation 1) is allocated.
+#[test]
+fn generator_excess_argument_survives_generator_allocation() {
+    let setup = format!(
+        "{POOL} pool.push({{x: 7}}); \
+         globalThis.g = function* () {{ return arguments[0].x }};"
+    );
+    let (_vm, r) = eval_with_gc_at(&setup, 1, "g(mk()).next().value");
+    assert_number(
+        r,
+        7.0,
+        "excess argument read through `arguments` after the first resume",
+    );
+}
+
 /// `call_internal` generator branch (host entry, `Vm::call`): the rest-param
 /// array is the one value whose rooting is `call_internal`'s own business
 /// (`this` / `args` / the callee are the caller's) — it is held only by its
@@ -188,6 +206,45 @@ fn async_wrapper_promise_survives_coroutine_allocation() {
         Ok(JsValue::Boolean(true)) => {}
         other => panic!("async call must return its wrapper Promise, got {other:?}"),
     }
+}
+
+/// Setup for the async excess-argument cells: `f` reads its one excess
+/// argument (no rest parameter) through `arguments` after its first `await`.
+fn async_excess_argument_setup() -> String {
+    format!(
+        "{POOL} globalThis.out = 0; pool.push({{x: 7}}); \
+         globalThis.f = async function () {{ await 0; globalThis.out = arguments[0].x }};"
+    )
+}
+
+/// `push_js_call_frame` async branch: an excess argument (no rest parameter)
+/// is cleared from its stack slot and is then held only by the initial
+/// frame's `actual_args` while the wrapper Promise (allocation 1) is
+/// allocated.
+#[test]
+fn async_excess_argument_survives_wrapper_promise_allocation() {
+    let (vm, r) = eval_with_gc_at(&async_excess_argument_setup(), 1, "f(mk()); 0");
+    r.expect("call");
+    assert_global_number(
+        &vm,
+        "out",
+        7.0,
+        "excess argument read through `arguments` after the first await",
+    );
+}
+
+/// As above, with the collection at the coroutine allocation (allocation 2,
+/// after the wrapper Promise).
+#[test]
+fn async_excess_argument_survives_coroutine_allocation() {
+    let (vm, r) = eval_with_gc_at(&async_excess_argument_setup(), 2, "f(mk()); 0");
+    r.expect("call");
+    assert_global_number(
+        &vm,
+        "out",
+        7.0,
+        "excess argument read through `arguments` after the first await",
+    );
 }
 
 /// `call_internal` async branch (host entry, `Vm::call`): rest array
