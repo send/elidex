@@ -125,7 +125,9 @@ pub fn parse_html_fragment(
         let roots = rc_dom.document.children.borrow();
         match roots.as_slice() {
             [only] => match &only.data {
-                markup5ever_rcdom::NodeData::Element { name, .. } if &*name.local == "html" => {
+                markup5ever_rcdom::NodeData::Element { name, .. }
+                    if name.local.as_str() == "html" =>
+                {
                     only.clone()
                 }
                 _ => rc_dom.document.clone(),
