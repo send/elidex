@@ -10,6 +10,11 @@ steps move in `ta`) and `apply_insert_adjacent_html` (it can meet a shadow root,
 `sibling_order`; C-10 gains the `removeChild` row; C-9's count of the mutators' callers is corrected to the output of
 its command (45, not 53).
 
+Draft 3.4 (after the focused re-check of draft 3.3; PM 820; base `b46a030c`, whose `crates/` tree equals
+`bfc63658`'s, so every count and table below holds unchanged): `next_in_preorder_global`'s child steps move in the
+new slice `tq` before `ta` (C-13, C-14); of the three engine callers of C-9, `::before` generation keeps the stored
+first child until `ts` (umbrella §1.3), and the two `insertAdjacentHTML` callers pick tree children at `tc`.
+
 Draft 3 (after the R2 plan-review of draft 2; base moved from `c0578223` to `84fee8fa`): the VM-host lines and the
 handler pairs are derived by a script (C-10, C-12) and carry reachability; C-13 groups the raw child reads by
 function and marks the walks; C-2 separates a script-supplied node from a receiver (class "T2"); C-14 records the
@@ -199,7 +204,7 @@ needs (a **reading**, not run; `tc`'s plan re-reads all 23 and probes the ones i
 | Relation the walk needs | Functions (file under `crates/`) | In `tc` |
 |---|---|---|
 | **The explicit descent** (the walk must keep reaching a shadow tree) | `collect_focusable_entities` (`shell/elidex-shell/src/content/event_handlers.rs:456`, Tab order), `collect_iframe_entities` (`shell/elidex-shell/src/content/iframe/lifecycle.rs:437`, iframe discovery), `save_descendant_styles` (`layout/elidex-layout-block/src/helpers.rs:282`, the style save around a layout probe) (3) | `get_shadow_root`, then that root's tree children (umbrella §1.3); cells in umbrella §2 CHILD × SHELL, CHILD × RENDER |
-| **Tree children; entering a shadow tree is the defect** | Range and traversal: `child_index_in_ancestor`, `next_in_preorder_global` (`range/mod.rs`; its two child steps move to the exposed accessors in `ta`, umbrella §1.6, so it leaves this population at `ta`'s head), `next_in_preorder`, `traverse_children`, `traverse_siblings`, `traverse_children_filtered`, `traverse_siblings_filtered`, `step_with_filter_previous_node` (`traversal.rs`); `normalize_entity` (`node_methods/core.rs:89`); form: `disable_descendants` (`elidex-form/src/fieldset.rs:35`), `find_first_descendant_control` (`label.rs:129`), `walk_options`, `init_select_options`, `get_option_text` (`select/mod.rs`), `walk_form_descendants` (`submit.rs:437`) (15) | the one set; observable (umbrella §3.1 `tc`) |
+| **Tree children; entering a shadow tree is the defect** | Range and traversal: `child_index_in_ancestor`, `next_in_preorder_global` (`range/mod.rs`; its two child steps move to the exposed accessors in `tq`, umbrella §1.6, so it leaves this population at `tq`'s head), `next_in_preorder`, `traverse_children`, `traverse_siblings`, `traverse_children_filtered`, `traverse_siblings_filtered`, `step_with_filter_previous_node` (`traversal.rs`); `normalize_entity` (`node_methods/core.rs:89`); form: `disable_descendants` (`elidex-form/src/fieldset.rs:35`), `find_first_descendant_control` (`label.rs:129`), `walk_options`, `init_select_options`, `get_option_text` (`select/mod.rs`), `walk_form_descendants` (`submit.rs:437`) (15) | the one set; observable (umbrella §3.1 `tc`) |
 | **Tree children; no shadow root can be met or it is filtered** (predicted) | `count_li_children` (`elidex-style/src/counter.rs:276`), `collect_text_recursive` (`elidex-dom-compat/src/presentational.rs:468`), `first_legend_child` (`elidex-form-core/src/fieldset.rs:12`), `collect_col_info` (`elidex-layout-table/src/helpers.rs:88`) (4) | the one set; no change predicted; each probed |
 | **Tree children; it hands a raw child to an elidex-ecs mutator** (a shadow root **can** be met) | `apply_insert_adjacent_html` (`mutation/html_fragment.rs:193`): "afterbegin" passes the raw first child (`:216`) and "afterend" the raw next sibling (`:243`) as the reference, which for a host is its shadow root (umbrella §1.6; drafts 3 to 3.2 listed it in the row above, against §1.6) (1) | the one set; the stored position changes, the tree-child order does not (umbrella §2 ORD × RENDER, §3.1 `tc`); cells session-level (C-10) |
 
@@ -414,8 +419,9 @@ its shadow root: `css/elidex-style/src/pseudo.rs:74` (the raw read is `:72`),
 `script/elidex-script-session/src/mutation/html_fragment.rs:222` (raw read `:216`), `:251` (raw read `:243`). All
 three discard the result. The other callers pass an element found by a filtered search, a node they just created,
 or a text child (a reading, not run). R2's fix decision assumed only scripts supply such a child; this list is why
-umbrella §1.6 leaves elidex-ecs unchanged in `ta` (Q-19 (b′), PM 800): the three callers keep base behaviour and
-pick tree children at `tc`.
+umbrella §1.6 leaves elidex-ecs unchanged in `ta` (Q-19 (b′), PM 800): the three callers keep base behaviour in
+`ta`; the two `insertAdjacentHTML` callers pick tree children at `tc`, and `::before` generation keeps the stored
+first child until `ts` (umbrella §1.3, draft 3.4).
 
 ## C-10. The VM natives and the dom-api handlers that answer the same question
 
@@ -660,7 +666,7 @@ shadow root is **closed** and holds a `<span>`, and a `MutationObserver` observi
 |---|---|---|
 | `range.setStart(h, 0); range.setEnd(h.parentNode, idx(h) + 1); range.deleteContents()` (`idx(h)` = the host's index in its parent) | no exception; the observer receives a record on `h` whose `removedNodes` contains the closed shadow root (so page script holds a reference that closed mode withholds); the span's `isConnected` is still true while the shadow root is out of the host's child list (the links diverge, as in the first probe) | the shadow root is not *contained* ("node's root is range's root" fails: its root is itself), so it is not among the nodes to remove and no record names it |
 
-Neither test is in the tree; `ta`'s plan re-creates both as its first probes and keeps them as the cells of umbrella
-§1.6. Side finding of the second probe, not this program's: `Array.prototype.indexOf.call(nodeList, x)` throws
+Neither test is in the tree; `ta`'s plan re-creates the first and `tq`'s plan the second as their first probes, and
+each keeps its test as a cell of umbrella §1.6 (draft 3.4: the second path is `tq`'s, PM 820). Side finding of the second probe, not this program's: `Array.prototype.indexOf.call(nodeList, x)` throws
 TypeError ("Array.prototype method called on non-array"), a generic Array method on an array-like; reported to the
 PM for VM P4. Everything else in this census that speaks of behaviour is a reading (C-7).

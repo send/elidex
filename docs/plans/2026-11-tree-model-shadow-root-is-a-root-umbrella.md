@@ -1,6 +1,6 @@
 # Tree model: a shadow root is a tree root; every climb chooses whether it crosses — program umbrella
 
-Status: **umbrella, draft 3.3** (pre-implementation). Draft 1 was plan-reviewed (R1: CRIT 1 / IMP 21 / MIN 24) and
+Status: **umbrella, draft 3.4** (pre-implementation). Draft 1 was plan-reviewed (R1: CRIT 1 / IMP 21 / MIN 24) and
 draft 2 answered it; draft 2 was plan-reviewed (R2: CRIT 0 / IMP 7 / MIN 27), and this draft answers R2 (fix
 decisions F1 to F7) and writes in PM 758, 759, 761, 765, 768 and 794. Draft 3.1 closes Q-19 (PM 800; §1.6) and
 Q-18 (PM 800; §2 CHILD × SHELL) and records the registrations of PM 790 and PM 794 (§7.1). Draft 3.2 moves
@@ -10,10 +10,17 @@ R3 plan-review of draft 3.2 (CRIT 0 / IMP 4 / MIN 23 / FP 1; the driver's fix de
 the second script path of §0.1 item 6 (§1.6, F1); `sibling_order` stays a stored-order read until `ts`, and `tc`
 declares the new storage position of its three engine insertions (§1.3, §2 ORD × RENDER, F2); the `shadow.rs` cite
 targets of `ts` are corrected (§5.3, F3); the ledger quotes of §7.4 are re-read from the current rows (F4); `tc`'s
-Tab-order descent skips a host whose tabindex is negative (§2 CHILD × SHELL). Its changes are structural (two
-declared behaviour changes in `ta`, child-side naming), so `/elidex-plan-review` runs in full again on this
-umbrella, and on each per-PR plan before its code (CLAUDE.md, *Edge-dense work*). Owner: L3. Base: `bfc63658`;
-every code anchor is at that commit. Drafts 3 to 3.2 were written at `84fee8fa`: `git diff --name-only
+Tab-order descent skips a host whose tabindex is negative (§2 CHILD × SHELL). Draft 3.4 answers the focused
+re-check of draft 3.3 (CRIT 0 / IMP 5 / MIN 13; the driver's decisions D1 to D3 and the MIN list) and PM 820:
+Range's contained-node walk leaves `ta` for a new slice **`tq`** before it (tp → tq → ta, PM 820), so `ta` has one
+declared behaviour change again and `#11-shadow-root-accepted-as-ref-or-old-child` closes in two steps (§1.6, D3);
+`::before` generation stays a stored-order write until `ts`, which keeps it before the shadow tree (§1.3, §2 ORD ×
+RENDER, D1, css-pseudo-4 §4.1 [P1]); `toString` is a named facet of the walk's change with its own probe (§1.6,
+D2); PM 812 and PM 814 are recorded. Its changes are structural (a new slice, a declared change moved, child-side
+naming), so `/elidex-plan-review` runs in full again on this umbrella, and on each per-PR plan before its code
+(CLAUDE.md, *Edge-dense work*). Owner: L3. Base: `bfc63658`; every code anchor is at that commit. Draft 3.4 was
+written on `b46a030c` (origin/main, 2026-11-18): `git diff --name-only bfc63658..b46a030c -- crates` prints nothing
+(the one commit between them, #643, is docs-only), so every anchor and count holds there unchanged. Drafts 3 to 3.2 were written at `84fee8fa`: `git diff --name-only
 84fee8fa..bfc63658 -- crates` lists 17 files (verified 2026-11-18; the VM's GC rooting and coercion files, the
 event-handler applicability files of elidex-script-session and their tests), none of them cited here, and every
 census count was re-measured at `bfc63658` with the same result (§8). Drafts 1 and 2 were written at `c0578223`
@@ -60,6 +67,14 @@ lookups; §6 here says what each population is for).
 - **PM 800**: Q-19 option (b′) (§1.6): elidex-ecs's `is_child_of` stays storage maintenance until `ts`; the spec's
   child-of steps live in the mutation layer from `ta`. Q-18 (§2 CHILD × SHELL): the Tab order `tc` produces is a
   change toward HTML's order, not an interim regression.
+- **PM 812**: `ta` gained a second declared change (Range's contained-node walk) and the scope of
+  `#11-shadow-root-accepted-as-ref-or-old-child` widened to "script paths that unlink a host's shadow root" (the
+  ledger row says "scope widened PM 812"). Draft 3.4 moves that change into `tq` (PM 820, below); the scope widening
+  stands.
+- **PM 814**: the ledger row of `#11-shadow-root-accepted-as-ref-or-old-child` was re-synced to draft 3.3 (the
+  former landing item N1, §7.4: applied).
+- **PM 820**: slice `tq` before `ta` (tp → tq → ta) is approved; the slot closes in two steps, the Range path at
+  `tq` and the reference / old / removed child at `ta`, and closes at `ta` (§1.6, §5, §7.1, §7.4).
 - **Layout's answer to Q-13**: shadow-including order for paint and hit-test is acceptable until P2 lands; no other
   rule (§2 ORD × RENDER).
 
@@ -110,16 +125,19 @@ lookups; §6 here says what each population is for).
    `MutationObserver` on the host receives a record whose `removedNodes` holds the closed shadow root, so page
    script gets a reference that `mode: "closed"` withholds. DOM does not reach the removal at all: a node is
    *contained* in a range only if its root is the range's root ([D8]), and a shadow root's root is itself. Both
-   paths are wrong in production today, with no error raised.
+   paths are wrong in production today, with no error raised. The second path closes at `tq` and the first at `ta`
+   (PM 820; §1.6).
 
 ### §0.2 Why a program, and why before PR (io)
 
 More than three invariant axes intersect (§2), and the population that breaks is not enumerated by the compiler:
 under a storage change alone, a crossing climb that relies on the stored parent keeps compiling and silently stops
 at the boundary. That is the *Edge-dense* trigger; the slices of §5 are its base case. (`ta` is a base case and
-not a program of its own: it applies one invariant, "every climb names its relation", its population is the
-compiler's error list, and its §2 rows are pinned by existing cells except the two changes of §1.6. Cutting it by
-crate would leave `get_parent` beside the new names between the cuts.) PR (io)'s central invariant
+not a program of its own. It applies two invariants: "every climb names its relation" (its population is the
+compiler's error list) and "the spec's child-of steps ask the tree-parent question" (the five T2 lines and one new
+pre-remove check, §1.6). Its §2 rows are pinned by existing cells except the one declared change of §1.6. Cutting it
+by crate would leave `get_parent` beside the new names between the cuts. `tq` is a base case too: one function's
+two child steps, §1.6.) PR (io)'s central invariant
 is "each link's backward fact has one home"; for the shadow root that sentence is false at base (defect 1), and the
 PR (io) plan itself leans on the tree parent (its §2 EDGE × adopt row). Landing PR (io) first would put a new seam
 beside the old representation, the coexistence *One issue, one way* forbids.
@@ -159,7 +177,8 @@ beside the old representation, the coexistence *One issue, one way* forbids.
   become such reads in `ta` (census C-2, "raw"), and `ts` re-reads each. The three mutators' own check
   (`is_child_of`) is storage maintenance too until `ts` (PM 800). The spec's question about a node a script
   supplied ("is child's parent parent?") is not maintenance: it is asked in the engine-independent layer, one
-  predicate per spec step (§1.6). `sibling_order` is a stored-order read of this kind until `ts` (§1.3).
+  predicate per spec step (§1.6). `sibling_order` is a stored-order read of this kind until `ts`, and `::before` generation a stored-order
+write (§1.3).
 - **The interim cost** is one component lookup per `tree_parent` step, and one per child-side step from `tc`
   (§1.3). `ta`'s plan benchmarks the selector and style paths at its head against its base and escalates a
   regression beyond noise to the PM with the numbers (PM 747 Q-9).
@@ -220,8 +239,24 @@ names**, so every reader fails to compile in `tc` and is listed in its plan with
   maintenance code of §1.1 (population P-REL): `tc`'s rename puts its line on the compiler's list, and it takes the
   stored link (`read_rel`), not the one set. Reason: under the set's receiver half a shadow root has no siblings, so
   `sibling_order(sr, x)` and `sibling_order(x, sr)` would both answer "after", and the comparator that
-  `walk.rs:620` and `hit_test.rs:235` pass to `sort_by` would be inconsistent. The flat-tree order it serves is
-  P2's (§1.5); at `ts` the shadow root leaves the list and `pending_flat_tree_order` says where the shadow tree sits.
+  `walk.rs:620` and `hit_test.rs:235` pass to `sort_by` would not be a total order. That is a crash risk, not only
+  a wrong order: the standard library's `sort_by` documents "May panic if `compare` does not implement a total
+  order" (its `# Panics` section, rustc 1.99.1), and paint and hit-test run it on every frame and click. The
+  flat-tree order it serves is P2's (§1.5); at `ts` the shadow root leaves the list and `pending_flat_tree_order`
+  says where the shadow tree sits.
+- **One child-side writer keeps the stored position too: `::before` generation** (`crates/css/elidex-style/src/pseudo.rs:72-74`:
+  the raw first child at `:72`, `insert_before` at `:74`). It inserts the generated node before the originating
+  element's first **stored** child, so on a host whose shadow root is stored first the node lands before the shadow
+  root. That is already css-pseudo-4 §4.1's order: `::before` is "a styleable child pseudo-element immediately
+  before the originating element's actual content" [P1], and a host's actual content is its shadow tree. Layer 6
+  reads the stored order until `ts` (above), so base paints and hit-tests a positioned `::before` before a
+  positioned node of the shadow tree, as the spec places it. `tc`'s rename puts `:72` on the compiler's list, and it
+  takes the stored link (`read_rel`) like `sibling_order`, not the one set: taking the first tree child would store
+  the node after the shadow root and move it behind the shadow tree in layer 6 (draft 3.3 declared that move; D1
+  withdraws it). It is a stored-order write until `ts`. At `ts` the shadow root leaves the list, the same read
+  returns the first tree child, and `pending_flat_tree_order` places the shadow tree just after its host, which would
+  put the generated node, now an ordinary light child, after the shadow tree; `ts` keeps it first (§2 ORD × RENDER,
+  §5.3 `ts`).
 - **A reader that wants the shadow tree asks for it**: `get_shadow_root(host)`, then that root's tree children.
   `tc` adds no "shadow-including children" accessor: DOM defines shadow-including *descendants* and *tree order*
   ([D4]), not children, and the two-step form is what the downward walks of `walkers.rs` already do. A reader
@@ -280,11 +315,12 @@ These names outlive the program. Each owner replaces its name by the relation it
 keeps the three populations from growing until then. `ta`'s landing list gives each owner slot the names it
 receives (§7.4), so no backlog is recorded only in this memo.
 
-### §1.6 The script paths that unlink a shadow root (the two behaviour changes of `ta`)
+### §1.6 The script paths that unlink a shadow root (the declared behaviour changes of `tq` and `ta`)
 
 Two script paths reach a host's shadow root as if it were a child (§0.1 item 6). The first asks "is `child` a
 child of `parent`?" about a node the script supplied; the second never asks, because a walk hands the shadow root
-over as a contained node. `ta` closes both, each in the algorithm the spec puts the step in.
+over as a contained node. Each closes in the algorithm the spec puts the step in: the second at `tq`, the first at
+`ta` (PM 820).
 
 **The first path: the child-of question.** "Is `child` a child of `parent`?" is the tree-parent question:
 `tree_parent(child) == Some(parent)`. It is asked about a node that a **script supplied** (the reference child of
@@ -333,7 +369,15 @@ at base the answer for a host and its own shadow root is "yes".
   the VM's `normalize_before_arg` (`vm/host/html_select_proto.rs`) sends every non-element `before` to the `long`
   branch, or an item of the options collection; the self-reference advance (`child_list.rs:298`) passes
   `next_exposed_sibling`; the deferred-flush arm (`mutation/mod.rs:203`) has test constructors only. So no engine
-  path passes a shadow root as the reference at base, and the re-check at `:284` changes no engine path.
+  path passes a shadow root as the reference at base, and the re-check at `:284` changes no engine path. The
+  population of `:439` is every caller of `apply_replace_child` (`git grep -n -P '\bapply_replace_child\(' bfc63658
+  -- crates ':!*tests*'`: 4 lines, the definition `child_list.rs:410` and 3 calls), read the same way: `replaceWith`
+  (`child_node/mutations.rs:235`) passes its receiver as the old child, a ChildNode, which a shadow root (a
+  DocumentFragment) never is; the `replaceChild` handler (`element/tree.rs:289`) runs after
+  `ensure_replace_validity`, which refuses the host's shadow root first from `ta`; the deferred-flush arm
+  (`mutation/mod.rs:211`) is constructed by tests only (`git grep -n -P '\bReplaceChild\s*\{' bfc63658 -- crates`:
+  the variant, its arm, the handler's `impl`, and two lines of `mutation/tests.rs`). So the re-check at `:439`
+  changes no engine path either.
 - **elidex-ecs is unchanged in `ta`.** `is_child_of` (`crates/core/elidex-ecs/src/dom/tree/mod.rs:57`) and the
   three mutators that call it (`remove_child`, `insert_before`, `replace_child`; `tree/mutation.rs:72`, `:116`,
   `:165`) stay a stored-link read, population P-REL (§1.1, *Storage maintenance is not a climb*), until `ts` makes a
@@ -343,18 +387,21 @@ at base the answer for a host and its own shadow root is "yes".
   each would silently insert nothing; so would any caller not found by reading. Also rejected: a separate guard PR
   before `ta` (a compensation `ts` deletes), and leaving the fix to `ts` (the defect would stay in production until
   the last slice).
-- **The three engine callers are `tc`'s.** In `ta` they keep base behaviour (they call the elidex-ecs mutators,
-  which are unchanged). The child-side rename of `tc` puts each raw read on the compiler's list, and each then picks
-  a tree child, so none passes a shadow root any more:
-  `crates/css/elidex-style/src/pseudo.rs:74` (`::before` generation; raw first child at `:72`: picks the first
-  **tree** child of the originating element), `crates/script/elidex-script-session/src/mutation/html_fragment.rs:222`
-  (`insertAdjacentHTML("afterbegin")`; raw first child at `:216`: the first tree child of the target), `:251`
-  (`"afterend"`; raw next sibling at `:243`: the next tree sibling of the target). §5 `tc` and §3.1 carry them.
+- **The three engine callers keep base behaviour in `ta`** (they call the elidex-ecs mutators, which are
+  unchanged), and the child-side rename of `tc` puts each raw read on the compiler's list. Two of them are `tc`'s
+  and pick a tree child from then on, so neither passes a shadow root any more:
+  `crates/script/elidex-script-session/src/mutation/html_fragment.rs:222` (`insertAdjacentHTML("afterbegin")`; raw
+  first child at `:216`: the first tree child of the target), `:251` (`"afterend"`; raw next sibling at `:243`: the
+  next tree sibling of the target). §5 `tc` and §3.1 carry them. The third, `crates/css/elidex-style/src/pseudo.rs:74`
+  (`::before` generation; raw first child at `:72`), keeps the stored first child until `ts`: passing the shadow
+  root as the reference stores the node where css-pseudo-4 §4.1 puts it (§1.3, D1). Its `insert_before` reaches
+  `is_child_of`, which stays a stored-link read until `ts` (below), so the insertion still happens; at `ts` the
+  read returns the first tree child and no shadow root can be passed.
 - **The other callers of `apply_remove_child` take no pre-remove check.** They run *remove* without *pre-remove* in
   the spec, so the new check is not on their path and `apply_remove_child` is unchanged: `child_node/mutations.rs:180`,
   `:220`, `element/select.rs:260`, `:350` and `range/mutation.rs:182` pass a node found through an exposed accessor
   or the script's receiver, and keep base behaviour. `range/mutation.rs:218` is the second path below: the spec
-  keeps the shadow root out of it by *contained*, not by a validity step, and `ta` fixes it there.
+  keeps the shadow root out of it by *contained*, not by a validity step, and `tq` fixes it there.
 - **One exception, with its reason: the deferred-flush arm `Mutation::RemoveChild`** of `apply_mutation`
   (`mutation/mod.rs:204`). Its siblings `Mutation::InsertBefore` and `Mutation::ReplaceChild` reach the apply-time
   re-checks above; `Mutation::RemoveChild` reaches `apply_remove_child`, which has none, and `ta` adds none there.
@@ -372,29 +419,48 @@ tree. The candidate passes the `compare_points` filter, and `delete_contents` ca
 (`range/mutation.rs:216-218`); the probe of §0.1 item 6 shows the result. In DOM the shadow root is never a
 candidate: *contained* requires "node's root is range's root" ([D8]).
 
-- **Decided (R3, F1):** in `ta`, `next_in_preorder_global` takes the existing exposed steps, the ones that already
-  skip a shadow root at base: the first child through `children_iter(current).next()` (`ChildrenIter` skips a
-  `ShadowRoot`, `dom/mod.rs:911`) and the next sibling through `next_exposed_sibling` (`navigation.rs:155`). This is
-  the program's own relation (tree children, R-TREE 4) taken one slice early on one function, not a
-  compensation: `tc` renames these two calls with the rest of the child side, and the function's upward step
-  (`range/mod.rs:582`) keeps its `ta` disposition (pending, `Flip::Tr`, census C-2).
+- **Decided (R3, F1; placed in its own slice `tq` by D3, approved PM 820):** in `tq`, before `ta`,
+  `next_in_preorder_global` takes the existing exposed steps, the ones that already skip a shadow root at base: the
+  first child through `children_iter(current).next()` (`ChildrenIter` skips a `ShadowRoot`, `dom/mod.rs:911`) and
+  the next sibling through `next_exposed_sibling` (`navigation.rs:155`). Two accessor swaps in one function
+  (`range/mod.rs:574`, `:579`). This is the program's own relation (tree children, R-TREE 4) taken early on one
+  function, not a compensation: `tc` renames these two calls with the rest of the child side, and the function's
+  upward step (`range/mod.rs:582`) is `ta`'s (pending, `Flip::Tr`, census C-2). The "separate guard PR
+  before `ta`" rejected above (R2; PM 800) was a compensation `ts` deletes (§7.3 Q-19); `tq` adds no guard and
+  nothing in it is deleted later, so that rejection does not reach it. Reason for its own slice (D3): *Security by
+  structure* and paydown (c), the closed-root exposure leaves production about a week before `ta` (PM 790 (3):
+  `ta` ~12-01), and `ta` keeps one declared behaviour change.
 - **What the edit reaches.** The function has three users: `contained_top_level_nodes` serves `deleteContents`
   (`:216`) and `extractContents` (`:370`), and `Range.toString` walks it directly (`range/mutation.rs:49`). For
   `deleteContents` the change is the declared one. `extractContents` at base passes the shadow root to
-  `apply_append_child(frag, sr)`, which refuses a shadow root (census C-5 role I), so its result is predicted
-  unchanged and no longer depends on that refusal. `toString` stops concatenating the text of a shadow tree under
-  a host inside the range (predicted; DOM's Range *stringification behavior* step 4 appends "the data of all Text nodes that are contained in this", `dom#dom-range-stringifier`, looked up 2026-11-18). `ta`'s
-  plan probes all three at its base and pins each with a cell.
+  `apply_append_child(frag, sr)`, which refuses a shadow root (`mutation/child_list.rs:202`, census C-5 role I), so
+  its result is predicted unchanged and no longer depends on that refusal.
+- **The `toString` facet** (D2). `toString` stops concatenating the text of a shadow tree under a host inside the
+  range (predicted; DOM's Range *stringification behavior* step 4 appends "the data of all Text nodes that are
+  contained in this", `dom#dom-range-stringifier`, looked up 2026-11-18). Two natives reach it:
+  `Range.prototype.toString` (`vm/host/range_proto.rs:890`, `native_range_to_string` → `Range::to_string`) and
+  `Selection.prototype.toString` (`vm/host/dom_selection_proto.rs:643` → the `Selection` method `to_string`,
+  `crates/dom/elidex-dom-api/src/selection.rs:580` → `Range::to_string`). The facet is **probed** at `tq`'s base
+  before its review (§5.2), and its cell uses a range whose end container **follows** the host in tree order (for
+  example, start in a text node before the host, end in a text node after it), not the shape of the `deleteContents`
+  probe: that shape ends in the host's parent, an ancestor of the start, and meets the defect below instead.
+- **A separate, pre-existing defect, not this program's.** `Range::to_string` (`range/mutation.rs:47-58`) walks
+  in preorder from the start container until it meets the end container. When the end container is an ancestor of
+  the start container, preorder from the start never meets it, so the walk runs to the end of the document and
+  appends every later text node. `tq` does not fix it; it is proposed to the PM as a facet of `#11-range-full-impl`
+  (L3), §7.4.
 - Rejected: leaving it to `tc` (the rename would fix it, but the closed-root exposure and the link divergence would
-  stay in production for one more slice, and the slot of this section could not close at `ta`); a pre-remove-style
-  check in `delete_contents` (the spec has no such step there: the node is never contained).
+  stay in production for one more slice); leaving it in `ta` (draft 3.3: `ta` would carry two declared changes and
+  the exposure would stay until `ta`'s landing); a pre-remove-style check in `delete_contents` (the spec has no such
+  step there: the node is never contained).
 
-**Both are declared behaviour changes of `ta`**, its only two: `ta`'s plan carries a cell per method for the first
-(with the links and the child list checked after the refused call) and a mutant per site, the new check included;
-and for the second, a cell "`deleteContents` over a host neither unlinks the shadow root nor reports it in a
-`MutationRecord` (closed mode)", the `toString` and `extractContents` cells above, and a mutant that restores the
-raw step. Slot: `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790), scope widened to "script paths
-that unlink a host's shadow root" (the reference / old / removed child, and Range deletion); closed by `ta` (§7.1,
+**One declared behaviour change each.** `tq`'s is the second path: a cell "`deleteContents` over a host neither
+unlinks the shadow root nor reports it in a `MutationRecord` (closed mode)", the `toString` facet cell and the
+`extractContents` cell above, and a mutant that restores a raw step. `ta`'s is the first path: a cell per method
+(with the links and the child list checked after the refused call) and a mutant per site, the new check included.
+Slot: `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790), scope widened to "script paths that
+unlink a host's shadow root" (the reference / old / removed child, and Range deletion; PM 812). It closes in two
+steps (PM 820): the Range path at `tq`, the reference / old / removed child at `ta`; the slot closes at `ta` (§7.1,
 §7.4).
 
 ## §2. Coupled invariants (edge-matrix)
@@ -412,7 +478,7 @@ dom-api handlers (census C-10).
 |---|---|---|---|
 | TREE × LINK | attach writes the link pair and no tree edge; the backward fact is read through `shadow_host` (R-TREE 2) | ta, ts | ts structure cells (attach; the child list of a host) |
 | TREE × WR (the node half) | elidex-ecs has one site that writes a parent (`link_node`) and three callers; none refuses a shadow root as the **node** today. `ts` adds the refusal beside the cycle guard in `append_child`, `insert_before`, `replace_child` (they return `false`), and `link_node` asserts it | ts | ts cells: each of the three refuses a shadow-root node; mutant: remove one refusal |
-| TREE × WR (the child half) | the mutators' "is a child of parent" check, and the five hand-written copies outside elidex-ecs, accept a shadow root as the **child** today (§0.1 item 6). From `ta` the spec's steps ask the tree-parent question in the engine-independent layer: the five T2 lines and one new pre-remove check on the `removeChild` path only (`ensure_pre_remove_validity`, NEW; `apply_remove_child` is unchanged; §1.6). The mutators' own check stays a stored-link read until `ts` (PM 800, Q-19 (b′)); the three engine callers that pass a raw child as the reference are `tc`'s. The second script path, Range's contained-node walk, hands the shadow root to `apply_remove_child` without a child-of question; from `ta` the walk takes the exposed steps and never reaches it (§1.6, the second path) | ta (engine-independent layer); ts (elidex-ecs, by the storage) | ta cells: `removeChild`, `insertBefore`, `replaceChild` with the host's shadow root throw "NotFoundError" and leave the links and the child list as they were; `deleteContents` over a host (closed shadow root) leaves the links and the child list and reports no shadow root in a `MutationRecord`; mutant per site, and one that restores the walk's raw step |
+| TREE × WR (the child half) | the mutators' "is a child of parent" check, and the five hand-written copies outside elidex-ecs, accept a shadow root as the **child** today (§0.1 item 6). From `ta` the spec's steps ask the tree-parent question in the engine-independent layer: the five T2 lines and one new pre-remove check on the `removeChild` path only (`ensure_pre_remove_validity`, NEW; `apply_remove_child` is unchanged; §1.6). The mutators' own check stays a stored-link read until `ts` (PM 800, Q-19 (b′)); the three engine callers that pass a raw child as the reference are `tc`'s. The second script path, Range's contained-node walk, hands the shadow root to `apply_remove_child` without a child-of question; from `tq` the walk takes the exposed steps and never reaches it (§1.6, the second path; PM 820) | tq (the Range walk); ta (engine-independent layer); ts (elidex-ecs, by the storage) | tq cells: `deleteContents` over a host (closed shadow root) leaves the links and the child list and reports no shadow root in a `MutationRecord`; the `toString` facet and `extractContents` (§1.6); mutant that restores a raw step. ta cells: `removeChild`, `insertBefore`, `replaceChild` with the host's shadow root throw "NotFoundError" and leave the links and the child list as they were; mutant per site |
 | TREE × VER | attach reaches `rev_version(host)` today only through `append_child` (`mutation.rs:54`), and the shell repaints when the document root's version moves (`crates/shell/elidex-shell/src/content/event_loop.rs:444`, `crates/shell/elidex-shell/src/content/mod.rs:369`). The version is a shadow-including-descendants version (`rev_version` climbs by the shadow-including step), and attaching changes the host's shadow-including descendants, so `ts`'s attach calls `rev_version(host)` itself | ts | ts cell: `attachShadow` alone moves the document root's version; mutant: drop the call |
 | TREE × UP-T / UP-S | `tree_parent(sr)` is `None` and `shadow_including_parent(sr)` is the host at every head (§1.1) | ta, ts | ta cells (accessor contracts); ts: the same cells, unchanged |
 | UP-T × UP-S × DER | every climb takes exactly one named step; every derived relation is on a disposition list (§1.2) | ta | the compiler; ta re-runs census C-6 at its head and accounts for every row |
@@ -421,12 +487,12 @@ dom-api handlers (census C-10).
 | CHILD × TREE | until `ts` the one set skips in the accessor layer (both halves, §1.3); after `ts` the skip is gone | tc, ts | tc cells per accessor, including a shadow-root receiver; ts: unchanged |
 | CHILD × ORD | the index counts tree children only (D13 (a)); `index_in_parent` already skips shadow-root siblings and gates the `Insert` fire in `append_child` / `insert_before` (Layout's item 2, pinned by `crates/core/elidex-ecs/src/dom/tests/mutation_hook.rs:755-777`) | tc | tc cell: index of a host's children with a shadow root attached before and after them |
 | CHILD × NAV | the child and sibling handlers of dom-api are raw readers and unreachable from production (census C-10); `ta` does not touch them (it would have to copy the natives' marker guard into dom-api, two new compensation lines). In `tc` the natives and the handlers read the one set, the natives' own marker tests go, and `hasChildNodes` agrees between them | tc | existing VM navigation cells; a handler test that pins the raw answer is listed in tc's plan |
-| CHILD × SHELL | the shell's Tab-order walk (`crates/shell/elidex-shell/src/content/event_handlers.rs:497-500`) and iframe discovery (`crates/shell/elidex-shell/src/content/iframe/lifecycle.rs:449-452`) are raw descendant walks: they reach focusable elements and iframes inside a shadow tree only because the shadow root is a raw child. `tc` moves both to the explicit descent (§1.3) so neither loses the shadow tree. The Tab order's position of a shadow tree's focusables then changes from "where the shadow root sat in the raw child list" (no step of HTML's order) to "right after the host", which is HTML §6.6.2's *flattened tabindex-ordered focus navigation scope* step 2.2 (a host that is not focusable is replaced in place by its scope's contents) and step 2.3 (a focusable host is followed by them) [H15]: a change toward the spec (PM 800, §7.3 Q-18). **The descent skips a host whose tabindex value is negative**: such a host is not in its owner's *tabindex-ordered focus navigation scope* ("all elements in owner's focus navigation scope that are themselves focus navigation scope owners, except the elements whose tabindex value is a negative integer", [H15]), so step 2 never expands its scope; the host's light children are still walked. The remaining differences (a slot as a scope owner; tabindex order inside a scope) are `#11-shadow-slot-assignment-flat-tree`'s (P2); the negative-tabindex host is `tc`'s, not among them | tc | tc cells: Tab reaches a focusable element in a shadow tree; **the focusables of a shadow tree come right after the host (§6.6.2 steps 2.2 and 2.3), for a focusable and a non-focusable host**; **a host with `tabindex="-1"` contributes no focusable of its shadow tree, and its light children keep theirs**; an iframe in a shadow tree is collected; mutant: drop the descent; mutant: drop the negative-tabindex skip |
+| CHILD × SHELL | the shell's Tab-order walk (`crates/shell/elidex-shell/src/content/event_handlers.rs:497-500`) and iframe discovery (`crates/shell/elidex-shell/src/content/iframe/lifecycle.rs:449-452`) are raw descendant walks: they reach focusable elements and iframes inside a shadow tree only because the shadow root is a raw child. `tc` moves both to the explicit descent (§1.3) so neither loses the shadow tree. The Tab order's position of a shadow tree's focusables then changes from "where the shadow root sat in the raw child list" (no step of HTML's order) to "right after the host", which is HTML §6.6.2's *flattened tabindex-ordered focus navigation scope* step 2.2 (a host that is not focusable is replaced in place by its scope's contents) and step 2.3 (a focusable host is followed by them) [H15]: a change toward the spec (PM 800, §7.3 Q-18). **The descent skips a host whose tabindex value is negative**: such a host is not in its owner's *tabindex-ordered focus navigation scope* ("all elements in owner's focus navigation scope that are themselves focus navigation scope owners, except the elements whose tabindex value is a negative integer", [H15]), so step 2 never expands its scope. The host's light children are still walked as at base; that half is **P2's residual, not a `tc` result**: by *associated focus navigation owner* step 2 ("If element's parent is a shadow host, then return element's assigned slot.") a host's child belongs to its assigned slot's scope, or to no scope when unassigned [H15], so under a negative-tabindex host it is not reached through the host either. The remaining differences (a slot as a scope owner, which includes the light children above; tabindex order inside a scope) are `#11-shadow-slot-assignment-flat-tree`'s (P2); the skip of the negative-tabindex host's shadow tree is `tc`'s, not among them | tc | tc cells: Tab reaches a focusable element in a shadow tree; **the focusables of a shadow tree come right after the host (§6.6.2 steps 2.2 and 2.3), for a focusable and a non-focusable host**; **a host with `tabindex="-1"` contributes no focusable of its shadow tree** (no cell pins its light children: P2's residual); an iframe in a shadow tree is collected; mutant: drop the descent; mutant: drop the negative-tabindex skip |
 | CHILD × MO | a mutation record's previous / next sibling come from the exposed accessors (`crates/script/elidex-script-session/src/mutation/child_list.rs`), which fold into the set: no change predicted | tc | existing record cells |
 | CHILD × VER (live collections) | `live_collection/mod.rs:443` re-tests a child that the iterator already filtered: deleted | tc | existing live-collection cells |
 | CHILD × SEL | sibling combinators and structural pseudo-classes read element siblings, which a shadow root never is: no change predicted | tc | existing selector cells |
 | CHILD × FORM | 15 raw child reads in elidex-form (`git grep -n -P '\b(get_first_child\|get_last_child\|get_next_sibling\|get_prev_sibling)\(' bfc63658 -- crates/dom/elidex-form ':!*tests*'`): a descendant walk that meets a host's shadow root as a child enters the shadow tree today (predicted) and stops entering in `tc`; the upward half of the same fact flips in `tf` | tc → tf | tc cells (downward); tf cells (upward); the interim is in §5.1 |
-| CHILD × RANGE | Range boundary walks and 29 traversal lines read raw children (census C-3, `traversal.rs`): D13, and TreeWalker / NodeIterator entering a shadow tree (predicted); the upward half flips in `tr`. One Range walk moves earlier: `next_in_preorder_global` takes the exposed steps in `ta` (§1.6, the second path), and `tc` renames them with the rest | ta (the contained-node walk); tc → tr | ta cells of §1.6; tc cells; RC-1 consumes the set (§7.2) |
+| CHILD × RANGE | Range boundary walks and 29 traversal lines read raw children (census C-3, `traversal.rs`): D13, and TreeWalker / NodeIterator entering a shadow tree (predicted); the upward half flips in `tr`. One Range walk moves earlier: `next_in_preorder_global` takes the exposed steps in `tq` (§1.6, the second path; PM 820), and `tc` renames them with the rest | tq (the contained-node walk); tc → tr | tq cells of §1.6; tc cells; RC-1 consumes the set (§7.2) |
 | CHILD × RENDER, A11Y | layout and render read `composed_children` for content; their raw reads (census C-3, C-13) are re-read line by line: tree children, the explicit descent, or `composed_children`. One raw walk needs the descent to keep its answer: `save_descendant_styles` (`crates/layout/elidex-layout-block/src/helpers.rs:282`) saves the styles of a shadow tree's content today. `tc` renames 28 child-accessor lines in layout, render and style files (§7.2) | tc | no expectation changes predicted; tc's probe (§5.2), including a layout probe over a host with a shadow tree |
 | CHILD × PARSE | the strict parser's append position (`crates/dom/elidex-html-parser-strict/src/tree_builder/insert.rs:212`, Layout's item 6) and `innerHTML` on a shadow root read the tree children of the node they were given: no change predicted | tc | the parser's existing shadow-context cells |
 | UP-T × NAV | `parentNode` / `parentElement` of a shadow root are null through the native and the handler ([D7]); `contains` is the tree test in both (PM 748 (b)). These three handlers are unreachable from production (census C-10), so taking the native's relation changes no production path. The **reachable** handlers that `ta` re-types (`isConnected`, `getRootNode`, `compareDocumentPosition`, `closest`) keep the relation they compute at base | ta | existing VM cells; no new cell |
@@ -438,7 +504,7 @@ dom-api handlers (census C-10).
 | ORD × DER | `tree_order` is DOM §1.1 tree order within one tree, with the entity-bits fallback across roots. `compare_document_position` and the radio group call it only for nodes of one tree root (census C-8 R-9), so they take it in `ta` with no change | ta | existing `compareDocumentPosition` and radio cells |
 | ORD × FORM | the radio group's sort is over one tree root (above): it shares no cell with `tf` | ta | — |
 | ORD × RANGE | Range's `compare_points` takes the crossing order as a pending name and flips with the rest of Range | tr | tr cells |
-| ORD × RENDER (ND) | paint and hit-test layer 6 sort by tree order across shadow boundaries (`crates/core/elidex-render/src/builder/walk.rs:613-624`, `crates/layout/elidex-layout/src/hit_test.rs:228-239`, both through `tree_order_cmp`). The order they need is the flat tree's, which `#11-shadow-slot-assignment-flat-tree` (P2, Layout) owns. They take `pending_flat_tree_order`, which is the base function until `ts`. At `ts` the shadow root is no longer among the host's children, so the function must say where the shadow tree sits: DOM §4.8 *shadow-including tree order* (the shadow tree just after its host). **One residual**: a positioned shadow-tree node and a positioned light child that preceded the shadow root in the host's child list swap their order. **It is observable through user input**: hit-test layer 6 picks the click target, so the swap can change which element receives a pointer event. Neither order is the flat tree's; Layout accepts shadow-including order until P2 lands, and no layout, render or WPT test pins either (Layout's answer to Q-13). **Until `ts` the order between siblings is the stored order** (`sibling_order`, §1.3), so a slice that changes where a node is stored next to a shadow root changes layer 6. **`tc` does** (declared, R3 F2): its three engine insertions (§1.6) take the first tree child or the next tree sibling as the reference, so a node that base stored just before the host's shadow root (when the shadow root was the host's first stored child, or the target's raw next sibling) is stored after it. `insertAdjacentHTML("afterbegin")` into such a host, and the host's `::before`, now sort after a positioned node of its shadow tree in layer 6, where base sorted them before it. That is the order `ts` produces (the shadow tree just after its host), so it is the same class as `ts`'s residual, observable through user input (hit-test), and accepted under Q-13 until P2. Reach at base: `::before` generation is production; `insertAdjacentHTML` is reached only through the session API (no VM native; census C-10 "U") | ta, tc, ts | tc cell: a host whose shadow root is its first stored child, a positioned node in its shadow tree and a positioned node inserted with `insertAdjacentHTML("afterbegin")` (session level): layer-6 order and hit-test target; the same with a positioned `::before`. ts cells: existing paint / hit-test cells unchanged; the residual case pinned with shadow-including order, for paint and for the hit-test target |
+| ORD × RENDER (ND) | paint and hit-test layer 6 sort by tree order across shadow boundaries (`crates/core/elidex-render/src/builder/walk.rs:613-624`, `crates/layout/elidex-layout/src/hit_test.rs:228-239`, both through `tree_order_cmp`). The order they need is the flat tree's, which `#11-shadow-slot-assignment-flat-tree` (P2, Layout) owns. They take `pending_flat_tree_order`, which is the base function until `ts`. At `ts` the shadow root is no longer among the host's children, so the function must say where the shadow tree sits: DOM §4.8 *shadow-including tree order* (the shadow tree just after its host). **One residual**: a positioned shadow-tree node and a positioned light child that preceded the shadow root in the host's child list swap their order. **It is observable through user input**: hit-test layer 6 picks the click target, so the swap can change which element receives a pointer event. Neither order is the flat tree's; Layout accepts shadow-including order until P2 lands, and no layout, render or WPT test pins either (Layout's answer to Q-13). **Until `ts` the order between siblings is the stored order** (`sibling_order`, §1.3), so a slice that changes where a node is stored next to a shadow root changes layer 6. **`tc` does, for two insertions only** (declared, R3 F2, narrowed by D1): `insertAdjacentHTML("afterbegin")` / `("afterend")` (§1.6) take the first tree child or the next tree sibling as the reference, so a node that base stored just before the host's shadow root (when the shadow root was the host's first stored child, or the target's raw next sibling) is stored after it, and now sorts after a positioned node of the shadow tree in layer 6, where base sorted it before. That is the order `ts` produces (the shadow tree just after its host), so it is the same class as `ts`'s residual, accepted under Q-13 until P2; it is reached only through the session API (no VM native; census C-10 "U"), not from production. **`::before` is not among them** (D1): it stays a stored-order write until `ts` (§1.3), so it keeps base's order, which is css-pseudo-4 §4.1's ("immediately before the originating element's actual content", [P1]). **At `ts` the residual gains `::before`**: the generated node is then a light child that preceded the shadow root, the class above, and the plain shadow-including order would put it after the shadow tree. `ts` keeps it first: `pending_flat_tree_order` orders a host's generated `::before` node before the host's shadow tree (the generated node carries `PseudoElementMarker`, a unit marker with no before / after kind, `components.rs:184`, so `ts`'s plan states how it tells `::before` from `::after`: a kind on the marker, or the node's stored position as the host's first child), and a `ts` cell pins it. **Cell preconditions** (all layer-6 cells of this row): the host is a stacking context (otherwise a positioned shadow-tree node never reaches layer 6 through `children_iter`, Layout's own defect, §7.2 (a)), and the shadow tree has a default `<slot>`, so that the host's light children, the generated node included, are in the flat tree and so can reach layer 6 at all (whether a generated node should be a stored, slotted light child is P2's question, §7.1) | ta, tc, ts | tc cell: a stacking-context host whose shadow root is its first stored child, with a default slot, a positioned node in its shadow tree and a positioned node inserted with `insertAdjacentHTML("afterbegin")` (session level): layer-6 order and hit-test target; the same host with a positioned `::before`: unchanged from base (before the shadow tree). ts cells: existing paint / hit-test cells unchanged; the residual case pinned with shadow-including order, for paint and for the hit-test target; the positioned `::before` still before the shadow tree, for paint and for the hit-test target |
 | UP-S × VER | `rev_version` propagates to shadow-including ancestors; its documented `.host` branch becomes the reachable one | ta, ts | existing live-collection cell across a shadow boundary |
 | UP-S × CE, clone | the downward shadow-including walks reach the root through `get_shadow_root`, never through a child list (`walkers.rs:59-88`); the adopt walk climbs by `shadow_including_parent`. `for_each_shadow_inclusive_descendant`'s bound and order are `#11-capped-walker-deep-element-processing`'s subject and are not changed here | ta, ts | existing CE and adopt cells |
 | ND × all | F, E and L readers take their pending names with base behaviour; the selector boundary lines (census C-5 role Ls) and the event break (role G) are not edited | ta | no expectation changes; the trip-wire |
@@ -461,7 +527,7 @@ dom-api handlers (census C-10).
 | WHATWG DOM §4.8 Interface ShadowRoot | *shadow-including root*, *ancestor*, *tree order*; *retarget*; a shadow root's *get the parent* | each crossing is written as "root's host" | `shadow_including_parent`, `shadow_host` (ta); *retarget*'s read (ta) | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | `closest` step 3 | "inclusive ancestors that are elements" | `child_node/selectors.rs` (ta) | ✓ | yes |
 | WHATWG DOM §5.2 Boundary points | *position* | "Assert: nodeA and nodeB have the same root" | `compare_points` (tr) | ✓ | yes |
-| WHATWG DOM §5.6 Interface Range | *root*; *contained*; *get the common ancestor* step 2; `setStartBefore` steps 1-2 | within one tree ("node's root is range's root"); a null parent throws | the contained-node walk (ta, §1.6); Range climbs (tr) | ✓ | yes |
+| WHATWG DOM §5.6 Interface Range | *root*; *contained*; *get the common ancestor* step 2; `setStartBefore` steps 1-2 | within one tree ("node's root is range's root"); a null parent throws | the contained-node walk (tq, §1.6); Range climbs (tr) | ✓ | yes |
 | WHATWG DOM §6 Traversal | NodeIterator and TreeWalker *root* | inclusive descendants of the root | traversal climbs (tr) and child reads (tc) | ✓ | yes |
 | Selection API §3 Selection interface | `containsNode` | through the range's boundary points | `selection.rs` (tr) | ✓ | yes |
 | WHATWG HTML §4.12.3 The template element | "not children of the element itself" | the precedent, already (X)-shaped in elidex | none (comparison only; §4) | ✓ | no |
@@ -482,12 +548,14 @@ dom-api handlers (census C-10).
 | CSS Shadow Module Level 1 (css-shadow-1) §3.2.2 Selecting Shadow Hosts from within a Shadow Tree | the featureless host | "treated as replacing the shadow root node" | none (§1.5) | ✓ | yes |
 | CSS Shadow Module Level 1 (css-shadow-1) §4.1 Flattening the DOM into an Element Tree | *flat tree* | — | none (§1.5) | ✓ | yes |
 | CSSOM View (cssom-view-1) §7 Extensions to the HTMLElement Interface | `offsetParent` step 2 | "the parent of the element in the flat tree" | none (§1.5) | ✓ | yes |
+| CSS Pseudo-Elements Level 4 (css-pseudo-4) §4.1 Generated Content Pseudo-elements: ::before and ::after | `::before` | "immediately before the originating element's actual content" (a host's actual content: its shadow tree) | `pseudo.rs:72` keeps the stored first child (tc, §1.3); `pending_flat_tree_order` keeps a host's `::before` before its shadow tree (ts, §2 ORD × RENDER) | ✓ | yes |
 
-**Breadth**: K=7 specs, M=31 entries (verified 2026-11-18 with `.claude/tools/webref coverage-map`; the argument
-list is in §8). The verdict is "split by default" (K ≥ 6 or M ≥ 30), and the program is split (§5); the cut follows
-§0.2. The preflight's label map has no entry for Selection API, css-shadow-1, cssom-view-1 and execCommand, so
-those five rows were checked by hand (`.claude/tools/webref heading selection-api 3`, `heading css-shadow-1 3.2.2`,
-`heading css-shadow-1 4.1`, `heading cssom-view-1 7`, `heading execCommand 6`). Nine of the rows touch no code
+**Breadth**: K=8 specs, M=32 entries (verified 2026-11-18 with `.claude/tools/webref coverage-map`; the argument
+list is in §8; draft 3.4 adds the css-pseudo-4 row, from K=7, M=31). The verdict is "split by default" (K ≥ 6 or
+M ≥ 30), and the program is split (§5); the cut follows §0.2. The preflight's label map has no entry for Selection
+API, css-shadow-1, cssom-view-1, execCommand and css-pseudo-4, so those six rows were checked by hand
+(`.claude/tools/webref heading selection-api 3`, `heading css-shadow-1 3.2.2`, `heading css-shadow-1 4.1`,
+`heading cssom-view-1 7`, `heading execCommand 6`, `heading css-pseudo-4 4.1`). Nine of the rows touch no code
 (relations this program names but does not define, or wording evidence).
 
 **How the spec words (X).** DOM's tree relations never reach a host. Where a spec crosses, it names the step: DOM
@@ -503,16 +571,19 @@ root's event *get the parent*, and the selector tree in which the host replaces 
 Script-observable changes, by slice; all are **predicted from the code** and probed before the plan's review
 (§5.2).
 
-- `ta`: two, declared (§1.6). (1) `removeChild`, `insertBefore` and `replaceChild` given the host's own shadow
-  root as the child throw "NotFoundError" instead of succeeding (the checks in the engine-independent layer,
-  pre-remove step 1 on the `removeChild` path only; elidex-ecs unchanged, PM 800). (2) Range's contained-node walk
-  no longer enters a shadow tree: `deleteContents` over a host no longer unlinks the shadow root or reports it in a
-  `MutationRecord` (closed mode included); `toString` no longer includes a shadow tree's text (predicted);
-  `extractContents` is predicted unchanged. Nothing else: the other callers of `apply_remove_child` run no
-  *pre-remove* step and are unchanged (§1.6).
+- `tq`: one, declared (§1.6, PM 820). Range's contained-node walk no longer enters a shadow tree:
+  `deleteContents` over a host no longer unlinks the shadow root or reports it in a `MutationRecord` (closed mode
+  included); `Range.prototype.toString` and `Selection.prototype.toString` no longer include a shadow tree's text
+  (predicted; probed before review, §5.2); `extractContents` is predicted unchanged. The pre-existing `toString`
+  overshoot (an end container that is an ancestor of the start) is not changed (§1.6).
+- `ta`: one, declared (§1.6). `removeChild`, `insertBefore` and `replaceChild` given the host's own shadow root as
+  the child throw "NotFoundError" instead of succeeding (the checks in the engine-independent layer, pre-remove
+  step 1 on the `removeChild` path only; elidex-ecs unchanged, PM 800). Nothing else: the other callers of
+  `apply_remove_child` run no *pre-remove* step and are unchanged (§1.6).
 - `ts`: none for script. One residual reaches the user through input, not through script: the order of hit-test
   layer 6 for a positioned shadow-tree node against a positioned light child (§2 ORD × RENDER) decides the target
   of a pointer event, and so `event.target`. The flat-tree order belongs to `#11-shadow-slot-assignment-flat-tree`.
+  A positioned `::before` is kept before the shadow tree, as at base (§2 ORD × RENDER).
 - `tc`: any raw child or sibling reader that exposes a shadow root as a child of its host: Range boundary indices
   and walks (D13), TreeWalker / NodeIterator descending into a shadow tree, form descendant walks, `normalize`.
   The readers that must keep entering a shadow tree are moved to the explicit descent and are **not** meant to
@@ -520,15 +591,17 @@ Script-observable changes, by slice; all are **predicted from the code** and pro
   except one, and a shadow tree's focusables move to right after the host: HTML §6.6.2 steps 2.2 / 2.3 [H15], a
   change toward the spec (PM 800, §7.3 Q-18); the exception is a host whose tabindex is negative, whose shadow
   tree's focusables leave the Tab order (HTML §6.6.2, *tabindex-ordered focus navigation scope*, [H15]; §2 CHILD ×
-  SHELL); `tc`'s cells pin both. Three engine callers that pass a raw child to the elidex-ecs
-  mutators (§1.6) pick tree children from `tc`: `::before` generation inserts before the originating element's
-  first tree child, and `insertAdjacentHTML("afterbegin")` / `("afterend")` insert before the target's first tree
-  child / the target's next tree sibling, appending when there is none. Where base passed the host's shadow root
-  as the reference, the insertion landed just before it in the raw list, which gives the same tree-child order;
-  so these three are predicted unchanged for script, and `tc`'s cells pin that (a host as the target, its shadow
-  root first in the raw list). The `insertAdjacentHTML` cells are session-level: no VM native reaches the handler
-  (census C-10 "U"). **They do change the stored position** relative to the shadow root, which layer 6 reads until
-  `ts` (declared, §2 ORD × RENDER): a user-input-observable order change of the same class as `ts`'s residual.
+  SHELL); `tc`'s cells pin both. The host's light children keep their base position in the walk, a
+  residual of P2 (§2 CHILD × SHELL). Two engine callers that pass a raw child to the elidex-ecs mutators (§1.6)
+  pick tree children from `tc`: `insertAdjacentHTML("afterbegin")` / `("afterend")` insert before the target's
+  first tree child / the target's next tree sibling, appending when there is none. Where base passed the host's
+  shadow root as the reference, the insertion landed just before it in the raw list, which gives the same
+  tree-child order; so both are predicted unchanged for script, and `tc`'s cells pin that (a host as the target,
+  its shadow root first in the raw list). The cells are session-level: no VM native reaches the handler (census
+  C-10 "U"). **They do change the stored position** relative to the shadow root, which layer 6 reads until `ts`
+  (declared, §2 ORD × RENDER): an order change of the same class as `ts`'s residual, not reachable from
+  production. The third caller, `::before` generation, keeps the stored first child until `ts` and does not change
+  (§1.3, D1).
 - `tm`: `MutationObserver` with `subtree: true` on a host, an ancestor of a host, or the document no longer
   receives records for mutations inside the shadow tree.
 - `tr`: `Range.commonAncestorContainer`, boundary comparison, `isPointInRange` / `comparePoint`, contained-node
@@ -577,8 +650,12 @@ Script-observable changes, by slice; all are **predicted from the code** and pro
   compensating accessors would never be listed, and R2 found two shell walks and one layout walk whose behaviour
   `tc` would have changed without a line in any plan. **Rejected: a new "shadow-including children" accessor**:
   it is not a DOM relation, and it would be a fourth child-side name.
-- **Rejected for §1.6: a guard PR before `ta`; leaving the defect to `ts`; leaving the Range path to `tc`**
-  (reasons in §1.6).
+- **Rejected for §1.6: a guard PR before `ta`; leaving the defect to `ts`; leaving the Range path to `tc`, or in
+  `ta`** (reasons in §1.6). `tq` is not the rejected guard PR: it takes the program's own relation on one function
+  and nothing in it is deleted later (§1.6, PM 820).
+- **Rejected for §1.3: `::before` generation taking the first tree child in `tc`** (draft 3.3). It would move a
+  positioned `::before` behind the shadow tree in layer 6, away from css-pseudo-4 §4.1's order, for a production
+  path; the stored first child keeps the spec's order until `ts`, which keeps it explicitly (D1).
 - **Rejected for the dom-api handlers: one rule for all of them.** A handler that production reaches keeps its
   spec relation; only an unreachable one may be re-typed to its native's relation without a cell (§2 UP-T × NAV).
   Routing the natives through the handlers is `#11-dom-api-handlers-unreachable-from-production`'s and R-NAT's,
@@ -590,19 +667,22 @@ Script-observable changes, by slice; all are **predicted from the code** and pro
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
 | **tp** | **Touch-time splits**, each a standalone prerequisite PR with no behaviour change, cut by L3 (PM 758 Q-15). **tp-1** `traversal.rs` (1479 lines; seams: the shared preorder helpers, `TreeWalker` from `:153`, `NodeIterator` from `:1018`, the inline tests from `:1224`), before `ta`: `ta` and `tr` both edit it. **tp-2** the shell's `tests.rs` (1081 lines), before `ta`, if `ta`'s plan finds a seam and not a flat case list. **tp-3** `builder/mod.rs` (1002 lines; the margin-box code `:489-991`; `:993` is `find_roots`'s doc comment), before `tc`; Layout confirms the seam. The block has no child-side read (the file's two `get_first_child` calls, `:483` in `find_roots_mut` and `:999` in `find_roots`, are outside it), so "before `tc`" is only the order of touching the file, not a collision (Layout, checked at `1146380f`; the file is the same at `bfc63658`). **tp-4** the test files over 1000 lines that `tc` edits: `elidex-dom-api` `live_collection/tests.rs` (1137 lines; 29 child-side lines) and `elidex-js` `vm/tests/tests_custom_elements.rs` (1321 lines; 1 child-side line), each before `tc` if `tc`'s plan finds a cohesion seam; where the plan finds a flat case list instead, it says so and the file is not split (CLAUDE.md, *1000-line debt*: cohesion, not line count). | `elidex-dom-api` `traversal.rs`, `live_collection/tests.rs`; `elidex-shell` `tests.rs`; `elidex-render` `builder/mod.rs`; `elidex-js` `vm/tests/tests_custom_elements.rs` | — (CLAUDE.md, *1000-line debt*) | — | — |
-| **ta** | **Every climb chooses.** The two steps, the transitional accessor with `Flip`, and the four pending names of §1.5 replace `get_parent`, which is deleted, tests included. Every derived relation is removed, renamed or kept by rule (§1.2). Every reader of the backward link that climbs or lives outside elidex-ecs goes through `shadow_host` (*retarget*, a11y, the `ShadowRoot.host` native). The parent-side dom-api handlers follow §2 UP-T × NAV. Range's contained-node walk takes the exposed steps, and the comment at `vm/host/node_proto.rs:722-725` (which says a shadow root "is never a `parent.children[i]`" and is rejected "naturally", the belief behind §0.1 item 6) is replaced by one that names `ensure_pre_remove_validity`. The trip-wire lands. Behaviour-preserving **except the two declared changes** (§1.6). | `elidex-ecs` `dom/tree/*.rs`, `dom/mod.rs`, `dom/shadow.rs`; every crate of census C-2 (21 crates); in `elidex-js` `vm/host` the 25 files of census C-12 (verified 2026-11-18, §8) | `#11-shadow-root-is-a-tree-root`; closes `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; both script paths, §1.6) | — | tp-1, tp-2 |
-| **tc** | **Every child-side read chooses** (R-TREE 4, §1.3): one accessor set under new names replaces every child-side accessor; the interim skip (result and receiver halves) lives in the accessor layer; caller-side skips and guards (census C-5 roles K, R) are deleted; the three walks that need a shadow tree take the explicit descent; the three engine callers that pass a raw child to the elidex-ecs mutators (`pseudo.rs:74`, `html_fragment.rs:222`, `:251`; §1.6) pick tree children, which moves the stored position of what they insert relative to a shadow root (declared: layer-6 order, §2 ORD × RENDER); `sibling_order` takes the stored link, not the set (§1.3); the Tab-order descent skips a host with a negative tabindex (§2 CHILD × SHELL). Observable where base exposes a shadow root as a child (§3.1). | `elidex-ecs` `dom/tree/navigation.rs`, `dom/mod.rs`; every file of census C-3 and C-4, among them shell files (`content/event_handlers.rs`, `content/iframe/lifecycle.rs`, `elidex-navigation` `loader.rs`, `resource.rs`) and layout, render and style files (§7.2) | as ta; closes `#11-range-compare-points-shadow-index` (D13; PM 758 Q-16) | — | ta, tp-3, tp-4 |
+| **tq** | **Range's contained-node walk takes tree children** (§1.6, the second path; D3, approved PM 820). `next_in_preorder_global` takes the two existing exposed child steps (`children_iter(current).next()`, `next_exposed_sibling`) in place of the raw ones (`range/mod.rs:574`, `:579`); its upward step (`:582`) is untouched and is `ta`'s. One declared behaviour change: `deleteContents` over a host neither unlinks the shadow root nor reports it in a `MutationRecord`; the `toString` facet (both natives, §1.6) and `extractContents` (unchanged) have cells. The `toString` overshoot of `range/mutation.rs:47-58` is not touched (§1.6, §7.4). **Per-PR plan-review: required.** `/elidex-plan-review` SKILL.md, *When to invoke*: the MANDATORY rule asks for a plan-review of each per-PR plan before its code, and its base case ("承認済 umbrella 配下で plan-review を通った narrowly-scoped per-PR slice は terminal 単位") makes a slice a terminal unit only once that slice's plan **has passed** plan-review: it ends the splitting, not the review. `tq` meets the trigger on its own (it intersects TREE × WR, CHILD × RANGE, LINK and MO of §2: ≥3 intersecting axes), so the *Skip OK* exception is closed to it. So `tq` has its own per-PR plan, run through `/elidex-plan-review` in full, and is then one PR, not split further | `elidex-dom-api` `range/mod.rs` (`next_in_preorder_global`); its cells in `range/` tests and the VM's Range / Selection tests | `#11-shadow-root-accepted-as-ref-or-old-child`: closes its Range path (PM 820); the slot stays open until `ta` | — | — (it lands before `ta`, PM 820; no code dependency on `tp`) |
+| **ta** | **Every climb chooses.** The two steps, the transitional accessor with `Flip`, and the four pending names of §1.5 replace `get_parent`, which is deleted, tests included. Every derived relation is removed, renamed or kept by rule (§1.2). Every reader of the backward link that climbs or lives outside elidex-ecs goes through `shadow_host` (*retarget*, a11y, the `ShadowRoot.host` native). The parent-side dom-api handlers follow §2 UP-T × NAV. The spec's child-of steps ask the tree-parent question (§1.6, the first path), and the comment at `vm/host/node_proto.rs:722-725` (which says a shadow root "is never a `parent.children[i]`" and is rejected "naturally", the belief behind §0.1 item 6) is replaced by one that names `ensure_pre_remove_validity`. The trip-wire lands. Behaviour-preserving **except the one declared change** (§1.6). | `elidex-ecs` `dom/tree/*.rs`, `dom/mod.rs`, `dom/shadow.rs`; every crate of census C-2 (21 crates); in `elidex-js` `vm/host` the 25 files of census C-12 (verified 2026-11-18, §8) | `#11-shadow-root-is-a-tree-root`; closes `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; its reference / old / removed child path here, its Range path at `tq`, PM 820) | — | tp-1, tp-2, tq |
+| **tc** | **Every child-side read chooses** (R-TREE 4, §1.3): one accessor set under new names replaces every child-side accessor; the interim skip (result and receiver halves) lives in the accessor layer; caller-side skips and guards (census C-5 roles K, R) are deleted; the three walks that need a shadow tree take the explicit descent; two of the three engine callers that pass a raw child to the elidex-ecs mutators (`html_fragment.rs:222`, `:251`; §1.6) pick tree children, which moves the stored position of what they insert relative to a shadow root (declared: layer-6 order, §2 ORD × RENDER; session API only); `sibling_order` and `::before` generation (`pseudo.rs:72`) take the stored link, not the set (§1.3); the Tab-order descent skips a host with a negative tabindex (§2 CHILD × SHELL). Observable where base exposes a shadow root as a child (§3.1). | `elidex-ecs` `dom/tree/navigation.rs`, `dom/mod.rs`; every file of census C-3 and C-4, among them shell files (`content/event_handlers.rs`, `content/iframe/lifecycle.rs`, `elidex-navigation` `loader.rs`, `resource.rs`) and layout, render and style files (§7.2) | as ta; closes `#11-range-compare-points-shadow-index` (D13; PM 758 Q-16) | — | ta, tp-3, tp-4 |
 | **tr** | **Range, Selection and traversal climbs are tree climbs** (`Flip::Tr`), including the crossing ancestor test and order they call and the VM's `require_attached_node`. The null-parent step of `setStartBefore` and its siblings ([D8]) stays where it is today, in the VM host (`range_proto.rs:529`): `tr` changes the relation that line reads and does not move the step. Its move into dom-api (whose `set_start_before` does not carry the step) belongs to R-NAT's host chapter and `#11-dom-api-handlers-unreachable-from-production`. | `elidex-dom-api` `range/`, `selection.rs`, `traversal/`; `elidex-js` `vm/host/range_proto.rs` (`:432`, `:529`, `:783`, and the callers at `:749`, `:768`) | as ta; `#11-shadow-tree-live-range-tracking` (§7.1) | — | ta, tc |
 | **tf** | **Form-association climbs are tree climbs** (`Flip::Tf`): the form owner's ancestor step (PM 747 Q-6; the plan cites HTML §4.10.18.3 through webref), fieldset disabledness, option / select / optgroup, the dialog of `method=dialog`, `select.add`'s ancestor tests ([H12]). | `elidex-form` `submit.rs`, `select/mod.rs`; `elidex-form-core` `fieldset.rs`; `elidex-dom-api` `element/option_disabled.rs`, `element/select.rs`; `elidex-js` `vm/host`: the nine `.form` getters that call `find_form_ancestor` (`html_{button,fieldset,input,label,legend,option,output,select,textarea}_proto.rs`) and `html_option_proto.rs:367` (`find_option_select`) (census C-12) | as ta; `#11-form-owner-ecs-component` (§7.1) | — | ta, tc |
 | **tm** | **MutationObserver climbs are tree climbs** (`Flip::Tm`). | `elidex-api-observers` `mutation/mod.rs` | as ta | — | ta |
 | **te** | **Contenteditable inheritance is a tree climb** (`Flip::Te`), with `:read-write`. The last flip: it deletes the transitional accessor and `Flip`. | `elidex-ecs` `dom/mod.rs`; `elidex-dom-api` `element/inheritance.rs`; `elidex-css` `selector/matching.rs` (the `:read-write` arm); `elidex-js` `vm/host/html_element_proto.rs:663` (`isContentEditable`) | as ta | — | ta for its own flip; tr, tf, tm for the deletion |
-| **ts** | **Stop appending.** Attach writes the link pair, bumps the host's version, and links nothing; elidex-ecs refuses to link a shadow root as a node; the accessor-layer skips and `tree_parent`'s marker test are deleted; `shadow_including_parent` reads `shadow_host`; `pending_flat_tree_order` places a shadow tree just after its host; the P-REL lines (41) are re-read against R-TREE; the dead node half of the fire guards goes; the docs of §0.1 item 2 say one thing. Behaviour-preserving for script; one residual reaches the user through hit-testing (§3.1). Closes the slot. | `elidex-ecs` `dom/shadow.rs`, `dom/mod.rs`, `dom/tree/*.rs`, `components.rs` | `#11-shadow-root-is-a-tree-root` (closes) | — | te |
+| **ts** | **Stop appending.** Attach writes the link pair, bumps the host's version, and links nothing; elidex-ecs refuses to link a shadow root as a node; the accessor-layer skips and `tree_parent`'s marker test are deleted; `shadow_including_parent` reads `shadow_host`; `pending_flat_tree_order` places a shadow tree just after its host and a host's `::before` node before it (§2 ORD × RENDER); the P-REL lines (41) are re-read against R-TREE; the dead node half of the fire guards goes; the docs of §0.1 item 2 say one thing. Behaviour-preserving for script; one residual reaches the user through hit-testing (§3.1). Closes the slot. | `elidex-ecs` `dom/shadow.rs`, `dom/mod.rs`, `dom/tree/*.rs`, `components.rs` | `#11-shadow-root-is-a-tree-root` (closes) | — | te |
 
 ### §5.1 Dependency order and shared cells
 
 The table's last column is a **dependency** order, not a landing order:
 
 - tp-1, tp-2 → ta. tp-3, tp-4 → tc.
+- tq → ta (PM 820: tp → tq → ta). `tq` edits the same function as `ta` (`next_in_preorder_global`, whose upward
+  step `ta` re-types), and `ta`'s acceptance assumes the Range path is closed.
 - ta → tc, tm, and `te`'s own flip. (Outside this program: ta → the DOM-walker program's slice 1, PM 761.)
 - tc → tr, tf.
 - tr, tf, tm → te's deletion of the accessor and `Flip`; te → ts; ts → PR (io), rewritten on this base (§7.2).
@@ -612,7 +692,9 @@ are; they may be reviewed and landed side by side (the shape PM 747 assumed). Wh
 lands is the PM's schedule, not this memo's: the re-estimate went to the PM with the R2 report, and §7.2 points to
 it.
 
-- `ta` first: it creates the vocabulary and the compiler's lists. `tp-1` before it, because `ta` edits ten lines of
+- `tq` first among the behaviour slices: two accessor swaps that close the closed-root exposure of §0.1 item 6
+  about a week before `ta` (PM 790 (3): `ta` ~12-01; PM 820).
+- `ta` next: it creates the vocabulary and the compiler's lists. `tp-1` before it, because `ta` edits ten lines of
   `traversal.rs`.
 - **`tr` and `tf` depend on `tc`.** Draft 1 said the flip slices share no cell; R1 showed three contacts. (1) Range
   and traversal read both sides: `tc` owns the downward cells ("does not enter a shadow tree through a child
@@ -621,7 +703,7 @@ it.
   shadow tree downward but still leaves it upward); `tc`'s plan lists, per family, the cross-boundary case that is
   inconsistent in that window and probes that it is wrong in value only (no panic, no corrupted link). Draft 3.2
   claimed that without an exception; R3 found one: Range's contained-node walk corrupted the host's links through
-  `deleteContents` until `tc`. `ta` closes it (§1.6, the second path), so from `ta` the claim holds. The shorter
+  `deleteContents` until `tc`. `tq` closes it (§1.6, the second path), so from `tq` the claim holds. The shorter
   that window the better, which is an input to the PM's schedule. (3) The order function: resolved in `ta` (§2
   ORD × DER, ORD × FORM), so `te` and `tf` no longer share it with `tr`.
 - `tm` depends only on `ta`. `te`'s flip depends only on `ta`; it comes after the other flips because it deletes
@@ -652,6 +734,11 @@ Every "P:" row and every "T, g" / "T1" equality of the census is a reading of th
   shadow root. For a receiver that follows from the interface; for a node a script passed in it does not (R2:
   five "T1" lines were arguments, §1.6). `ta`'s plan states, for every "T1" line, which of the two it is, and
   probes every argument line with a shadow root.
+- **`tq` probes its change** at its base: the `deleteContents` probe of census C-14 (second row), `extractContents`
+  over the same host, and the **`toString` facet** (D2), through both natives (`Range.prototype.toString`,
+  `Selection.prototype.toString`), with a range whose end container follows the host in tree order (§1.6; the
+  `deleteContents` shape ends in an ancestor of the start and meets the pre-existing overshoot instead). Each is
+  run again at its head.
 - **`tc` probes the walks** of census C-13 that it leaves on tree children (§1.3).
 - **A miss toward "no change"** (a predicted flip where base already does not cross): the line takes `tree_parent`
   in `ta` instead, and the flip slice shrinks; if a whole cluster empties, the PM decides at that plan's review
@@ -659,34 +746,40 @@ Every "P:" row and every "T, g" / "T1" equality of the census is a reading of th
 - **A miss toward "change"** (a predicted equality that differs at base): the line does not take the final name in
   `ta`. It takes the transitional accessor with the `Flip` variant of its family's slice; if no slice owns that
   family, the miss is reported to the PM at `ta`'s review with the probe (a new slice or a neighbour is the PM's
-  call), and `ta` does not land with a behaviour change other than the two of §1.6.
+  call), and `ta` does not land with a behaviour change other than its one of §1.6.
 
 ### §5.3 Acceptance
 
 - `tp`: no test changes its expectation; no file of a split exceeds 1000 lines.
+- `tq`: its per-PR plan has passed `/elidex-plan-review` (§5 `tq`); `next_in_preorder_global` reads no raw child
+  or sibling (its upward step unchanged); the probes of §5.2 ran at its base and head. No existing cell changes its
+  expectation except the one declared change of §1.6, the second path: the `deleteContents` cell (closed mode: links,
+  child list, no `MutationRecord` naming the shadow root), the `toString` facet cell through both natives (a range
+  whose end container follows the host), the `extractContents` cell, and a mutant that restores a raw step, on the
+  final head; any existing Range cell whose expectation includes a shadow tree's node is listed with its new value.
+  The `toString` overshoot (§1.6) keeps its base behaviour.
 - `ta`: `get_parent` does not exist; the plan's per-line table covers every line the compiler reported (P-UP and
   P-UP-T, re-measured at its base), every census C-6 row and every census C-12 row. No existing cell changes its
-  expectation, with two listed exceptions: the cells of §1.6 for both script paths (new, with a mutant per site and
-  one for the walk's step, on the final head; any existing Range cell whose expectation includes a shadow tree's
-  node is listed with its new value), and
+  expectation, with two listed exceptions: the cells of §1.6 for the first script path (new, with a mutant per
+  site, on the final head), and
   a dom-api handler test that pins the disagreement of an **unreachable** handler with its VM native (PM 748 (b);
   reachability from census C-10; each test is listed). A reachable handler's cells do not change. The pending
   counts per name and per `Flip` variant are recorded in the allowlist; the benchmark of §1.1 is in the plan.
   elidex-ecs's `is_child_of` and the three mutators are unchanged (PM 800); pre-remove step 1 is in the new
   `ensure_pre_remove_validity` beside `ensure_pre_insertion_validity` and `ensure_replace_validity`, called only by
-  the `RemoveChild` handler, and `apply_remove_child` is unchanged (§1.6). `next_in_preorder_global` reads no raw
-  child or sibling; the comment at `node_proto.rs:722-725` no longer says the engine rejects a shadow root
-  "naturally".
+  the `RemoveChild` handler, and `apply_remove_child` is unchanged (§1.6). The comment at `node_proto.rs:722-725`
+  no longer says the engine rejects a shadow root "naturally".
   **Before `ta` lands**: the §1.5 selector relation cites its owner `#11-shadow-tree-style-isolation` (PM 794), and
-  the landing list of §7.4 is with the PM. (`#11-shadow-root-accepted-as-ref-or-old-child` is registered, PM 790.)
+  the landing list of §7.4 is with the PM, and `tq` has landed (§5.1). (`#11-shadow-root-accepted-as-ref-or-old-child`
+  is registered, PM 790.)
 - `tc`, `tr`, `tf`, `tm`, `te`: probes run before review; each changed behaviour has a cell and a mutant on the
   final head; the slice's `Flip` variant and its `_pending_flip` names do not exist at its head. **`tc`**: no old
   child-side accessor name exists; the three walks of §1.3 have their cells (§2 CHILD × SHELL, CHILD × RENDER),
   among them "the focusables of a shadow tree come right after the host" (HTML §6.6.2 steps 2.2 and 2.3, [H15]);
-  "a host with a negative tabindex contributes no focusable of its shadow tree" (§2 CHILD × SHELL); the three
-  engine callers of §1.6 read tree children and have their cells, the `insertAdjacentHTML` ones at session level;
-  the layer-6 cells of §2 ORD × RENDER (`tc`) for the stored position they change; `sibling_order` reads the
-  stored link (§1.3).
+  "a host with a negative tabindex contributes no focusable of its shadow tree" (§2 CHILD × SHELL); the two
+  `insertAdjacentHTML` callers of §1.6 read tree children and have their cells, at session level; the layer-6
+  cells of §2 ORD × RENDER (`tc`) for the stored position they change, and for a positioned `::before`
+  (unchanged); `sibling_order` and `::before` generation read the stored link (§1.3).
   **`tc` and `ts`**: a test that pins the (Y) storage shape (a shadow root in its host's child list, e.g.
   `crates/script/elidex-script-session/src/mutation/tests.rs:487-493`, which asserts `get_last_child(host)` is the
   shadow root as the premise of its case) is rewritten to the (X) expectation of the slice that breaks it and
@@ -697,7 +790,8 @@ Every "P:" row and every "T, g" / "T1" equality of the census is a reading of th
 - `ts`: no tree edge between a host and its shadow root, and the three mutators refuse one as a node; no marker
   test of census C-5 role K, R or B remains (roles G and Ls stay, by §1.5); attach moves the document root's
   version; no script-visible cell changes its expectation; **the residual of §2 ORD × RENDER has its cell, for
-  paint and for the hit-test target**; the census is re-run at its head and every population's remaining lines
+  paint and for the hit-test target**, and a positioned `::before` still sorts before the shadow tree (its cell,
+  same two targets; css-pseudo-4 §4.1 [P1]); the census is re-run at its head and every population's remaining lines
   are accounted for; the four pending names of §1.5 are the only pending names left.
   - **The link fields' visibility.** `ts` narrows them from `pub(crate)` to the `dom::tree` module **if** the P-REL
     command at its head prints no reading line outside `crates/core/elidex-ecs/src/dom/tree/`. At `bfc63658` three
@@ -709,8 +803,10 @@ Every "P:" row and every "T, g" / "T1" equality of the census is a reading of th
     `:236`, `:290` and `:351` cite "§4.2.2.5 step 3" for removing a node from another slot's manually assigned
     nodes, which is that method's step 3.1 ("If node's manual slot assignment refers to a slot, then remove node
     from that slot's manually assigned nodes.") [H16]; *manually assigned nodes* is HTML's (§4.12.4), and *manual
-    slot assignment* is DOM §4.2.2.2 Slottables [D14]. `:381` cites DOM §4.2.2.5 for *find slottables*, and `:426`
-    cites DOM §4.2.2.4 for *find a slot*: both are DOM §4.2.2.3 Finding slots and slottables [D14].
+    slot assignment* is DOM §4.2.2.2 Slottables [D14]. `:381` cites DOM §4.2.2.5 for *find slottables* and the
+    `assignedNodes()` algorithm: *find slottables* is DOM §4.2.2.3 Finding slots and slottables [D14], and
+    `assignedNodes()` is HTML §4.12.4 The slot element [H16]. `:426` cites DOM §4.2.2.4 for *find a slot*, which is
+    DOM §4.2.2.3 [D14].
 - Program: R-TREE holds; §0.1 items 1 to 6 are gone; PR (io)'s "one home" sentence is true for the shadow root
   before PR (io) is written against it.
 
@@ -755,13 +851,13 @@ empty the same way. After `ts`, direct field access is confined by visibility; w
 | Slot | Why deferred | Trigger | Re-eval |
 |---|---|---|---|
 | `#11-shadow-root-is-a-tree-root` (registered, PM 747; owner L3) | the storage cannot change before every reader names its relation (§0.2), so the two homes of §0.1 item 1 stay until the last slice | **this umbrella's ratify**; closed by `ts` | 2026-12-31 |
-| `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; owner L3; paydown (c)) | §0.1 item 6: wrong in production today; fixed at the first slice that has the vocabulary, in the engine-independent layer (§1.6, PM 800). Scope widened by R3 (F1) to "script paths that unlink a host's shadow root": the reference / old / removed child, and Range deletion, which also hands a closed shadow root to page script through a `MutationRecord`; the ledger text follows at `ta` (§7.4) | `ta`; closed by `ta` | 2026-12-31 |
+| `#11-shadow-root-accepted-as-ref-or-old-child` (registered, PM 790; owner L3; paydown (c)) | §0.1 item 6: wrong in production today. Scope widened by R3 (F1) and PM 812 to "script paths that unlink a host's shadow root": the reference / old / removed child, and Range deletion, which also hands a closed shadow root to page script through a `MutationRecord`; the ledger row was re-synced to draft 3.3 by PM 814. **Closes in two steps (PM 820)**: the Range path at `tq` (the walk takes tree children, §1.6) and the reference / old / removed child at `ta` (the spec's child-of steps in the engine-independent layer, §1.6, PM 800); the ledger text follows the split (§7.4) | `tq`, then `ta`; closed by `ta` | 2026-12-31 |
 | `#11-shadow-tree-style-isolation` (Layout, CV-details; owner of the selector relation by PM 794) | owns `pending_selector_parent` (§1.5): the featureless host in the combinator walk is built by CV-details | the slot's own | the slot's own |
 | `#11-dom-selector-api-rejects-shadow-pseudos` (registered, PM 794; owner L3) | neighbour: `querySelector` / `matches` reject `:host` and `::slotted` with a SyntaxError in every tree; not a relation, so not this program's | `ta`'s landing or `#11-shadow-tree-style-isolation`'s landing, whichever is first | 2027-01-15 |
 | `#11-element-lifecycle-hooks` (P1) | owns the shell's link and label lookups (activation target, DOM §2.9), which carry `pending_event_parent` after `ta` (PM 759) | the slot's own | the slot's own |
 | `#11-template-contents-host-link` | not this program's (its Re-eval-date 2026-12-15 in the ledger comes before PR (io), ~12-18 by PM 790 (3), and so before its close: re-dated at this umbrella's ratify, §7.4); closes at a small PR after PR (io) (PM 748 (a), amending PM 718), which extends the one host-including test. `ta` creates that test (`is_host_including_inclusive_ancestor`), which fires the slot's facet about the test; the disposition is already PM 748 (a), and `ta`'s plan records the firing | that PR | the slot's own |
 | `#11-dom-api-handlers-unreachable-from-production` (registered, PM 744 / PM 583) | its trigger (b) is PM 748 (b): in `ta` the handlers take the VM natives' relations; connecting or deleting them is decided there | the slot's own | the slot's own |
-| `#11-shadow-slot-assignment-flat-tree` (P2, Layout) | owns the flat-tree names of §1.5 and the *assigned slot* arm of the event parent; and, for the Tab order after `tc`, the differences from HTML §6.6.2 that `tc` leaves: a slot as a focus navigation scope owner, and tabindex order inside a scope (PM 800, Q-18; confirmed by Layout, ledger row "Added (PM 800, 2026-11-18, Layout)"). Not among them: a host with a negative tabindex, which `tc` skips (§2 CHILD × SHELL) | the slot's own | the slot's own |
+| `#11-shadow-slot-assignment-flat-tree` (P2, Layout) | owns the flat-tree names of §1.5 and the *assigned slot* arm of the event parent; and, for the Tab order after `tc`, the differences from HTML §6.6.2 that `tc` leaves: a slot as a focus navigation scope owner, and tabindex order inside a scope (PM 800, Q-18; confirmed by Layout, ledger row "Added (PM 800, 2026-11-18, Layout)"); among the slot-scope differences, the light children of a host with a negative tabindex, which `tc` walks as base does (HTML §6.6.2 *associated focus navigation owner* step 2, [H15]; §2 CHILD × SHELL). Not among them: that host's shadow tree, which `tc` skips. **Two observations for P2** (D1; not decided here, §7.4): (1) a generated `::before` / `::after` box is stored as a light child of its originating element, so on a host it is a slottable child that the flat tree reaches only through a slot: whether a render-side fact belongs in the node tree at all is an ECS-native question for P2; (2) unprobed: `slot.assignedNodes()` may return the `::before` text entity, because the generated node is a `NodeKind::Text` entity (`create_text_with_owner`, `dom/mod.rs:568`) and `EcsDom::assigned_nodes`' walk over the host's children (`crates/core/elidex-ecs/src/dom/shadow.rs:436-443`) matches every Text child to the default slot | the slot's own | the slot's own |
 | `#11-event-path-window-missing` (L3) | owns `pending_event_parent` in `build_propagation_path` (§1.5) | the slot's own | the slot's own |
 | `#11-capped-walker-deep-element-processing` | its trigger (an edit of the walkers in `walkers.rs`) is fired by `ta` and `ts` (R1 named ta / te / ts under draft 1's cut, where `te` held `ancestor_chain`); each plan records the firing; this program changes no bound and no walk order | fired | the slot's own |
 | `#11-dom-walkers-iterative-over-ecs-links` | the DOM-walker program (recursive walkers to an iterative form); both edit `walkers.rs`. Its slice 1 lands **after `ta`** and may run beside `tc` and later slices; it still stacks on PR (i) and uses `owned_entities` (PM 761, PM 694). `ta` does not wait for it. L3 sets the slice's date and tells the PM if it would pass 12-15 (PM 761 (1)) | the slot's own | 2026-12-15 |
@@ -771,7 +867,7 @@ empty the same way. After `ts`, direct field access is confined by visibility; w
 | `#11-live-range-bridge-wide-sibling-index` | neighbour of `tc`: the index's sibling cap; `tc` moves the index into the set and does not change the cap | the slot's own | 2026-12-01 |
 | `#11-form-owner-ecs-component` | `tf` edits `find_form_ancestor`, one of its three resolvers: **trigger-fired record in `tf`'s plan**; the `form`-attribute half and the component stay with the slot | fired by `tf` | the slot's own |
 | `#11-form-elements-cross-tree` | association across trees by explicit mechanisms; `tf` only stops the ancestor step from crossing, and its plan cites the slot so the two do not contradict | the slot's own | M4-13 entry |
-| `#11-fieldset-disabled-dynamic-insert` | neighbour of `tf` (re-deriving inherited disabledness on insert); `tf` changes the relation the derivation uses, not when it runs. Decided by PM 791: paydown (c), closed by the reconciliation umbrella's Slice 2 (`docs/plans/2026-07-form-derived-state-reconciliation.md`). Its Slice 1 adds `is_effectively_disabled` (NEW there; that umbrella's §4), a climb of the fieldset ancestry that `tf` flips: a merge contact (§7.2) | reconciliation Slice 1's landing + Slice 2's plan-review | 2027-01-31 |
+| `#11-fieldset-disabled-dynamic-insert` | neighbour of `tf` (re-deriving inherited disabledness on insert); `tf` changes the relation the derivation uses, not when it runs. Decided by PM 791: paydown (c), closed by the reconciliation umbrella's Slice 2 (`docs/plans/2026-07-form-derived-state-reconciliation.md`). Its Slice 1 adds `is_effectively_disabled` (NEW there; defined in that umbrella's §3.1, its consumers in §4.1), a climb of the fieldset ancestry that `tf` flips: a merge contact (§7.2) | reconciliation Slice 1's landing + Slice 2's plan-review | 2027-01-31 |
 | `#11-vm-isconnected-bound-document` | `ta` edits the native (`node_proto.rs:455`): its trigger ("L3's next DOM node-surface touch") fires. The fix is a small PR after `ta` (the native calls `is_connected`), not part of `ta` (PM 758 Q-14) | fired by `ta` | re-dated to `ta`'s landing (§7.4) |
 | `#11-attach-shadow-non-html-namespace` (registered, PM 768 (a); owner L3) | neighbour of `ts`: `attach_shadow_with_init` ignores the namespace (DOM *attach a shadow root* step 1), and the slot also folds the duplicated declarative-shadow-root attribute parsing. `ts` rewrites the same function for the link pair and adds no namespace check; whichever lands second rebases | the slot's own | 2026-12-31 |
 | `#11-shell-effective-disabled-predicate-adoption` | L4's; `ta` renames two lines in `content/form_input.rs` and adopts nothing | the slot's own | the slot's own |
@@ -781,7 +877,7 @@ Every pending name of §1.5 now has an owner slot (the selector relation by PM 7
 
 ### §7.2 Hand-offs
 
-- **Schedule.** The slice count (three splits, `ta`, six more) is larger than the estimate PM 745 was given. The
+- **Schedule.** The slice count (the splits, `tq`, `ta`, six more) is larger than the estimate PM 745 was given. The
   re-estimate, the parallel shape and their effect on the window below went to the PM with the R2 report; dates
   live in the PM's record (PM 790 (3): ratify ~11-23, `ta` ~12-01, PR (io) ~12-18, T3 ~12-22 or later; G9 is
   reported by L3 at `ta`'s landing), not in this memo. Two date rules bind this program: PM 761 (1) (the walker
@@ -820,17 +916,24 @@ Every pending name of §1.5 now has an owner slot (the selector relation by PM 7
   `composed_children` keeps its name and its result. `save_descendant_styles` changes its body (§1.3). Layout's
   own defect (a positioned node in a shadow tree under a host that is not a stacking context never reaches layer
   6, through `children_iter`) is Layout's; `tc` must not change what `children_iter`'s successor returns there.
-  **New in draft 3.3 (R3 F2)**: `tc` changes the layer-6 order in one case. Its three engine insertions
-  (`::before` generation and `insertAdjacentHTML` "afterbegin" / "afterend") store their node after the host's
-  shadow root where base stored it before (when the shadow root was the host's first stored child or the target's
-  raw next sibling), and `sibling_order` keeps reading the stored order until `ts` (§1.3), so a positioned
-  `::before` or inserted node now sorts after a positioned node of the shadow tree. It is the order `ts` gives
-  (shadow-including), the same class as the residual Layout accepted under Q-13; `::before` reaches it in
-  production. `tc` carries the cells (§2 ORD × RENDER), and `sibling_order` does not take the one set.
+  **Draft 3.3 (R3 F2), narrowed in draft 3.4 (D1)**: `tc` changes the layer-6 order in one case, and only on the
+  session API. Its two `insertAdjacentHTML` insertions ("afterbegin" / "afterend") store their node after the
+  host's shadow root where base stored it before (when the shadow root was the host's first stored child or the
+  target's raw next sibling), and `sibling_order` keeps reading the stored order until `ts` (§1.3), so a positioned
+  inserted node now sorts after a positioned node of the shadow tree: the order `ts` gives (shadow-including), the
+  same class as the residual Layout accepted under Q-13, and not reachable from production (no VM native).
+  **`::before` generation no longer moves** (draft 3.3 said it did): it keeps the stored first child until `ts`,
+  so a positioned `::before` stays before the shadow tree, which is css-pseudo-4 §4.1's order [P1]. `tc` carries
+  the cells (§2 ORD × RENDER, with the stacking-context host and default slot as preconditions); neither
+  `sibling_order` nor `::before` generation takes the one set.
   (b) Before **`ts`'s plan review**: `tree_order_cmp` is a function Layout relies on (the same kind of reliance as
   Q-10's seven; consumers `walk.rs:613-624`, `hit_test.rs:228-239`), it becomes `pending_flat_tree_order` in `ta`
-  with no change, and `ts` changes its answer for the residual of §2 ORD × RENDER; `ts` also changes
-  `fire_after_insert`'s suppression (item 7). (c) When `ta` / `tc` rename the accessors T3's plan cites.
+  with no change, and `ts` changes its answer for the residual of §2 ORD × RENDER, while keeping a host's `::before`
+  before its shadow tree (how `ts` tells `::before` from `::after` is `ts`'s plan's, §2 ORD × RENDER); `ts` also
+  changes `fire_after_insert`'s suppression (item 7). (b′) For P2, two observations recorded on
+  `#11-shadow-slot-assignment-flat-tree` (§7.1, §7.4): a generated box stored as a slotted light child (an
+  ECS-native question), and `assignedNodes()` possibly returning the `::before` text entity (unprobed).
+  (c) When `ta` / `tc` rename the accessors T3's plan cites.
   (d) `tp-3`: Layout confirms the seam of `builder/mod.rs` before the split PR is cut (PM 758 Q-15).
 - **Range contents program** (L3). RC-1 lands after `tc`, drops its own D13 part and uses `tc`'s accessors
   (PM 747 Q-2). **RC-1's plan revision gets a re-review of its changed sections** before its code.
@@ -886,14 +989,15 @@ Remaining:
   root sits in the raw child list) matches no step. The remaining differences (a slot as a scope owner; tabindex
   order inside a scope) are P2's, `#11-shadow-slot-assignment-flat-tree` (Layout; confirmed, §7.2). A host whose
   tabindex is negative is not expanded at all (R3; HTML §6.6.2 *tabindex-ordered focus navigation scope*, [H15]):
-  `tc`'s descent skips it, so it is not a residual. `tc`'s cells include "the focusables of a shadow tree come right
+  `tc`'s descent skips its shadow tree, so that is not a residual; its light children, which `tc` walks as base
+  does, are (P2's slot scopes, *associated focus navigation owner* step 2, §2 CHILD × SHELL). `tc`'s cells include "the focusables of a shadow tree come right
   after the host (§6.6.2 steps 2.2 / 2.3)" and the negative-tabindex host.
 - **Q-19 (closed: driver, lens converged; approved PM 800).** §1.6: the elidex-ecs half of the child-of question.
   Option (b′): `is_child_of` and the three mutators stay storage maintenance (a stored-link read, population
   P-REL, §1.1) until `ts`; in `ta` the spec's steps are asked in the engine-independent layer (pre-remove step 1
   as a `tree_parent` question in a new `ensure_pre_remove_validity` in dom-api `child_node/mod.rs`, called only
   by the `RemoveChild` handler; the step-3 checks of `mutation/child_list.rs:284`, `:439` and the dom-api T2 lines
-  take `tree_parent`). The three engine callers keep base behaviour in `ta` and are `tc`'s. Lens, all rows
+  take `tree_parent`). The three engine callers keep base behaviour in `ta`; two are `tc`'s and `::before` generation keeps a stored-order write until `ts` (§1.3, draft 3.4). Lens, all rows
   agreeing: spec, the "NotFoundError" cases are met in `ta` through the script-facing path, and *pre-remove* is run
   by `removeChild` alone; Layering, the check is in the algorithm layer, not in elidex-ecs storage; *One issue, one
   way*, one predicate per spec step, asked at validation time by a validity function of dom-api
@@ -910,23 +1014,18 @@ Remaining:
   (45 lines; census C-9; draft 3.2 printed 53 here, which is the count of the `\b` form of the pattern, not of this
   command). The `Mutation::RemoveChild` flush arm is the one remove path without the check; its reason and its
   owner slot are in §1.6. R3 (F1) found a second script path that never asks the child-of question (Range's
-  contained-node walk); it is closed in `ta` by the walk, not by this option (§1.6), and changes nothing above.
+  contained-node walk); it is closed in `tq` by the walk (PM 820), not by this option (§1.6), and changes nothing
+  above.
 
 ### §7.4 Landing items (handed to the PM with the slice; each is "old → new")
 
-Every "old" below is quoted from the current ledger row (re-read 2026-11-18 for draft 3.3).
+Every "old" below is quoted from the current ledger row (re-read 2026-11-18 for draft 3.4, after PM 814).
 
+- **Applied: (N1)** `#11-shadow-root-accepted-as-ref-or-old-child`, the draft 3.3 re-sync (Defect "replace step 1";
+  the Range path; "Declared as ta's two behaviour changes"): applied by pmo under PM 814. The row now reads
+  "scope widened PM 812 (Range path, R3 Axis 2, probe at bfc63658)". Not a pending edit; (N6) below re-syncs it
+  to the `tq` / `ta` split.
 - **At this umbrella's ratify (now items).**
-  (N1) `#11-shadow-root-accepted-as-ref-or-old-child`, Defect: "DOM ensure pre-insertion validity step 3, replace
-  step 3 and pre-remove step 1" → "DOM ensure pre-insertion validity step 3, replace step 1 and pre-remove step 1"
-  ([D13]; *replace* step 1 is "Ensure pre-insert validity given node, parent, child, and « child »"). Scope: the
-  sentence "Declared as ta's one behaviour change, with a cell and a mutant." → "A second script path unlinks the
-  shadow root without a child-of question: Range deleteContents over a host (driver probe at bfc63658, closed
-  mode: no throw, the shadow root leaves the host's child list while the links stay, and a MutationObserver on the
-  host gets it in removedNodes). DOM never reaches it (*contained*: node's root is range's root). Fix in ta:
-  Range's contained-node walk takes the exposed child steps. Scope: script paths that unlink a host's shadow root.
-  Declared as ta's two behaviour changes, each with cells and mutants." (The Fix text already reads (b′): the PM
-  corrected it, PM 800 record.)
   (N2) `#11-range-compare-points-shadow-index`: "closed by its home slice" → "closed by the tree-model program's
   `tc` (PM 747 Q-2, PM 758 Q-16)"; "Re-eval 2026-12-01 or the home slice's landing." → "Re-eval: `tc`'s landing"
   with a date the PM sets from its schedule (2026-12-01 lapses before `tc`: `ta` lands ~12-01, PM 790 (3)).
@@ -939,20 +1038,53 @@ Every "old" below is quoted from the current ledger row (re-read 2026-11-18 for 
   (N5) `#11-shadow-tree-live-range-tracking`: the ledger row holds the slot name only, and its date (2026-Q4) is in
   the roadmap row alone; the PM decides whether the ledger gets a Re-eval-date (PM 489: deadlines live in the
   ledger).
+  (N7) `#11-range-full-impl` (ledger, the row under the M4-12 range sweep), proposed facet for the PM to register
+  (§1.6, D2): "…; promote-to-PR; re-eval 2026-12-01; closes when all three land." → "…; promote-to-PR; re-eval
+  2026-12-01; closes when all three land and the to_string facet is fixed. **Facet (L3 tree-model umbrella draft
+  3.4 §1.6, PM to register)**: `Range::to_string` (`crates/dom/elidex-dom-api/src/range/mutation.rs:47-58`) walks
+  in preorder from the start container until it meets the end container. When the end container is an ancestor
+  of the start container (e.g. `setStart(text, 0); setEnd(text.parentNode.parentNode, n)`), preorder never meets
+  it, so the walk runs to the end of the document and appends every later Text node. [spec] DOM Range
+  stringification step 4 appends only the Text nodes contained in the range. Reached from page script by
+  Range.prototype.toString and Selection.prototype.toString. Code reading at b46a030c, not run. Not fixed by the
+  tree-model program's tq (which changes only which children the walk enters)."
+  (N8) `#11-shadow-slot-assignment-flat-tree`, text gains three observations (D1 and the negative-tabindex MIN; not decisions): "(1) A generated
+  ::before / ::after node is stored as a light child of its originating element (elidex-style pseudo.rs), so on a
+  shadow host it is a slottable child that reaches the flat tree only through a slot; whether this render-side
+  fact belongs in the node tree is an ECS-native question for P2. (2) Unprobed: slot.assignedNodes() may return
+  the ::before text entity (EcsDom::assigned_nodes matches every Text child of the host to the default slot,
+  elidex-ecs dom/shadow.rs:436-443). (3) Tab order after the tree-model program's tc: the light children of a
+  host with a negative tabindex are walked as at base; HTML §6.6.2 associated focus navigation owner step 2 puts
+  them in their assigned slot's scope, which is P2's."
+- **At `tq`'s landing or at this umbrella's ratify, whichever is first.** (N6)
+  `#11-shadow-root-accepted-as-ref-or-old-child`, re-synced to the split (PM 820), four quotes from the current
+  row: "Fix (L3, in `ta` of the tree-model program; PM 800 (b′)):" → "Fix (L3, tree-model program; PM 800 (b′),
+  PM 820): the reference / old / removed child in `ta`, the Range path in `tq` (before `ta`)."; "The Range
+  contained-node walk takes the tree-children step (the existing accessor that skips a shadow root) in ta." →
+  "The Range contained-node walk takes the tree-children step (the existing accessor that skips a shadow root) in
+  tq; this also stops Range.prototype.toString and Selection.prototype.toString from including a shadow tree's
+  text (probed in tq)."; "Declared as ta's two behaviour changes (PM 800 (b′), PM 812), each with a cell and a
+  mutant." → "Declared as one behaviour change of tq (the Range path; PM 812's change, placed in tq by PM 820) and
+  one of ta (the child-of steps; PM 800 (b′)), each with cells and mutants."; "Trigger / closed by: ta." →
+  "Trigger: tq (Range path closed), then ta; closed by: ta."
+- **At `tq`.** `#11-shadow-root-accepted-as-ref-or-old-child`: gains "Range path closed by tq (<sha>, <date>)";
+  the row stays open.
 - **At `ta`.** (1) `#11-vm-isconnected-bound-document`: "Re-eval: L3's next DOM node-surface touch; backstop
   2026-12-15." → "Re-eval: `ta`'s landing date" (the trigger fires at `ta`; PM 758 Q-14).
   (2) `#11-shadow-slot-assignment-flat-tree`, text: gains "owns the callers of `pending_flat_tree_parent` and
   `pending_flat_tree_order`, listed by the trip-wire's allowlist". (3) `#11-event-path-window-missing`, text: gains
   "owns `pending_event_parent` in `build_propagation_path`". (4) `#11-element-lifecycle-hooks`, text: gains "owns
   the shell's two callers of `pending_event_parent` (link and label lookup)". (5) `#11-shadow-root-is-a-tree-root`:
-  the row has a Defect and three Consequences and no fix line, under the heading "L3 — tree model (registered
-  2026-11-15, PM 747; umbrella 379acc15)" → the heading's "umbrella 379acc15" becomes the ratified sha, and the row
-  gains "Fix: the tree-model program (slices tp → ta → tc / tm → tr / tf → te → ts, umbrella §5.1); the four
-  pending names of umbrella §1.5 outlive it; closed by ts". (6) `#11-shadow-root-accepted-as-ref-or-old-child`:
-  "**open (registered 2026-11-18, …)**" → closed by `ta` (both script paths). (7)
-  `#11-dom-selector-api-rejects-shadow-pseudos`: its trigger ("tree-model `ta` lands") fires. Draft 3.2's item
-  "`#11-shadow-tree-style-isolation` gains the owner of `pending_selector_parent`" is dropped: the row already holds
-  it ("PM 794 (2026-11-18): L3 の tree-model umbrella の pending_selector_parent の持ち主").
+  the heading "L3 — tree model (registered 2026-11-15, PM 747; umbrella 379acc15)" → "umbrella 379acc15" becomes
+  the ratified sha; and the row's existing Fix line, "Slices ta → tc / tm / tr / tf → te → ts; ordered before the
+  ecs-entity-lifetime program's PR (io) (PM 730)." → "Slices tp → tq → ta → tc / tm → tr / tf → te → ts (umbrella
+  §5.1; tq by PM 820); the four pending names of umbrella §1.5 (pending_flat_tree_parent,
+  pending_flat_tree_order, pending_event_parent, pending_selector_parent) outlive it; closed by ts. Ordered before
+  the ecs-entity-lifetime program's PR (io) (PM 730)." (6) `#11-shadow-root-accepted-as-ref-or-old-child`:
+  "**open (registered 2026-11-18, …)**" → closed by `ta` (the Range path at `tq`, the reference / old / removed
+  child at `ta`; PM 820). (7) `#11-dom-selector-api-rejects-shadow-pseudos`: its trigger ("tree-model `ta` lands")
+  fires. Draft 3.2's item "`#11-shadow-tree-style-isolation` gains the owner of `pending_selector_parent`" is
+  dropped: the row already holds it ("PM 794 (2026-11-18): L3 の tree-model umbrella の pending_selector_parent の持ち主").
 - **At `tc`.** `#11-range-compare-points-shadow-index`: closed.
 - **At `ts`.** `#11-shadow-root-is-a-tree-root`: closed.
 
@@ -979,11 +1111,12 @@ scripts of C-11, C-12 and C-13 print the same rows at both revs (`diff` of the s
 - P-VM, P-NAV: the script of census C-12 → "VM host: 58 lines 25 files {'CH': 10, 'DER': 46, 'UP': 4}" (verified 2026-11-18) and "dom-api handlers: 39 of 217 registered; {'R': 21, 'U': 18}". Reachability is the handler census of `#11-dom-api-handlers-unreachable-from-production`, re-run on the `bfc63658` tree (a copy of its scripts outside the PM's directory, `run.sh <worktree>`): 217 registered, 161 reached, 56 unreachable, the same list as the PM's saved `unreachable.txt`.
 - The mutators' callers (§7.3 Q-19, census C-9): `git grep -n -P '\.(remove_child|insert_before|replace_child)\(' bfc63658 -- crates ':!*tests*' | wc -l` → 45 (also 45 at `84fee8fa`; draft 3.2's 53 is the `\b` form).
 - `apply_insert_before` (§1.6): `git grep -n -P '\bapply_insert_before\(' bfc63658 -- crates ':!*tests*' | wc -l` → 9 (the definition and 8 calls).
+- `apply_replace_child` (§1.6, draft 3.4): `git grep -n -P '\bapply_replace_child\(' bfc63658 -- crates ':!*tests*' | wc -l` → 4 (the definition and 3 calls); `git grep -n -P '\bReplaceChild\s*\{' bfc63658 -- crates | wc -l` → 5; both the same at `b46a030c`.
 - `tc`'s test files over 1000 lines (§5 `tp-4`): `wc -l` → 1137, 1321; child-side lines: the `tc` pattern above with `git grep -c` on each file → 29, 1.
 - P-REL outside `dom/tree/` (§5.3): the P-REL command piped through `cut -d: -f2 | sort | uniq -c` → `dom/mod.rs` 3, `dom/mutation_event.rs` 1 (a doc comment), `fragment_tree.rs` 1 (the false positive).
-- §0.1 item 6: two temporary VM tests, each in a scratch worktree and since removed (rustc 1.99.1): the child-of methods at `84fee8fa`, and Range `deleteContents` over a host with a closed shadow root at `bfc63658` (driver, R3); observed values in census C-14. `ta`'s plan re-runs both as its first probes.
+- §0.1 item 6: two temporary VM tests, each in a scratch worktree and since removed (rustc 1.99.1): the child-of methods at `84fee8fa`, and Range `deleteContents` over a host with a closed shadow root at `bfc63658` (driver, R3); observed values in census C-14. `ta`'s plan re-runs the first and `tq`'s plan the second as their first probes (§5.2).
 - File sizes: `wc -l` on the files of §5 `tp` and §7.2.
-- Coverage map: `.claude/tools/webref coverage-map dom 1.1 dom 2.7 dom 4.2.2 dom 4.2.3 dom 4.3.2 dom 4.4 dom 4.7 dom 4.8 dom 4.9 dom 5.2 dom 5.6 dom 6 selection-api 3 html 4.12.3 html 4.10.18.3 html 4.10.15 html 4.10.19.5 html 4.10.10 html 4.10.22.3 html 2.6.4.3 html 4.16.3 html 13.4 html 6.8.1 html 6.3 html 3.2.6.2 html 3.2.6.4 execCommand 6 selectors-4 14.1 css-shadow-1 3.2.2 css-shadow-1 4.1 cssom-view-1 7`.
+- Coverage map: `.claude/tools/webref coverage-map dom 1.1 dom 2.7 dom 4.2.2 dom 4.2.3 dom 4.3.2 dom 4.4 dom 4.7 dom 4.8 dom 4.9 dom 5.2 dom 5.6 dom 6 selection-api 3 html 4.12.3 html 4.10.18.3 html 4.10.15 html 4.10.19.5 html 4.10.10 html 4.10.22.3 html 2.6.4.3 html 4.16.3 html 13.4 html 6.8.1 html 6.3 html 3.2.6.2 html 3.2.6.4 execCommand 6 selectors-4 14.1 css-shadow-1 3.2.2 css-shadow-1 4.1 cssom-view-1 7 css-pseudo-4 4.1` (draft 3.4, verified 2026-11-18: "spec=8 … step=32 entries").
 - Not measured: anything at runtime except §0.1 item 6 (§5.2); the per-call relation (census C-7).
 
 ## §9. Citation table
@@ -991,7 +1124,8 @@ scripts of C-11, C-12 and C-13 print the same rows at both revs (`diff` of the s
 Each row was looked up with `.claude/tools/webref` (`dfn` / `heading` for the number ↔ title pair, `body` for the
 quoted words): [D1] to [V1] of draft 2 on 2026-11-15, and [D5] again with [D13], [H12] to [H14], [E1] and [X1] on
 2026-11-18; for draft 3.3, [D8]'s *contained*, [D13]'s *replace* step 1 and *pre-remove* step 1, [H15]'s bullet,
-[H16] and [D14] on 2026-11-18. Census C-8 holds the further lookups for single rows.
+[H16] and [D14] on 2026-11-18; for draft 3.4, [P1], [H15]'s *associated focus navigation owner* and [H16]'s
+`assignedNodes()` on 2026-11-18. Census C-8 holds the further lookups for single rows.
 
 | ID | Citation | Anchor | Used by |
 |---|---|---|---|
@@ -1021,8 +1155,8 @@ quoted words): [D1] to [V1] of draft 2 on 2026-11-15, and [D5] again with [D13],
 | [H11] | WHATWG HTML §6.8.1 Making document regions editable: The contenteditable content attribute — "The inherit state indicates that the element is editable (or not) based on the parent element's state." | `html#contenteditable` | §2, §3 |
 | [H12] | WHATWG HTML §2.6.4.3 The HTMLOptionsCollection interface — `add(element, before)` step 1 ("If element is an ancestor of the select element on which this is rooted, then throw a \"HierarchyRequestError\" DOMException.") and step 2 ("If before is an element, but that element isn't a descendant of the select element on which this is rooted, then throw a \"NotFoundError\" DOMException."); HTML §4.10.7 The select element: `add` "must act like its namesake method on that same options collection" | `html#the-htmloptionscollection-interface`, `html#the-select-element` | §2, §3 |
 | [H13] | WHATWG HTML §4.16.3 Pseudo-classes — `:read-write`: "elements that are editing hosts or editable and are neither input elements nor textarea elements" | `html#pseudo-classes` | §2, §3 |
-| [H15] | WHATWG HTML §6.6.2 Data model — *flattened tabindex-ordered focus navigation scope* step 2.2 ("If item is not a focusable area, then replace item with all of the items in item's flattened tabindex-ordered focus navigation scope.") and step 2.3 ("Otherwise, insert the contents of item's flattened tabindex-ordered focus navigation scope after item."); *focus navigation scope owner* ("a Document, a shadow host, a slot, or …"); *tabindex-ordered focus navigation scope*, first bullet ("It contains all elements in owner's focus navigation scope that are themselves focus navigation scope owners, except the elements whose tabindex value is a negative integer."). Looked up 2026-11-18 (`dfn` for the three terms → §6.6.2 Data model; `body` for the steps and the bullet) | `html#flattened-tabindex-ordered-focus-navigation-scope`, `html#focus-navigation-scope-owner`, `html#tabindex-ordered-focus-navigation-scope` | §2, §3.1, §7.1, §7.3 |
-| [H16] | WHATWG HTML §4.12.4 The slot element — `assign(...nodes)` step 3.1 ("If node's manual slot assignment refers to a slot, then remove node from that slot's manually assigned nodes."); *manually assigned nodes*. Looked up 2026-11-18 (`heading html 4.12.4`; `dfn html 'assign(...nodes)'` and `dfn html 'manually assigned nodes'` → §4.12.4; `body html dom-slot-assign`) | `html#dom-slot-assign`, `html#manually-assigned-nodes` | §5.3 |
+| [H15] | WHATWG HTML §6.6.2 Data model — *flattened tabindex-ordered focus navigation scope* step 2.2 ("If item is not a focusable area, then replace item with all of the items in item's flattened tabindex-ordered focus navigation scope.") and step 2.3 ("Otherwise, insert the contents of item's flattened tabindex-ordered focus navigation scope after item."); *focus navigation scope owner* ("a Document, a shadow host, a slot, or …"); *tabindex-ordered focus navigation scope*, first bullet ("It contains all elements in owner's focus navigation scope that are themselves focus navigation scope owners, except the elements whose tabindex value is a negative integer."). *associated focus navigation owner* step 2 ("If element's parent is a shadow host, then return element's assigned slot."). Looked up 2026-11-18 (`dfn` for the four terms → §6.6.2 Data model; `body` for the steps and the bullet) | `html#flattened-tabindex-ordered-focus-navigation-scope`, `html#focus-navigation-scope-owner`, `html#tabindex-ordered-focus-navigation-scope`, `html#associated-focus-navigation-owner` | §2, §3.1, §7.1, §7.3 |
+| [H16] | WHATWG HTML §4.12.4 The slot element — `assign(...nodes)` step 3.1 ("If node's manual slot assignment refers to a slot, then remove node from that slot's manually assigned nodes."); *manually assigned nodes*; `assignedNodes(options)`. Looked up 2026-11-18 (`heading html 4.12.4`; `dfn html 'assign(...nodes)'`, `dfn html 'manually assigned nodes'` and `dfn html 'assignedNodes'` → §4.12.4; `body html dom-slot-assign`) | `html#dom-slot-assign`, `html#manually-assigned-nodes`, `html#dom-slot-assignednodes` | §5.3 |
 | [D14] | WHATWG DOM §4.2.2.2 Slottables — *manual slot assignment*; §4.2.2.3 Finding slots and slottables — *find a slot*, *find slottables*; §4.2.2.4 Assigning slottables and slots; §4.2.2.5 Signaling slot change (the number ↔ title pairs of the drift list). Looked up 2026-11-18 (`heading dom 4.2.2.2` to `4.2.2.5`; `dfn dom 'manual slot assignment'`, `'find a slot'`, `'find slottables'`) | `dom#slottable-manual-slot-assignment`, `dom#find-a-slot`, `dom#find-slotables` | §5.3 |
 | [H14] | WHATWG HTML §13.4 Parsing HTML fragments — step 19: "Set parser's form element pointer to the nearest node to contextElement that is a form element (going straight up the ancestor chain, and including the element itself, if it is a form element), if any." | `html#parsing-html-fragments` | §2, §3 |
 | [E1] | execCommand §6 Common definitions — *editable*: "its parent is an editing host or editable" (the spec source marks "parent" as the tree's *parent*) | `execCommand#editable` | §2, §3 |
@@ -1032,4 +1166,5 @@ quoted words): [D1] to [V1] of draft 2 on 2026-11-15, and [D5] again with [D13],
 | [C1] | CSS Shadow Module Level 1 (css-shadow-1) §4.1 Flattening the DOM into an Element Tree — *flat tree* | `css-shadow-1#flat-tree` | §1.5, §3 |
 | [C2] | CSS Shadow Module Level 1 (css-shadow-1) §3.2.2 Selecting Shadow Hosts from within a Shadow Tree — "For the purpose of Selectors, a shadow host also appears in its shadow tree, with the contents of the shadow tree treated as its children. (In other words, the shadow host is treated as replacing the shadow root node.)" | `css-shadow-1#host-element-in-tree` | §1.5, §3 |
 | [C3] | CSS Shadow Module Level 1 (css-shadow-1) §3.2.1 Matching Selectors Against Shadow Trees — "the selector match list is initially the shadow host, followed by all children of the shadow tree's shadow root and their descendants" | `css-shadow-1#selectors-data-model` | §1.5 |
+| [P1] | CSS Pseudo-Elements Level 4 (css-pseudo-4) §4.1 Generated Content Pseudo-elements: ::before and ::after — `::before`: "Represents a styleable child pseudo-element immediately before the originating element's actual content." Looked up 2026-11-18 (`heading css-pseudo-4 4.1`; `dfn css-pseudo-4 '::before'` → §4.1; `body css-pseudo-4 selectordef-before`) | `css-pseudo-4#selectordef-before` | §0, §1.3, §2, §3, §4, §5.3, §7.2 |
 | [V1] | CSSOM View (cssom-view-1) §7 Extensions to the HTMLElement Interface — `offsetParent` step 2: "Let ancestor be the parent of the element in the flat tree and repeat these substeps" | `cssom-view-1#dom-htmlelement-offsetparent` | §1.5, §3 |
