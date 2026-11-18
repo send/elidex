@@ -399,6 +399,17 @@ impl VmInner {
         // Generator: build initial suspended frame and return Generator
         // object directly — body runs only when `.next()` resumes.
         if is_generator {
+            // Container first: allocate the Generator while the locals
+            // (incl. the rest array) are still on the VM stack, then move
+            // them into it with no allocation in between — `alloc_object`
+            // may collect before inserting and requires everything reachable
+            // only through the new object to be rooted already (see
+            // `VmInner::alloc_generator_shell`).  `this`, `args` and the
+            // callee (hence its upvalues) are not on the VM stack on this
+            // entry path; rooting them across `call_internal` is the
+            // caller's contract (e.g. microtask jobs hold them in
+            // `current_microtask`).
+            let gen_id = self.alloc_generator_shell();
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
             let initial_frame = CallFrame {
                 func_id,
@@ -420,32 +431,17 @@ impl VmInner {
                 mode: super::value::CallMode::Call,
                 home_class,
                 kind: FrameKind::Function,
-                generator: None,
+                generator: None, // back-linked by `install_initial_frame`
                 pending_completion: None,
             };
-            let suspended = super::value::SuspendedFrame {
-                frame: initial_frame,
-                stack_slice,
-                upvalue_slots: Vec::new(),
-            };
-            let proto = self.generator_prototype;
-            let gen_id = self.alloc_object(super::value::Object {
-                kind: super::value::ObjectKind::Generator(Box::new(super::value::GeneratorState {
-                    status: super::value::GeneratorStatus::SuspendedStart,
-                    suspended: Some(suspended),
-                    wrapper: None,
-                })),
-                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                prototype: proto,
-                extensible: true,
-            });
-            if let super::value::ObjectKind::Generator(state) =
-                &mut self.get_object_mut(gen_id).kind
-            {
-                if let Some(susp) = &mut state.suspended {
-                    susp.frame.generator = Some(gen_id);
-                }
-            }
+            self.install_initial_frame(
+                gen_id,
+                super::value::SuspendedFrame {
+                    frame: initial_frame,
+                    stack_slice,
+                    upvalue_slots: Vec::new(),
+                },
+            );
             return Ok(JsValue::Object(gen_id));
         }
 
@@ -647,6 +643,15 @@ impl VmInner {
         // that `.next()` will later resume, drop the call args from the
         // stack, and push the Generator in place of the call result.
         if is_generator {
+            // Container first: allocate the Generator while every value
+            // destined for the initial frame is still rooted — locals and
+            // the rest array above `base`, callee (hence its upvalues) and
+            // receiver below it — then move them into it with no
+            // allocation in between.  `alloc_object` may collect before
+            // inserting and requires everything reachable only through the
+            // new object to be rooted already (see
+            // `VmInner::alloc_generator_shell`).
+            let gen_id = self.alloc_generator_shell();
             // Take the just-prepared locals as the initial stack slice.
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
             // Drop the callee (+ receiver for method calls) that are
@@ -671,33 +676,17 @@ impl VmInner {
                 mode,
                 home_class,
                 kind: FrameKind::Function,
-                generator: None, // filled in after Generator alloc below
+                generator: None, // back-linked by `install_initial_frame`
                 pending_completion: None,
             };
-            let suspended = super::value::SuspendedFrame {
-                frame: initial_frame,
-                stack_slice,
-                upvalue_slots: Vec::new(),
-            };
-            let proto = self.generator_prototype;
-            let gen_id = self.alloc_object(super::value::Object {
-                kind: super::value::ObjectKind::Generator(Box::new(super::value::GeneratorState {
-                    status: super::value::GeneratorStatus::SuspendedStart,
-                    suspended: Some(suspended),
-                    wrapper: None,
-                })),
-                storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
-                prototype: proto,
-                extensible: true,
-            });
-            // Back-link the saved frame to the generator it belongs to.
-            if let super::value::ObjectKind::Generator(state) =
-                &mut self.get_object_mut(gen_id).kind
-            {
-                if let Some(susp) = &mut state.suspended {
-                    susp.frame.generator = Some(gen_id);
-                }
-            }
+            self.install_initial_frame(
+                gen_id,
+                super::value::SuspendedFrame {
+                    frame: initial_frame,
+                    stack_slice,
+                    upvalue_slots: Vec::new(),
+                },
+            );
             self.stack.push(JsValue::Object(gen_id));
             return Ok(());
         }

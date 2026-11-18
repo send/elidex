@@ -83,6 +83,61 @@ pub(crate) fn op_yield_suspend(
 }
 
 // ---------------------------------------------------------------------------
+// Create — invoked from the generator-call short-circuits
+// ---------------------------------------------------------------------------
+
+impl VmInner {
+    /// Allocate a Generator in `SuspendedStart` with **no** frame yet.
+    ///
+    /// First half of the creation protocol whose second half is
+    /// [`Self::install_initial_frame`].  [`VmInner::alloc_object`] may
+    /// collect before it inserts its object and requires every `ObjectId`
+    /// reachable only through that object to be rooted already.  The
+    /// initial frame's values (locals and the rest array on the VM stack,
+    /// callee and receiver below `base`, the upvalues reachable through the
+    /// callee) are rooted only while they are still on the stack, so the
+    /// call sites allocate this shell **first**, then take the values off
+    /// the stack, then install — with no allocation between the values
+    /// leaving the stack and their installation.
+    ///
+    /// The shell is traceable as-is (`suspended: None` marks nothing), so a
+    /// collection that this allocation triggers sees a well-formed object.
+    pub(crate) fn alloc_generator_shell(&mut self) -> ObjectId {
+        let proto = self.generator_prototype;
+        self.alloc_object(Object {
+            kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
+                status: GeneratorStatus::SuspendedStart,
+                suspended: None,
+                wrapper: None,
+            })),
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: proto,
+            extensible: true,
+        })
+    }
+
+    /// Install the initial frame into a shell from
+    /// [`Self::alloc_generator_shell`], back-linking the frame to it.
+    /// Allocation-free: callers move the frame's values off the VM stack
+    /// immediately before this call.
+    pub(crate) fn install_initial_frame(
+        &mut self,
+        gen_id: ObjectId,
+        mut suspended: SuspendedFrame,
+    ) {
+        suspended.frame.generator = Some(gen_id);
+        let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
+            unreachable!("install_initial_frame: target is not a Generator");
+        };
+        debug_assert!(
+            state.suspended.is_none() && matches!(state.status, GeneratorStatus::SuspendedStart),
+            "install_initial_frame: target is not a fresh generator shell"
+        );
+        state.suspended = Some(suspended);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Resume — invoked by Generator.prototype.next
 // ---------------------------------------------------------------------------
 
