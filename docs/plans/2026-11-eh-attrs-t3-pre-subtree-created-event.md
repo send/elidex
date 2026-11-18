@@ -2,7 +2,7 @@
 
 Nested PR **T3-pre** of the standalone program `EH-attrs-at-creation` (umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md`, "the umbrella"; its in-place edits for this PR are carried by
-the T3 memo's *Rev 8.<t>* entry, since both memos land in one plan PR, PM decision 722). It is the prerequisite of
+the T3 memo's *Rev 8.<t>* entry, since the program's plan memos land in one plan PR (PM decision 722)). It is the prerequisite of
 **T3** (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 6), split out of T3 rev 4.8.2 by
 **PM decision 722** (plan-review R1 F1 on T3 rev 4.8.2 `571cd9c8`: the queue / window cluster is edge-dense on its own,
 §1.3). It carries the creation event and its queue; T3 carries the event-handler consumer of it.

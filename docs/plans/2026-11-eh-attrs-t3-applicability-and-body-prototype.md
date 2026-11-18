@@ -6,8 +6,8 @@ carried by the T3 memo's *Rev 8.<t>* entry, since the three memos land in one pl
 (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 6), carved out of T3 rev 5 by **PM
 decision 741 (3)** after plan-review R2 on T3 rev 5 (`38451533`; finding T1). It carries two decisions, with their ids
 kept from the T3 memo rev 5: **D-T8** (which names are event handler content attributes of an element) and **D-T11**
-(the VM gives `HTMLBodyElement.prototype` to an HTML `body` only). The label `T3-ab` is this memo's proposal; the PM
-assigns the final one. Rev 1.1 (2026-11-18).
+(the VM gives `HTMLBodyElement.prototype` to an HTML `body` only). The label `T3-ab` was this memo's proposal; the PM
+approved it (PM decision 756, Q-A5). Rev 1.1 (2026-11-18).
 
 **Owner: Layout lane (L2)**, plan and implementation (PM decision 741 (3)). No surface of another lane is changed.
 
@@ -725,12 +725,13 @@ decision 153's R-D, T3 rev 2 to rev 5).
 the predicate (D-T8); `DocumentElement` is class G (P-A1); the foreign `body` cells are harness-built (P-A2).
 
 **For the PM:**
-- **Q-A1 (the shared functions' shape).** The umbrella's §4.1 states the final shape of the two functions once.
+- **Q-A1 (the shared functions' shape) — answered (PM decision 756): the designer's reading holds.** The umbrella's §4.1 states the final shape of the two functions once.
   T3-ab writes its three reader sites in their final place and form and changes no signature; T3 later adds the
   `active` parameter, because its type `ActiveDocument` and its two marshalling points are T3's D-T3. If PM decision
   741 (3)'s condition means that T3-ab must also write the final *signature*, D-T3's type, constructor and
-  marshalling would have to move into T3-ab with the parameter unread until T3; this memo does not do that. A ruling
-  is asked on which reading holds.
+  marshalling would have to move into T3-ab with the parameter unread until T3; this memo does not do that. PM 756
+  adopts the designer's reading (the umbrella's §4.1 states the final shape once) and asks R3 Axis 3 to confirm that
+  the umbrella's §4.1 states T3's added `active` parameter as the final shape.
 - **Q-A2 (a further split) — answered (PM decision 756): one slice for now**, for the reason §1.3 states; R3's Axis 3
   rules between one slice and two, and a split ruling is followed (PM 227).
 - **Q-A3 (the no-op window) — answered (PM decision 756): not an escalation**; T3-ab's condition is the T3-pre memo
@@ -747,6 +748,6 @@ the predicate (D-T8); `DocumentElement` is class G (P-A1); the foreign `body` ce
   DocumentAndElementEventHandlers` → no IDL block). So the absence on Window is a pre-existing IDL-surface defect,
   outside this program and unchanged by T3-ab (D-T8 reads content attributes, not the Window's accessors). **For the
   PM to slot** (owner L3 or the IDL surface's owner); this memo opens no slot. (Until rev 1.1 the question was open.)
-- **Q-A5 (the label).** `T3-ab` is a proposal.
+- **Q-A5 (the label) — answered (PM decision 756): the label `T3-ab` is approved.**
 
 No browser measurement is needed: every outcome in §2.1 is spec-defined (H-A2).
