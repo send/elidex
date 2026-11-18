@@ -605,15 +605,14 @@ pub(super) fn mark_roots(
     // loop without storing results) accumulate unreachable dependents
     // indefinitely.
     //
-    // Rooting lives on the indirect path instead: a dependent with an
-    // installed `'abort'` listener or `onabort` handler is kept alive
-    // through `abort_signal_states` (its listener callbacks are traced
-    // when the signal's own ObjectId is marked — and the signal is marked
-    // through whatever JS reference held it: stack frame, global, upvalue,
-    // etc.).  A dependent with no such anchor is collected; the sweep tail
-    // prunes it from every set (`DependentLinks::retain_live`).  The DOM
-    // §3.2.1 requirement that a *listenered* unreferenced dependent must
-    // not be collected is the keepalive arm of slot
+    // `abort_signal_states` is not a root either: a row is reached only
+    // through the signal's own ObjectId, so a dependent is kept alive only
+    // by a JS reference to it (stack frame, global, upvalue, etc.), and one
+    // with no such reference is collected even if it has an `'abort'`
+    // listener or `onabort` handler; the sweep tail prunes it from every
+    // set (`DependentLinks::retain_live`).  The DOM §3.2.1 requirement that
+    // a *listenered* unreferenced dependent must not be collected is not
+    // met yet: it is the keepalive arm of slot
     // `#11-abort-signal-dependent-keepalive` — a new arm on the keepalive
     // seam (`gc/keepalive.rs`), never a divergent root pass here.
 }

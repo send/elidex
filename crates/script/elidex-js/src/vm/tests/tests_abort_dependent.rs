@@ -46,7 +46,12 @@ fn any_chain_dropped_intermediates_propagates_after_gc() {
          })();",
     )
     .unwrap();
+    let before = vm.inner.abort_signal_states.len();
     vm.inner.collect_garbage();
+    // Precondition: the 49 unreferenced intermediates were swept, leaving
+    // only the controller's signal and the kept last link.
+    assert!(before > 2, "setup built no intermediates ({before} rows)");
+    assert_eq!(vm.inner.abort_signal_states.len(), 2);
     assert!(eval_bool(
         &mut vm,
         "c.abort(); s.aborted === true && s.reason === c.signal.reason;"
@@ -113,14 +118,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use super::super::value::{NativeContext, ObjectId, VmError};
-
-/// The `ObjectId` of the signal a JS expression evaluates to.
-pub(super) fn signal_id(vm: &mut Vm, expr: &str) -> ObjectId {
-    match vm.eval(expr).unwrap() {
-        JsValue::Object(id) => id,
-        other => panic!("`{expr}` is not an object: {other:?}"),
-    }
-}
+use super::signal_id;
 
 fn sources(vm: &Vm, id: ObjectId) -> Vec<ObjectId> {
     vm.inner.abort_signal_states[&id]

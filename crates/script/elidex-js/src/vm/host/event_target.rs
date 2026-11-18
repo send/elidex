@@ -38,6 +38,7 @@ use super::dispatch_target::{target_from_this, DispatchTarget};
 use super::event_target_dispatch::dispatch_script_event;
 #[cfg(feature = "engine")]
 use super::event_target_dispatch_vm::dispatch_vm_event;
+#[cfg(feature = "engine")]
 use elidex_dom_api::abort::AbortSignalGraph;
 
 impl VmInner {

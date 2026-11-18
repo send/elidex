@@ -251,7 +251,7 @@ impl Vm {
                 gc_enabled: false,
                 #[cfg(test)]
                 force_gc_before_next_alloc: false,
-                #[cfg(test)]
+                #[cfg(all(test, feature = "engine"))]
                 fail_next_abort_dispatch: false,
                 html_element_constructor: None,
                 object_constructor: None,

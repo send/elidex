@@ -8,23 +8,8 @@
 
 use super::super::value::JsValue;
 use super::super::Vm;
-use super::tests_abort_dependent::signal_id;
-
-/// A `Vm` with an (unbound) `HostData` installed so an `AbortSignal`'s
-/// unified `vm_event_listeners` callbacks (in `HostData::listener_store`)
-/// resolve without a DOM bind (see `super::tests_abort::new_vm`).
-fn new_vm() -> Vm {
-    let mut v = Vm::new();
-    v.install_host_data(super::super::host_data::HostData::new());
-    v
-}
-
-fn eval_bool(vm: &mut Vm, source: &str) -> bool {
-    match vm.eval(source).unwrap() {
-        JsValue::Boolean(b) => b,
-        other => panic!("expected bool, got {other:?}"),
-    }
-}
+use super::signal_id;
+use super::tests_abort::{eval_bool, new_vm};
 
 fn eval_string(vm: &mut Vm, source: &str) -> String {
     match vm.eval(source).unwrap() {

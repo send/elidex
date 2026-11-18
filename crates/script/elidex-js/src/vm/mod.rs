@@ -288,7 +288,7 @@ pub(crate) struct VmInner {
     /// returns `Err` (cell `abort_err_does_not_skip_dependents`, DOM §3.2
     /// "signal abort" steps 5-6 are unconditional).  Removed when the
     /// resource-limit slice P0a replaces it with its own injection point.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "engine"))]
     pub(crate) fail_next_abort_dispatch: bool,
     /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated
     /// by `register_html_element_constructor` (D-17b §4.1) at globals init,
