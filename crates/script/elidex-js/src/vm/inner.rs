@@ -84,7 +84,7 @@ impl VmInner {
     /// GC runs **before** the new object is placed in the heap, so the new
     /// object cannot be prematurely collected.
     /// Estimated byte cost per object allocation (struct size + inline overhead).
-    const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
+    pub(crate) const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
 
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
         // GC trigger BEFORE insertion.  Callers must ensure that any
