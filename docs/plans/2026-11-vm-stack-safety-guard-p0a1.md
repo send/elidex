@@ -289,6 +289,13 @@ stand-in if unhandled. The inline dispatch path (`interpreter_call.rs:631`) has 
 `Err` only for a generator without a wrapper, which that path never creates) and is a row of the census allowlist
 (P0a-2b §7.3).
 
+⚠ *Erratum 2026-11-18 (PM 829, `#11-vm-coroutine-creation-frame-rooting`):* the inline dispatch path's
+`match` with the `Err(_e)` arm is now `make_async_coroutine_and_drive(self, gen_id, w)
+.unwrap_or(JsValue::Undefined)` in `push_js_call_frame` (`git grep -n 'unwrap_or(JsValue::Undefined)$' --
+crates/script/elidex-js/src/vm/interpreter_call.rs`), with the same fallback; the `Err` it absorbs is still
+unreachable for the same reason (the wrapper now comes from `VmInner::create_coroutine`, which that path
+calls first, so the coroutine always has one).
+
 **Cost (I-5).** One call per entry, no field, no store, no rewrite. PR-1 §10's I-5 bench covers
 `with_call_mode` and the call path; no separate measurement.
 

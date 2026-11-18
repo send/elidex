@@ -187,6 +187,25 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     does not qualify for deferral) applies verbatim. Enumerate by command
     (`grep -n "drain(base\.\.)"` / `SuspendedFrame {`) and root all four windows in one unit.
 
+    ⚠ **Erratum 2026-11-18 (PM 829) — RESOLVED by `#11-vm-coroutine-creation-frame-rooting` (PM 806,
+    owner VM P4), with remedy (b).** The round-8 text above stands as written; read it with three
+    corrections. *(i) The fix.* The window is closed by rooting; no `gc_enabled` bracket was added. All
+    four sites enumerated above (`push_js_call_frame` and `call_internal`, async and generator) now end in
+    one creation helper, `VmInner::create_coroutine` (`git grep -n 'fn create_coroutine' --
+    crates/script/elidex-js/src/vm/natives_generator.rs`). It allocates the coroutine shell (for an async
+    call, the wrapper Promise first) while the frame's values are still on the VM stack, roots
+    `actual_args` and the wrapper with `push_stack_scope` across those allocations, and only then drains /
+    truncates and installs the frame, with no allocation in between. `make_async_coroutine_and_drive`
+    roots the coroutine on the stack for the initial drive, and `drive_async_coroutine` roots a
+    non-Promise `await` operand across `create_promise`. *(ii) A description above is no longer true.*
+    `make_async_coroutine_and_drive` no longer "allocates the wrapper Promise + Generator" or back-links
+    the frame: it now receives both (`make_async_coroutine_and_drive(vm, gen_id, wrapper)`) and only
+    drives the first step; the allocation and the back-link are `create_coroutine`'s. The
+    `natives_generator.rs` / `interpreter.rs` line numbers above are those of the round-8 read.
+    *(iii) The home.* The child of umbrella 1a that roots the four call-entry argument windows no longer
+    carries this window: that child's scope drops this part (PM 829), and edges 27/28 move with it (the
+    erratum in [§6.4](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md)).
+
 11. **IC entry point** ([§6.3](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) IC): `Option<usize>` refactor of `ic_call`/`ic_call_method`
     (recommended, one SoT) vs. duplicating the three-way body. ⚠ **Round-8 caveat**: both callers
     (`dispatch.rs:705/716`, `ic_call` / `ic_call_method` — ⚠ *at HEAD c032379d; this read `:719/730`, the entry's Baseline `f7d9b5ce` values; `dispatch.rs` is unchanged since `658cc302`*) pass `Some`, so the `None` arm has **zero live producers until the child umbrella 1b mints for `CallSpread`** — a

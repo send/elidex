@@ -273,6 +273,8 @@ could omit both and still pass. Edges **21**, **27/28** and **32** are therefore
 specific children §5's 1a row names, edge 21 on the child of umbrella 1a that removes `op_array_spread`'s `return()`, edges 27/28 on the child of umbrella 1a that roots the four call-entry argument windows, edge 32 on
 the child of umbrella 1a that owns the argument-layout and inline-cache contract. The edges umbrella 1b's derivation must place on the children it mints are §6.4's.
 
+⚠ **Pointer (erratum 2026-11-18, PM 829): the generator/async creation window is not the 1a child's to root — it is resolved by `#11-vm-coroutine-creation-frame-rooting` (§9 dec. 10's erratum), and edges 27/28 are that slot's (§6.4's erratum); a derivation of umbrella 1a that places them, or dec. 10's window, on the child that roots the four call-entry argument windows is reading text this erratum supersedes.**
+
 **Compiler** — one helper (I-3), replacing `compile_arguments`:
 
 ```rust
@@ -507,6 +509,38 @@ both semantic fixes unverified: no in-tree test asserts `.return()` behaviour on
 non-observability. **The 1a half is therefore restated as: no call-shape change, plus two named semantic fixes
 carrying their own edge rows** — and that restatement is what the terminality re-derivation then read
 as three independently-failing mechanisms rather than one PR.
+
+⚠ **Erratum 2026-11-18 (PM 829): edges 27/28's window is now `#11-vm-coroutine-creation-frame-rooting`'s
+(owner VM P4), not the 1a child's.** The text above — edges 27/28 in the matrix, the slice allocation
+just above, §6.3's acceptance paragraph and its "4 windows, one unit", and the 1a-half description's
+mechanism **(c)** — stands as written and is read with this. §9 dec. 10's erratum records the fix
+(remedy (b): one creation helper, `VmInner::create_coroutine`, allocates before the drain and roots
+`actual_args` and the wrapper across the allocations). Its effect on the edges: the drain no longer
+precedes an allocation, so the "drain into the Rust-local vector, then allocate" window the edges were
+stated over is gone; what the slot's cells place a collection in is each creation-time `alloc_object`
+while a value is held only by a stack slot or a Rust-local `Vec`, armed from Rust at the k-th allocation
+through `gc_threshold` (`tests_coroutine_creation_gc.rs`'s header), not through
+`#11-vm-operand-rooting-by-construction`'s hook. Each cell reads the value after `.next()` or after the
+first `await`, as edges 27/28 require. Cells (`git grep -n '^fn ' --
+crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge and vector:
+
+- **Edge 27 (generator), stack-slot vector** (`stack_slice`; witnessed by a rest-param array held only
+  by its stack slot, where the edge used a named parameter): `generator_rest_array_survives_generator_allocation`
+  (`push_js_call_frame`), `host_call_generator_rest_array_survives_generator_allocation` (`call_internal`).
+- **Edge 27, `actual_args` vector**: `generator_excess_argument_survives_generator_allocation`
+  (`push_js_call_frame`). `call_internal` has no window on this vector: its `actual_args` is a copy of
+  the caller-rooted `args`.
+- **Edge 28 (async), `actual_args` vector**: `async_excess_argument_survives_wrapper_promise_allocation`
+  and `async_excess_argument_survives_coroutine_allocation` (`push_js_call_frame`, the collection at
+  the wrapper Promise and at the coroutine).
+- **Edge 28, stack-slot vector**: `host_call_async_rest_array_survives_coroutine_allocation`
+  (`call_internal`). `push_js_call_frame`'s async branch has no cell of its own on this vector; it
+  reaches the same `create_coroutine` async path. TODO-verify: whether that shared path suffices is the
+  driver's coverage measurement.
+- Beyond the two vectors, the slot's other cells pin values edges 27/28 did not name: the receiver
+  (`generator_method_receiver_…`, `async_method_receiver_…`), a captured upvalue
+  (`generator_closure_upvalue_…`), the wrapper Promise (`async_wrapper_promise_…`), and the drive's
+  allocations (`async_initial_drive_coroutine_…`, `async_awaited_object_…`).
 
 ### §6.5 Non-goals
 
