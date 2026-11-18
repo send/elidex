@@ -95,7 +95,7 @@ marker only **reads** `InertTemplateDocument` (a provenance fact used as an iden
 never merges with it (§5, PR-H §0.2 P5 / §7 R2); the marker facet names the other null-browsing-context documents —
 Document clones are covered by the marker's writer, `begin_detached_fragment`'s throwaway is outside with its reason;
 PR-H's target landing date is 2026-12-01 and the (d) / (e) Re-eval moves there, 12-12 staying the escalation
-threshold (PM 803; S-3, §4.1, §5, §7); the ratify-time ledger item replaces the PM 724 note's date and PR-shape
+threshold (PM 803; the 12-01 date PM 814; S-3, §4.1, §5, §7); the ratify-time ledger item replaces the PM 724 note's date and PR-shape
 sentences instead of appending parallel ones; `#11-domparser-xml-real-parsing`'s new Why-deferred points at the
 PM 795 note; §3 becomes the preflight-parsable union of the per-PR maps (§7 item 4); the renumber-sweep item also
 corrects the record's getHTML §8.5.3 → §8.5.4, attributed to PM 803; PR-H §4.3 cites
@@ -174,7 +174,7 @@ path) is PR-X's.
   on PR-X's branch before PR-X lands. **End condition (PM 803): if PR-X's landing is expected past 2026-12-05, or
   PR-H's past 2026-12-12, the driver reports to the PM, who re-decides, the order included** (PM 797 set the
   2026-12-05 report; PM 803 added PR-H's date and made the re-decision cover the order, (B)). **PR-H's target
-  landing date is 2026-12-01**; 2026-12-12 is the escalation threshold above, not the target. The slot's (d) / (e)
+  landing date is 2026-12-01** (PM 814); 2026-12-12 is the escalation threshold above, not the target. The slot's (d) / (e)
   Re-eval follows PR-H's target date (PM 803): it moves from 2026-11-20 to 2026-12-01 at this umbrella's ratify (§5,
   "At the umbrella's ratify"); until then a triage that reaches the 2026-11-20 date records it as "awaiting ratify,
   PM 803".
@@ -323,7 +323,7 @@ the pmo re-reads each row before the edit and reports any difference instead of 
   the row states one date for (d) / (e) (the head's Re-eval) and one PR shape:
   - head Re-eval — old: "**Re-eval: 2026-11-20** (because of (d) and (e))."
   - head Re-eval — new: "**Re-eval: 2026-12-01** (because of (d) and (e); PR-H's target landing date, umbrella
-    S-3; moved from 2026-11-20 at the umbrella's ratify, PM 803)."
+    S-3; moved from 2026-11-20 at the umbrella's ratify, PM 803; date PM 814)."
   - PM 724 note, PR shape — old: "(e) と plaintext と noscript (fail-safe: scripting が有効だと分かる時だけ raw) を
     1 本の小さな PR で直す。"
   - PM 724 note, PR shape — new: "(d)(e) は 2 本の PR (serializer PR-X、PR-H。この順) で直す。plan は umbrella +
