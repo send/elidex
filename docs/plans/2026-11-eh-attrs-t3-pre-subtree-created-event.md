@@ -22,7 +22,8 @@ landed); **x14** T3-pre → T3 (T3's consumer arm matches `SubtreeCreated`). **N
 tree-model program → io → ii): T3-pre uses neither `WalkScope` nor the tree model's links, so it lands after ig, in
 parallel with both (merge contact only, §8.1). **The order is unchanged by PM decisions 740 (1) and 741 (1).** T3 lands
 after both T3-pre and io (umbrella x12, x14), so the sequence is ig → T3-pre → tree-model program → io → T3; the
-`FragmentParse` arms are no-ops over it (DoD item 7, the one statement of that window). L3's Range **RC-2b** lands
+`FragmentParse` cause reaches no acting consumer over it (DoD item 7, the one statement of that window, with T3-a's
+and T3-b's condition on it). L3's Range **RC-2b** lands
 after T3-pre and is written against `SubtreeCreated { cause: Clone(scope) }` (PM decision 723; §8.2, I-RC1 to I-RC3).
 
 **Base.** main when T3-pre's implementation branch is cut, after L3's PR (is) and PR (ig) land: `cee74989` (#626, the
@@ -57,7 +58,26 @@ restore function's direct slot write and `set_mutation_dispatcher`'s `Taken` ass
 upgrade at a fragment-parsed element's creation (`#11-custom-element-upgrade-at-fragment-creation`, L3, registered by
 PM 719; §7); RC-2b's use of the event (L3, PM decision 723).
 
-**Changelog.** *Rev 2.1* (2026-11-18; PM decision 756, pre-R3): DoD 7 states T3-ab's condition on the window (T3-ab
+**Changelog.** *Rev 2.2* (2026-11-18; plan-review R3 wave 1 on rev 2.1 `0f8113eb`: CRIT 0 / IMP 1 / MIN 14 / FP 7;
+PM decision 767). **W1-5 (IMP; PM 767 (2)):** the form `FragmentParse` arm is no longer "a permanent no-op": it is a
+no-op in T3-pre and the creation-time write path that `#11-form-control-state-template-contents-fragment-parse` (L3,
+registered by PM 767) fills, for the base defect that a form control in template contents created by a post-bind
+fragment parse never gets `FormControlState` (HTML §13.2.6.1 step 24); its pointer names the slot, not T3 (§4.6,
+§4.8, §7); §8.3 item 2 hands the PM the slot row's text. **PM 767 (1):** T3-ab is split into T3-a (D-T8) and T3-b
+(D-T11); DoD 7's condition is "T3-a and T3-b land before io lands". **DoD 7 (Axis 3):** "at risk" gets observable
+triggers, a named raiser (the Layout lane) and a record that outlives T3-pre's landing (§8.3 item 3, on
+`#11-eh-attrs-creation-time-call-sites`'s row); the working bound is that slot's Re-eval date, its ledger *Trigger*
+text being pending T3's landing list; L3's own escalation (tree-model umbrella §7.2) is cross-referenced. **Axis 5:**
+the CE arm's "until T3 lands" pointer gets a rewrite obligation at T3's landing (§4.6); §8.1's tree-model contact is
+re-pulled from that umbrella's draft 2 (`1593a5ad`: slices tp → ta → tc → tr → tf → tm → te → ts), with how U-T13's
+parent assertion survives `ta`'s deletion of `get_parent`; §8.2's walker slice 1 is placed after `ta` (PM 761 (1));
+§5.3's `dom/mod.rs` bullet no longer puts io before T3-pre's base. **Axis 2:** the `FragmentParse` created set is
+defined at the fire, with the window invariant that makes a dispatch-time walk see the same set (§4.2). **Axis 4:**
+the `Taken` rustdoc cites "T3-pre memo §4.4"; the comment on `CreationCause::FragmentParse` (NEW) cites HTML §8.5.1
+`parseFromString` step 4; `fire_subtree_created`'s row cites its spec ground; the CE arm's anchor is scoped to §13.4
+fragment parses (DOMParser's document has a null registry, so §13.2.6.1 step 16 gives no definition); the form arm
+cites §13.2.6.1 step 24; §8.5.1's "scripting is disabled" is cited as step 4's note (§3, §4.2, §4.4, §4.6, §4.8).
+*Rev 2.1* (2026-11-18; PM decision 756, pre-R3): DoD 7 states T3-ab's condition on the window (T3-ab
 lands before io; raised to the PM when at risk of missing it), replacing rev 2's "judged when that slice is planned"
 sentence; the header cites the T3 memo at rev 6.
 *Rev 2* (2026-11-15): plan-review R2 on rev 1 (`38451533`; CRIT 0 / IMP 2 / MIN 14), L3's
@@ -173,9 +193,11 @@ no-ops (§4.6). So no observable step changes: no script-visible outcome, no `In
 only to a probe dispatcher is that the event arrives (U-T10, U-T12, U-T13).
 
 **The dead-code condition (PM decision 722, its condition (2) reworded by PM 740 (1); all three hold).** (1) Each
-`FragmentParse` no-op arm carries, at its position, the pointer to its consumer: T3 (T3 memo D-T12) for the cause, plus
-the arm's own reason and the window's sequence (§4.6). (2) The arms are no-ops **until T3 lands**; DoD item 7 is the
-one statement of that window (its sequence, why it is approved, its bound, the escalation). (3) Probe cells show the
+`FragmentParse` no-op arm carries, at its position, the pointer to what fills it: the custom-element arm, T3 (T3 memo
+D-T12) for the cause with the window's sequence, plus its own slot; the form arm, its slot
+`#11-form-control-state-template-contents-fragment-parse`, whose fix writes that arm (rev 2.2, PM 767 (2)) (§4.6). (2)
+The cause reaches no acting consumer **until T3 lands**; DoD item 7 is the one statement of that window (its sequence,
+why it is approved, its bound, the escalation). (3) Probe cells show the
 event arrives (U-T10 in the parser, U-T12 through the session's `innerHTML` path, U-T13 through DOMParser's window).
 
 ### §1.2 Is T3-pre no worse than its base?
@@ -234,8 +256,9 @@ Queue / window pairs [L3 surface] (R1 F2; each named in §4.4, pinned in §6):
 - **Q2×Q3** — the fragment fire happens after the backend's own window closed (P1), so it is either a dispatch (no
   enclosing window) or a push (P2, P3); the clone fire never meets `Taken` in production (I-RC3).
 - **Q1×Q10** — no consumer reads what another writes on this event (the `Clone` arms: the RC-2a plan §2 C × D; the
-  `FragmentParse` arms: none acts at T3-pre's head, and from T3 only the event-handler arm does), so the consumers'
-  field order is unobservable.
+  `FragmentParse` arms: none acts at T3-pre's head), so the consumers' field order is unobservable at T3-pre's head.
+  The arms that act later (the event-handler arm from T3; the form and custom-element arms from their slots' fixes,
+  §7) each state this pair in the plan that adds them.
 
 **The pairs not listed** (R2). Q4 to Q9 are facets of the window, each defined against Q3 above; a pair of two of them
 either restates a listed pair or cannot occur: Q5×Q6 (an unwind through nested guards restores once, at the guard that
@@ -269,7 +292,7 @@ Properties RC-2b relies on, kept by T3-pre for the `Clone` cause [L3 surface] (P
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4 → *handle attribute changes* step 3 | the attribute change steps run per appended attribute at creation: the event's ground (both causes) | `MutationEvent::SubtreeCreated` (NEW) in `crates/core/elidex-ecs/src/dom/mutation_event.rs` | ✗ | yes |
 | WHATWG HTML §13.2.6.1 Creating and inserting nodes | *create an element for a token* step 21 (append each attribute) | a parser-created element gets its attributes at creation | the `FragmentParse` cause (NEW), fired by `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) once per returned root | ✗ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* step 5 (the parser runs: either backend) and step 7 ("Return fragment.") | every production fragment parse runs its parser and returns its nodes through one function, which fires after the return | `parse_fragment_progressive`, after both backends' windows close (H-P4) | ✓ | yes |
-| WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (a new Document; for `text/html`, *parse HTML from a string*; scripting disabled because the document has no browsing context) | the spec parses a document here, not a fragment (§13.4 does not govern it); elidex builds that document by a fragment parse into a synthesized `html` element (`inert_document.rs:114-143`; slot `#11-domparser-full-document-parse-fidelity`), so the build's elements arrive by the `FragmentParse` cause, fired inside DOMParser's take window: queued and dispatched at the window's close | `crates/dom/elidex-form/src/inert_document.rs` `parse_into_inert_document` (under ig's `DispatcherTake`); `DispatcherSlot::Taken { pending }`, `DispatcherTake::close` (§4.4) | ✗ | yes |
+| WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (step 3: a new Document; step 4, `text/html`: *parse HTML from a string*; step 4's note: scripting is disabled because the document has no browsing context) | the spec parses a document here, not a fragment (§13.4 does not govern it); elidex builds that document by a fragment parse into a synthesized `html` element (`inert_document.rs:114-143`; slot `#11-domparser-full-document-parse-fidelity`), so the build's elements arrive by the `FragmentParse` cause, fired inside DOMParser's take window: queued and dispatched at the window's close | `crates/dom/elidex-form/src/inert_document.rs` `parse_into_inert_document` (under ig's `DispatcherTake`); `DispatcherSlot::Taken { pending }`, `DispatcherTake::close` (§4.4) | ✗ | yes |
 
 Numbers and titles (2026-11-13): `webref heading dom 4.4` (Interface Node), `4.9` (Interface Element); `webref heading
 html 13.2.6.1` (Creating and inserting nodes, `#creating-and-inserting-nodes`), `13.4` (Parsing HTML fragments,
@@ -296,6 +319,19 @@ reaction given result and definition", when *synchronousCustomElements* is false
 create-an-element-for-the-token` (step 17: *willExecuteScript* is false when the parser's fragment context element is
 non-null; step 19 passes it to *create an element*), `the-input-element` and `the-textarea-element` ("The cloning
 steps for input elements …", "The cloning steps for textarea elements …").
+Rev 2.2's anchors (2026-11-18, all re-run that day): `webref body html create-an-element-for-the-token` → step 5
+(*registry* by *look up a custom element registry*), step 16 ("Let definition be null if creationRegistry is null"),
+step 17, step 19, step 21 (append each attribute), step 24 ("If element is a resettable element and not a
+form-associated custom element, then invoke its reset algorithm. (This initializes the element's value and
+checkedness based on the element's attributes.)"); `webref dfn html` 'look up a custom element registry' → §4.13.4
+(The CustomElementRegistry interface) `#look-up-a-custom-element-registry` (a Document's lookup returns the
+document's registry), 'Resettable elements' → §4.10.2 (Categories) `#category-reset`, 'reset algorithm' → §4.10.23
+(Resetting a form) `#concept-form-reset-control`; `webref body dom document-custom-element-registry` (DOM §4.5
+Interface Document: "custom element registry is null" unless stated otherwise; `parseFromString` step 3 states none);
+`webref body dom concept-create-element` (steps 4.4 and 5.2.2 are reached only when *definition* is non-null);
+`webref body html dom-domparser-parsefromstring` (step 4, `text/html`, item 1 "Parse HTML from a string given
+document and compliantString"; "Since document does not have a browsing context, scripting is disabled." is the note
+after it, not a step).
 
 ### §3.1 User-input touch audit
 
@@ -329,7 +365,8 @@ variant is replaced, not added; one enum variant gains a payload.
 pub enum CreationCause {
     Clone(CloneScope),   // DOM §4.4 "clone a node"; CloneScope unchanged (RC-2a)
     FragmentParse,       // one elidex fragment parse: HTML §13.4 "HTML fragment parsing algorithm", and
-                         // DOMParser's build, which elidex runs as a fragment parse (§3's §8.5.1 row)
+                         // DOMParser's build (HTML §8.5.1 parseFromString step 4, a document parse by the
+                         // spec), which elidex runs as a fragment parse
 }
 // in enum MutationEvent<'a>, replacing CloneCreated { root, scope }:
 SubtreeCreated { root: Entity, cause: CreationCause },
@@ -341,7 +378,22 @@ visits (the clone's visit set, the RC-2a plan §4.3; `CloneScope` and that funct
 `root`'s shadow-including inclusive descendants (DOM §4.8; a declarative shadow root the parse attached, and its
 tree, included) together with the template contents (HTML §4.12.3) of every `template` among them, recursively: every
 node the parse created that hangs from that returned root. A consumer picks the subset it acts on and the walk that
-reaches it (T3's: T3 memo D-T12); T3-pre fixes the set, not a walk. **Spec ground (both causes):** each is
+reaches it (T3's: T3 memo D-T12); T3-pre fixes the set, not a walk.
+
+**When the set is evaluated (R3 Axis 2).** The `FragmentParse` set is defined **at the fire**: the nodes hanging from
+`root` when `parse_fragment_progressive` returns it. A consumer walks it **at dispatch**, so the two must agree, and
+they do by this invariant of the window: *between a root's push and the flush that dispatches it, nothing changes the
+nodes hanging from that root; the only tree change inside the window is the placement of the returned roots, which
+gives each root a parent and leaves what hangs from it as it was.* Serial (no enclosing window): the dispatch is at
+the fire, so there is no interval. Inside DOMParser's window (H-P4, `inert_document.rs:112-203`) the interval runs
+the rest of `apply_set_inner_html` (the placement of the returned roots under the synthesized `html` element), the
+form-control reconciler and the base-URL reconciler (component writes, no tree change), and the restore; no script
+runs (Q3×Q4). A root despawned in the interval is skipped at the flush (Q3×Q8), not walked. *Why at the fire, not
+"at dispatch":* the set is a creation fact ("what this parse created"); a dispatch-time definition gives the same set
+today, but would silently take in nodes that a later step inside a grown window attaches under a root, which no parse
+created. With the fire-time definition such a step breaks a stated invariant of an enumerated window body, which the
+window's re-pull at ig's head checks (§9 item 1). Each acting arm's plan relies on this invariant, not on its own
+re-derivation. **Spec ground (both causes):** each is
 element creation whose attributes are appended at creation, DOM §4.4 *clone a single node* step 2.5 and HTML §13.2.6.1
 *create an element for a token* step 21, each running DOM §4.9 *append an attribute* step 4 → *handle attribute
 changes* step 3 ("Run the attribute change steps with element, …"). elidex batches those per-element runs into one
@@ -401,7 +453,8 @@ enum DispatcherSlot {
     Absent,
     Installed(Box<dyn MutationDispatcher + Send + Sync>),
     /// A take window is open (ig's `DispatcherTake`). `pending`: the roots of the `FragmentParse` creation events
-    /// fired inside it, in fire order, dispatched at the close of the guard that took the dispatcher (§4.4).
+    /// fired inside it, in fire order, dispatched at the close of the guard that took the dispatcher (T3-pre memo
+    /// §4.4).
     Taken { pending: Vec<Entity> },
 }
 ```
@@ -491,19 +544,39 @@ window's close.
 ### §4.6 Consumer migration [L3 surface]
 
 At T3-pre's head `git grep -n -e CloneCreated -e fire_clone_created -- crates` → 0 (H-P3's census).
-Each `FragmentParse` no-op arm carries a pointer at the arm, made of **the common part** — "No consumer acts on this
-cause until T3 lands: its consumer is `EventHandlerAttributeConsumer`'s arm (T3 memo D-T12). The window: ig → T3-pre
-→ tree-model program → io → T3 (PM 740; T3-pre memo DoD item 7)" — and the arm's own reason with its spec anchor
-(§4.8).
+Each `FragmentParse` no-op arm carries a pointer at the arm to what fills it, with its spec anchor (§4.8).
+**The common part** — "No consumer acts on this cause until T3 lands: its consumer is
+`EventHandlerAttributeConsumer`'s arm (T3 memo D-T12). The window: ig → T3-pre → tree-model program → io → T3 (PM 740;
+T3-pre memo DoD item 7)" — is carried by the custom-element arm only; the form arm's no-op is its slot's, not T3's
+(below).
 - `CustomElementReactionConsumer` (`consumer.rs:116`): `SubtreeCreated { root, cause: CreationCause::Clone(scope) }` →
   `handle_clone_created(root, scope, dom)`, unchanged; `SubtreeCreated { cause: CreationCause::FragmentParse, .. }` →
-  no-op, with the common part and: "the upgrade reaction a fragment-parsed element's creation enqueues (DOM §4.9
-  *create an element* steps 4.4 and 5.2.2 → HTML §4.13.6 *enqueue a custom element upgrade reaction*) is
-  `#11-custom-element-upgrade-at-fragment-creation` (L3)". Behaviour unchanged (PM decision 711 (4)).
+  no-op, with the common part and: "in an HTML fragment parse (HTML §13.4) whose context's registry has a definition
+  for the element, its creation enqueues an upgrade reaction (HTML §13.2.6.1 *create an element for a token* steps
+  16, 17 and 19 → DOM §4.9 *create an element* steps 4.4 and 5.2.2 → HTML §4.13.6 *enqueue a custom element upgrade
+  reaction*); that is `#11-custom-element-upgrade-at-fragment-creation` (L3). DOMParser's build enqueues none: its
+  document's registry is null (DOM §4.5; HTML §8.5.1 `parseFromString` step 3), so step 16 gives no definition".
+  Behaviour unchanged (PM decision 711 (4)).
 - `FormControlReconciler` (`reconciler.rs:53`): `Clone(scope)` → `apply_clone_form_state`, unchanged;
-  `FragmentParse` → no-op, with the common part and: "the form *cloning steps* (HTML §4.10.5 for `input`, §4.10.11 for
-  `textarea`) run from DOM §4.4 *clone a node* step 3, so they are a clone's only; DOMParser's build re-runs the
-  form-control reconciler itself" (for this consumer a permanent no-op, not dead code).
+  `FragmentParse` → **a no-op in T3-pre, and the creation-time write path that
+  `#11-form-control-state-template-contents-fragment-parse` (L3; registered by PM 767) fills** (rev 2.2, R3 W1-5).
+  The arm's comment: "No-op in T3-pre. A parser-created resettable element is reset at its creation (HTML §13.2.6.1
+  *create an element for a token* step 24), which elidex does by attaching `FormControlState`. A post-bind fragment
+  parse gets it today from the `Insert` arm, whose walk misses template contents (HTML §4.12.3), so a control created
+  there gets none: `#11-form-control-state-template-contents-fragment-parse` fills this arm with the write over the
+  created set (T3-pre memo §4.2) and folds DOMParser's separate template-inclusive loop into it. The form *cloning
+  steps* (HTML §4.10.5 for `input`, §4.10.11 for `textarea`; DOM §4.4 *clone a node* step 3) are a clone's, in the
+  `Clone` arm". *Base defect, not T3-pre's:* `handle_insert` walks only `for_each_shadow_inclusive_descendant`
+  (`crates/dom/elidex-form/src/reconciler.rs:89-99` @ `cee74989`), which misses template contents, while DOMParser's
+  build covers them with its own loop over `collect_template_inclusive_descendants`
+  (`crates/dom/elidex-form/src/inert_document.rs:162-174`); without `FormControlState` the `value` getter returns
+  the empty string (`crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`). T3-pre stays behaviour-neutral
+  (§1.1); the slot's row text is §8.3 item 2. This pointer does not name T3, so T3's landing leaves it true.
+- **The pointers' rewrite at T3's landing (R3 Axis 5).** The common part says "until T3 lands" and gives the window's
+  sequence, so it becomes false when T3 lands. T3's landing list carries the obligation: in
+  `crates/dom/elidex-custom-elements/src/consumer.rs`, the `FragmentParse` arm's comment loses the common part and
+  keeps its slot pointer (the arm is still a no-op until that slot's fix). The form arm's comment names no T3 window
+  and needs no rewrite. (The item is handed to the T3 memo's landing list, §8.2.)
 - `LiveRangeBridge` (`range/live.rs:160`, its ignored-variant list): the listed name changes to `SubtreeCreated { .. }`;
   still ignored (I-RC2).
 - `EventHandlerAttributeConsumer`, `node_iter`, `base_url`, `canvas`: their catch-all arm, unchanged at T3-pre's head.
@@ -535,13 +608,13 @@ fire a policy-free `elidex-ecs` event; no policy or document reaches `elidex-ecs
 | Item | Cites |
 |---|---|
 | `MutationEvent::SubtreeCreated`, `CreationCause` (NEW) | the ground, whole chain: DOM §4.9 *append an attribute* step 4 → *handle attribute changes* step 3 (the attribute change steps, run per attribute at creation). `Clone`: DOM §4.4 *clone a node* steps 2, 5, 6.7 and *clone a single node* step 2.5 (RC-2a's text kept). `FragmentParse`: HTML §13.2.6.1 *create an element for a token* step 21 (the ground); HTML §13.4 *HTML fragment parsing algorithm* steps 5 and 7 (the fragment entry points); HTML §8.5.1 `parseFromString` step 4 (DOMParser's build: a document parse by the spec, which elidex runs as a fragment parse, so §13.4 is not cited for it). The created set: DOM §4.8 *shadow-including inclusive descendant*, HTML §4.12.3 *template contents* (T3-pre memo §4.2) |
-| `EcsDom::fire_subtree_created` (NEW) | T3-pre memo §4.4's writer table (the `Taken` arms: queue for `FragmentParse`, D-4 assertion for `Clone`) |
+| `EcsDom::fire_subtree_created` (NEW) | the spec ground by pointer: "see `MutationEvent::SubtreeCreated`" (DOM §4.4 *clone a node* for `Clone`; HTML §13.2.6.1 *create an element for a token* step 21 for `FragmentParse`; the whole chain is that item's row); T3-pre memo §4.4's writer table (the `Taken` arms: queue for `FragmentParse`, D-4 assertion for `Clone`) |
 | `parse_fragment_progressive`'s fire | HTML §13.4 *HTML fragment parsing algorithm* step 7 ("Return fragment."); T3-pre memo §4.3: once per returned root, after both backends' restore; T3-pre memo §4.3's fallback record |
 | `parse_fragment_strict`'s rustdoc (the added sentence); `parse_html_fragment` (`pub(crate)`) | T3-pre memo §4.3: fires no creation event; production code goes through `parse_fragment_progressive` |
 | `DispatcherSlot::Taken { pending }`, `DispatcherTake::restore`'s return value, `DispatcherTake::close`'s flush, `Drop`'s assertion | T3-pre memo §4.4 (PM decisions 711, 713, 720, 740): restore, then dispatch in order, each root checked alive at its dispatch; discarded on unwind and at unbind. (The restore's direct write and `set_mutation_dispatcher`'s `Taken` assertion carry ig's citations, not T3-pre's) |
-| the `FragmentParse` no-op arm of `CustomElementReactionConsumer` | T3 memo D-T12 (the cause's consumer) and the window (T3-pre memo DoD item 7); DOM §4.9 *create an element* steps 4.4 and 5.2.2 → HTML §4.13.6 *enqueue a custom element upgrade reaction* (HTML §13.2.6.1 *create an element for a token* steps 17 and 19: in a fragment parse the element is created without running its constructor, so the upgrade is enqueued); slot `#11-custom-element-upgrade-at-fragment-creation` |
-| the `FragmentParse` no-op arm of `FormControlReconciler` | T3 memo D-T12 and the window (T3-pre memo DoD item 7); HTML §4.10.5 (`input`) and §4.10.11 (`textarea`) *cloning steps*, run from DOM §4.4 *clone a node* step 3: a clone's only |
-| `parse_into_inert_document`'s rustdoc (the added sentence, §4.6) | HTML §8.5.1 `parseFromString` step 4 ("Since document does not have a browsing context, scripting is disabled"); T3-pre memo §4.4 |
+| the `FragmentParse` no-op arm of `CustomElementReactionConsumer` | T3 memo D-T12 (the cause's consumer) and the window (T3-pre memo DoD item 7); **for HTML §13.4 fragment parses:** DOM §4.9 *create an element* steps 4.4 and 5.2.2 → HTML §4.13.6 *enqueue a custom element upgrade reaction* (HTML §13.2.6.1 *create an element for a token* steps 16, 17 and 19: with a definition and a non-null fragment context element, the element is created without running its constructor, so the upgrade is enqueued); **for DOMParser's build:** none (DOM §4.5: the document's registry is null, HTML §8.5.1 `parseFromString` step 3 setting none; so §13.2.6.1 step 16 gives definition null); slot `#11-custom-element-upgrade-at-fragment-creation` |
+| the `FragmentParse` no-op arm of `FormControlReconciler` | slot `#11-form-control-state-template-contents-fragment-parse` (the write path that fills the arm; no T3 window); HTML §13.2.6.1 *create an element for a token* step 24 (a resettable element, HTML §4.10.2, is reset at creation, HTML §4.10.23 *reset algorithm*); HTML §4.12.3 *template contents* (what `handle_insert`'s walk misses); HTML §4.10.5 (`input`) and §4.10.11 (`textarea`) *cloning steps*, run from DOM §4.4 *clone a node* step 3: the `Clone` arm's |
+| `parse_into_inert_document`'s rustdoc (the added sentence, §4.6) | HTML §8.5.1 `parseFromString` step 4 (note: "Since document does not have a browsing context, scripting is disabled"); T3-pre memo §4.4 |
 
 ## §5. Populations, touched files, named risks
 
@@ -564,15 +637,17 @@ cut from (§9 item 1).
 - `crates/core/elidex-ecs/src/dom/mod.rs` (959; the slot's payload, `take_mutation_dispatcher`'s `Taken { pending:
   Vec::new() }`, every `Taken` pattern, `fire_subtree_created` replacing `fire_clone_created`;
   `set_mutation_dispatcher`'s assertion is ig's edit, not T3-pre's).
-  **R1 M19:** L3's PR (is), PR (ig) and PR (io) also edit this file before T3-pre's base; its size is re-measured at the
+  **R1 M19:** L3's PR (is) and PR (ig) also edit this file before T3-pre's base; L3's tree-model slices `ta`, `tc`,
+  `te` and `ts` and PR (io) edit it too, after T3-pre in the planned order (ig → T3-pre → tree-model program → io) or
+  before it if they land first (merge contacts, §8.1); its size is re-measured at the
   base, and if it is over 1000 there, the touch-time split check (CLAUDE.md "1000-line debt") runs first, as a
   standalone prerequisite split before T3-pre's feature commits (the dispatcher section, `:190-345` at `cee74989`, is
   the candidate seam).
 - `crates/core/elidex-ecs/src/dom/dispatcher_take.rs` (NEW: ig): `restore`'s return value, the flush in `close`, the
   `Taken { .. }` pattern of `close`'s postcondition, `Drop`'s assertion (§4.4 *What T3-pre changes*).
 - `crates/core/elidex-ecs/src/dom/mutation_event.rs` (441; the variant, `CreationCause`); `crates/core/elidex-ecs/src/lib.rs`
-  (51; re-export); docs in `ecs/dom/tree/walkers.rs` (482; also edited by io, by L3's tree-model program and by the DOM-walker
-  program's slice 1: merge contacts, §8.1, §8.2) and `ecs/dom/tree_clone.rs` (415; also the tree-model program's,
+  (51; re-export); docs in `ecs/dom/tree/walkers.rs` (482; also edited by io, by L3's tree-model slices `ta` and `ts`
+  and by the DOM-walker program's slice 1: merge contacts, §8.1, §8.2) and `ecs/dom/tree_clone.rs` (415; also the tree-model program's,
   §8.1).
 - `crates/dom/elidex-html-parser/src/lib.rs` (259; the fragment fire; `parse_html_fragment` → `pub(crate)` and the
   intra-doc link to it, §4.3); `crates/dom/elidex-html-parser-strict/src/lib.rs` (183; one rustdoc sentence, §4.3);
@@ -607,9 +682,9 @@ D-T13).
   runs while it still holds `&mut EcsDom` and that `Drop` shares (c); a restore that goes through
   `set_mutation_dispatcher` instead of writing the slot directly (e); or `set_mutation_dispatcher` not asserting
   while `Taken` (f). T3-pre does not add (e) or (f) to make up for it: they are ig's by PM 740 (2).
-- **R-P4 — the no-op window (PM decisions 722, 740 (1), 741 (1)).** From T3-pre's landing until T3's the
-  `FragmentParse` event reaches no acting consumer. Its sequence, its bound and the escalation to the PM when it grows
-  are DoD item 7's.
+- **R-P4 — the no-op window (PM decisions 722, 740 (1), 741 (1), 767 (1)).** From T3-pre's landing until T3's the
+  `FragmentParse` event reaches no acting consumer. Its sequence, its bound, T3-a's and T3-b's condition and the
+  escalation to the PM are DoD item 7's.
 
 ## §6. Test plan
 
@@ -622,7 +697,7 @@ Red-first: each **red** cell is committed failing on T3-pre's base before the fi
 | U-T10 | red (§4.3; `elidex-html-parser`) | a probe dispatcher recording every event; `parse_fragment_progressive` with two top-level elements, on input the strict backend accepts and on input it rejects (tolerant fallback); then the same inside an outer `DispatcherTake` (ig) window, closed after the call | exactly two `SubtreeCreated { cause: FragmentParse }`, roots in the returned order, no other event before them, none naming a despawned entity; inside the outer window none reaches the probe during the call, and the same two, in the same order, reach it at the outer close, after the restore. Base: no event |
 | U-T11 [L3 surface] | red + guard (§4.4; ig's guard test module or `ecs/dom/tests/dispatch_guard.rs`) | a probe dispatcher installed; an outer `DispatcherTake`: (a) `fire_subtree_created(r1, FragmentParse)`, `(r2, …)`, `(r3, …)`, `despawn_subtree(r2)` inside the window, then a nested `DispatcherTake` opened and closed, then the outer close; (b) as (a) up to the nested window, then a panic inside the outer window, caught outside it (`catch_unwind`); (c) one push, then `clear_mutation_dispatcher` inside the window, then the close; (d) `fire_subtree_created(root, Clone(CloneScope::Subtree))` while `Taken`; (e) one push, then the outer guard dropped without `close` on a returning path. (Rev 1's (f), an install inside the window, is ig's cell since PM 740 (2): the assertion it pins is ig's, §8.2; the letter is not reused) | (a) nothing reaches the probe before the outer close (the nested close flushes nothing); at the close exactly `r1`, `r3` arrive, in that order (their arrival is what pins "restore, then flush": a flush into a slot still `Taken` delivers nothing; the probe does not read the slot, which `dispatch_event` has emptied to `Absent` for the dispatch); (b) the slot holds the dispatcher and the probe received nothing; (c) nothing is received; (d) debug-asserts (D-4, the existing test renamed; I-RC3); (e) debug-asserts in `Drop` (R1 M3). Base: (a)–(c) receive nothing (no queue), (e) does not assert |
 | U-T12 | red (Q3×Q4, serial; end to end through the session) | beside `set_inner_html_fires_insert_at_caller_placement` (`html_fragment.rs:668-700`): a probe dispatcher recording every event; `apply_set_inner_html` on an empty connected element with `<p></p><i></i>` | the log is `SubtreeCreated { p, FragmentParse }`, `SubtreeCreated { i, FragmentParse }`, then the placement's `Insert`s. Base: the `Insert`s only |
-| U-T13 | red (Q3×Q4 nested; end to end through DOMParser's window) | a probe dispatcher; `parse_into_inert_document` with `<body><p></p></body>` | no event reaches the probe during the build except at its close; at the close, after the restore, exactly two events, `SubtreeCreated { cause: FragmentParse }` for the `head` element and then for the `body` element (the two roots the build's fragment parse returns for this markup under the synthesized `html`; asserted by tag, and each root's parent is the `html` element when its event arrives: the placement came first). No `Insert` is in the log (the placement's reached no consumer). Base: nothing |
+| U-T13 | red (Q3×Q4 nested; end to end through DOMParser's window) | a probe dispatcher; `parse_into_inert_document` with `<body><p></p></body>` | no event reaches the probe during the build except at its close; at the close, after the restore, exactly two events, `SubtreeCreated { cause: FragmentParse }` for the `head` element and then for the `body` element (the two roots the build's fragment parse returns for this markup under the synthesized `html`; asserted by tag, and each root's parent is the `html` element when its event arrives: the placement came first; the parent is read as the tree parent, §8.1 for L3's `ta`). No `Insert` is in the log (the placement's reached no consumer). Base: nothing |
 
 Kept green, renamed in place: the RC-2a cells (`tests_clone_created.rs`, `tests_clone_form_state.rs`, the CE and
 dom-api clone tests): every `Clone` outcome unchanged (I-RC1).
@@ -661,8 +736,10 @@ kills it and none is claimed. (2) Rev 1's mutants "the restore through `set_muta
 | RC-2b's clones on the event | L3's slice (PM decision 723) | the Range program, RC-2b (§8.2) |
 | the restore function's direct slot write; `set_mutation_dispatcher`'s assertion while `Taken`, its cell and mutant | the PR that creates the restore function owns its invariant (PM decisions 740 (2), 741 (2)) | L3's PR (ig) (§8.2) |
 | `Range.createContextualFragment` | not implemented (H-P6) | `#11-range-full-impl` (§4.3's record) |
+| `FormControlState` at creation for a form control in template contents created by a post-bind fragment parse (filling the form `FragmentParse` arm; folding DOMParser's template-inclusive loop into it) | a base defect T3-pre neither causes nor changes (T3-pre is behaviour-neutral, §1.1); the arm it fills exists from T3-pre (§4.6); PM decision 767 (2) | `#11-form-control-state-template-contents-fragment-parse` (L3; **registered**, PM 767; Re-eval 2026-12-31; row text: §8.3 item 2) |
 
-Own deferrals: **0**.
+Own deferrals: **0** (the form-control slot is a base defect registered by the PM with owner L3, not a deferral of
+T3-pre's scope).
 
 ## §8. Edges, hand-offs, records
 
@@ -678,17 +755,51 @@ Own deferrals: **0**.
 - **No edge** with L3's PR (io): merge contact in `ecs/dom/mod.rs` and `walkers.rs` docs only; whichever lands second
   re-pulls the other's coordinates.
 - **No edge** with L3's tree-model program (PM 730: the shadow root becomes a tree root linked to its host by a pair
-  of link components; owner L3; between ig and io): merge contact in the files it will touch that T3-pre edits,
-  `ecs/dom/tree/walkers.rs` and `ecs/dom/tree_clone.rs` (docs) and `crates/dom/elidex-dom-api/src/node_methods/clone.rs`
-  (the clone fire's call, one line). T3-pre reads no parent link and walks nothing, and §4.2's created set is stated
-  by the DOM's terms, not by how elidex links a shadow root to its host, so the program changes no T3-pre statement;
-  whichever lands second re-pulls the other's coordinates. (PM decisions 740 (1), 741 (1): T3-pre is not moved behind
-  it.)
+  of link components; owner L3; between ig and io). **Re-pulled in rev 2.2** from that program's umbrella, draft 2
+  (`git show "1593a5ad:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md"`, §5 table, §5.1, §7.2; its
+  census `2026-11-tree-model-census.md` at the same sha). Eight slices, in the order **tp → ta → tc → tr → tf → tm →
+  te → ts**, then PR (io) rewritten on that base (its §5.1). Merge contacts with the files T3-pre edits (§5.3), by
+  slice:
+  - `crates/core/elidex-ecs/src/dom/mod.rs` (T3-pre: the slot, the fire function): `ta`, `tc`, `te`, `ts` (each
+    lists `dom/mod.rs` as a primary module).
+  - `ecs/dom/tree/walkers.rs` (T3-pre: docs only): `ta` and `ts` (`dom/tree/*.rs`); the census names `walkers.rs` 13
+    times (e.g. `find_tree_root_composed`, `is_ancestor_or_self`, renamed or re-chosen in `ta`).
+  - `crates/dom/elidex-dom-api/src/range/live.rs` (T3-pre: one name in the ignored-variant list): `tr` (`range/`);
+    `ts` deletes the dead node half of the fire guards, whose parent half `LiveRangeRegistry` relies on (census role E,
+    `live.rs:38-54`), not the line T3-pre edits.
+  - `crates/dom/elidex-custom-elements/src/consumer.rs` (T3-pre: the arm at `:116`): `ta` (census: the
+    `find_tree_root_composed` caller at `:408`).
+  - `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (T3-pre: U-T12 in its tests): `ta` (census:
+    5 lines of role T1).
+  - `crates/dom/elidex-dom-api/src/node_methods/clone.rs` (T3-pre: the clone fire's call, one line): the census's
+    2 lines (`ta`).
+  - `ecs/dom/tree_clone.rs`: not named by the census (0 hits); left as a contact to re-check at the base.
+  Command for the census side: for each file `f` of §5.3, `git show "1593a5ad:docs/plans/2026-11-tree-model-census.md"
+  | /usr/bin/grep -c -F "$f"` (rev 2.2 counts: `dom/mod.rs` 11, `walkers.rs` 13, `node_methods/clone.rs` 2,
+  `range/live.rs` 1, `consumer.rs` 1, `html_fragment.rs` 5, `tree_clone.rs` 0; re-run at L3's ratified sha, R-P3).
+  T3-pre reads no parent link in production code and walks nothing, and §4.2's created set is stated by the DOM's
+  terms, not by how elidex links a shadow root to its host, so the program changes no T3-pre statement; whichever lands
+  second re-pulls the other's coordinates. (PM decisions 740 (1), 741 (1): T3-pre is not moved behind it.)
+  **U-T13's parent assertion and `ta`.** `ta` deletes `get_parent`, "tests included" (its §5 row), replacing every
+  caller by a relation chosen per its §1.1 (the tree parent, the shadow-including parent, or the transitional
+  accessor `parent_crossing_pending_flip` where the base behaviour crosses, §1.4). U-T13 asserts that each returned
+  root's parent is the synthesized `html` element: an element's child, never a shadow root, so the tree parent and
+  the shadow-including parent are the same node and the assertion means the DOM parent. It is written against the
+  relation, not the storage: if T3-pre lands first, U-T13 reads the parent through the base's `get_parent` and `ta`'s
+  census of `get_parent` callers takes it, re-typed to the tree parent (no transitional accessor: the assertion does not
+  cross, so it adds no line to `ta`'s pending-name trip-wire); if `ta` lands first, T3-pre's U-T13 uses `ta`'s
+  tree-parent accessor directly. Either way the one who lands second re-pulls (the merge-contact rule above); the
+  item is on §8.2's L3 list so `ta`'s census sees it. **L3's own escalation:** the tree-model umbrella §7.2 (*Layout
+  T3 / T3-pre*) says L3 escalates to the PM if that program's landing would push T3 past the cap 2026-12-31; DoD item
+  7 cross-references it and does not duplicate it.
 
 ### §8.2 Hand-offs
 
-- **T3** (after T3-pre and io; DoD item 7): consumes `SubtreeCreated` in `EventHandlerAttributeConsumer` (T3 memo
-  D-T10, D-T12).
+- **T3** (after T3-pre, io, T3-a and T3-b; DoD item 7): consumes `SubtreeCreated` in `EventHandlerAttributeConsumer`
+  (T3 memo D-T10, D-T12).
+- **The umbrella, through the T3 memo's Rev 8.<t>** (PM 767 (1); this plan PR): the umbrella's edge from T3-ab to T3
+  becomes one edge from T3-a and one from T3-b, and where the umbrella states the order against io it refers to DoD
+  item 7 for T3-a's and T3-b's condition (stated once here, not restated).
 - **L3 PR (ig)** [L3 surface] (PM decisions 740 (2), 741 (2); R2). ig takes, in its own PR: the restore function's
   direct slot write (§4.4 (e)); `set_mutation_dispatcher`'s `debug_assert!` while `Taken` (§4.4 (f)); the cell for it
   (rev 1's U-T11 (f): an install inside an open window asserts) and its mutant rows (the restore through
@@ -718,9 +829,17 @@ Own deferrals: **0**.
   on main, unlanded) was written against `CloneCreated` / `fire_clone_created`, which T3-pre replaces. It lands after
   T3-pre, on `SubtreeCreated { cause: Clone(scope) }` (PM decision 723), and relies on I-RC1 to I-RC3 (§2), which
   T3-pre keeps; T3-pre's migration set does not grow (RC-2b's own clones are its own edit).
-- **L3's DOM-walker program, slice 1** (`#11-dom-walkers-iterative-over-ecs-links`; stacks on io, touches
-  `walkers.rs`; L3 umbrella §8 hand-offs) (R1 M18): no ordering edge with T3-pre (T3-pre edits only `walkers.rs` docs);
-  merge contact. Its edge with T3's creation walk is the T3 memo's (§8.2).
+- **L3's DOM-walker program, slice 1** (`#11-dom-walkers-iterative-over-ecs-links`; touches `walkers.rs`) (R1 M18;
+  re-placed in rev 2.2): **after `ta`** (PM 761 (1): is → ig → tp → ta → walker slice 1, in parallel with `tc` onward;
+  PM 694's "on PR (i), using `owned_entities`" kept), no longer "stacks on io". No ordering edge with T3-pre (T3-pre
+  edits only `walkers.rs` docs); merge contact. Its edge with T3's creation walk is the T3 memo's (§8.2).
+- **L3's tree-model slice `ta`** (R3 Axis 5): U-T13 (§6.1) reads a returned root's parent; if T3-pre lands before
+  `ta`, that test line is a `get_parent` caller in `ta`'s census, re-typed to the tree parent (§8.1). For L3's
+  information; no rewording of L3's plans.
+- **T3's landing list** (R3 Axis 5; for the T3 memo): the custom-element `FragmentParse` arm's comment loses §4.6's
+  common part at T3's landing (§4.6 *The pointers' rewrite*); and `#11-eh-attrs-creation-time-call-sites`'s ledger
+  *Trigger* text, which at T3-pre's writing still reads "T3 and N1 landed, and C1's handling decided" while the
+  umbrella §8.2 reads "N1, C0, C1, T3-pre and T3 landed", is brought to the umbrella's text (DoD item 7's bound).
 - **`#11-custom-element-upgrade-at-fragment-creation`** (L3, registered): the arm it adds matches T3-pre's
   `SubtreeCreated { cause: FragmentParse }`. Its ledger *Trigger* is T3-pre's landing (PM 732); the event exists from T3-pre's
   (§10 Q-P1, closed).
@@ -732,12 +851,46 @@ Own deferrals: **0**.
    one function both parser backends return through. `Range.createContextualFragment`'s implementation must parse
    through it (or the session's `apply_*` wrappers that call it), or its elements get no creation processing (T3-pre
    memo §4.3)."
+2. `#11-form-control-state-template-contents-fragment-parse` (registered by PM 767; owner L3; Re-eval-date
+   2026-12-31) — the row's text, in defect form (R3 W1-5), replacing its body after the registration header:
+   "**Defect.** A form control (`input`, `select`, `textarea`; HTML §4.10.2 *resettable elements*) inside the template
+   contents (HTML §4.12.3) of a `template` that a post-bind fragment parse creates (`innerHTML`, `outerHTML`,
+   `insertAdjacentHTML`, `setHTMLUnsafe`, the queued `Mutation::SetInnerHtml`) never receives `FormControlState`, so its
+   value and checkedness are not initialised from its attributes: `FormControlReconciler::handle_insert` walks only
+   `for_each_shadow_inclusive_descendant` (`crates/dom/elidex-form/src/reconciler.rs:89-99` @ `cee74989`), which does
+   not enter template contents, and no other path reaches them. The same element built by `DOMParser.parseFromString`
+   does get it, from a separate loop over `collect_template_inclusive_descendants`
+   (`crates/dom/elidex-form/src/inert_document.rs:162-174`): two paths, two answers. **Spec.** HTML §13.2.6.1 *create
+   an element for a token* step 24: a resettable element that is not a form-associated custom element has its reset
+   algorithm (HTML §4.10.23) invoked at creation, which initialises its value and checkedness from its attributes; this
+   holds for elements the parser creates in template contents too. For clones the form *cloning steps* (HTML §4.10.5
+   `input`, §4.10.11 `textarea`, run from DOM §4.4 *clone a node* step 3) already apply through the `Clone(scope)` arm.
+   **Where the fix goes.** The `FragmentParse` arm of `FormControlReconciler` (a no-op since T3-pre, #<PR>
+   `<squash>`): it attaches `FormControlState` to every form control of the event's created set (T3-pre memo §4.2:
+   shadow-including inclusive descendants plus template contents, recursively), absence-guarded as `handle_insert` is;
+   DOMParser's separate loop is deleted, its build reaching the same arm through the window's queue (T3-pre memo §4.4;
+   One issue, one way); the fix's plan states the order against DOMParser's base-URL reconciler, which then runs
+   before the arm. It does not need T3. **Closes when** a cell passes on the bound VM:
+   `d.innerHTML = '<template><input value=x></template>'; d.firstChild.content.firstChild.value === "x"` (at
+   `cee74989` the `value` getter returns `""` without `FormControlState`,
+   `crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`), and the same through `DOMParser` stays `"x"`."
+3. `#11-eh-attrs-creation-time-call-sites` (the umbrella's slot; owner Layout) — append the window condition, so it
+   outlives T3-pre's landing (R3 Axis 3; DoD item 7): "**Window condition (T3-pre memo DoD item 7; PM 756, 767 (1)).**
+   From T3-pre's landing (#<PR>, `<squash>`) until T3's, the `FragmentParse` creation event reaches no acting
+   consumer. The window keeps its planned length only if **T3-a and T3-b land before io lands**. **Raise to the PM**
+   (raiser: the Layout lane; the PM pass checks the same against L3's lane SSoT) at the first of these while T3-a or
+   T3-b is not merged: (t1) io's per-PR plan enters `/elidex-plan-review` and T3-a's or T3-b's plan is not ratified;
+   (t2) io's implementation branch is cut or its PR opened; (t3) a 'merge at head' is requested for io. Also raise if
+   the window grows otherwise (a unit other than T3-a / T3-b placed before T3, or T3 re-sliced so that it no longer
+   lands right after io) or T3 has not landed by this row's Re-eval date. L3's own duty for its tree-model program is
+   that program's umbrella §7.2. Cleared when T3 lands."
 
 ## §9. Definition of done
 
 1. T3-pre's branch is cut from main after L3's PR (is) and PR (ig) land (x13); every `cee74989` coordinate in §0.2 is
    re-measured there by its command (H-P1, all three parts of its population, (iii) expecting 0; §4.5's anchors at
-   ig's head; sizes of §5.3); every L3 citation is re-pinned to L3's ratified sha (R-P3), §8.2's reworded sentences
+   ig's head, with DOMParser's window body read against §4.2's invariant (between the fire and the close, no step
+   changes what hangs from a returned root); sizes of §5.3); every L3 citation is re-pinned to L3's ratified sha (R-P3), §8.2's reworded sentences
    included. **What ig provides is checked on ig's landed code before T3-pre's first commit** (these are ig's, so
    they are checks here, not T3-pre's greps): `git grep -n 'set_mutation_dispatcher(' --
    crates/core/elidex-ecs/src/dom/dispatcher_take.rs` → 0 (§4.4 (e): the restore writes the slot directly);
@@ -768,33 +921,51 @@ Own deferrals: **0**.
      `mutation/html_fragment.rs` names the event in U-T12, so the crate as a whole is not 0).
 5. `cargo test -p elidex-ecs -p elidex-html-parser -p elidex-dom-api -p elidex-custom-elements -p elidex-form -p
    elidex-script-session -p elidex-js --all-features` green; `mise run ci` before push.
-6. §8.3's record handed to the PM in the PR description.
+6. §8.3's records (items 1 to 3) handed to the PM in the PR description.
 7. **The no-op window of the `FragmentParse` arms (the one statement; PM decision 722's dead-code condition (2), read
    by PM 740 (1) as "until T3 lands"; PM 741 (1)).** From T3-pre's landing until T3's, the `FragmentParse` cause
    reaches no acting consumer. **Sequence:** ig → T3-pre → L3's tree-model program (PM 730) → io → T3; T3's
    implementation is cut once T3-pre and io have landed (umbrella x12, x14). **Why it is approved (PM 740 (1)):**
    T3-pre has live consumers from its own landing (the generalised event with every consumer migrated, and RC-2b's
    `Clone` cause, PM decision 723), and the window changes no behaviour (§1.1); delaying T3-pre to just before io
-   would stop those too (not chosen, PM 740 (1), 741 (1)). **Upper bound (PM 741 (1)):** the trigger and the Re-eval
-   date of the umbrella's slot `#11-eh-attrs-creation-time-call-sites` (umbrella §8.2: *Trigger* "N1, C0, C1, T3-pre
-   and T3 landed", *Re-eval* 2026-12-31). **Escalation:** it is raised to the PM if the window grows beyond that
-   sequence (another unit placed before T3, other than T3-ab, whose condition follows; or T3 re-sliced so that it no longer lands right after io), or if T3 has
-   not landed by the bound. **T3-ab (PM decision 756).** T3-ab, the prerequisite slice of T3 that PM decision 741 (3)
-   placed before it (umbrella x15 T3-ab → T3), depends on nothing unlanded and is not in the sequence; the window
-   keeps its length on the condition that **T3-ab lands before io lands**. If T3-ab is not landed by io's landing,
-   T3's landing, and so the window's close, is delayed. The point to raise with the PM is when T3-ab is at risk of
-   missing that condition, not when it has already missed it. (Until rev 2.1: "PM 741 (3) puts a prerequisite slice
-   of T3 before T3; whether it lengthens the window is judged against this condition when that slice is planned, not
-   here.") Each `FragmentParse` no-op arm carries its
-   pointer and the sequence (§4.6).
+   would stop those too (not chosen, PM 740 (1), 741 (1)). **Upper bound (PM 741 (1)):** the working bound is the
+   Re-eval date **2026-12-31** of the umbrella's slot `#11-eh-attrs-creation-time-call-sites`. (Its *Trigger* in the
+   umbrella §8.2 is "N1, C0, C1, T3-pre and T3 landed"; the ledger row still reads "T3 and N1 landed, and C1's
+   handling decided", and bringing it to the umbrella's text is an item of T3's landing list, §8.2; so the date, which
+   both texts share, is the bound cited here.) **T3-a and T3-b (PM decisions 756, 767 (1)).** T3-ab, the prerequisite
+   slice that PM decision 741 (3) placed before T3, is split into **T3-a** (D-T8, the applicability predicate,
+   script-session) and **T3-b** (D-T11, the body prototype, VM host) (R3 Axis 3; PM 767 (1)); each is a predecessor of
+   T3 in the umbrella §1.3, depends on nothing unlanded and is not in the sequence. The window keeps its length on the
+   condition that **T3-a and T3-b land before io lands**; if either is unlanded at io's landing, T3's landing, and so
+   the window's close, is delayed. **Escalation (raised before the condition is missed, not after):**
+   - *Raiser:* the Layout lane, which owns T3-a, T3-b and T3. The PM pass is the backstop, reading the record below.
+   - *Triggers* (each observable in L3's lane SSoT, the PORTFOLIO or `gh pr view`), at the first of which, while T3-a
+     or T3-b is not merged, Layout raises it: (t1) io's per-PR plan enters `/elidex-plan-review` while T3-a's or T3-b's
+     plan is not ratified; (t2) io's implementation branch is cut or its PR opened; (t3) a "merge at head" is
+     requested for io. Layout reads L3's lane SSoT for io's state at each of its own session starts and at each
+     T3-a / T3-b plan-review or landing step.
+   - *Also raised:* the window grows otherwise (a unit other than T3-a and T3-b placed before T3, or T3 re-sliced so
+     that it no longer lands right after io), or T3 has not landed by the bound.
+   - *What the raise asks the PM:* hold io's merge until T3-a and T3-b land, re-prioritise them in the Layout lane, or
+     accept a longer window with a new bound.
+   - *Record that outlives T3-pre's landing:* §8.3 item 3 appends this condition, its triggers and its raiser to
+     `#11-eh-attrs-creation-time-call-sites`'s ledger row, which stays open until T3 lands; the umbrella's own record
+     of it is the T3 memo's edit (handed off, §8.2).
+   - *L3's side:* the tree-model umbrella §7.2 (draft 2, `1593a5ad`) gives L3 its own duty, to escalate if that
+     program's landing would push T3 past the cap; this item does not restate it (§8.1).
+   (Until rev 2.2: "T3-ab lands before io lands", with "at risk" undefined; until rev 2.1: "PM 741 (3) puts a
+   prerequisite slice of T3 before T3; whether it lengthens the window is judged against this condition when that
+   slice is planned, not here.") The custom-element `FragmentParse` arm carries the pointer and the sequence, the form
+   arm its slot (§4.6).
 8. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` exit 0.
 
 ## §10. Open questions
 
 **Decided:** the split (PM decision 722); the flush shape (δ) (PM 720, P-P1); RC-2b's order and the three properties
-(PM decision 723); the order, unchanged, and the no-op window until T3 lands, with its bound and escalation, and T3-ab's
-condition on it (PM decisions 740 (1), 741 (1), 756; DoD item 7); the owner of R1 M2's two remedies, the restore function's direct slot write
+(PM decision 723); the order, unchanged, and the no-op window until T3 lands, with its bound and escalation, and T3-a's
+and T3-b's condition on it (PM decisions 740 (1), 741 (1), 756, 767 (1); DoD item 7); the form `FragmentParse` arm as
+the write path of `#11-form-control-state-template-contents-fragment-parse` (PM 767 (2); §4.6); the owner of R1 M2's two remedies, the restore function's direct slot write
 and `set_mutation_dispatcher`'s assertion while `Taken`: ig (PM decisions 740 (2), 741 (2); P-P2). T3-pre's own, within
 PM 713 / 720 / 740 (not new decisions): the restore function returns `pending` from its one replacement; `close`
 flushes after it; `Drop` asserts an empty list unless unwinding (§4.4). L3 confirmed the [L3 surface] sections of rev 1
