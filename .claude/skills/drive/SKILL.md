@@ -27,6 +27,7 @@ lane 固有の事実 (lane 名、持つ PR / branch / memo、最初の成果物�
 | edge-dense の規則 (umbrella + per-PR plan、実装前 plan-review) | repo `CLAUDE.md`「Edge-dense work」 |
 | PM の merge 検証の checklist、比例性の閾値、着地後の台帳の更新 | `/pm` §4 / §2 行 7 / §5 |
 | 台帳・PORTFOLIO・MEMORY Active state の書き方 | `~/.claude/agents/pmo.md` (書くのは pmo、渡すのは PM) |
+| repo に依らない判断・確認・検証・測定・止まり方・引き継ぎの一般則 (lens block と `lens-attest.sh`、根拠の段、規則の読みの先例、relay の本文、承認前の全文読み、claim の確かめ、0 件の control、時刻の変換、測定の作法、PID での停止、`止まる理由`、引き継ぎの繰り越し照合) | `~/.claude/CLAUDE.md`「判断と確認」「検証の作法」「並行セッション」「止まり方と引き継ぎ」(PM 736 で `/pm` §12 と `/drive` §8 / §10 から移した) |
 
 ## 0. 置き場所 (固定値)
 
@@ -77,8 +78,8 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
 - **user に直接聞くのは PM の名が `ListAgents` に無い時だけ**。
 - harness の許可ダイアログは、この session の user が答えるもの。PM 経由で迂回しない。
 - **repo `CLAUDE.md` の文言**: 最終文言と前後の diff を PM に送る。その後の流れの正は `/pm` §3.4。
-- **聞く前に**: `/pm` §3.3 の 1 (lens block — 全行が同じ案なら聞かずに実行して報告)・3 (手段の前に目的)・
-  5 (規則の読みは両側の先例を全部)・6 (lens が棄却する案を選択肢に混ぜない) を自分の問いに当てる。
+- **聞く前に**: `~/.claude/CLAUDE.md`「判断と確認」(lens block、規則の読みの先例) と `/pm` §3.3 の 3 (手段の前に目的)・
+  6 (lens が棄却する案を選択肢に混ぜない) を自分の問いに当てる。
 - **決定番号は PM だけが引く**。lane の記録・報告に書く PM 番号は PM の返信にあった番号だけ
   (memory `feedback_driver-merge-needs-pm-go-and-no-decision-numbers.md`、PM 519)。
 
@@ -142,27 +143,14 @@ merge の後、PM に 1 通で送る:
 
 台帳・MEMORY Active state は書かない (PM が pmo に渡す)。自分の lane SSoT だけを更新する。
 
-## 8. 測定の作法 (PM 734 — 正は本節、`/pm` §8 / §9 はここを指す)
+## 8. 測定の作法
 
-- **toolchain を名指す測定**: local の cargo の結果を「toolchain X で」と報告する時は、同じコマンドの中で
-  `rustc --version` を出す。session の `RUSTUP_TOOLCHAIN` は起動した worktree の channel のままで、
-  `rust-toolchain.toml` より優先される。build する worktree で session を起動するか、cargo の前に
-  `unset RUSTUP_TOOLCHAIN` (または mise の shim / `mise run`)。機構は memory
-  `reference_session-rustup-toolchain-env-stale.md`。
-- **user の状態に書く probe の隔離**: mise を測る probe は `MISE_DATA_DIR` / `MISE_CACHE_DIR` / `MISE_STATE_DIR` /
-  `MISE_CONFIG_DIR` を隔離し、`MISE_GLOBAL_CONFIG_FILE` を空の file に向ける。隔離していない state dir で
-  `mise trust` しない。終わったら `~/.local/state/mise/trusted-configs` と `~/.local/state/mise/tracked-configs` に scratchpad 向きの entry が
-  無いことを確かめる (PM 151 / 230、memory `feedback_mise-probes-isolate-state-dir.md`)。agent に測らせる brief にも同じことを書く。
-- **並列度の上限**: 測定・corpus・mutation を走らせる agent の brief には並列度の上限を書く (既定は agent 1 体あたり
-  同時 2 本まで)。agent を N 体並べる前に N × 各 agent の fan-out を数える。重い検査 (mutation run 等) は最終 head
-  だけで走らせる。local の検証は review の fan-out と並走させない (wall-clock の assertion が負荷で落ちる)。
-  経緯は memory `feedback_cap-delegate-experiment-parallelism.md`。
-- **背景ジョブは PID で止める**: 起動した時に PID を控える (harness の task なら task stop)。`pkill -f <pattern>` は
-  使わない — 並行 lane の同じコマンドも殺す。kill の前に `pgrep -fl …` で一致を並べ、各々の cwd を確かめる
-  (memory `feedback_kill-by-pid-not-pattern.md`)。
-- **disk**: PM が新しい測定 batch を止めたら (disk の下限、`/pm` §2 行 3) 新しい batch を始めない。clone は再利用し、
-  batch の前に `df -h`。
-- 本節と §10 は、`/drive` の landing の後に `/pm` §12 の一般核と一緒に global へ移す (PM 736)。移すまでは本節が正。
+- 規則 (toolchain を名指す測定、user の state に書く probe の隔離、並列度の上限、背景ジョブを PID で止める、
+  clone の再利用と `df -h`) は `~/.claude/CLAUDE.md`「検証の作法」「並行セッション」が正 (PM 734 で本節に置き、
+  PM 736 で global に移した)。incident の記録は memory `reference_session-rustup-toolchain-env-stale.md` /
+  `feedback_mise-probes-isolate-state-dir.md` (PM 151 / 230) / `feedback_cap-delegate-experiment-parallelism.md` /
+  `feedback_kill-by-pid-not-pattern.md` / `feedback_disk-budget-for-measurement-clones.md`。
+- **disk の下限**: PM が新しい測定 batch を止めたら (`/pm` §2 行 3) 新しい batch を始めない。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 
@@ -186,8 +174,8 @@ lane SSoT の冒頭に、次の 10 項目を書く (冒頭が今これでない�
 
 ## 10. 止まり方
 
-- **毎 turn の最後の段落は `止まる理由: <…>`** (PM の go 待ち / PM の判定待ち / Codex 待ち (head <sha>, <JST 時刻>) /
-  CI 待ち / user の操作待ち / budget の cap)。Stop hook (`announced-next-step-gate.py`) は残作業に触れて理由の無い停止と
-  未来形の約束を止める。
-- 「次は X」と書きかけたら、書かずに X の tool call を出す。待ち以外が残れば同じ turn で続ける。
+- 規則 (`止まる理由`、Stop hook、「次は X」を書かずに tool call を出す、待ち以外が残れば同じ turn で続ける) は
+  `~/.claude/CLAUDE.md`「止まり方と引き継ぎ」。driver は残作業の有無によらず **毎 turn** の最後の段落を
+  `止まる理由: <…>` にする (PM の go 待ち / PM の判定待ち / Codex 待ち (head <sha>, <JST 時刻>) / CI 待ち /
+  user の操作待ち / budget の cap)。
 - **budget の停止**: 正は `/pm` §6 (新しい単位だけ止める、走行中の agent は止めない)。単位の境界で済 / 残を PM に報告して止まる。

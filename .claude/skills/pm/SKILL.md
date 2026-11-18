@@ -24,7 +24,8 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 | lens の回し方の incident 集 | memory `feedback_decide-via-philosophy-before-asking.md` |
 | 記録の書き方 (backup、行番号は測ったものだけ、一意一致の置換、タグ、台帳の形式) | `~/.claude/agents/pmo.md`「書き方の規則」 |
 | ECS 至上命題の guard の層と状態 | memory `project_ecs-mission-guard.md` |
-| lane driver の手順 (起動・再開、確認の経路、push gate、merge の実行、landing report、handoff 10 項目、止まり方) と測定の作法 | repo `.claude/skills/drive/SKILL.md` (`/drive`) |
+| lane driver の手順 (起動・再開、確認の経路、push gate、merge の実行、landing report、handoff 10 項目、止まり方) | repo `.claude/skills/drive/SKILL.md` (`/drive`) |
+| repo に依らない判断・確認・検証・測定・止まり方・引き継ぎの一般則 (lens block と `lens-attest.sh`、根拠の段、規則の読みの先例、relay の本文、承認前の全文読み、claim の確かめ、0 件の control、時刻の変換、測定の作法、PID での停止、`止まる理由`、引き継ぎの繰り越し照合) | `~/.claude/CLAUDE.md`「判断と確認」「検証の作法」「並行セッション」「止まり方と引き継ぎ」(PM 736 で `/pm` §12 と `/drive` §8 / §10 から移した) |
 | PR の review の段 (`/code-review` の effort) | repo `.claude/skills/pre-push/SKILL.md` Stage 4 の表 |
 | 定期チェック (homing / browser sweep / overdue scan) の中身と control | `~/.claude/agents/pmo.md`「担当」の定期チェックと、各道具の docstring |
 
@@ -57,7 +58,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
 2. `$PF` の **最新の handoff block** (§7.1 の見分け方で最後のもの) と、その後ろの行をすべて読み、続けて
    `$PFI` を全部読む (今も効いている決定)。summary も索引の行も claim — 台帳・git・PM 番号の本文と
    突き合わせてから使う。
-3. **繰り越し照合**: 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** (§7.2 の道具は
+3. **繰り越し照合** (規則は `~/.claude/CLAUDE.md`「止まり方と引き継ぎ」。PM での当てはめ): 最新の handoff block の「PM の未完了」一覧と、その **1 つ前の handoff block** (§7.2 の道具は
    どちらも `$PF` に残す) の
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
@@ -124,10 +125,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 
 ### 3.3 決める前・聞く前 (毎回)
 
-1. **lens block を書く**: repo `CLAUDE.md` の原則ごとに「この原則はどの案を選ぶ / 棄却するか」を 1 行。
-   全行が同じ案 → 聞かずに実行して報告。自分の推奨を書けた時点で問いは空。
-2. **根拠の順位を引く (振る舞いの決定すべて)**: elidex が何をするかを決める判断は、決めた段を
-   決定行に書く — `根拠: [spec] <仕様 + §/AO>` / `根拠: elidex 原則 <原則名>` (仕様が沈黙の時) /
+1. **lens block を書く** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。原則は repo `CLAUDE.md` の Development Rules。
+2. **根拠の段 (振る舞いの決定すべて)** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。elidex の決定行の書き方 — `根拠: [spec] <仕様 + §/AO>` / `根拠: elidex 原則 <原則名>` (仕様が沈黙の時) /
    `[evidence] <測定>` (両方で決まらない時だけ)。既存ブラウザの振る舞いを目標・受け入れ条件・
    テスト期待値にした案は lens で棄却する (順位の本文は repo `CLAUDE.md`)。
 3. **手段の問いの前に目的を問う**: lane が「X をどうやるか」(測り方・環境) を上げてきたら、X 自体が
@@ -141,15 +140,14 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
    /usr/bin/grep -l '^- \*\*PM 528 (11-08)\*\*' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-*.md
    ```
    control の出力が `PORTFOLIO-archive-2026-W45.md` の 1 行だけでなければ「先例なし」と読まない。
-5. 規則の「読み」を問う時は、その規則を引く ratified 行を両側すべて列挙し、案ごとに保つ行・覆す行を書く。
+5. 規則の「読み」を問う時の先例の示し方は `~/.claude/CLAUDE.md`「判断と確認」。先例は 4 の grep で決定ログ全体から引く。
 6. 選択肢に lens が棄却する案 (real finding の defer 等) を混ぜない。
-7. `~/.claude/hooks/lens-attest.sh "<どの原則がどの案を選び、どこで割れたか>"` を **PM session の primary
-   cwd で** 実行 (同じ呼び出しで `cd` しない — token は cwd key)。割れた理由が書けなければ聞かない。
-8. **文言の承認を求める前に、着地先のファイル全体を読む**: user に「この文言でよいか」と聞く時は、
-   その文言が入るファイルを **origin/main 版で全文** 読む (`git show origin/main:<path>`。memory は disk 上の
-   file)。同じ規則が既に書かれた箇所を、規則の語で次の 2 本で列挙して問いに添える:
+7. lens の記録 (`lens-attest.sh`、規則は `~/.claude/CLAUDE.md`「判断と確認」) は **PM session の primary cwd で** 走らせる。
+8. **文言の承認を求める前に、着地先のファイル全体を読む** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。
+   elidex では **origin/main 版で全文** 読み (`git show origin/main:<path>`。memory は disk 上の file)、
+   重複の列挙は次の 2 本:
    `git -C /Users/kazuaki/orca/workspaces/elidex/main grep -n '<語>' origin/main -- CLAUDE.md '.claude/skills/**'`
-   と `/usr/bin/grep -rn '<語>' $MEM`。重複があれば、重複しない形に直してから聞く
+   と `/usr/bin/grep -rn '<語>' $MEM`
    (PM 448 — 承認文が既存の bullet と skill 2c の再掲だった)。
 9. 推奨案ばかり選ばれ続けたら、聞きすぎの信号として自己点検する。
 10. **聞き方 — 質問パネルで他の仕事を止めない** (user 11-08, PM 488): AskUserQuestion のパネルは user が答えるまで
@@ -161,8 +159,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 
 ### 3.4 relay・記録・who-asks / who-edits
 
-- lane には user が見た option の本文を引用して伝える。「option X で ratify 済み」の前に、選んだ時点の
-  本文と今の scope を diff する (増えた scope は未 ratify)。
+- lane への relay は user が見た option の本文で (規則は `~/.claude/CLAUDE.md`「判断と確認」)。
 - **聞くのは常に PM、書くのは許された者**: user の承認が要るものは、どの lane のものでも PM が PM session
   で聞く。lane に user へ直接聞かせない。harness が「peer 経由の承認での編集」を禁じるもの (repo
   `CLAUDE.md` 等) は、直接承認を持つ PM が自分で 1 commit として当てる (PM 445/446)。その commit は専用 worktree
@@ -319,9 +316,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
 
 ## 8. Pre-flight (提案・指示・slot 文面を出す前の 1 行チェック)
 
-- [ ] **時刻**: epoch / tz 付きの ISO (`Z` を含む) はコマンドで JST に変換 (`date` は GNU で `date -r` は file 扱い):
-      `python3 -c 'import sys,datetime as d,zoneinfo as z;a=sys.argv[1];t=d.datetime.fromtimestamp(float(a),d.timezone.utc) if a.replace(".","").isdigit() else d.datetime.fromisoformat(a.replace("Z","+00:00"));t.tzinfo or sys.exit("no timezone in "+a+" -- add one first");print(t.astimezone(z.ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M %Z (%a)"))' <value>`
-      タイムゾーンの無い ISO は渡さない — 出所の tz を確かめて付けてから渡す (付いていなければ上の式が止まる)。
+- [ ] **時刻**: コマンドで変換 (式は `~/.claude/CLAUDE.md`「検証の作法」)。
       budget の reset は `usage-pace.py status` の `next_reset` が既に JST の ISO。
 - [ ] **PM が書く slot / 決定の文面**: 欠陥は仕様か elidex の原則に対して書く。「ブラウザ X と違う」を欠陥の
       定義にしない。ブラウザ名は `[evidence]` / `[contrast]` / `[history]` 等のタグ付きでだけ現れる
@@ -333,19 +328,18 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
 - [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・決定ログ全体 (§3.3 の 4) を引き、
       `git diff --stat origin/main...<branch>` と branch にしか無い memo を添える。tip の sha でも grep する
-- [ ] **agent の事実を使う前**: git で 1 件確かめ (`git show <sha>:<path>` 等)、どれを確かめたか書く。
-      agent 間・要約と表が食い違ったら自分で測る
+- [ ] **agent の事実を使う前**: `~/.claude/CLAUDE.md`「検証の作法」の claim の確かめ
 - [ ] **driver にツールを走らせる前**: 対象範囲 (docstring / SCHEMAS) を読み、対象外なら指示しない (PM 172)
-- [ ] **測定と背景ジョブの作法** (toolchain を名指す測定 / user の状態に書く probe の隔離 / 並列度の上限 / 背景ジョブを PID で止める):
-      `/drive` §8 が正 (PM 734)。PM 自身の測定と、driver に測らせる・止めさせる指示もこれに従う
+- [ ] **測定と背景ジョブの作法**: `~/.claude/CLAUDE.md`「検証の作法」「並行セッション」が正 (PM 734 / 736)、
+      elidex の当てはめは `/drive` §8。PM 自身の測定と、driver に測らせる・止めさせる指示もこれに従う
 - [ ] **driver の分類** (「行は要らない」「superseded」「関係ない」) は規則と突き合わせてから採る
 - [ ] **lane の「済み」**: head / branch / 未 push を git で突き合わせる
 
 ## 9. Kickoff brief (lane を起こす・再開させる時)
 
 brief は「`/drive <lane>` を起動」と **lane 固有の事実だけ** を持つ。手順 (`CLAUDE.md` の通読、確認の経路、push gate、
-merge の分担、PR body の ratchet の行、landing report、handoff、測定の作法、止まり方) は `/drive` が正で、brief に
-書き写さない。brief に入れるもの:
+merge の分担、PR body の ratchet の行、landing report、handoff、止まり方) は `/drive`、測定の作法は `~/.claude/CLAUDE.md` が
+正で、brief に書き写さない。brief に入れるもの:
 
 - lane 名 (MEMORY Active state の lane 行と同じ語) と、持つもの / 持たないもの (PR・branch・memo・worktree)
 - 最初の成果物 (edge-dense なら plan と plan-review が先 — 規則は repo `CLAUDE.md`)
@@ -388,24 +382,13 @@ lane が自分の lane SSoT 冒頭に書く (項目は `/drive` §9)。PM は書
 
 block を書いたら、同じ依頼で pmo に §7.2 の移送をさせる。
 
-handoff を渡す引き継ぎ prompt は「`/pm` を起動」と block の位置だけを書く。要約を prompt に書かない。
+handoff を渡す引き継ぎ prompt は「`/pm` を起動」と block の位置だけを書く (規則は `~/.claude/CLAUDE.md`「止まり方と引き継ぎ」)。
 compaction と clear の使い分け (日中は compaction、日の区切りで clear) は memory `feedback_compaction-vs-clear-for-pm.md`。
 
 ## 11. 止まり方
 
-- **毎 turn の最後の段落は `止まる理由: <…>`** (lane X の報告待ち / user の判断待ち / Codex 待ち (head <sha>,
-  <JST 時刻>) / budget の cap / pmo の報告待ち)。Stop hook (`announced-next-step-gate.py`) は残作業に触れて理由の
-  無い停止と未来形の約束を止め、`止まる理由` を通す。
-- 「次は X」と書きかけたら、書かずに X の tool call を出す。
+- 規則 (`止まる理由`、Stop hook、「次は X」を書かずに tool call を出す) は `~/.claude/CLAUDE.md`「止まり方と引き継ぎ」。
+  PM は残作業の有無によらず **毎 turn** の最後の段落を `止まる理由: <…>` にする (lane X の報告待ち /
+  user の判断待ち / Codex 待ち (head <sha>, <JST 時刻>) / budget の cap / pmo の報告待ち)。
 - lane の terminator は「次に出たら user へ」を既定にしない (§3.1)。
 
-## 12. 一般核 (後で global に移せる部分)
-
-1. 決める前に lens block。収束したら聞かずに実行し報告。聞くのは割れた理由を書けた時だけ。
-2. 振る舞いの決定は根拠の段を書く。規則の読みは両側の先例を全部示す。relay は user が見た本文で。
-3. 報告・要約・agent の結果は claim。1 件は自分で確かめる。
-4. 時刻はコマンドで変換。0 件が判定を決める検索には control を付ける。
-5. 聞くのは常に PM、書くのは許された者。記録は記録係に、実行は委譲。
-6. 文言の承認を求める前に着地先を全文読む。
-7. handoff は手順の起動を名指しし、未完了一覧を繰り越し照合する。
-8. turn は停止理由でだけ終える。loop には事前に終わり方を決める。
