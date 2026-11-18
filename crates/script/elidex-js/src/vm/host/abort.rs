@@ -79,7 +79,7 @@
 
 use std::collections::HashMap;
 
-use elidex_dom_api::abort::{can_signal_abort, signal_abort, AbortSignalGraph, DependentLinks};
+use elidex_dom_api::abort::{signal_abort, AbortSignalGraph, DependentLinks};
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -527,9 +527,10 @@ fn native_abort_signal_throw_if_aborted(
 /// (step 1).
 ///
 /// Step 2's "otherwise" branch — `reason === undefined` becomes a new
-/// "AbortError" `DOMException` — is engine-bound and materialised here
-/// before the algorithm is called (`create_default_abort_error` routes
-/// through `VmInner::build_dom_exception` for the real instance).
+/// "AbortError" `DOMException` — is engine-bound: the module calls the
+/// `materialise_abort_reason` closure once, only after step 1 has passed
+/// (`create_default_abort_error` routes through
+/// `VmInner::build_dom_exception` for the real instance).
 ///
 /// **Depth 1, no recursion.**  A dependent's source signals are never
 /// dependent (create a dependent abort signal step 4.2), so the plan holds
@@ -540,9 +541,11 @@ fn native_abort_signal_throw_if_aborted(
 /// # GC safety
 ///
 /// The plan's handles are rooted on the VM stack for the rest of the call
-/// (one [`VmInner::push_stack_scope`] frame).  `controller.abort()` /
-/// `AbortSignal.abort()` / `AbortSignal.any()` enter through the
-/// native-call gate (`gc_enabled = false`), where the root is inert;
+/// (one [`VmInner::push_stack_scope`] frame).  `controller.abort()` is the
+/// native entry: it runs through the native-call gate (`gc_enabled =
+/// false`), where the root is inert (the static `AbortSignal.abort()` and
+/// `AbortSignal.any()` never reach this function — their reason-only steps
+/// are set without running abort steps, D-5);
 /// `AbortSignal.timeout(ms)` fires from the timer drain with
 /// `gc_enabled = true`, where a listener's allocation can run a collection
 /// between two plan entries — an unrooted, unreferenced planned dependent
@@ -567,16 +570,12 @@ pub(super) fn abort_signal(
     signal_id: ObjectId,
     reason: JsValue,
 ) -> Result<(), VmError> {
-    // Step 1 (before materialising the default reason): no such signal, or
-    // already aborted — a no-op.
-    if !can_signal_abort(&*ctx.vm, signal_id) {
-        return Ok(());
-    }
-
-    let materialised_reason = materialise_abort_reason(ctx, reason);
-
-    // Steps 1-4: reasons set, plan fixed, before any JS runs.
-    let Some(plan) = signal_abort(&mut *ctx.vm, signal_id, materialised_reason) else {
+    // Steps 1-4: reasons set, plan fixed, before any JS runs.  Step 1's
+    // no-op (no such signal, or already aborted) is the module's `None`,
+    // taken before the closure materialises the default reason.
+    let Some(plan) = signal_abort(&mut *ctx.vm, signal_id, |vm| {
+        materialise_abort_reason(vm, reason)
+    }) else {
         return Ok(());
     };
 
@@ -695,7 +694,7 @@ fn run_abort_steps(ctx: &mut NativeContext<'_>, signal_id: ObjectId) -> Result<(
 
     // Step 3: fire `'abort'` (bubbles=false, cancelable=false) through the
     // shared EventTarget core on this signal's `vm_event_listeners` home.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "engine"))]
     if std::mem::take(&mut ctx.vm.fail_next_abort_dispatch) {
         return Err(VmError::range_error("injected abort-dispatch failure"));
     }
@@ -713,18 +712,17 @@ fn run_abort_steps(ctx: &mut NativeContext<'_>, signal_id: ObjectId) -> Result<(
 /// populated — `reason.code === 20`,
 /// `reason instanceof DOMException`, `reason instanceof Error` all
 /// hold as a result.
-fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
-    let name = ctx.vm.well_known.abort_error;
-    ctx.vm
-        .build_dom_exception(name, "signal is aborted without reason")
+fn create_default_abort_error(vm: &mut VmInner) -> JsValue {
+    let name = vm.well_known.abort_error;
+    vm.build_dom_exception(name, "signal is aborted without reason")
 }
 
 /// An abort reason as the spec sets it: `reason` if given, otherwise a new
 /// `"AbortError"` `DOMException` ("signal abort" step 2 / the static
 /// `abort(reason)` method steps step 2).
-pub(super) fn materialise_abort_reason(ctx: &mut NativeContext<'_>, reason: JsValue) -> JsValue {
+pub(super) fn materialise_abort_reason(vm: &mut VmInner, reason: JsValue) -> JsValue {
     if matches!(reason, JsValue::Undefined) {
-        create_default_abort_error(ctx)
+        create_default_abort_error(vm)
     } else {
         reason
     }

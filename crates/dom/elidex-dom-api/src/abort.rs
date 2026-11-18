@@ -52,6 +52,11 @@ impl<H: Copy + Eq + Hash> OrderedSet<H> {
             }
             alive
         });
+        if self.order.is_empty() {
+            // Release the hashed half's capacity too (the prune that
+            // empties a set leaves the row as a default one).
+            *self = Self::default();
+        }
     }
 
     fn take(&mut self) -> Vec<H> {
@@ -162,25 +167,26 @@ pub trait AbortSignalGraph {
     fn links_mut(&mut self, h: Self::Handle) -> Option<&mut DependentLinks<Self::Handle>>;
 }
 
-/// Outcome of [`create_dependent_abort_signal`].
-#[derive(Debug, PartialEq, Eq)]
-pub enum DependentCreation<R> {
-    /// Step 2: an input was already aborted.  The host sets the result's
-    /// abort reason to this value; the result is **not** dependent and has
-    /// no links.
-    AlreadyAborted(R),
-    /// Steps 3-4: the result is dependent and linked to its sources.
-    Linked,
-}
-
 /// DOM §3.2 "create a dependent abort signal" steps 2-5.  `result` is the
 /// host's step-1 object (a fresh signal with a default row); `signals` are
 /// the inputs, already validated by the host as live signals.
+///
+/// The outcome is on `result`'s row: step 2 (the first aborted input's
+/// reason becomes `result`'s abort reason; `result` is then **not**
+/// dependent and has no links) is performed here through
+/// [`AbortSignalGraph::set_abort_reason`], otherwise steps 3-4 mark it
+/// dependent and link it to its sources.  A `result` with no row makes the
+/// call return immediately, having written nothing.
 pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
     g: &mut G,
     result: G::Handle,
     signals: &[G::Handle],
-) -> DependentCreation<G::Reason> {
+) {
+    if g.links(result).is_none() {
+        debug_assert!(false, "create_dependent_abort_signal: result has no row");
+        return;
+    }
+
     // Step 2: an aborted input short-circuits (the result is not dependent).
     for &signal in signals {
         if g.links(signal).is_none() {
@@ -188,16 +194,15 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
             continue;
         }
         if let Some(reason) = g.abort_reason(signal) {
-            return DependentCreation::AlreadyAborted(reason);
+            g.set_abort_reason(result, reason);
+            return;
         }
     }
 
     // Step 3.
-    let Some(result_links) = g.links_mut(result) else {
-        debug_assert!(false, "create_dependent_abort_signal: result has no row");
-        return DependentCreation::Linked;
-    };
-    result_links.set_dependent();
+    if let Some(result_links) = g.links_mut(result) {
+        result_links.set_dependent();
+    }
 
     // Step 4.
     for &signal in signals {
@@ -206,8 +211,13 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
         };
         if links.is_dependent() {
             // 4.2: a dependent input contributes its own source signals.
-            let sources: Vec<G::Handle> = links.source_signals().to_vec();
-            for source in sources {
+            for i in 0..links.source_signals().len() {
+                let Some(source) = g
+                    .links(signal)
+                    .and_then(|l| l.source_signals().get(i).copied())
+                else {
+                    break;
+                };
                 debug_assert!(
                     g.abort_reason(source).is_none()
                         && g.links(source).is_some_and(|l| !l.is_dependent()),
@@ -220,7 +230,6 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
             link(g, result, signal);
         }
     }
-    DependentCreation::Linked
 }
 
 /// "Append source to result's source signals; append result to source's
@@ -244,35 +253,39 @@ pub struct AbortPlan<H> {
     pub dependents: Vec<H>,
 }
 
-/// DOM §3.2 "signal abort" step 1's condition: `signal` is a signal and is
-/// not already aborted.  Hosts use it to skip the whole algorithm — and any
-/// allocation of a default reason — on a no-op abort.
-pub fn can_signal_abort<G: AbortSignalGraph>(g: &G, signal: G::Handle) -> bool {
-    g.links(signal).is_some() && g.abort_reason(signal).is_none()
-}
-
 /// DOM §3.2 "signal abort" steps 1-4.
 ///
-/// Returns `None` when `signal` is already aborted (step 1) or is no signal
-/// at all (`links(signal) == None`).  Otherwise sets the signal's abort
-/// reason (step 2) and every non-aborted dependent's (step 4), empties the
-/// signal's dependent set (its members are all aborted now and the set is
-/// never read again) and returns the plan for steps 5-6.  `reason` is the
-/// host-materialised abort reason (step 2's "otherwise" branch — a new
-/// "AbortError" `DOMException` — is engine-bound).
+/// Returns `None` when `signal` is no signal at all (`links(signal) ==
+/// None`) or is already aborted (step 1); `reason` is not called then.
+/// Otherwise calls `reason` once for step 2's value (the given reason, or a
+/// new "AbortError" `DOMException` — engine-bound, so the host builds it),
+/// sets the signal's abort reason and every non-aborted dependent's (step
+/// 4), empties the signal's dependent set (its members are all aborted now
+/// and the set is never read again) and returns the plan for steps 5-6.
+///
+/// The `reason` closure runs with no borrow of the graph held and may
+/// allocate in the host.  Its contract (it writes no reason or link, runs
+/// no script, keeps `signal` alive; a GC prune of dead handles is the one
+/// allowed effect) is the plan's §4.1; the dependents are taken from
+/// `signal`'s links **after** it returns, so a prune it caused is seen.
 ///
 /// No JS runs here: every reason is set before the host runs any abort
 /// step, which is the spec's order.
 pub fn signal_abort<G: AbortSignalGraph>(
     g: &mut G,
     signal: G::Handle,
-    reason: G::Reason,
+    reason: impl FnOnce(&mut G) -> G::Reason,
 ) -> Option<AbortPlan<G::Handle>> {
     // Step 1.
-    if !can_signal_abort(&*g, signal) {
+    if g.links(signal).is_none() || g.abort_reason(signal).is_some() {
         return None;
     }
     // Step 2.
+    let reason = reason(g);
+    debug_assert!(
+        g.links(signal).is_some() && g.abort_reason(signal).is_none(),
+        "signal_abort: the reason closure must keep the signal alive and not abort it"
+    );
     g.set_abort_reason(signal, reason);
     // Steps 3-4.
     let candidates = g.links_mut(signal)?.take_dependents();
@@ -339,10 +352,7 @@ mod tests {
         let mut g = TestGraph::default();
         let (a, b) = (g.signal(1), g.signal(2));
         let d1 = g.signal(3);
-        assert_eq!(
-            create_dependent_abort_signal(&mut g, d1, &[a]),
-            DependentCreation::Linked
-        );
+        create_dependent_abort_signal(&mut g, d1, &[a]);
         let d2 = g.signal(4);
         create_dependent_abort_signal(&mut g, d2, &[d1, b]);
         assert_eq!(g.l(d2).source_signals(), &[a, b]);
@@ -350,6 +360,9 @@ mod tests {
         assert!(g.l(d1).dependent_signals().is_empty());
         assert!(g.l(d2).is_dependent() && g.l(d1).is_dependent());
         assert!(!g.l(a).is_dependent());
+        // The row is the outcome: neither result has an abort reason.
+        assert_eq!(g.abort_reason(d1), None);
+        assert_eq!(g.abort_reason(d2), None);
     }
 
     #[test]
@@ -358,20 +371,26 @@ mod tests {
         let a = g.aborted_signal(1, "ra");
         let b = g.signal(2);
         let r = g.signal(3);
-        assert_eq!(
-            create_dependent_abort_signal(&mut g, r, &[a, b]),
-            DependentCreation::AlreadyAborted("ra")
-        );
+        create_dependent_abort_signal(&mut g, r, &[a, b]);
+        // Step 2 is the module's: the reason is on the row, no host write.
+        assert_eq!(g.abort_reason(r), Some("ra"));
         assert!(!g.l(r).is_dependent());
         assert!(g.l(r).source_signals().is_empty());
         assert!(g.l(b).dependent_signals().is_empty());
+        // Two aborted inputs: the first one's reason.
+        let a2 = g.aborted_signal(4, "rb");
+        let r2 = g.signal(5);
+        create_dependent_abort_signal(&mut g, r2, &[a, a2]);
+        assert_eq!(g.abort_reason(r2), Some("ra"));
+        let r3 = g.signal(6);
+        create_dependent_abort_signal(&mut g, r3, &[b, a2, a]);
+        assert_eq!(g.abort_reason(r3), Some("rb"));
+        assert!(g.l(b).dependent_signals().is_empty());
         // The empty list: step 3 with nothing to link — dependent, no sources.
-        let e = g.signal(4);
-        assert_eq!(
-            create_dependent_abort_signal(&mut g, e, &[]),
-            DependentCreation::Linked
-        );
+        let e = g.signal(7);
+        create_dependent_abort_signal(&mut g, e, &[]);
         assert!(g.l(e).is_dependent() && g.l(e).source_signals().is_empty());
+        assert_eq!(g.abort_reason(e), None);
     }
 
     #[test]
@@ -392,7 +411,13 @@ mod tests {
         create_dependent_abort_signal(&mut g, d1, &[a]);
         create_dependent_abort_signal(&mut g, d2, &[a]);
         g.set_abort_reason(d2, "pre");
-        let plan = signal_abort(&mut g, a, "r").unwrap();
+        let mut calls = 0;
+        let plan = signal_abort(&mut g, a, |_| {
+            calls += 1;
+            "r"
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
         assert_eq!(
             plan,
             AbortPlan {
@@ -404,9 +429,35 @@ mod tests {
         assert_eq!(g.abort_reason(d1), Some("r"));
         assert_eq!(g.abort_reason(d2), Some("pre"));
         assert!(g.l(a).dependent_signals().is_empty());
-        assert!(signal_abort(&mut g, a, "again").is_none());
-        // A handle with no row is no signal.
-        assert!(signal_abort(&mut g, 99, "x").is_none());
+        // Already aborted (step 1) and no row: None, the closure not called.
+        assert!(signal_abort(&mut g, a, |_| {
+            calls += 1;
+            "again"
+        })
+        .is_none());
+        assert!(signal_abort(&mut g, 99, |_| {
+            calls += 1;
+            "x"
+        })
+        .is_none());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn signal_abort_rereads_links_after_the_closure() {
+        let mut g = TestGraph::default();
+        let a = g.signal(1);
+        let (d1, d2) = (g.signal(2), g.signal(3));
+        create_dependent_abort_signal(&mut g, d1, &[a]);
+        create_dependent_abort_signal(&mut g, d2, &[a]);
+        // A prune caused by the closure (the host's allocation sweeping d1).
+        let plan = signal_abort(&mut g, a, |g| {
+            g.links_mut(a).unwrap().retain_live(|h| h != d1);
+            "r"
+        })
+        .unwrap();
+        assert_eq!(plan.dependents, vec![d2]);
+        assert_eq!(g.abort_reason(d1), None);
     }
 
     #[test]
@@ -424,5 +475,10 @@ mod tests {
         // Membership follows the order: a pruned member can be appended again.
         create_dependent_abort_signal(&mut g, e, &[a]);
         assert_eq!(g.l(a).dependent_signals(), &[d, e]);
+        // A prune that empties a set resets it (append still works after).
+        g.links_mut(a).unwrap().retain_live(|_| false);
+        assert!(g.l(a).dependent_signals().is_empty());
+        create_dependent_abort_signal(&mut g, d, &[a]);
+        assert_eq!(g.l(a).dependent_signals(), &[d]);
     }
 }

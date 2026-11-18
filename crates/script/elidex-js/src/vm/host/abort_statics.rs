@@ -17,7 +17,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_dom_api::abort::{create_dependent_abort_signal, AbortSignalGraph, DependentCreation};
+use elidex_dom_api::abort::{create_dependent_abort_signal, AbortSignalGraph};
 
 use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
@@ -43,7 +43,8 @@ pub(super) fn native_abort_signal_static_abort(
 ) -> Result<JsValue, VmError> {
     let signal_id = ctx.vm.create_abort_signal();
     // Static abort(reason) method steps step 2.
-    let reason = materialise_abort_reason(ctx, args.first().copied().unwrap_or(JsValue::Undefined));
+    let reason =
+        materialise_abort_reason(ctx.vm, args.first().copied().unwrap_or(JsValue::Undefined));
     ctx.vm.set_abort_reason(signal_id, reason);
     Ok(JsValue::Object(signal_id))
 }
@@ -145,13 +146,10 @@ pub(super) fn native_abort_signal_static_any(
     // Validation succeeded — allocate the result exactly once (create a
     // dependent abort signal step 1), then run steps 2-5.
     let result = ctx.vm.create_abort_signal();
-    // Step 2: an aborted input short-circuits — the result takes its
-    // reason and is *not* dependent (no abort steps run: a fresh signal
-    // has no listeners or algorithms).  Otherwise steps 3-4 linked it.
-    if let DependentCreation::AlreadyAborted(reason) =
-        create_dependent_abort_signal(&mut *ctx.vm, result, &inputs)
-    {
-        ctx.vm.set_abort_reason(result, reason);
-    }
+    // Steps 2-5 are the module's: an aborted input makes the result take
+    // its reason (not dependent; no abort steps run — a fresh signal has no
+    // listeners or algorithms), otherwise the result is linked.  The
+    // outcome is on the result's row.
+    create_dependent_abort_signal(&mut *ctx.vm, result, &inputs);
     Ok(JsValue::Object(result))
 }
