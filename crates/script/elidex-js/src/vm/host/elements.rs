@@ -291,7 +291,8 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "head") {
             return self.html_head_prototype;
         }
-        if host.tag_matches_ascii_case(entity, "body") {
+        // `body`: see `is_html_body_element` (HTML namespace only, D-T11).
+        if is_html_body_element(host, entity) {
             return self.html_body_prototype;
         }
         if host.tag_matches_ascii_case(entity, "title") {
@@ -452,4 +453,33 @@ impl VmInner {
         }
         None
     }
+}
+
+/// D-T11. The one statement of "an HTML `body`" for the VM's interface choice
+/// (the `body` arm of `tag_specific_t2b_prototype`) and for the body pair's
+/// brand check (`require_body_receiver`), so an entity has the body prototype
+/// iff it passes the check.
+///
+/// `HTMLBodyElement` is the interface of the local name `body` **in the HTML
+/// namespace** (WHATWG HTML §3.2.2 Elements in the DOM, *element interface*
+/// step 4, with §4.3.1 The body element). For any other namespace HTML states
+/// nothing and DOM §4.5 Interface Document's default (`Element`) stands unless
+/// that namespace's spec states otherwise, so a foreign `body` takes the
+/// fallback `HTMLElement.prototype` every foreign element without an HTML
+/// namesake takes today (the foreign-interface defect, plan §8.2 item 1).
+///
+/// The tag test comes first: it is false for an unbound host, and `dom_shared`
+/// asserts a bound one.
+///
+/// **Deviation:** step 4 matches the local name exactly, and
+/// `HostData::tag_matches_ascii_case` compares ASCII-case-insensitively, so an
+/// HTML-namespace element whose local name is `BODY` would pass. No production
+/// path creates one yet; it becomes creatable with `createElementNS`
+/// (`#11-vm-create-element-ns-missing`, which records it).
+#[cfg(feature = "engine")]
+pub(super) fn is_html_body_element(
+    host: &super::super::host_data::HostData,
+    entity: elidex_ecs::Entity,
+) -> bool {
+    host.tag_matches_ascii_case(entity, "body") && host.dom_shared().is_html_namespace(entity)
 }

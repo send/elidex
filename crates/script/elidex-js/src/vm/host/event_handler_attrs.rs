@@ -411,10 +411,13 @@ pub(super) fn native_vm_event_handler_set(
 
 /// Brand check for the body-delegation accessors: the receiver must be an
 /// `HTMLBodyElement` (WHATWG HTML §8.1.8.2 — only `<body>`/`<frameset>`
-/// delegate WindowEventHandlers to the Window). Without this, the
+/// delegate WindowEventHandlers to the Window; §4.3.1 The body element:
+/// `HTMLBodyElement includes WindowEventHandlers`). Without this, the
 /// accessor would redirect to the Window from *any* receiver via
 /// `.call()`. Returns `Ok(None)` for an unbound / non-wrapper receiver
-/// (silent), `Err` ("Illegal invocation") for a bound non-`<body>` wrapper.
+/// (silent), `Err` ("Illegal invocation") for a wrapper that is not an HTML
+/// `body` (`is_html_body_element`); a receiver that does not implement the
+/// interface is a `TypeError` (Web IDL §3.7.6 Attributes).
 fn require_body_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -424,7 +427,7 @@ fn require_body_receiver(
         matches!(kind, NodeKind::Element)
     })?;
     if let Some(entity) = entity {
-        if !ctx.host().tag_matches_ascii_case(entity, "body") {
+        if !super::elements::is_html_body_element(ctx.host(), entity) {
             return Err(VmError::type_error(format!(
                 "Failed to execute '{method}' on 'HTMLBodyElement': Illegal invocation"
             )));
