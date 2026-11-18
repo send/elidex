@@ -8,7 +8,7 @@
 //! the first handler write. The consumer's arms
 //! (`event_handler_consumer.rs`) and the VM's IDL setters call into here.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TemplateContentsWalk};
+use elidex_ecs::{Attributes, EcsDom, Entity, Namespace, TagType, TemplateContentsWalk};
 use elidex_plugin::SpecLevelPolicy;
 
 use crate::event_handler_consumer::{
@@ -58,10 +58,12 @@ pub(crate) enum ProcessingTiming {
 
 /// Run the attribute change steps for `element`'s event-handler content
 /// attributes (umbrella D-2), in `Attributes` order. WHATWG HTML §8.1.8.1 Event
-/// handlers, *attribute change steps* 1–5.6, per attribute; WHATWG DOM §4.9
-/// Interface Element, *append an attribute* step 4.
+/// handlers, *attribute change steps* 1–5.6, per attribute (step 1's
+/// local-name half by [`is_event_handler_content_attribute_of`]); WHATWG DOM
+/// §4.9 Interface Element, *append an attribute* step 4.
 ///
-/// Not realised: step 3 (a null target, which `determine the target of an
+/// Not realised: step 1's namespace half (no attribute namespace is modelled;
+/// slot `#11-attribute-namespace-model`), step 3 (a null target, which `determine the target of an
 /// event handler` step 3 yields when the node document is not an active
 /// document, is not modelled; target determination is slot
 /// `#11-event-handler-target-determination`, T3) and step 5.1 (CSP — not
@@ -72,7 +74,7 @@ pub(crate) enum ProcessingTiming {
 /// are delivered at [`ProcessingTiming::Bind`] and
 /// [`ProcessingTiming::Insertion`] and never at
 /// [`ProcessingTiming::HandlerWrite`]. `element` is marked iff it carries at
-/// least one ordinary handler content attribute, policy-excluded or not.
+/// least one ordinary handler content attribute of its own, policy-excluded or not.
 pub(crate) fn process_handler_content_attributes(
     dom: &mut EcsDom,
     element: Entity,
@@ -93,6 +95,7 @@ pub(crate) fn process_handler_content_attributes(
         };
         attrs
             .iter()
+            .filter(|(name, _)| is_event_handler_content_attribute_of(dom, element, name))
             .filter_map(|(name, value)| {
                 event_handler_attr_lookup(name).map(|(event_type, scope)| {
                     (
@@ -190,20 +193,52 @@ fn is_processed(dom: &EcsDom, element: Entity) -> bool {
     dom.world().get::<&HandlerAttrsProcessed>(element).is_ok()
 }
 
-/// RED-COMMIT STUB (replaced by the fix commit): answers like the base, the
-/// name table alone, so the applicability cells compile and fail on behaviour.
-#[allow(dead_code)]
+/// `true` iff `name` is an event handler content attribute of `element`: the
+/// local-name half of the *attribute change steps* step 1 (WHATWG HTML §8.1.8.1
+/// Event handlers). Which names an element has: HTML §8.1.8.2 (lists (i) and
+/// (ii), the `GlobalEventHandlers` names, on every HTML element; list (iii),
+/// the `WindowEventHandlers` names, on `body` and `frameset` only; list (iv),
+/// Document objects, on no element), and, for the `HandlerScope::Global` rows
+/// that are not in HTML's lists, the partial `GlobalEventHandlers` mixins of
+/// Pointer Events §5 Extensions to the GlobalEventHandlers mixin and CSS
+/// Transitions §6.3 Event handlers on elements, Document objects, and Window
+/// objects; SVG2 §15.8 Event attributes (every name on every SVG element);
+/// MathML Core §2.1.4 ("as defined in the MathMLElement IDL") and §2.2.3 DOM and
+/// JavaScript (`MathMLElement includes GlobalEventHandlers`: the
+/// `GlobalEventHandlers` names only).
+///
+/// Every reader of "the handler content attributes of this element" applies it
+/// (the snapshot of [`process_handler_content_attributes`], the count of
+/// [`is_only_deliverable_ordinary_name`], the consumer's AttributeChange arm).
+/// No wildcard: a new `Namespace` or `HandlerScope` does not compile until it
+/// is placed.
+///
+/// Not realised: step 1's namespace half (no attribute namespace is modelled;
+/// slot `#11-attribute-namespace-model`).
 pub(crate) fn is_event_handler_content_attribute_of(
-    _dom: &EcsDom,
-    _element: Entity,
+    dom: &EcsDom,
+    element: Entity,
     name: &str,
 ) -> bool {
-    event_handler_attr_lookup(name).is_some()
+    let Some((_, scope)) = event_handler_attr_lookup(name) else {
+        return false;
+    };
+    match (dom.namespace_of(element), scope) {
+        (Namespace::Svg, _) => true,
+        (
+            Namespace::Html | Namespace::MathMl,
+            HandlerScope::Global | HandlerScope::DocumentElement,
+        ) => true,
+        (Namespace::Html, HandlerScope::Window) => is_body_or_frameset(dom, element),
+        (Namespace::MathMl, HandlerScope::Window) => false,
+        (Namespace::Html | Namespace::MathMl, HandlerScope::DocumentOnly) => false,
+    }
 }
 
-/// `true` iff `name` is the one and only handler content attribute of
-/// `element` that is ordinary (not Window-delegating) and installed by
-/// `policy`. Stops at the first mismatch or second hit.
+/// `true` iff `name` is the one and only event handler content attribute of
+/// `element` (per [`is_event_handler_content_attribute_of`]) that is ordinary
+/// (not Window-delegating) and installed by `policy`. Stops at the first
+/// mismatch or second hit.
 fn is_only_deliverable_ordinary_name(
     dom: &EcsDom,
     element: Entity,
@@ -214,7 +249,7 @@ fn is_only_deliverable_ordinary_name(
         return false;
     };
     let mut deliverable = attrs.iter().map(|(n, _)| n).filter(|n| {
-        event_handler_attr_lookup(n).is_some()
+        is_event_handler_content_attribute_of(dom, element, n)
             && policy.installs(event_handler_attr_spec_level(n))
             && !is_window_delegating_pair(dom, element, n)
     });
@@ -242,8 +277,8 @@ fn is_body_or_frameset(dom: &EcsDom, element: Entity) -> bool {
         .is_ok_and(|t| t.0.eq_ignore_ascii_case("body") || t.0.eq_ignore_ascii_case("frameset"))
 }
 
-/// If `name` is a known event-handler content attribute, return its event
-/// type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
+/// If `name` is a name in the event handler table (`EVENT_HANDLER_ATTRS`),
+/// return its event type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
 /// path. The scope drives `<body>` WindowEventHandlers delegation (below).
 pub(crate) fn event_handler_attr_lookup(name: &str) -> Option<(&str, HandlerScope)> {
     EVENT_HANDLER_ATTRS
