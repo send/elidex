@@ -19,7 +19,7 @@ use crate::EventListeners;
 /// The origin element's creation-time event-handler content attributes have
 /// been processed (umbrella D-1). Unit, `Send + Sync`, sparse: inserted only
 /// on an element that carries at least one handler content attribute of its own
-/// (applicable to the element, [`is_event_handler_content_attribute_of`]) of an
+/// (applicable to the element, `is_event_handler_content_attribute_of`) of an
 /// ordinary pair.
 ///
 /// WHATWG DOM §4.9 Interface Element, *append an attribute* step 4 (each
