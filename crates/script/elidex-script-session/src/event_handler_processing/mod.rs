@@ -18,7 +18,8 @@ use crate::EventListeners;
 
 /// The origin element's creation-time event-handler content attributes have
 /// been processed (umbrella D-1). Unit, `Send + Sync`, sparse: inserted only
-/// on an element that carries at least one handler content attribute of an
+/// on an element that carries at least one handler content attribute of its own
+/// (applicable to the element, [`is_event_handler_content_attribute_of`]) of an
 /// ordinary pair.
 ///
 /// WHATWG DOM §4.9 Interface Element, *append an attribute* step 4 (each
@@ -226,7 +227,13 @@ pub(crate) fn is_event_handler_content_attribute_of(
     match (dom.namespace_of(element), scope) {
         // SVG2 §15.8: every name on every SVG element; G: HTML §8.1.8.2 lists (i) and
         // (ii), the partial mixins, MathML Core §2.2.3.
-        (Namespace::Svg, _)
+        (
+            Namespace::Svg,
+            HandlerScope::Global
+            | HandlerScope::DocumentElement
+            | HandlerScope::Window
+            | HandlerScope::DocumentOnly,
+        )
         | (
             Namespace::Html | Namespace::MathMl,
             HandlerScope::Global | HandlerScope::DocumentElement,

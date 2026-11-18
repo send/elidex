@@ -219,7 +219,9 @@ pub const WORKER_EVENT_HANDLER_ATTRS: &[&str] = &[
 /// [`EVENT_HANDLER_ATTRS`], so [`event_handler_attr_event_type`] resolves each.
 pub const WORKER_OBJECT_EVENT_HANDLER_ATTRS: &[&str] = &["onmessage", "onmessageerror", "onerror"];
 
-/// If `name` is a known event-handler content attribute, return its
+/// If `name` is a name in the event handler table (whether it is a content
+/// attribute *of an element* is `is_event_handler_content_attribute_of`'s
+/// question), return its
 /// event type (the name with the leading `on` stripped). Linear scan —
 /// only on attribute mutations / element inserts, not a hot path.
 #[must_use]

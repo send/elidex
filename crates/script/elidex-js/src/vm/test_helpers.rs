@@ -166,21 +166,15 @@ pub(crate) fn with_bound_vm(
 /// Run `body` against a fresh VM bound to a [`setup_page`] page.
 #[cfg(test)]
 pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
-    with_page_then(|_, _, _| {}, body);
-}
-
-/// [`with_page`] with an `extra` setup step run right after [`setup_page`],
-/// against the same VM / DOM / document.
-#[cfg(test)]
-fn with_page_then(extra: impl FnOnce(&mut Vm, &mut EcsDom, Entity), body: impl FnOnce(&mut Vm)) {
     with_bound_vm(
         |vm, session, dom, doc| {
             #[allow(unsafe_code)]
-            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard
+            // unbinds, and nothing touches them through a Rust reference after this
+            // call returns (the closure's `&mut` borrows end here).
             unsafe {
                 setup_page(vm, session, dom, doc);
             }
-            extra(vm, dom, doc);
         },
         body,
     );
@@ -192,16 +186,36 @@ fn with_page_then(extra: impl FnOnce(&mut Vm, &mut EcsDom, Entity), body: impl F
 /// `body` (the HTML parser's foreign content breaks out at a `body` start tag,
 /// HTML §13.2.6.5, and JS `createElementNS` is not VM-wired), so the cells that
 /// need one take it from here. Test support: no spec step.
+///
+/// The elements are created **before** the VM is bound (the pre-bind shape of
+/// `setup_page`): once bound, the VM holds raw pointers into `dom`, so writing
+/// through `&mut EcsDom` afterwards would alias them (UB under Stacked
+/// Borrows). After binding only the VM's own path (`create_element_wrapper`,
+/// `set_global`) is used.
 #[cfg(test)]
 pub(crate) fn with_page_and_foreign_bodies(body: impl FnOnce(&mut Vm)) {
-    with_page_then(
-        |vm, dom, doc| {
+    with_bound_vm(
+        |vm, session, dom, doc| {
             let owner = dom.node_document_for_new_nodes(doc);
-            for (global, namespace) in [
+            let foreign = [
                 ("svgBody", elidex_ecs::Namespace::Svg),
                 ("mathBody", elidex_ecs::Namespace::MathMl),
-            ] {
-                let e = dom.create_element_ns("body", namespace, Attributes::default(), owner);
+            ]
+            .map(|(global, namespace)| {
+                (
+                    global,
+                    dom.create_element_ns("body", namespace, Attributes::default(), owner),
+                )
+            });
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard
+            // unbinds; every `&mut EcsDom` use (the foreign-body creation above)
+            // precedes this bind, and afterwards `dom` is not touched through a Rust
+            // reference — only through the VM (wrappers below), so no aliasing.
+            unsafe {
+                setup_page(vm, session, dom, doc);
+            }
+            for (global, e) in foreign {
                 let wrapper = vm.inner.create_element_wrapper(e);
                 vm.set_global(global, JsValue::Object(wrapper));
             }

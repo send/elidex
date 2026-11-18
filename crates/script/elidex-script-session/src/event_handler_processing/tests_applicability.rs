@@ -17,7 +17,7 @@ use super::{
     is_event_handler_content_attribute_of, process_before_handler_write, resolve_handler_target,
     set_inline_handler,
 };
-use crate::{EventHandlerAttributeConsumer, HandlerScope, EVENT_HANDLER_ATTRS};
+use crate::{EventHandlerAttributeConsumer, EventListeners, HandlerScope, EVENT_HANDLER_ATTRS};
 
 #[derive(Clone, Copy, Debug)]
 enum Kind {
@@ -41,6 +41,18 @@ const KINDS: [Kind; 8] = [
     Kind::MathFrameset,
     Kind::MathMi,
 ];
+
+/// Whether the `event_type` handler entry on `target` is deactivated (`cleared`).
+fn is_handler_cleared(dom: &EcsDom, target: Entity, event_type: &str) -> bool {
+    let listeners = dom
+        .world()
+        .get::<&EventListeners>(target)
+        .expect("target has EventListeners");
+    let id = listeners
+        .find_event_handler(event_type)
+        .expect("handler entry exists");
+    listeners.is_handler_cleared(id)
+}
 
 /// D-T8's table, written from the spec rows (plan §0.4), not from the predicate.
 fn expected(kind: Kind, scope: HandlerScope) -> bool {
@@ -159,6 +171,13 @@ fn u_t8_applicability_table_is_complete_and_applied_by_every_reader() {
                     entry(&dom, target, event_type),
                     expect,
                     "(iii) removal: {ctx}"
+                );
+                // `NoSource` alone cannot tell a deactivated handler (`mark_cleared`)
+                // from one whose source was merely taken; read the flag itself.
+                assert_eq!(
+                    is_handler_cleared(&dom, target, event_type),
+                    want,
+                    "(iii) removal deactivates the handler iff applicable: {ctx}"
                 );
             }
         }

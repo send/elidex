@@ -15,15 +15,17 @@ use super::super::test_helpers::{run, with_page, with_page_and_foreign_bodies};
 #[test]
 fn t21_mathml_body_window_handler_attribute_installs_nothing() {
     with_page_and_foreign_bodies(|vm| {
+        // Deviation from memo §6.1: dispatch at window so the first value
+        // discriminates; memo §6.1 dispatched at mathBody, non-bubbling.
         let got = run(
             vm,
             "mathBody.setAttribute('onhashchange', 'window.hit = 1'); \
-             mathBody.dispatchEvent(new Event('hashchange')); \
+             window.dispatchEvent(new Event('hashchange')); \
              r.push(window.hit === undefined, window.onhashchange === null);",
         );
         assert_eq!(
             got, "true,true",
-            "T-21: MathML admits GlobalEventHandlers names only; nothing reaches the Window"
+            "T-21: MathML admits GlobalEventHandlers names only; the Window's hashchange handler stays unset and does not run"
         );
     });
 }
