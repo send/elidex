@@ -30,7 +30,8 @@ assignment on the path (P2), the at-target two-pass order — §7.
 - *Clerical (PM 699/778)* (2026-11-18; no rev bump): T3 citations re-pointed to the landed T3 memo (#638
   `84fee8fa`) — D-2, H-4, H-23, §0.3, §8 and the Rev 3.2 N-1 line (pinned to `d15a141c`); the `ScriptEngine` →
   `HostDriver` erratum is fixed in T3 (its DoD item 4); sibling plans' landing status (C1-pre #616 `c7cce8c8`, C0b
-  #608 `062337aa`, C0c #611 `0a5a77ba`) in §0.1, §0.3 and §8, C1-pre's lines re-pointed to `c7cce8c8`. No decision
+  #608 `062337aa`, C0c #611 `0a5a77ba`) in §0.1, §0.3 and §8, C1-pre's lines re-pointed to `c7cce8c8`; §8 C0b sentence
+  corrected (it added `node_document` and kept `owner_document` as a wrapper; PM 798). No decision
   changes.
 - *Rev 4.2* (clerical, 2026-11-08): the Rev 4.1 attestation's four MINs, each re-measured at `47b6c934`; no decision changes.
   - **MIN-A**: "the other 172 … have no edit" (§9.2 item 6) was false: 13 of them are the `tests_dispatch_integration.rs:41-597` tests (13 `#[test]`, 14 `script_dispatch_event(` calls), which gain `engine.active_document()` in PR-B. PR-B: 3 deleted / 18 `None` / 13 `active` / 159 no edit.
@@ -1302,8 +1303,8 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   among the places a Document entity is reachable. No shared symbol, no ordering constraint; the fact's reading
   ("non-null iff the bound document") is cited from it in §3.
 - **C0b / C0c (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, `…-c0c-adopt-notification-adoptnode.md`;
-  landed with their implementations in #608 `062337aa` and #611 `0a5a77ba`)** — C0b renames the node-document reader (`owner_document` →
-  `node_document`); C0c adds `adoptNode`. This PR reads neither (the Document arm compares the Document entity itself,
+  landed with their implementations in #608 `062337aa` and #611 `0a5a77ba`)** — C0b adds the single node-document reader `EcsDom::node_document` and keeps
+  `owner_document` as the `ownerDocument` getter's wrapper over it (C0b memo D-1); C0c adds `adoptNode`. This PR reads neither (the Document arm compares the Document entity itself,
   not a node's document; Rev 1's D-3 readers of `owner_document` are gone). A node adopted by C0c into a non-bound
   Document dispatches to a path ending at that Document (arm (a) `None`) — consistent with T3's step 3 for the same
   node. The branch's one-line `vm/tests/mod.rs` add (H-14) is on main since #608 (`mod tests_insertion_adoption;`). No ordering constraint.
