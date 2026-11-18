@@ -29,7 +29,9 @@ assignment on the path (P2), the at-target two-pass order — §7.
 **Changelog.**
 - *Clerical (PM 699/778)* (2026-11-18; no rev bump): T3 citations re-pointed to the landed T3 memo (#638
   `84fee8fa`) — D-2, H-4, H-23, §0.3, §8 and the Rev 3.2 N-1 line (pinned to `d15a141c`); the `ScriptEngine` →
-  `HostDriver` erratum is fixed in T3 (its DoD item 4). No decision changes.
+  `HostDriver` erratum is fixed in T3 (its DoD item 4); sibling plans' landing status (C1-pre #616 `c7cce8c8`, C0b
+  #608 `062337aa`, C0c #611 `0a5a77ba`) in §0.1, §0.3 and §8, C1-pre's lines re-pointed to `c7cce8c8`. No decision
+  changes.
 - *Rev 4.2* (clerical, 2026-11-08): the Rev 4.1 attestation's four MINs, each re-measured at `47b6c934`; no decision changes.
   - **MIN-A**: "the other 172 … have no edit" (§9.2 item 6) was false: 13 of them are the `tests_dispatch_integration.rs:41-597` tests (13 `#[test]`, 14 `script_dispatch_event(` calls), which gain `engine.active_document()` in PR-B. PR-B: 3 deleted / 18 `None` / 13 `active` / 159 no edit.
   - **MIN-B**: §9.1 item 4's base/head `get_the_parent|ActiveDocument|fn active_document` grep is now named in §9.0 item 4 and §9.1 item 4 as a comment-counting grep (no `<filter>`; the diff must be empty including docs).
@@ -294,8 +296,9 @@ Coordinates are `47b6c934`. At each PR's implementation base (§9.0 item 1: PR-A
 contains PR-A) every coordinate is re-measured with the commands in §0.2; the counts are re-derived, not carried (the
 cited files each re-pin moved are listed in H-0; H-23 decides PR-B's landing order against T3). The ledger row's own
 coordinates (`pipeline.rs:470/516`,
-`content/mod.rs:738/762`) are re-stated in §0.3 where they drifted. Sibling plans not on main are cited at the commits
-named in §8 and were read from their branches (`git show <branch>:docs/plans/<memo>`).
+`content/mod.rs:738/762`) are re-stated in §0.3 where they drifted. Sibling plans are cited at the commits named in
+§8; those not on main when this memo was written were read from their branches (`git show
+<branch>:docs/plans/<memo>`), and T3, C1-pre, C0b and C0c have since landed (§8).
 
 ### §0.2 Premises (re-measured at `47b6c934`)
 
@@ -346,8 +349,8 @@ named in §8 and were read from their branches (`git show <branch>:docs/plans/<m
 - The Rev 3 brief's "its 17 tests" for the callback-form loop: 16 (H-16). The two `composed_path_for_js` tests are a
   separate pair, also deleted (D-6).
 - The Rev 2 brief's "`HostData::window_entity` plus C1-pre D-4 `document_has_browsing_context`" names the fact
-  correctly but not its session-side carrier: D-4 is a VM-host predicate (`vm/host/document_accessors.rs`, C1-pre, not
-  on main) that the session crate cannot call. The carrier is D-2's value.
+  correctly but not its session-side carrier: D-4 is a VM-host predicate (`vm/host/document_accessors.rs`, C1-pre, landed
+  in #616 `c7cce8c8`) that the session crate cannot call. The carrier is D-2's value.
 - Rev 2's DoD item 4 "`fn active_document` → exactly one": under D-2 there are three definitions (the `HostData`
   constructor, the `HostDriver` item, its impl) — §9.2 item 4.
 - The Rev 2 brief's "decide whether the 'load → None' Document-arm exception is implementable now": that exception is
@@ -1293,17 +1296,17 @@ Registration is the PM's at landing; the names are proposals unless the slot exi
   routing its bind-time construction (`Vm::bind`, T3 D-T3) and its accessor helper through the method. After both:
   one constructor and one struct literal outside tests (DoD item 4); `active.document == X` is the same comparison
   in T3's step 3 and arm (a), of one fact; the two algorithms read one fact (D-8).
-- **C1-pre (`docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`, rev 2.4 `81d63d84`, branch
-  `layout-c1-pre-document-wrapper-plan`, not on main; plan-review closed)** — D-4 `document_has_browsing_context(ctx,
-  doc)` (`:140-144`) is the VM-host predicate over the same `HostData::document` (H-5); its `:123` names event paths
+- **C1-pre (`docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`, landed with its implementation in #616
+  `c7cce8c8`; first cited at rev 2.4 `81d63d84`; lines below are at `c7cce8c8`)** — D-4 `document_has_browsing_context(ctx,
+  doc)` (`:155-159`) is the VM-host predicate over the same `HostData::document` (H-5); its `:133` names event paths
   among the places a Document entity is reachable. No shared symbol, no ordering constraint; the fact's reading
   ("non-null iff the bound document") is cited from it in §3.
-- **C0b / C0c (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, `…-c0c-adopt-notification-adoptnode.md`,
-  branch `layout-dom-c0b-node-document-fact`, not on main)** — C0b renames the node-document reader (`owner_document` →
+- **C0b / C0c (`docs/plans/2026-11-eh-attrs-c0b-node-document-fact.md`, `…-c0c-adopt-notification-adoptnode.md`;
+  landed with their implementations in #608 `062337aa` and #611 `0a5a77ba`)** — C0b renames the node-document reader (`owner_document` →
   `node_document`); C0c adds `adoptNode`. This PR reads neither (the Document arm compares the Document entity itself,
   not a node's document; Rev 1's D-3 readers of `owner_document` are gone). A node adopted by C0c into a non-bound
   Document dispatches to a path ending at that Document (arm (a) `None`) — consistent with T3's step 3 for the same
-  node. The branch's one-line `vm/tests/mod.rs` add is a disjoint hunk (H-14). No ordering constraint.
+  node. The branch's one-line `vm/tests/mod.rs` add (H-14) is on main since #608 (`mod tests_insertion_adoption;`). No ordering constraint.
 - **CV P2 (Layout; `docs/plans/2026-10-content-visibility.md:229-247` D11, `:544`, `:709-712`, `:868`; slot
   `#11-shadow-slot-assignment-flat-tree`)** — P2 adds the assigned-slot `if let` to arm (c) and nothing else to the
   function; the ShadowRoot arm's path-root test (b) is already the spec's form, so P2 does not revisit it.
