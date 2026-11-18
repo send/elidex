@@ -95,8 +95,9 @@ pub(super) struct GcRoots<'a> {
     /// signal object survives.  Out-of-band `HashMap` so
     /// `ObjectKind::AbortSignal` stays payload-free; tracing visits
     /// every entry whose key was marked, marking the `reason` JsValue
-    /// and every `abort_listeners` callback ObjectId.  Sweep tail
-    /// prunes entries whose key was collected.
+    /// (the dependent-signal `links` are weak, not traced — see step (k) of
+    /// `mark_roots`).  Sweep tail prunes entries whose key was collected
+    /// and dead handles from the surviving rows' link sets.
     #[cfg(feature = "engine")]
     pub(super) abort_signal_states:
         &'a std::collections::HashMap<ObjectId, super::super::host::abort::AbortSignalState>,
@@ -577,11 +578,10 @@ pub(super) fn mark_roots(
     // where `.then` returns a derived Promise reachable only via
     // its own reaction queue) could be collected mid-flight.  The
     // Signal back-refs map (`fetch_signal_back_refs`) is *not*
-    // rooted here: signals are kept alive by their own
-    // `abort_signal_states` entry, which is reached via the user's
-    // `controller.signal` reference — collecting a signal whose
-    // user references are gone is the correct outcome (its abort
-    // handler can never fire again).
+    // rooted here: a signal is kept alive only by a JS reference to it
+    // (its `abort_signal_states` row is reached through the signal's own
+    // ObjectId, see (k)) — collecting a signal whose user references are
+    // gone is the correct outcome (its abort handler can never fire again).
     #[cfg(feature = "engine")]
     for &promise_id in roots.pending_fetches.values() {
         mark_object(promise_id, obj_marks, work);

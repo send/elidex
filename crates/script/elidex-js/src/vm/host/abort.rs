@@ -573,9 +573,15 @@ pub(super) fn abort_signal(
     // Steps 1-4: reasons set, plan fixed, before any JS runs.  Step 1's
     // no-op (no such signal, or already aborted) is the module's `None`,
     // taken before the closure materialises the default reason.
-    let Some(plan) = signal_abort(&mut *ctx.vm, signal_id, |vm| {
+    // `signal_id` is rooted across the closure: materialising the default
+    // reason allocates, and with GC enabled (the timer path) that could sweep
+    // a signal nothing else references.
+    let mut signal_root = ctx.vm.push_temp_root(JsValue::Object(signal_id));
+    let plan = signal_abort(&mut *signal_root, signal_id, |vm| {
         materialise_abort_reason(vm, reason)
-    }) else {
+    });
+    drop(signal_root);
+    let Some(plan) = plan else {
         return Ok(());
     };
 
@@ -694,7 +700,7 @@ fn run_abort_steps(ctx: &mut NativeContext<'_>, signal_id: ObjectId) -> Result<(
 
     // Step 3: fire `'abort'` (bubbles=false, cancelable=false) through the
     // shared EventTarget core on this signal's `vm_event_listeners` home.
-    #[cfg(all(test, feature = "engine"))]
+    #[cfg(test)]
     if std::mem::take(&mut ctx.vm.fail_next_abort_dispatch) {
         return Err(VmError::range_error("injected abort-dispatch failure"));
     }
@@ -736,12 +742,10 @@ pub(super) fn materialise_abort_reason(vm: &mut VmInner, reason: JsValue) -> JsV
 /// the `pending_timeout_signals` map has an entry, which is itself
 /// engine-feature-gated.
 ///
-/// Caller obligation (plan §4.1, "The `reason` closure's contract"): a caller
-/// that passes `undefined` — so the default `DOMException` is allocated inside
-/// the abort — while GC is enabled must keep `signal_id` reachable (root it)
-/// across the call, since the allocation may sweep.  The native paths satisfy
-/// this because they run with `gc_enabled = false`; the timer path passes a
-/// pre-built `TimeoutError`, so nothing is allocated.
+/// GC: [`abort_signal`] roots `signal_id` itself across the `reason` closure
+/// (plan §4.1, "The `reason` closure's contract"), so a caller may pass
+/// `undefined` — allocating the default `DOMException` inside the abort —
+/// with GC enabled without rooting the signal.
 pub(in crate::vm) fn internal_abort_signal(
     vm: &mut super::super::VmInner,
     signal_id: ObjectId,

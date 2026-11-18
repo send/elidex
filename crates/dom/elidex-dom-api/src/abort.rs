@@ -52,11 +52,16 @@ impl<H: Copy + Eq + Hash> OrderedSet<H> {
             }
             alive
         });
-        if self.order.is_empty() {
-            // Release the hashed half's capacity too (the prune that
-            // empties a set leaves the row as a default one).
+        if self.order.is_empty() && self.capacity() > 0 {
+            // Release the hashed half's capacity too (a prune that empties
+            // a set leaves the set as a default one); only when something
+            // is held, so a sweep over empty sets allocates nothing.
             *self = Self::default();
         }
+    }
+
+    fn capacity(&self) -> usize {
+        self.order.capacity() + self.members.capacity()
     }
 
     fn take(&mut self) -> Vec<H> {
@@ -136,6 +141,12 @@ impl<H: Copy + Eq + Hash> DependentLinks<H> {
         self.dependent_signals.retain(&alive);
     }
 
+    /// Capacity held by both sets (test observation of the emptying reset).
+    #[cfg(test)]
+    fn capacity(&self) -> usize {
+        self.source_signals.capacity() + self.dependent_signals.capacity()
+    }
+
     /// Empty the dependent signals set and return its members in order
     /// (the set is never read again once "signal abort" has planned them).
     fn take_dependents(&mut self) -> Vec<H> {
@@ -199,10 +210,10 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
         }
     }
 
-    // Step 3.
-    if let Some(result_links) = g.links_mut(result) {
-        result_links.set_dependent();
-    }
+    // Step 3 (result's row was checked on entry; nothing removes rows here).
+    g.links_mut(result)
+        .expect("result's row was checked on entry")
+        .set_dependent();
 
     // Step 4.
     for &signal in signals {
@@ -212,12 +223,14 @@ pub fn create_dependent_abort_signal<G: AbortSignalGraph>(
         if links.is_dependent() {
             // 4.2: a dependent input contributes its own source signals.
             for i in 0..links.source_signals().len() {
-                let Some(source) = g
+                // Index, not a borrowed slice: `link` needs `&mut g`.  The
+                // signal's own sources are not written by `link` (it writes
+                // `result`'s sources and the sources' dependents), so `i`
+                // stays in range.
+                let source = g
                     .links(signal)
                     .and_then(|l| l.source_signals().get(i).copied())
-                else {
-                    break;
-                };
+                    .expect("signal's own sources are not written by link()");
                 debug_assert!(
                     g.abort_reason(source).is_none()
                         && g.links(source).is_some_and(|l| !l.is_dependent()),
@@ -265,9 +278,13 @@ pub struct AbortPlan<H> {
 ///
 /// The `reason` closure runs with no borrow of the graph held and may
 /// allocate in the host.  Its contract (it writes no reason or link, runs
-/// no script, keeps `signal` alive; a GC prune of dead handles is the one
-/// allowed effect) is the plan's §4.1; the dependents are taken from
-/// `signal`'s links **after** it returns, so a prune it caused is seen.
+/// no script; a GC prune of dead handles is the one
+/// allowed effect; the host keeps `signal` alive across it) is the plan's
+/// §4.1; the dependents are taken from
+/// `signal`'s links **after** it returns, so a prune it caused is seen.  If
+/// the closure broke the contract and `signal` has no row afterwards the
+/// call returns `None` after step 2 (a `debug_assert` fires first); the
+/// VM host roots `signal`, so that path is unreachable there.
 ///
 /// No JS runs here: every reason is set before the host runs any abort
 /// step, which is the spec's order.
@@ -478,6 +495,9 @@ mod tests {
         // A prune that empties a set resets it (append still works after).
         g.links_mut(a).unwrap().retain_live(|_| false);
         assert!(g.l(a).dependent_signals().is_empty());
+        // Observable: the emptied set released its capacity (a mutant
+        // without the reset keeps the hashed half's allocation).
+        assert_eq!(g.l(a).capacity(), 0);
         create_dependent_abort_signal(&mut g, d, &[a]);
         assert_eq!(g.l(a).dependent_signals(), &[d]);
     }

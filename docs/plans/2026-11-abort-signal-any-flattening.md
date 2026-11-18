@@ -688,12 +688,12 @@ exports no predicate for the host to pre-check with, so `signal_abort`'s `None` 
 **The `reason` closure's contract** (D-4 refers here; Rev 2.5). The closure produces step 2's value and nothing
 else. It must not: (i) write any signal's abort reason or links — the one exception is a GC sweep it triggers by
 allocating, whose `retain_live` prune removes dead handles only (§4.4); (ii) run script (no call into JS, no event
-dispatch, no microtask checkpoint); (iii) let `signal` die — the caller keeps `signal` alive across the call. The host
-meets this without a root of its own: on the native entry points the native-call gate (`gc_enabled = false`, D-4)
+dispatch, no microtask checkpoint); (iii) let `signal` die — `abort_signal` roots `signal` (`push_temp_root`) across the call. The host
+needs no further guarantee: on the native entry points the native-call gate (`gc_enabled = false`, D-4)
 prevents any sweep; the timer entry point (`internal_abort_signal`, whose one production caller is the
 `AbortSignal.timeout` drain, `natives_timer.rs:375` at `8d04643e`) passes a given `TimeoutError` reason built before
-the call, so its closure returns that value and allocates nothing. A future caller that passes `undefined` with
-`gc_enabled = true` must root `signal` first. In exchange the module
+the call, so its closure returns that value and allocates nothing. A caller that passes `undefined` with
+`gc_enabled = true` needs no root of its own, since `abort_signal` roots `signal`. In exchange the module
 promises: the closure is called at most once, only after step 1 has passed, with no borrow of the graph held. What
 the module assumes after the call: `signal`'s row still exists and `abort_reason(signal)` is still `None` (by (i)
 and (iii); `debug_assert!`), and it **re-reads** `signal`'s links after the closure returns — step 4's dependents are
@@ -762,7 +762,7 @@ classification PR-1 §5.3 makes ("`abort_signal` is cut on A-1").
 - `run_abort_steps(ctx, id)` (NEW, `pub(super)` is not needed — private): step 1 = the two algorithm stores in
   today's order within each (`bound_listener_removals` → `abort_listener_back_refs` prune → `detach_bound_listeners`;
   then the `fetch_abort_observers` block moved up from `:627-655`); step 2 = both emptied (they are drained by
-  `take` / `remove` today); step 3 = `dispatch_vm_simple_event(ctx, id, abort, false, false)` (under `#[cfg(test)]`,
+  `take` / `remove` today); step 3 = `dispatch_vm_simple_event(ctx, id, abort, false, false)` (under `#[cfg(test)]` in the engine-gated `host/abort.rs`,
   a set `fail_next_abort_dispatch` is cleared and returns `Err` in place of this call — §6 (o); P0a later replaces
   the field with its `InjectAt::SimpleEventDispatch`, §9 Edges). A row missing for `id`
   (impossible after rooting; kept as the `let Some(..) else { return Ok(()) }` today's `:555-557` has) is a no-op.
@@ -926,7 +926,7 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   (`natives_timer.rs:291-293`, `:358-359`) and its `Err` only reaches `eprintln!` (`:349-351`). Setup: `c = new
   AbortController()`, `d1 = AbortSignal.any([c.signal])`, `d2 = AbortSignal.any([c.signal])`, both kept, each with
   an `'abort'` listener that records it ran. The first dispatch of the plan (the source's own fire) is made to
-  return `Err` through a `#[cfg(all(test, feature = "engine"))]` field `VmInner::fail_next_abort_dispatch: bool` (NEW, test-only; the
+  return `Err` through the field `VmInner::fail_next_abort_dispatch: bool` (NEW, test-only; the field and its initializer carry the combined gate `#[cfg(all(test, feature = "engine"))]`, the in-file check in the engine-gated `host/abort.rs` is `#[cfg(test)]`; the
   `force_gc_before_next_alloc` precedent, `mod.rs:276-277`), checked by `run_abort_steps` at step 3 in place of the
   `dispatch_vm_simple_event` call and cleared when it fires — the position P0a's `InjectAt::SimpleEventDispatch`
   takes (P0a §4.4). An injection seam is the only way to produce this `Err` today: `dispatch_vm_simple_event`

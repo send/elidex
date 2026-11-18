@@ -48,10 +48,9 @@ fn any_chain_dropped_intermediates_propagates_after_gc() {
     .unwrap();
     let before = vm.inner.abort_signal_states.len();
     vm.inner.collect_garbage();
-    // Precondition: the 49 unreferenced intermediates were swept, leaving
-    // only the controller's signal and the kept last link.
-    assert!(before > 2, "setup built no intermediates ({before} rows)");
-    assert_eq!(vm.inner.abort_signal_states.len(), 2);
+    // Precondition: exactly the 49 unreferenced intermediates were swept
+    // (independent of how many other rows the VM holds).
+    assert_eq!(before - vm.inner.abort_signal_states.len(), 49);
     assert!(eval_bool(
         &mut vm,
         "c.abort(); s.aborted === true && s.reason === c.signal.reason;"
