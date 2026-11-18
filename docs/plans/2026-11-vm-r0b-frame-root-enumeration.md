@@ -68,6 +68,7 @@ it calls `mark_frame`; landing before, it adds a third copy of the enumeration, 
 |---|---|---|
 | 1 | First draft at `84fee8fa`. | — |
 | 2 | Plan-review R1 at `06a16913` (CRIT 0 / IMP 3 / MIN 12 / FP 1). **K1** population restated as storage residencies; the creation window cited to its slot (§0.1, §0.2, §0.3, §3, §8). **K2** `FrameKind` matched and `HandlerEntry` destructured exhaustively inside `mark_frame` (§4). **K3** design-invariants I-7 added to the coupled sites (§5.2). MIN: D-2's rule applied to `upvalue_slots` (§1.2, §4); why D-3 does not narrow the type (§1.3); the pre-refactor run recorded, the owner-`generator` cell a smoke check (§6); lasting homes for the umbrella and P0a-1 anchor shifts and the other line-shift sites (§5.3-§5.5); §3 restated over §9.9.1 / §9.9.2; umbrella branch, dates and ratification condition (§0); the §4.3 docstring obligation and the acceptance grep's test exclusion (§8). | PM 806 |
+| 2.1 | Plan-review R2 Axis 2 re-check (IMP 1, MIN 4). **IMP-1** a field bound as `field: _` could be retyped to a handle type and still compile: every untraced field of `CallFrame` and `HandlerEntry` is now bound to a name and its type pinned at the binding site; the residual narrowed to what a pinned type means to the GC and new handle-carrying variants of shared primitives (§4); a mechanical pin listing and a local retype control added (§8). MIN: the narrowing slot's draft name and its ID cited once registered (§1.3); the pre-existing VM-P4 family anchor drift homed by a proposed slot (§5.5); `:81` and `:768` added to the abort-signal memo's moved cites (§5.5); the suspended `upvalue_slots` cell's observable named (§6). | PM 811 |
 
 ## §1. Scope
 
@@ -143,8 +144,10 @@ forbids, and its writers and readers are outside `vm/gc/` (`route_to_next_finall
 callers `:500` and `vm/natives_generator.rs:243`; `op_end_finally`'s `None | Some(Normal(_))` arm, `vm/ops.rs:494`,
 which is dead for the same reason). `FrameCompletion` itself stays three-variant: it is also the resumption kind, where
 `Normal(v)` is the `.next(v)` argument (`vm/coroutine_types.rs:59-60`). The narrowing is its own change, proposed to the
-PM as a slot (draft in this revision's report; not registered at Rev 2). When it lands, D-3's `Normal` alternative
-disappears with the variant: the or-pattern stops compiling until it is removed, so the two cannot drift.
+PM as a slot (draft name **`#11-vm-pending-completion-type-narrowing`**, not registered at Rev 2.1; its scope includes
+deleting the dead `None | Some(Normal(_))` arm at `vm/ops.rs:494`). Once the PM registers it, this memo cites its ID
+here in place of the draft name. When it lands, D-3's `Normal` alternative disappears with the variant: the
+or-pattern stops compiling until it is removed, so the two cannot drift.
 
 ## §2. Field census (at `84fee8fa`)
 
@@ -239,40 +242,63 @@ let CallFrame {
     upvalue_ids, local_upvalue_ids, this_value, actual_args, new_instance,
     mode, home_class, generator, pending_completion,
     exception_handlers, kind,
-    // No GC handle in these types (permanent / plain data); see each type.
-    func_id: _, ip: _, base: _, tdz_bits: _, tdz_overflow: _, cleanup_base: _,
+    func_id, ip, base, tdz_bits, tdz_overflow, cleanup_base,
 } = frame;
-// Frame-owned composite types: classified field by field, below.
-for HandlerEntry { catch_ip: _, finally_ip: _, stack_depth: _ } in exception_handlers {}
+// Untraced: no GC handle in these types (permanent / plain data). Each type is pinned here.
+let _: &FuncId = func_id;
+let _: &usize = ip;
+let _: &usize = base;
+let _: &u64 = tdz_bits;
+let _: &Box<[u64]> = tdz_overflow;
+let _: &usize = cleanup_base;
+let _: &FrameKind = kind;
 match kind { FrameKind::Eval | FrameKind::Function => {} }
+for HandlerEntry { catch_ip, finally_ip, stack_depth } in exception_handlers {
+    let _: &Option<u32> = catch_ip;
+    let _: &Option<u32> = finally_ip;
+    let _: &usize = stack_depth;
+}
 ```
 
 Adding, removing or renaming a `CallFrame` field fails to compile here until the author classifies it: traced (bound
-and marked) or not traced (bound to `_` in the commented group). Deliberately untraced fields are therefore named, not
-absent: the omission is a reviewed line. The nested types are matched exhaustively too: `mode` by
+and marked) or not traced (bound and type-pinned in the commented group). Deliberately untraced fields are therefore
+named, not absent: the omission is a reviewed line. The nested types are matched exhaustively too: `mode` by
 `match mode { CallMode::Call => {}, CallMode::Construct { new_target } => … }` (today's `if let`, `roots.rs:295`, is
 not exhaustive); `pending_completion` by the or-pattern of D-3. The `Generator` arm destructures `SuspendedFrame`
 the same way (`let SuspendedFrame { frame, stack_slice, upvalue_slots } = &**susp`; all three are marked, §1.2).
+
+**Type pins** (Rev 2.1). A field bound as `field: _` matches any type, so retyping it (say `cleanup_base: usize` →
+`ObjectId`, or `HandlerEntry`'s `catch_ip` → a handle type) would still compile and leave the new handle unmarked. Each
+untraced field is therefore bound to a name and ascribed its type at the binding site, one `let _: &T = field;` line
+per field: a retype fails to compile on that line until the author re-classifies the field. The pinned set at
+`84fee8fa` (`vm/frame.rs:70-152`, `:214-221`): `CallFrame`'s `func_id: FuncId`, `ip: usize`, `base: usize`,
+`tdz_bits: u64`, `tdz_overflow: Box<[u64]>`, `cleanup_base: usize`, `kind: FrameKind`; `HandlerEntry`'s
+`catch_ip: Option<u32>`, `finally_ip: Option<u32>`, `stack_depth: usize`. (`kind`'s pin is redundant with its
+wildcard-free match, which already rejects another type; it is kept so that every untraced field has one.) A pin is a
+coercion site, so a retype to a type that `Deref`s to the pinned type would pass it; no GC handle type implements
+`Deref` (at `84fee8fa` the crate's `Deref` impls are `VmTempRoot` and `VmStackScope`, `vm/temp_root.rs:83`, `:188`, and a
+test guard), and a frame field of either would be a design change of its own. Traced fields need no pin: each is passed
+to a typed mark primitive (`mark_value`, `mark_object`, `mark_upvalue`), so a retype fails there. If clippy's
+`borrowed_box` lint fires on the `&Box<[u64]>` pin, it takes a local `#[allow]` with that reason; it is not rewritten
+as `&[u64]`, which would accept any type that derefs to a slice.
 
 **The frame's own composite types** (Rev 2, closing Rev 1's stated residual). `exception_handlers` and `kind` are
 bound, not `_`, and each is classified at its own level:
 
 - **`HandlerEntry`** (`vm/frame.rs:214-221`; `catch_ip`, `finally_ip`: `Option<u32>`; `stack_depth`: `usize`) is
-  destructured per element without `..`. A field added to it fails to compile at this loop, which is also where a
-  handle-typed field would be bound and marked. The body is empty, so at most it costs one pass over the frame's
-  handler list per collection (the optimiser may drop it). If `clippy` objects to the empty body, the same pattern
-  goes on a closure parameter (`|HandlerEntry { catch_ip: _, finally_ip: _, stack_depth: _ }| {}`), which the
-  compiler checks identically.
+  destructured per element without `..`, each field type-pinned. A field added to it fails to compile at this loop,
+  which is also where a handle-typed field would be bound and marked. The body holds only type ascriptions, so at most
+  it costs one pass over the frame's handler list per collection (the optimiser may drop it).
 - **`FrameKind`** (`vm/frame.rs:58-67`, fieldless: `Eval`, `Function`) is matched without a wildcard. A new variant
   fails to compile; so does a field added to `Eval` or `Function`, since a unit pattern does not match a tuple or
   struct variant.
 
-**What is still not covered, precisely**: a change to what a type behind `_` *means* to the collector, as opposed to a
-change to a frame type's shape. The `_` fields are `FuncId` (an index into `compiled_functions`, permanent by the GC's
-rule, `vm/gc/mod.rs:3-4`), `usize` / `u64` / `Box<[u64]>` (plain data). Making compiled functions collectable would
-be a change to that rule, which every arm of the collector reads, not to the frame. Likewise the bound fields' own
-types are marked through the shared primitives (`mark_value`, `mark_object`, `mark_upvalue`); a new handle-carrying
-`JsValue` variant is those primitives' concern, shared with every arm, not R-0b's.
+**What is still not covered, precisely** (Rev 2.1): two things, neither a change to a frame type's shape.
+(1) What a pinned type *means* to the GC: the pins fix `FuncId`, but `FuncId`'s permanence (an index into
+`compiled_functions`, permanent by the GC's rule, `vm/gc/mod.rs:3-4`) is that rule's, which every arm of the collector
+reads; making compiled functions collectable changes the rule, not the frame. (2) A new handle-carrying variant of a
+shared primitive type (`JsValue`, marked through `mark_value`): it is those primitives' concern, shared with every arm,
+not R-0b's.
 
 The compiler, not a test, is the guard; the §6 cells prove today's rooted set, not future completeness.
 
@@ -335,14 +361,15 @@ Removing the two blocks shifts every later line of `vm/gc/roots.rs` (after `:278
   edits `roots.rs` at `:258` (before the frame block) and `:602`, `:610` (after it), and `trace.rs` at `:388` (after it).
   No hunk overlaps a frame block; whichever lands second rebases by offset only. Reported to the PM for L3.
 - **`docs/plans/2026-11-abort-signal-any-flattening.md`** (L3, on main) cites lines after the blocks: `trace.rs:385-398`
-  (`:83`, `:107`, `:732`), `trace.rs:387` (`:314`, `:510`), `trace.rs:540` (`:183`) and `roots.rs:600-618` (`:727`).
+  (`:83`, `:107`, `:732`), `trace.rs:387` (`:314`, `:510`), `trace.rs:540` (`:183`), `roots.rs:600-618` (`:81`, `:727`,
+  `:768`) and, at `:768`, the `roots.rs` line count 619 (already 621 at `84fee8fa`; R-0b changes it again, §7).
   R-0b moves them; they are L3's memo and L3's implementation (the branch above) re-measures them. Its `roots.rs:257-261`,
   `roots.rs:100-101` and `trace.rs:32-35` precede the blocks and do not move. R-0b's PR body lists the moved ones.
 - **VM-P4 family memos whose frame-block cites are already stale at `84fee8fa`** (R-0b did not make them stale):
   `docs/plans/2026-07-vm-p4-slot-ledger.md:286` (`roots.rs:294-295`, `trace.rs:353-355`), `2026-07-vm-p4-slice-plan.md:943`
-  and `2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:468` (`trace.rs:345-370`). These are the cite-sweep's, not R-0b's;
-  no slot homes VM-P4 family code anchors today, so the driver reports them to the PM. (§5.1's `slice-plan.md:951`
-  and §5.2's I-7 are edited by R-0b because R-0b makes their *statement* false, not only their line numbers.)
+  and `2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:468` (`trace.rs:345-370`). They are pre-existing and
+  outside R-0b. No slot homes VM-P4 family code-anchor sweeps today; the driver proposes one to the PM as their home (a
+  slot, not a report). (§5.1's `slice-plan.md:951` and §5.2's I-7 are edited by R-0b because R-0b makes their *statement* false, not only their line numbers.)
 
 ## §6. Tests
 
@@ -368,13 +395,17 @@ asserts the object is still allocated:
 | `pending_completion` `Return` / `Throw` | ✓ | ✓ |
 | `pending_completion` `Normal` (D-3) | ✓ | ✓ |
 | `generator` = a foreign generator (D-2's fail-safe) | — | ✓ |
-| `upvalue_slots` holding an id outside `local_upvalue_ids` (D-2's rule, §1.2) | — | ✓ |
+| `upvalue_slots` holding an id outside `local_upvalue_ids` (D-2's rule, §1.2); observable: the object the upvalue's `Closed` value holds stays allocated | — | ✓ |
 
 Plus a **negative control** per column: the same frame with the handle cleared → the object is collected (the cells
 can see a collection). **Exempt**: the suspended owner-`generator` cell is a smoke check, not a neutrality cell. Its
 object is the generator rooted through the global, so it survives whether or not the frame's field is marked: it
 cannot fail, has no negative control, and proves only that marking the owner from inside its own arm does not panic
 or loop. The foreign-generator row is the cell that can see `generator` marked in a suspended frame.
+The `upvalue_slots` cell asserts on the closed value's object, like every other row, not on the upvalue: an unmarked
+upvalue is reset by `sweep_upvalues` to `Closed(Undefined)` (`vm/gc/sweep.rs:36-45`), which would also be observable,
+but the object form keeps one observable for the whole table and its negative control (id removed from
+`upvalue_slots` → the object is collected) is the same shape as the others.
 
 **Commits and the recorded neutrality run.**
 
@@ -410,6 +441,32 @@ Before push: `cargo fmt --all`; `cargo test -p elidex-js --all-features`; `mise 
 - §4's `CallFrame` and `SuspendedFrame` patterns and the `HandlerEntry` pattern have no `..`; the `FrameKind`, `CallMode`
   and `FrameCompletion` matches have no wildcard. §6's cells green, both runs recorded in the PR body (§6 steps 1-2);
   the negative controls collect.
+- **Type pins** (§4, Rev 2.1). (a) Every field `mark_frame`'s `CallFrame` and `HandlerEntry` patterns bind and do not
+  mark has a type pin. The listing below, run from the repository root at the PR's head, prints each name the two
+  patterns bind as `pinned` (a `let _: &T = <name>;` line exists) or `unpinned`, and exits 0 only if no binding is a
+  `_`-equivalent (`f: _`, `f: _x`, `..`), the pinned set is exactly §4's ten fields and the unpinned set exactly the ten
+  bound for marking (the nine traced fields of §2 and `exception_handlers`, whose elements are destructured); a PR that
+  changes either type's fields updates both sets with its classification:
+  ```sh
+  python3 - crates/script/elidex-js/src/vm/gc/mod.rs <<'PY'
+  import re, sys
+  body = re.search(r'fn mark_frame\b.*?\n\}\n', open(sys.argv[1]).read(), re.S).group(0)
+  pats = re.findall(r'(?:let CallFrame|for HandlerEntry)\s*\{(.*?)\}', body, re.S)
+  bound = [b.strip() for p in pats for b in re.sub(r'//[^\n]*', '', p).split(',') if b.strip()]
+  bad = [b for b in bound if not re.fullmatch(r'[a-z_][a-z0-9_]*', b)]
+  pinned = {b for b in bound if re.search(r'let _: &[^=;]+= %s;' % re.escape(b), body)}
+  for b in bound: print(b, 'NOT A NAME' if b in bad else 'pinned' if b in pinned else 'unpinned')
+  pin = {'func_id', 'ip', 'base', 'tdz_bits', 'tdz_overflow', 'cleanup_base', 'kind', 'catch_ip', 'finally_ip', 'stack_depth'}
+  mark = {'upvalue_ids', 'local_upvalue_ids', 'this_value', 'actual_args', 'new_instance', 'mode', 'home_class',
+          'generator', 'pending_completion', 'exception_handlers'}
+  sys.exit(1 if bad or len(pats) != 2 or pinned != pin or set(bound) - pinned != mark else 0)
+  PY
+  ```
+  Control (run on a fixture of §4's code block, not committed): exit 0 as written; exit 1 with `cleanup_base` bound
+  as `cleanup_base: _` and its pin removed; exit 1 with only `stack_depth`'s pin removed.
+  (b) A **local control, not committed**: retype one pinned field (`CallFrame`'s `cleanup_base` to `ObjectId`), run
+  `cargo check -p elidex-js --all-features`, and show the build fails at its pin in `mark_frame`; record the error line
+  (`error[E0308]: mismatched types` with its `vm/gc/mod.rs:<line>`) in the PR body, then revert.
 - **Docstring** (umbrella §4.3 `:501-503`: every NEW function of the program carries a docstring naming the AO or
   algorithm it implements). `mark_frame` implements no AO; its docstring names the clause it answers to, ECMA-262
   §9.9.2 Liveness, and states that marking every handle field is the reachability approximation Note 6 allows (§3),
