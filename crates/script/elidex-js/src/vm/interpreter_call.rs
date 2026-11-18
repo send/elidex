@@ -364,6 +364,17 @@ impl VmInner {
         // inline dispatch path — build an initial SuspendedFrame and
         // drive one step, returning the wrapper Promise.
         if is_async {
+            // Containers first: allocate the wrapper Promise and the
+            // coroutine while the locals (incl. the rest array) are still
+            // on the VM stack, then move them into the coroutine with no
+            // allocation in between — `alloc_object` may collect before
+            // inserting and requires everything reachable only through the
+            // new object to be rooted already (see
+            // `VmInner::alloc_async_coroutine_shell`).  `this`, `args` and
+            // the callee (hence its upvalues) are not on the VM stack on
+            // this entry path; rooting them across `call_internal` is the
+            // caller's contract.
+            let gen_id = self.alloc_async_coroutine_shell();
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
             let initial_frame = CallFrame {
                 func_id,
@@ -385,7 +396,7 @@ impl VmInner {
                 mode: super::value::CallMode::Call,
                 home_class,
                 kind: FrameKind::Function,
-                generator: None,
+                generator: None, // back-linked by `install_initial_frame`
                 pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
@@ -393,7 +404,9 @@ impl VmInner {
                 stack_slice,
                 upvalue_slots: Vec::new(),
             };
-            return super::natives_generator::make_async_coroutine_and_drive(self, suspended);
+            return super::natives_generator::make_async_coroutine_and_drive(
+                self, gen_id, suspended,
+            );
         }
 
         // Generator: build initial suspended frame and return Generator
@@ -597,6 +610,15 @@ impl VmInner {
         // generator-based async driver settle a wrapper Promise as the
         // body yields / returns / throws.
         if is_async {
+            // Containers first: allocate the wrapper Promise and the
+            // coroutine while every value destined for the initial frame
+            // is still rooted — locals and the rest array above `base`,
+            // callee (hence its upvalues) and receiver below it — then
+            // move them into the coroutine with no allocation in between.
+            // `alloc_object` may collect before inserting and requires
+            // everything reachable only through the new object to be
+            // rooted already (see `VmInner::alloc_async_coroutine_shell`).
+            let gen_id = self.alloc_async_coroutine_shell();
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
             self.stack.truncate(cleanup_base);
             let initial_frame = CallFrame {
@@ -615,7 +637,7 @@ impl VmInner {
                 mode,
                 home_class,
                 kind: FrameKind::Function,
-                generator: None,
+                generator: None, // back-linked by `install_initial_frame`
                 pending_completion: None,
             };
             let suspended = super::value::SuspendedFrame {
@@ -623,7 +645,8 @@ impl VmInner {
                 stack_slice,
                 upvalue_slots: Vec::new(),
             };
-            match super::natives_generator::make_async_coroutine_and_drive(self, suspended) {
+            match super::natives_generator::make_async_coroutine_and_drive(self, gen_id, suspended)
+            {
                 Ok(promise) => {
                     self.stack.push(promise);
                 }

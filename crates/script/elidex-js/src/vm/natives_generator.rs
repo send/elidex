@@ -557,8 +557,19 @@ pub(crate) fn drive_async_coroutine(
                     id
                 }
                 other => {
-                    let p = super::natives_promise::create_promise(vm);
-                    let _ = super::natives_promise::settle_promise(vm, p, false, other);
+                    // `other` (e.g. an awaited plain object) has left the
+                    // coroutine's stack and is held only by this Rust
+                    // local.  `alloc_object` may collect before inserting
+                    // and requires every value reachable only through the
+                    // new object to be rooted already, so root `other` on
+                    // the VM stack across `create_promise`; once
+                    // `settle_promise` stores it as `p`'s result it is
+                    // reachable through `p`, and nothing allocates before
+                    // the GC-off window below links `p` into the graph.
+                    let mut scope = vm.push_stack_scope();
+                    scope.stack.push(other);
+                    let p = super::natives_promise::create_promise(&mut scope);
+                    let _ = super::natives_promise::settle_promise(&mut scope, p, false, other);
                     p
                 }
             };
@@ -592,36 +603,68 @@ fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId
     })
 }
 
-/// Create an async coroutine wrapping `suspended` and drive its first
-/// step.  Returns the wrapper Promise (the async function's return value).
+impl VmInner {
+    /// Allocate an async coroutine (a Generator in `SuspendedStart` with
+    /// **no** frame yet) together with its wrapper Promise.
+    ///
+    /// First half of the async creation protocol whose second half is
+    /// [`make_async_coroutine_and_drive`]; the async counterpart of
+    /// [`Self::alloc_generator_shell`].  Call sites allocate this **while
+    /// the initial frame's values are still on the VM stack**, because
+    /// [`VmInner::alloc_object`] may collect before it inserts its object
+    /// and requires every `ObjectId` reachable only through that object to
+    /// be rooted already.
+    ///
+    /// The wrapper Promise is a fresh object held only by a Rust local
+    /// while the coroutine is allocated, so it is rooted on the VM stack
+    /// for that allocation and installed into the coroutine before the
+    /// scope ends.  On return the wrapper is reachable through the
+    /// coroutine, which is itself unrooted: the caller must reach
+    /// [`make_async_coroutine_and_drive`] with no allocation in between.
+    pub(crate) fn alloc_async_coroutine_shell(&mut self) -> ObjectId {
+        let wrapper = super::natives_promise::create_promise(self);
+        let mut scope = self.push_stack_scope();
+        scope.stack.push(JsValue::Object(wrapper));
+        let gen_id = scope.alloc_generator_shell();
+        let ObjectKind::Generator(state) = &mut scope.get_object_mut(gen_id).kind else {
+            unreachable!("alloc_generator_shell returned a non-Generator");
+        };
+        state.wrapper = Some(wrapper);
+        gen_id
+    }
+}
+
+/// Install the initial frame into a coroutine from
+/// [`VmInner::alloc_async_coroutine_shell`] and drive its first step.
+/// Returns the wrapper Promise (the async function's return value).
 ///
-/// The initial frame is prepared by the call-site (same shape as a
-/// generator initial frame); `drive_async_coroutine` runs the body until
-/// the first await, return, or throw.
+/// Callers move the frame's values off the VM stack immediately before
+/// this call, with no allocation since the shell was allocated.  The
+/// install is allocation-free; the coroutine is then rooted on the VM
+/// stack for the whole initial drive — once the body suspends its frame
+/// has left `frames`, and `drive_async_coroutine` allocates (the Promise
+/// wrapping a non-Promise `await` operand; the Error object for a
+/// non-`ThrowValue` abrupt completion) while the coroutine and its wrapper
+/// are otherwise held only by Rust locals.  `alloc_object` may
+/// collect before inserting, so they must be rooted across it.  After a
+/// suspension the coroutine is reachable through the continuation steps
+/// subscribed to the awaited Promise.
 pub(crate) fn make_async_coroutine_and_drive(
     vm: &mut VmInner,
+    gen_id: ObjectId,
     suspended: super::value::SuspendedFrame,
 ) -> Result<JsValue, VmError> {
-    let wrapper = super::natives_promise::create_promise(vm);
-    let proto = vm.generator_prototype;
-    let gen_id = vm.alloc_object(Object {
-        kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
-            status: GeneratorStatus::SuspendedStart,
-            suspended: Some(suspended),
-            wrapper: Some(wrapper),
-        })),
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    // Back-link the saved frame to the coroutine it belongs to.
-    if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
-        if let Some(susp) = &mut state.suspended {
-            susp.frame.generator = Some(gen_id);
-        }
-    }
+    vm.install_initial_frame(gen_id, suspended);
+    let ObjectKind::Generator(state) = &vm.get_object(gen_id).kind else {
+        unreachable!("make_async_coroutine_and_drive: target is not a Generator");
+    };
+    let wrapper = state
+        .wrapper
+        .expect("async coroutine shell carries its wrapper Promise");
+    let mut scope = vm.push_stack_scope();
+    scope.stack.push(JsValue::Object(gen_id));
     // Initial drive: arg value is ignored for SuspendedStart (it's never
     // pushed onto the body's stack), so we pass Undefined.
-    drive_async_coroutine(vm, gen_id, JsValue::Undefined, false)?;
+    drive_async_coroutine(&mut scope, gen_id, JsValue::Undefined, false)?;
     Ok(JsValue::Object(wrapper))
 }
