@@ -150,20 +150,19 @@ Ten GC-relevant fields; nine marked by both blocks, one by the live block only.
 
 ## §3. Spec coverage map
 
-None. The GC is engine-internal: no ECMAScript, Web IDL or web-platform algorithm is implemented or changed. The
-governing sources are the repo's rules (CLAUDE.md Design discipline: 設計優先, One issue one way, 1000-line debt) and
-the umbrella's §4.1 / §7 rows.
+No algorithm is implemented or changed: the GC is engine-internal. The row is the clause this slice's code answers
+to, as in P0a-1's §3 (a resource limit) and PR-A2's §3: ECMA-262 §9.9.2 Liveness defines when a set of objects is
+live ("a value is live if its identity is observable via non-WeakRef means", Note 4; `webref body ecma262
+sec-liveness`), and a collector may reclaim only what is not live. A `CallFrame` field that is the only reference to an
+object makes that object observable to the frame's future execution, so it must be marked. R-0b's acceptance (§6) is
+that every GC-relevant field of §2 stays marked, live and suspended. The repo rules that shape the change (設計優先,
+One issue one way, 1000-line debt) are CLAUDE.md's, not a spec's.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| none — engine-internal GC | — | — | `mark_frame` (NEW, `vm/gc/mod.rs`); callers `mark_roots` (`vm/gc/roots.rs:278-316`), `trace_work_list` `Generator` arm (`vm/gc/trace.rs:330-374`) | ✓ (exhaustive `CallFrame` pattern, §4) | no |
+| ECMA-262 §9.9.2 Liveness | the second condition (a future WeakRef-oblivious execution observes the value's identity) | a frame field as the only reference, live frame and suspended frame | `mark_frame` (NEW, `vm/gc/mod.rs`); callers `mark_roots` (`vm/gc/roots.rs:278-316`), `trace_work_list` `Generator` arm (`vm/gc/trace.rs:330-374`) | ✓ (exhaustive `CallFrame` pattern, §4) | yes (script decides what each field holds) |
 
-**Breadth**: K=0, M=1.
-
-**Preflight**: `python3 .claude/skills/elidex-plan-review/preflight.py` hard-fails this table by construction (exit 1:
-"1 of 1 row(s) missing `§<number>` reference"; grep-pass 0 hard). The row has no section because there is no spec; no
-citation is invented to satisfy it. Whether a spec-less memo runs the preflight with the row as is or the preflight
-gains a "none" form is for the driver.
+**Breadth**: K=1, M=1.
 
 ### §3.1 User-input touch audit
 
