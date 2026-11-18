@@ -1,5 +1,9 @@
 # K2 fixture git — the final-head runbook (§6 of the plan delta)
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
+> ⚠ `…-cr2-plan-finalhead-check.sh` (this plan's checker) cannot be re-run either; see the header of that file (PM 815/816).
+
 ## §0 Spec coverage map
 
 **No spec surface**: the declaration of the memo's §3 (a runbook of shell-harness runs). `preflight.py` exits 1 here by
@@ -22,13 +26,13 @@ All glue below runs under `/opt/homebrew/bin/bash`; the cell scripts run under `
 **Script files.** Every fence below goes into one script file under `$H/cr2/work/fh-scripts/` (outside `$K`, so a
 fresh `$K` keeps them), run as a file and never pasted into a shell's command line: `gate` reads every command line,
 and a pasted batch names the wire. The definitions file is sourced by one line, which the fences do not repeat (the
-**sourcing line**): `. /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh/defs.sh || exit 1`. The **setup
+**sourcing line**): `. /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh/defs.sh || exit 1` (path not retained — see the note at the top of this file). The **setup
 script** is §6.0's fences in order: the definitions file's writer (below), the sourcing line, then the frame guard,
 the gate's negative control, the clones and the scripts. Each **batch script** is the sourcing line and its section's
 fences in order: B1 = §6.2's fence; B2 = §6.3's three; B3 = §6.4's; B4 = §6.5's, then §6.6's (the checker's
 `x5build.sh` joins the same two, memo §7 C17); B5–B7 = §6.7's one fence, a script that runs the three batches in turn;
 B8 = §6.8's. **One definitions file**, written by the setup script, holds every definition the fences use, the state
-that crosses fences (`SP`, B4's directory) included:
+that crosses fences (`SP`, B4's directory) included (the writer's paths are not retained — see the note at the top of this file):
 
 ```sh
 mkdir -p /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh
