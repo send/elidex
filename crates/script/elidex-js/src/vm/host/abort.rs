@@ -574,8 +574,10 @@ pub(super) fn abort_signal(
     // no-op (no such signal, or already aborted) is the module's `None`,
     // taken before the closure materialises the default reason.
     // `signal_id` is rooted across the closure: materialising the default
-    // reason allocates, and with GC enabled (the timer path) that could sweep
-    // a signal nothing else references.
+    // reason (`undefined` passed) allocates, and with GC enabled — e.g. an
+    // `internal_abort_signal` caller outside a native — that could sweep a
+    // signal nothing else references.  (Natives run with GC disabled; the
+    // timer path passes a pre-built `TimeoutError`, so nothing is allocated.)
     let mut signal_root = ctx.vm.push_temp_root(JsValue::Object(signal_id));
     let plan = signal_abort(&mut *signal_root, signal_id, |vm| {
         materialise_abort_reason(vm, reason)
