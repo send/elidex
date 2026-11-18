@@ -31,6 +31,12 @@ U6's plain-document fixture is not a DOMParser document in N4's terms, so all fo
 pins the disabled side (DoD 6: 10 items); the inert-template-document marker gap is stated; the pin census command no
 longer depends on the shell's word splitting and was re-run; §9's unescaped outputs are listed in full; HTML §4.12.3
 step numbers.
+**Rev 6** (2026-11-18) — focused re-check fixes on Rev 5: on the XMLSerializer family every Text is escaped by DOM
+Parsing §5.2.1.5, including a Text child of an HTML raw-text parent — §13.3's literal branch is read on the
+`HtmlFragment` family only (D-6, I-2, X4; no longer deferred to `#11-domparser-xml-real-parsing`); the three axes'
+pair matrix is written out (§2) and §1 says why the PR stays one slice; the `>` ruling for *serializing an attribute
+value* (steps normative, Note informative: not replaced; D-6, §0.4); I-1 × I-2 per family (X5); `markup.rs`'s module
+header numbers fixed in this PR (§4.1, DoD 4); `xargs -0 -r` in the pin census.
 
 ## §0. Frame, premises, decisions
 
@@ -52,8 +58,9 @@ The HTML fragment serialization algorithm (HTML §13.3) has two decisions this P
 
 Three of the four serializer entries are §13.3's (`innerHTML` / `outerHTML` / `getHTML`). The fourth,
 `XMLSerializer.serializeToString`, is not: its ground is the XML serialization (HTML §8.5.9 step 1 → DOM Parsing
-§5.2.1), whose two escaping algorithms differ from (e). This PR gives that entry those two algorithms (D-6, PM 785);
-the rest of its walk stays the HTML one until `#11-domparser-xml-real-parsing` (§9).
+§5.2.1), whose two escaping algorithms differ from (e). This PR gives that entry those two algorithms (D-6, PM 785)
+and takes §13.3's literal (raw-text) Text branch off it, since §5.2.1.5 escapes every Text node; the rest of its walk
+stays the HTML one until `#11-domparser-xml-real-parsing` (§9).
 
 ### §0.2 Premises re-measured at `c0578223`
 
@@ -134,8 +141,13 @@ the rest of its walk stays the HTML one until `#11-domparser-xml-real-parsing` (
   in both positions, the attribute's `<` raw. This entry's ground is not §13.3: HTML §8.5.9 `serializeToString(root)`
   step 1 is "Return the XML serialization of root given false", and the XML serialization escapes by DOM Parsing
   §5.2.1.5 *XML serializing a Text node* (steps 3-5: `&`, `<`, `>`) and by *serializing an attribute value* in
-  §5.2.1.1.3 (step 3: `&`, `"`, `<`, U+0009, U+000A, U+000D; not `>`). Neither replaces U+00A0, so D-1's function on
-  this path would newly emit `&nbsp;`, an entity XML does not define.
+  §5.2.1.1.3 (step 3: `&`, `"`, `<`, U+0009, U+000A, U+000D; not `>` — the Note under the list is ruled on in D-6).
+  Neither replaces U+00A0, so D-1's function on this path would newly emit `&nbsp;`, an entity XML does not define.
+  And the walk's raw-text decision (P2's two read sites) does not look at which entry is running, so on this path a
+  Text child of any `RAW_TEXT_ELEMENTS` parent (script, style, …) is emitted literally — e.g. a `script` whose text
+  is `</script><img src=x onerror=f()>` serializes as `<script></script><img src=x onerror=f()></script>` (follows
+  from P2's read at `markup.rs:445`) — although §5.2.1.5 reads no parent and escapes every Text node (steps 3-5); the
+  literal branch is §13.3 step 5.2's, an algorithm this entry does not run.
 
 ### §0.3 Decisions (this PR)
 
@@ -196,6 +208,14 @@ the rest of its walk stays the HTML one until `#11-domparser-xml-real-parsing` (
     (`#dfn-serializing-an-attribute-value`, in DOM Parsing §5.2.1.1.3 *Serializing an Element's attributes*) step 3:
     `&` → `&amp;`, `"` → `&quot;`, `<` → `&lt;`, U+0009 → `&#9;`, U+000A → `&#xA;`, U+000D → `&#xD;`. Nothing else
     is replaced (`>` and U+00A0 stay).
+  - **`>` in an attribute value — ruling.** Step 3's list, the normative text, has no `>`; the Note under it says
+    the algorithm goes beyond XML's AttValue grammar "by also replacing ">" characters". The two disagree, and
+    elidex's basis order decides by the normative text: the numbered steps are normative, a Note is informative,
+    so `>` is **not** replaced (XA2, X3). The Note's stated ground is an observation about existing
+    implementations, which is not a basis for core behaviour (CLAUDE.md, basis order), so it is not weighed.
+    Safety does not depend on `>` (I-1 × I-2, §2). If DOM Parsing moves `>` into the steps, the change is one arm
+    plus flipping XA2's `>` cell and X3. The docstring of `push_xml_attribute_value` states this ruling and its
+    basis (DoD 4).
   - **Which part of each algorithm.** Both functions are the algorithm as run with *require well-formed* = false,
     the only value an elidex caller passes (HTML §8.5.9 step 1). The steps that act only when it is true (Text
     step 2, attribute-value step 1: throw if the string has a character outside XML's Char production) run before
@@ -209,24 +229,37 @@ the rest of its walk stays the HTML one until `#11-domparser-xml-real-parsing` (
   - **Selection, made once.** A private `enum CharacterEscaping { HtmlFragment, XmlSerialization }` (NEW,
     `markup.rs`) is fixed by each public entry and carried through the walk unchanged: `serialize_node_to_string`
     passes `XmlSerialization` (in both of its arms), the three §13.3 entry points pass `HtmlFragment`. It is read in
-    exactly two private functions, `push_text_data` and `push_attribute_value` (NEW), each a two-arm `match` that
-    calls `push_escaped_string(.., Text | Attribute)` or the corresponding D-6 function; the walk's three write
-    sites (Text, `is` value, attribute loop) call those two. It is not a field of the public `SerializeOptions`
-    (`getHTML`'s options), so no caller of a §13.3 entry point can select XML escaping.
+    exactly two private functions, `push_text_data(walk, out, data, in_raw_text)` and `push_attribute_value(walk,
+    out, value)` (NEW); the walk's three write sites (Text, `is` value, attribute loop) call those two. Each is one
+    `match` with one arm per spec algorithm:
+    - `push_text_data`: `HtmlFragment` → §13.3 step 5.2's Text branch — the data verbatim if `in_raw_text`, else
+      `push_escaped_string(.., Text)`; `XmlSerialization` → `push_xml_text`, which does **not** read `in_raw_text`
+      (§5.2.1.5 has no parent test). So a Text node is literal iff the family is `HtmlFragment` ∧
+      `text_children_literal(parent)` — the selection gates the raw-text decision by that one conjunct, and the
+      raw-text decision is read only on the `HtmlFragment` family (I-2, §2 matrix).
+    - `push_attribute_value`: `HtmlFragment` → `push_escaped_string(.., Attribute)`; `XmlSerialization` →
+      `push_xml_attribute_value`.
+
+    It is not a field of the public `SerializeOptions` (`getHTML`'s options), so no caller of a §13.3 entry point can
+    select XML escaping.
   - **Basis.** Spec: HTML §8.5.9 step 1 + the two DOM Parsing algorithms (P7). One issue, one way, read as *one
     function per spec algorithm*: §13.3's *escaping a string* has exactly one form (D-1) and each DOM Parsing
-    algorithm has exactly one. Security by structure: the raw `<` in XMLSerializer attribute values (P7) is closed.
+    algorithm has exactly one; a family's Text has exactly one algorithm too (§13.3 step 5.2 or §5.2.1.5, never a
+    mix). Security by structure: the raw `<` in XMLSerializer attribute values and the literal Text under an HTML
+    raw-text parent on that path (P7) are both closed — no input reaches a literal Text through XMLSerializer.
   - **Candidates rejected (PM 785).** (b1) keep HEAD's two escapers for the XMLSerializer path: leaves a second
     copy of §13.3-like escaping, makes I-1 false, and keeps the attribute `<` defect. (b3) land the full XML
     serializer first: beyond PM 724's scope, and delays the mXSS fix. Accepting `&nbsp;` on this path (Rev 4): a
     regression of well-formedness. An XML mode on `push_escaped_string`: a second form of §13.3's algorithm, and
-    neither DOM Parsing algorithm is *escaping a string* with a flag (different character sets).
-  - **What does not change on this path.** Everything the walk decides: element / comment / doctype output, the
-    void check, and the raw-text decision — D-2's predicate, the same on both families, so a Text child of an
-    HTML-namespace script / style / … parent is emitted literally through XMLSerializer too (HEAD already does this
-    for its own list), although §5.2.1.5 reads no parent. Those stay with
-    `#11-domparser-xml-real-parsing` (§9). A noscript's Text child is escaped on this path by `push_xml_text`, which
-    is exact for §5.2.1.5 (not R1's approximation).
+    neither DOM Parsing algorithm is *escaping a string* with a flag (different character sets). Keeping the literal
+    raw-text branch on this path until `#11-domparser-xml-real-parsing` (Rev 5): a deviation from §5.2.1.5 in the
+    unsafe direction, deferred to a slot whose trigger does not cover it, with no cell pinning it — while the fix is
+    the one match arm above.
+  - **What does not change on this path.** The rest of what the walk decides: element / comment / doctype output
+    and the void check. The walk still computes `in_raw_text` from D-2's predicate on both families (the threading
+    is shared, P2); only the `XmlSerialization` arm ignores it. Those stay with `#11-domparser-xml-real-parsing`
+    (§9). Every Text — a noscript's, a script's or style's, a bare Text root — is escaped on this path by
+    `push_xml_text`, which is exact for §5.2.1.5 (not R1's approximation; X4).
 
 ### §0.4 Spec citation table
 
@@ -240,11 +273,12 @@ the rest of its walk stays the HTML one until `#11-domparser-xml-real-parsing` (
 | HTML §13.2.6.4.7 | The "in body" insertion mode | `#parsing-main-inbody` | `webref heading html 13.2.6.4.7`; `webref body html parsing-main-inbody` ("A start tag whose tag name is "noscript", if parser scripting disabled is false" → "Follow the generic raw text element parsing algorithm.") |
 | HTML §13.2.6.5 | The rules for parsing tokens in foreign content | `#parsing-main-inforeign` | `webref heading html 13.2.6.5`; `webref body html parsing-main-inforeign` (the breakout start-tag list: "b", "big", …, "br", …, "embed", …, "hr", …, "img", …, "meta", …) |
 | HTML §4.12.3 | The template element | `#appropriate-template-contents-owner-document` | `webref dfn html 'appropriate template contents owner document'` (step 1.1.1: "Let newDocument be the result of creating a document that implements Document, … its browsing context is null"; step 1.2: "Set document to document's associated inert template document") |
+| HTML §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7 | HTML serialization methods / The innerHTML property / The outerHTML property / The insertAdjacentHTML() method | `#html-serialization-methods`, `#the-innerhtml-property`, `#the-outerhtml-property`, `#the-insertadjacenthtml()-method` | `webref heading html 8.5.4` … `8.5.7` (2026-11-18; `8.5.3` → *HTML streaming methods*, which `markup.rs`'s header names as §8.5.3 *HTML serialization methods* at `c0578223`; the header's numbers fixed by this PR, §4.1) |
 | HTML §8.5.8 | The createContextualFragment() method | `#the-createcontextualfragment()-method` | `webref heading html 8.5.8` (the number the code's XMLSerializer cites carry today; fixed to §8.5.9 by this PR, §4.1 / §4.2 / §9) |
 | HTML §8.5.9 | The XMLSerializer interface | `#the-xmlserializer-interface` | `webref heading html 8.5.9`; `webref body html the-xmlserializer-interface` (`serializeToString(root)` step 1: "Return the XML serialization of root given false.") |
 | DOM Parsing §5.2.1 | XML Serialization | `#xml-serialization` | `webref heading DOM-Parsing 5.2.1` (2026-11-18; the module name of D-6; subsections §5.2.1.1 … §5.2.1.8) |
 | DOM Parsing §5.2.1.5 | XML serializing a Text node | `#xml-serializing-a-text-node` (heading), `#dfn-xml-serializing-a-text-node` (algorithm) | `webref heading DOM-Parsing 5.2.1.5`; `webref dfn DOM-Parsing 'XML serializing a Text node'` → §5.2.1.5 `#dfn-xml-serializing-a-text-node`; `webref body DOM-Parsing dfn-xml-serializing-a-text-node` (2026-11-18: steps 1-6; 2 = the *require well-formed* check; 3-5 = "&" → "&amp;", "<" → "&lt;", ">" → "&gt;") |
-| DOM Parsing §5.2.1.1.3 | Serializing an Element's attributes | `#serializing-an-element-s-attributes` (heading), `#dfn-serializing-an-attribute-value` (algorithm *serializing an attribute value*) | `webref heading DOM-Parsing 5.2.1.1.3`; `webref dfn DOM-Parsing 'serializing an attribute value'` → §5.2.1.1.3 `#dfn-serializing-an-attribute-value`; `webref body DOM-Parsing dfn-serializing-an-attribute-value` (2026-11-18: step 1 = the *require well-formed* check; 2 = null → empty string; 3 = replace "&", U+0022, "<", U+0009 → "&#9;", U+000A → "&#xA;", U+000D → "&#xD;"; ">" is not in the list) |
+| DOM Parsing §5.2.1.1.3 | Serializing an Element's attributes | `#serializing-an-element-s-attributes` (heading), `#dfn-serializing-an-attribute-value` (algorithm *serializing an attribute value*) | `webref heading DOM-Parsing 5.2.1.1.3`; `webref dfn DOM-Parsing 'serializing an attribute value'` → §5.2.1.1.3 `#dfn-serializing-an-attribute-value`; `webref body DOM-Parsing dfn-serializing-an-attribute-value` (2026-11-18: step 1 = the *require well-formed* check; 2 = null → empty string; 3 = replace "&", U+0022, "<", U+0009 → "&#9;", U+000A → "&#xA;", U+000D → "&#xD;"; ">" is not in the list; the Note under step 3 says ">" is also replaced — informative, so not followed: the steps decide, D-6 ruling) |
 
 `webref coverage-map html 13.3` → spec = 1, "ok → single PR scope" (2026-11-15); `webref coverage-map DOM-Parsing
 5.2.1.5` and `… 5.2.1.1.3` → each spec = 1, step = 1, "ok → single PR scope" (2026-11-18). §2.1.3 / §8.1.3.4 / §7.1.5 /
@@ -253,40 +287,59 @@ this PR implements §13.3 steps, DOM Parsing §5.2.1.5 steps 3-5 and *serializin
 
 ## §1. Shape and verdict
 
-One PR, one algorithm crate (`elidex-dom-api` serializer) plus VM end-to-end cells. **Not edge-dense**: two
-intersecting axes — (i) the character map of escaping, (ii) the raw-text decision for a Text node's parent (the
-unconditional list and the HTML-namespace conjunct). D-6 adds a selection, (iii) which spec's escaping an entry uses;
-it is fixed once per entry (I-3), replaces the map of (i) wholesale (the full matrix is 2 families × {Text,
-attribute value} = four pure functions-or-modes, each with its own unit cells), and does not enter (ii) — the raw-text
-decision is the walk's and is the same for both families (D-6). No scripting input, no new ECS state, no event /
+One PR, one algorithm crate (`elidex-dom-api` serializer) plus VM end-to-end cells. Three axes, intersecting
+pairwise: (i) the character map of escaping, (ii) the raw-text decision for a Text node's parent (the unconditional
+list and the HTML-namespace conjunct), (iii) the entry's selection of escaping family (D-6). Each pair's intersection
+is mapped up front in §2's pair matrix, one line each, with its cells. **It remains a single terminal slice**, not an
+umbrella: (iii) is not per-node state but a value fixed once per public entry and never changed inside a walk (I-3),
+so it multiplies no walk state; it replaces (i) wholesale (2 families × {Text, attribute value} = four pure
+functions-or-modes, each with its own unit cells) and gates (ii) by one conjunct, read in one match arm (D-6: a Text is
+literal iff `HtmlFragment` ∧ `text_children_literal(parent)`). The intersections are therefore three lines, not a
+matrix of walk states; and PM 785 placed option (b2) in this PR. No scripting input, no new ECS state, no event /
 mutation / identity interaction. One normal `/elidex-plan-review`.
 
 ## §2. Invariants
 
-- I-1 (escaping): every non-literal Text datum passes through `push_text_data` and every attribute / `is` value
-  through `push_attribute_value`; those two dispatch to exactly three escaping functions, one per spec algorithm —
+- I-1 (escaping): every Text datum passes through `push_text_data` (which writes it verbatim only in its
+  `HtmlFragment` arm with `in_raw_text`, I-2) and every attribute / `is` value through `push_attribute_value`; those
+  two dispatch to exactly three escaping functions, one per spec algorithm —
   `push_escaped_string` (HTML §13.3 *escaping a string*), `push_xml_text` (DOM Parsing §5.2.1.5) and
   `push_xml_attribute_value` (*serializing an attribute value*). No other markup-escaping code exists in `crates/`
   (concept sweep, §5.1; DoD 1).
 - I-3 (selection): the escaping family is fixed once per public entry and never changes inside a walk — the three
   §13.3 entry points use only `push_escaped_string`, `serialize_node_to_string` uses only the DOM Parsing pair
-  (D-6). `serialize_node_to_string` has one production caller, the XMLSerializer native (P7), so "the XMLSerializer
-  path" and "`serialize_node_to_string`" name the same population.
-- I-2 (raw text): for a Text node whose parent is an Element and which is reached through one of the two read sites
-  (P2: the entry `serialize_inner_html_with_options` with that Element as *the node*, or the `serialize_node`
-  recursion from that Element), the Text is emitted literally iff `text_children_literal(parent)`; the predicate is
-  computed in exactly one function used at both read sites, and is false for every noscript and every
-  non-HTML-namespace parent. I-2 is about the walk, so it holds for both escaping families: on the XMLSerializer
-  path "escaped" means `push_xml_text`, and a raw-text parent's Text is literal there too (the walk is the HTML one;
-  D-6, §9). Outside that scope: a bare Text node passed to `serialize_outer_html` / `serialize_node_to_string`
+  (D-6), and the raw-text decision is read on the `HtmlFragment` family only. `serialize_node_to_string` has one
+  production caller, the XMLSerializer native (P7), so "the XMLSerializer path" and "`serialize_node_to_string`"
+  name the same population.
+- I-2 (raw text), per family. **`HtmlFragment`** (the three §13.3 entry points): for a Text node whose parent is an
+  Element and which is reached through one of the two read sites (P2: the entry `serialize_inner_html_with_options`
+  with that Element as *the node*, or the `serialize_node` recursion from that Element), the Text is emitted
+  literally iff `text_children_literal(parent)`; the predicate is computed in exactly one function used at both read
+  sites, and is false for every noscript and every non-HTML-namespace parent. **`XmlSerialization`**
+  (`serialize_node_to_string`): no Text is emitted literally — every Text, whatever its parent (including an
+  HTML-namespace script / style / … parent), goes through `push_xml_text` (§5.2.1.5 reads no parent; D-6, X4). The
+  walk computes `in_raw_text` on both families; only `push_text_data`'s `HtmlFragment` arm reads it. Outside the
+  `HtmlFragment` scope: a bare Text node passed to `serialize_outer_html` / `serialize_node_to_string`
   (`XMLSerializer.serializeToString(text)`) is escaped without consulting its parent (the walk starts with
   `in_raw_text = false`, `markup.rs:162`). That path's ground is not §13.3 (which takes "a DOM Element, Document, or
   DocumentFragment" as *the node*): HTML §8.5.9 `serializeToString(root)` step 1 returns "the XML serialization of
   root given false", and a Text root is serialized by DOM Parsing §5.2.1.5 *XML serializing a Text node*, which
   escapes the data and reads no parent. Since D-6 that is the function this entry runs (`push_xml_text`), so the
   bare-Text output is exact for §5.2.1.5 (at HEAD it was `escape_html`, which has the same three replacements).
-- I-1 × I-2: an attribute value inside a noscript is serialized with `<`/`>` escaped, so re-parsing the output in a
-  scripting-enabled context (where noscript is RAWTEXT) cannot close the noscript early — V5 pins this intersection.
+- I-1 × I-2, per family: an attribute value inside a noscript is serialized with `<` escaped on both families —
+  **`HtmlFragment`**: `<` and `>` escaped (*escaping a string*, attribute mode); **`XmlSerialization`**: `<` escaped,
+  `>` raw (*serializing an attribute value*, D-6 ruling). Re-parsing the output in a scripting-enabled context (where
+  noscript is RAWTEXT) closes the noscript only at a `</noscript` sequence, which needs a raw `<`, so the argument
+  holds through `<` alone and does not depend on `>`. V5 pins it on `HtmlFragment`, X5 on `XmlSerialization`
+  (`</noscript>` in an attribute value → `&lt;/noscript>`).
+
+**Pair matrix of the three axes (§1)** — each intersection in one line, with the cells that pin it:
+
+| Pair | Intersection | Cells |
+|---|---|---|
+| (i) × (ii) | A literal Text bypasses escaping entirely; every other Text goes through the family's Text function, and an attribute value is never literal (no raw-text decision reads it): the noscript argument above holds through `<` | U4, U6, V5, X5 |
+| (i) × (iii) | The family picks the whole character map, never mixed in one walk: `HtmlFragment` → `push_escaped_string(Text \| Attribute)`, `XmlSerialization` → `push_xml_text` / `push_xml_attribute_value` | U1-U3 / V6 vs XT1-XT3, XA1-XA3, X1-X3, X5 |
+| (ii) × (iii) | The raw-text decision is read only on the `HtmlFragment` family: literal iff `HtmlFragment` ∧ `text_children_literal(parent)`; through XMLSerializer every Text is escaped, a script / style parent included | U4 (literal on `HtmlFragment`) vs X4 (escaped on `XmlSerialization`) |
 
 ## §3. Spec coverage map
 
@@ -294,9 +347,9 @@ mutation / identity interaction. One normal `/elidex-plan-review`.
 |---|---|---|---|---|---|
 | WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-4 | text mode (Text data outside raw-text parents), §13.3 entry points | `push_escaped_string(.., Text)`, the `HtmlFragment` arm of `push_text_data` (`serialize_node` Text branch) | ✓ | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-5 | attribute mode (attribute values; the synthetic `is` value), §13.3 entry points | `push_escaped_string(.., Attribute)`, the `HtmlFragment` arm of `push_attribute_value` (the `is` and attribute-loop sites) | ✓ | yes |
-| W3C DOM Parsing §5.2.1.5 XML serializing a Text node | steps 3-5 | *require well-formed* = false (`serialize_node_to_string`) | `push_xml_text`, the `XmlSerialization` arm of `push_text_data` | ✗ (step 2, *require well-formed* = true: no caller; `#11-domparser-xml-real-parsing`) | yes |
+| W3C DOM Parsing §5.2.1.5 XML serializing a Text node | steps 3-5 | *require well-formed* = false, every Text whatever its parent — an HTML raw-text parent included (`serialize_node_to_string`) | `push_xml_text`, the `XmlSerialization` arm of `push_text_data` (does not read `in_raw_text`) | ✗ (step 2, *require well-formed* = true: no caller; `#11-domparser-xml-real-parsing`) | yes |
 | W3C DOM Parsing §5.2.1.1.3 Serializing an Element's attributes | *serializing an attribute value* step 3 | *require well-formed* = false, non-null value (`serialize_node_to_string`) | `push_xml_attribute_value`, the `XmlSerialization` arm of `push_attribute_value` | ✗ (step 1, *require well-formed* = true: no caller; step 2, null: no input; the rest of §5.2.1.1.3 — prefixes, namespace declarations — is `#11-domparser-xml-real-parsing`) | yes |
-| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent ∈ {style, script, xmp, iframe, noembed, noframes, plaintext}, HTML namespace → literal | `text_children_literal` | ✓ | yes |
+| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent ∈ {style, script, xmp, iframe, noembed, noframes, plaintext}, HTML namespace → literal (§13.3 entry points only) | `text_children_literal` + the `HtmlFragment` arm of `push_text_data` | ✓ | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent noscript → escaped in every document (PM 731) | `text_children_literal` (false) | ✗ (the "scripting is enabled for the node" → literal branch is not taken; N4, §9) | yes |
 | WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | otherwise (incl. same-named non-HTML-namespace parent) → escaped | `serialize_node` Text branch | ✓ | yes |
 
@@ -311,8 +364,10 @@ citations were verified by the §0.4 lookups instead). **Split decision**: singl
   getters (`crates/script/elidex-js/src/vm/host/dom_inner_html.rs:116`, `:317`, `:339`) and
   `XMLSerializer.serializeToString` (`crates/script/elidex-js/src/vm/host/dom_parser.rs:404`). The natives' code
   is not edited (§4.2); exposure decreases through the shared serializer. On the XMLSerializer path specifically
-  (D-6): Text output is unchanged (the same three replacements as HEAD's `escape_html`); attribute values gain `<` →
-  `&lt;` (the P7 defect) and the U+0009 / U+000A / U+000D character references; U+00A0 stays raw.
+  (D-6): Text output is unchanged (the same three replacements as HEAD's `escape_html`) except under an HTML
+  raw-text parent (script, style, xmp, iframe, noembed, noframes, plaintext), whose Text was literal at HEAD and is
+  now escaped (P7 defect; X4); attribute values
+  gain `<` → `&lt;` (the P7 defect) and the U+0009 / U+000A / U+000D character references; U+00A0 stays raw.
 - Adjacent pre-existing: the Comment branch (`markup.rs:382-386`, data verbatim per spec) and attribute-name
   filtering (`is_safe_attr_name`, `markup.rs:267`) — untouched; exposure unchanged.
 
@@ -322,7 +377,8 @@ citations were verified by the §0.4 lookups instead). **Split decision**: singl
 
 - `EscapingMode` + `push_escaped_string` (NEW, private), D-1. `util.rs` loses `escape_html` / `escape_attr` and their
   two tests (moved as cells, §6).
-- `CharacterEscaping` + `push_text_data` / `push_attribute_value` (NEW, private), D-6. The walk's `opts:
+- `CharacterEscaping` + `push_text_data` / `push_attribute_value` (NEW, private), D-6; the Text write site passes
+  its `in_raw_text` to `push_text_data`, whose `HtmlFragment` arm alone reads it. The walk's `opts:
   &SerializeOptions` parameter becomes one private `walk: &Walk<'_>` (NEW: `{ opts: &SerializeOptions, escaping:
   CharacterEscaping }`) in `serialize_node`, `emit_own_shadow_root_if_needed` and `emit_shadow_root_template`, so the
   selection travels with the options and no call site can drop it. The three §13.3 entry points build a `Walk` with
@@ -331,11 +387,15 @@ citations were verified by the §0.4 lookups instead). **Split decision**: singl
   public `serialize_inner_html` / `serialize_outer_html`).
 - `serialize_node_to_string`'s docstring and the module header are rewritten for D-6: the XMLSerializer cite becomes
   HTML §8.5.9 (both say §8.5.8 at `c0578223`, `markup.rs:7` and `:168`; §8.5.8 is *The createContextualFragment()
-  method*), and the docstring says the walk is the HTML one with DOM Parsing's two escapes (§0.4 numbers). The
-  header's other numbers are stale by the same renumbering (it says §8.5.3 / .4 / .5 / .6 for what are now §8.5.4
-  *HTML serialization methods*, §8.5.5 *The innerHTML property*, §8.5.6 *The outerHTML property*; `webref heading
-  html 8.5.3` … `8.5.6`, 2026-11-18) — out of this PR's diff apart from the XMLSerializer line; they belong to the
-  slot's citation pass (§9).
+  method*), and the docstring says the walk is the HTML one with DOM Parsing's two escapes and every Text escaped
+  (§0.4 numbers). The header's other numbers are stale by the same renumbering and are fixed in this PR, in the same
+  header block: at `c0578223` it pairs `§8.5.3` with *HTML serialization methods*, `§8.5.4` with *The innerHTML
+  property*, `§8.5.5` with *The outerHTML property* and `§8.5.6` with *The insertAdjacentHTML() method*; they are
+  now **§8.5.4** *HTML serialization methods*, **§8.5.5** *The innerHTML property*,
+  **§8.5.6** *The outerHTML property*, **§8.5.7** *The insertAdjacentHTML() method*
+  (`webref heading html 8.5.3` … `8.5.9`, 2026-11-18: §8.5.3 is now *HTML streaming methods*, §8.5.8 *The
+  createContextualFragment() method*, §8.5.9 *The XMLSerializer interface*). The rewritten header writes each
+  number with its title on one line (DoD 4's check).
 - `RAW_TEXT_ELEMENTS` per D-2 (doc comment per D-3).
 - `text_children_literal` (NEW, private) per D-2/D-4; called at the two read sites (P2).
 - `SerializeOptions`, the public entry points' signatures, `GetInnerHtml` and the re-export lists are unchanged
@@ -355,7 +415,7 @@ The four natives' code is not edited (D-3: no context to marshal; D-6: the selec
 `serialize_node_to_string`). Comments only, in `dom_parser.rs`: the module doc (`:1`, "`XMLSerializer` (HTML
 §8.5.8)", and `:37-41`), the `serializeToString` docstring (`:322-…`, "HTML §8.5.8 … This is HTML serialization (boa parity)") and the inline
 comment above the call (`:397-403`) describe the old escaping and the old section number; they are reworded to "HTML
-§8.5.9; the HTML walk with DOM Parsing's two escapes (D-6); the rest of the XML serialization is
+§8.5.9; the HTML walk with DOM Parsing's two escapes, every Text escaped (D-6); the rest of the XML serialization is
 `#11-domparser-xml-real-parsing`". `elidex-script-session` is not edited.
 
 ### §4.3 ECS-native / layering check
@@ -405,9 +465,10 @@ read — grounded in HTML §8.5.9 `serializeToString` step 1 → DOM Parsing §5
 in §13.3, and since D-6 run by `push_xml_text` (I-2); (4) `:351` (a shadow root's children inside the emitted `<template shadowrootmode>`) and `:457` (children of
 a non-Element node) pass `false`: their Text's parent is a ShadowRoot / Document / DocumentFragment, not an Element,
 so step 5.2's *otherwise* (escaped) is exact. (3) and (4) are not `RAW_TEXT_ELEMENTS` reads; their raw-text
-argument (`false`) is unchanged (I-2's scope note). D-6 changes none of these decisions: `serialize_node_to_string`
-reaches the same five calls with `XmlSerialization` in its `Walk` (§4.1), so which Text is literal is identical on
-both families and only the escaper differs. The grep gives 6 hits = 5 calls (`:162`, `:247` after the read `:243`, `:351`, `:449` after
+argument (`false`) is unchanged (I-2's scope note). D-6 changes none of these computations: `serialize_node_to_string`
+reaches the same five calls with `XmlSerialization` in its `Walk` (§4.1), so the `in_raw_text` each call computes is
+identical on both families; what differs is whether it is read — only `push_text_data`'s `HtmlFragment` arm reads it,
+so on `XmlSerialization` no Text is literal (I-2). The grep gives 6 hits = 5 calls (`:162`, `:247` after the read `:243`, `:351`, `:449` after
 the read `:445`, `:457`) + the definition `:356`, verified 2026-11-15.
 
 ### §5.3 Files touched (`wc -l` at `c0578223`)
@@ -429,7 +490,7 @@ the read `:445`, `:457`) + the definition `:356`, verified 2026-11-15.
 Supported surface: §13.3 escaping, the step-5.2 Text branch, and the XMLSerializer path's two DOM Parsing escapes,
 guarded by engine-independent unit cells in `elidex-dom-api` and VM end-to-end cells; no WPT subset is added by this
 PR. U1-U6 and V1-V13 exercise the §13.3 entry points and are unchanged by D-6; the XMLSerializer path's cells are
-XT / XA (unit) and X1-X3 (VM).
+XT / XA (unit) and X1-X5 (VM).
 
 **Unit, `tests_markup.rs`** (fixtures: `EcsDom::create_document_root` = the cached document root, "bound-like";
 `create_document_node` = a plain cache-free Document, "plain-document". Neither is distinguishable to this PR's
@@ -485,8 +546,8 @@ serializer, which reads no document state; see U6 for what N4 will make of each)
   `outerHTML` contains `title="a&nbsp;b"`.
 - V7 plaintext: `<plaintext>` created by `createElement`, `textContent = '<b>'` → `innerHTML === '<b>'`.
 - V10 / V11 (innerHTML) and V12 / V13 (outerHTML) round-trip growth (§7 R2), pinned expectations.
-- X1-X3, the XMLSerializer path (D-6; exactly PM 785's three cells; a page `div` built by `createElement` /
-  `setAttribute` / `textContent`, `s = new XMLSerializer()`):
+- X1-X5, the XMLSerializer path (D-6; X1-X3 are PM 785's three cells, X4 and X5 were added by Rev 6; elements built
+  by `createElement` / `setAttribute` / `textContent`, `s = new XMLSerializer()`):
   - **X1** U+00A0 is emitted raw, in Text and in an attribute value: `title` = `'x\u00a0y'`, text `'p\u00a0q'` →
     `s.serializeToString(div) === '<div title="x\u00a0y">p\u00a0q</div>'`, plus two separate assertions that the
     output contains no `&nbsp;` before and after the first `>` (so a one-site mutant is attributable). Root = the
@@ -496,11 +557,25 @@ serializer, which reads no document state; see U6 for what N4 will make of each)
     arms of the entry are covered.
   - **X3** `>` in an attribute value is not replaced: `title` = `'a>b'` → `s.serializeToString(div) === '<div
     title="a>b"></div>'`.
+  - **X4** Text under an HTML raw-text parent is escaped (§5.2.1.5; the (ii) × (iii) cell). Detached elements built
+    by `createElement` (never connected, so nothing runs). Element root (outer arm): `sc` = a `script` with
+    `textContent = '</script><img src=x onerror=f()>'` → `s.serializeToString(sc) ===
+    '<script>&lt;/script&gt;&lt;img src=x onerror=f()&gt;</script>'`. Fragment root (children arm): `st` = a `style`
+    with `textContent = '</style><img src=x onerror=f()>'`, appended to a `DocumentFragment` →
+    `s.serializeToString(frag) === '<style>&lt;/style&gt;&lt;img src=x onerror=f()&gt;</style>'`. For each output
+    `o`, `d.innerHTML = o` on a page `div` → `d.querySelector('img') === null`. Red on old code: the Text was literal,
+    so the re-parse ends the script / style at the embedded end tag and builds the `img`.
+  - **X5** I-1 × I-2 on `XmlSerialization`: a `noscript` with a `p` child whose `title` is `'</noscript><img src=x
+    onerror=f()>'` → `s.serializeToString(ns) === '<noscript><p title="&lt;/noscript>&lt;img src=x
+    onerror=f()>"></p></noscript>'` (`<` escaped, `>` raw), and `d.innerHTML` of that output on a page `div` (noscript
+    RAWTEXT) → `d.querySelector('img') === null`. Red on old code: `escape_attr` left `<` raw, so the page parse ends
+    the noscript inside the attribute.
 
 VM test function names (used by DoD 6): `v1_page_noscript_escaped`, `v10_inner_html_round_trip_scripting_enabled`,
 `v11_inner_html_round_trip_scripting_disabled`, `v12_outer_html_round_trip_scripting_enabled`,
 `v13_outer_html_round_trip_scripting_disabled`. X cells: `x1_xml_serializer_nbsp_raw`,
-`x2_xml_serializer_attr_lt_escaped`, `x3_xml_serializer_attr_gt_raw`.
+`x2_xml_serializer_attr_lt_escaped`, `x3_xml_serializer_attr_gt_raw`, `x4_xml_serializer_raw_text_parent_text_escaped`,
+`x5_xml_serializer_noscript_attr_lt_escaped`.
 
 **Unit, `xml_serialization_tests.rs` (NEW)** — the two functions themselves, one cell per replacement arm, the way
 U1 / U2 cover `push_escaped_string`:
@@ -532,7 +607,10 @@ serializes a noscript, an SVG style/script, or an attribute containing `<`, `>` 
 `tests_dom_parser.rs` assert parse shape only). XMLSerializer path (D-6): `git grep -n 'serializeToString' --
 crates/script/elidex-js/src/vm/tests` → 13 lines, all in `tests_dom_parser.rs` (2026-11-18); the ones that assert
 output use `class="test"`, `id="f"`, text `hello world` / `hi`, a comment and brand / argument errors — no `<`, `>`,
-`&`, `"`, U+00A0, U+0009, U+000A or U+000D inside a serialized Text or attribute value. **No expectation flips.**
+`&`, `"`, U+00A0, U+0009, U+000A or U+000D inside a serialized Text or attribute value, and none of the 11 test
+functions that call `serializeToString` builds or parses a script / style / xmp / iframe / noembed / noframes /
+plaintext element (checked per function at `c0578223`, 2026-11-18), so X4's change meets no existing expectation.
+**No expectation flips.**
 
 **Mutants** (each must turn a named cell red): drop each of the 5 escape arms (U1/U2); unguard step 5 (U1 `"`); an
 arm re-escapes its own entity (U1/U2, see U3); remove plaintext (U4-entry, U4-recursion, V7); drop the namespace
@@ -541,20 +619,25 @@ conjunct in `text_children_literal` (U5-entry, U5-recursion); **one site not con
 symmetrically the recursion site (U5-recursion red, U5-entry green); put noscript back in the raw list (U6/V1/V2/V4);
 keep `escape_attr`'s old map at the attribute site (V5). D-6's functions: drop each of `push_xml_text`'s 3 arms
 (XT1) and each of `push_xml_attribute_value`'s 6 arms (XA1); add a `>` arm to `push_xml_attribute_value` (XA2, X3);
-add a U+00A0 → `&nbsp;` arm to either (XT2 / XA2, X1); add a `"` arm to `push_xml_text` (XT2). D-6's selection:
-`serialize_node_to_string` passes `HtmlFragment` in its outer arm (X1, X3 red; X2 green) or in its children arm (X2
-red; X1, X3 green); `push_text_data`'s `XmlSerialization` arm calls `push_escaped_string` (X1's Text assertion);
-`push_attribute_value`'s `XmlSerialization` arm calls `push_escaped_string` (X1's attribute assertion, X3); and the
-reverse, an `HtmlFragment` arm calling the DOM Parsing function (V6's Text half / V6's `title` half and U2's `>`
-cell). Rev 1's per-native `None` /
+add a U+00A0 → `&nbsp;` arm to either (XT2 / XA2, X1); add a `"` arm to `push_xml_text` (XT2); drop the `<` arm of
+`push_xml_attribute_value` (XA1, X2, X5). D-6's selection: `serialize_node_to_string` passes `HtmlFragment` in its
+outer arm (X1, X3, X4's element half, X5 red; X2, X4's fragment half green) or in its children arm (X2, X4's fragment
+half red; X1, X3, X4's element half, X5 green); `push_text_data`'s `XmlSerialization` arm calls
+`push_escaped_string` (X1's Text assertion); `push_attribute_value`'s `XmlSerialization` arm calls
+`push_escaped_string` (X1's attribute assertion, X3); and the reverse, an `HtmlFragment` arm calling the DOM Parsing
+function (V6's Text half / V6's `title` half and U2's `>` cell). **The family gate** (the (ii) × (iii) conjunct):
+drop it, so the `XmlSerialization` arm emits the data verbatim when `in_raw_text` (X4, both halves, red; U4 green);
+and the reverse, the `HtmlFragment` arm ignoring `in_raw_text` (U4-entry, U4-recursion, V7 red; X4 green). Rev 1's
+per-native `None` /
 `getHTML`-omits-context mutants (axis-3 IMP-2) disappear: no native passes a context any more, so there is no
 per-native input to mutate; every native reaches the one serializer, whose mutants are above.
 
 ## §7. Accepted regressions (PM 731)
 
 Copied verbatim into the PR body (§10 DoD 5). Each is pinned by a cell, so it is an expectation, not a hidden failure.
-Both are on the §13.3 entry points. The XMLSerializer path has no accepted regression: its Text output is unchanged
-and its attribute-value output moves to DOM Parsing's algorithm (D-6; X1-X3).
+Both are on the §13.3 entry points. The XMLSerializer path has no accepted regression: its Text output changes only
+under an HTML raw-text parent, from literal to §5.2.1.5's escaping (X4), and its attribute-value output moves to DOM
+Parsing's algorithm (D-6; X1-X3, X5) — both toward the spec.
 
 - **R1 — page noscript text is escaped (today raw).** In a document where scripting is enabled for the node (the
   bound page), step 5.2 makes noscript text literal; this PR escapes it until N4 makes the precise rule available
@@ -631,8 +714,8 @@ All touched files are under 1000 lines at `c0578223` (§5.3). VM cells go to a N
   void list is item (a). **Why it is not a security issue** (unlike D-4, which is in (d) because it is the injection
   class): the void decision changes only whether children and the end tag are emitted. The namespace in which later
   siblings are re-parsed is decided by the start tag's name, which the void decision does not change. The serializer's
-  unescaped outputs — the three character-data ones (a raw-text parent's Text data, `markup.rs:371`; comment data,
-  `:384`; the doctype name, `:394`) and the names (tag names, `:400` / `:452`; attribute names, `:434`, filtered by
+  unescaped outputs — the three character-data ones (a raw-text parent's Text data on the `HtmlFragment` family,
+  `markup.rs:371`; comment data, `:384`; the doctype name, `:394`) and the names (tag names, `:400` / `:452`; attribute names, `:434`, filtered by
   `is_safe_attr_name`) — are each emitted, or not, independently of the void decision: it adds no unescaped
   output and changes the content of none. Its failure modes are dropped content (the children
   are not emitted at all) and, for the void names in `VOID_ELEMENTS` (`markup.rs:260`) that do not break out of
@@ -640,16 +723,14 @@ All touched files are under 1000 lines at `c0578223` (§5.3). VM cells go to a N
   contains br, embed, hr, img and meta, and none of these) — an omitted end tag, so on re-parse the following siblings
   nest inside the element: a tree-shape (fidelity) defect, not an mXSS one.
 - The XMLSerializer cite "HTML §8.5.8" (`markup.rs:7`, `:168`; `dom_parser.rs:1`, `:322`) is fixed to §8.5.9 by this PR,
-  which rewrites those comments for D-6 (§4.1, §4.2). Out-of-diff observation (not changed here): the other section
-  numbers in `markup.rs`'s module header are stale by the same renumbering (§4.1); recorded for the slot's citation
-  pass.
+  which rewrites those comments for D-6 (§4.1, §4.2). The other section numbers in `markup.rs`'s module header,
+  stale by the same renumbering, are fixed in the same header block by this PR (§8.5.4-§8.5.7, §4.1; DoD 4).
 - The rest of the XML serialization: `#11-domparser-xml-real-parsing` (PM 785). This PR lands only its two escaping
   functions (D-6). Staying there: the XML walk itself — void self-closing, namespace prefixes and declarations (the
   remainder of §5.2.1.1.3), the Attr-root contract, the doctype's public / system identifiers — and the
-  *require well-formed* = true checks. One consequence of keeping the HTML walk that the slot's row does not name
-  today: on the XMLSerializer path a Text child of an HTML-namespace raw-text parent (script, style, …) is still
-  emitted literally (D-2's decision is the walk's), where §5.2.1.5 escapes every Text node; unchanged from HEAD, and
-  added to the slot's row at landing (§10).
+  *require well-formed* = true checks. Not staying there: the Text under an HTML raw-text parent on the
+  XMLSerializer path — escaped by this PR (D-6, I-2, X4), since keeping §13.3's literal branch on this path was a
+  deviation from §5.2.1.5 in the unsafe direction.
 - The precise noscript rule and the parse-side scripting decision (P6): `#11-scripting-disabled-predicate-no-document`
   (PM 731 facet; trigger IBP-sandbox N4's per-PR plan). Hand-off population for obligation (2) = P6 F1-F8 (all eight
   constructions, with their entry APIs; F6 / F7 are reachable only through the handler class below, F8's value is
@@ -689,6 +770,8 @@ DoD:
    touches `dom_parser.rs` only and every changed line is a comment: `git diff origin/main --
    crates/script/elidex-js/src/vm/host | /usr/bin/grep -E '^[+-]' | /usr/bin/grep -v -E
    '^(\+\+\+|---)|^[+-][[:space:]]*//'` → no output);
+   `in_raw_text` is read for output only in `push_text_data`'s `HtmlFragment` arm (inspection of the
+   `match`; X4 and the family-gate mutants of §6 are the executable check);
    `RAW_TEXT_ELEMENTS` is read only inside `text_children_literal` (`git grep -n -w 'RAW_TEXT_ELEMENTS' -- crates`:
    apart from comment lines, exactly 2 hits — the `const` definition and one read, inside `fn text_children_literal`'s
    body).
@@ -698,9 +781,14 @@ DoD:
 4. Comments in `markup.rs` cite §13.3 step 5.2, "Escaping a string" and §2.1.3 by name; the docstrings of
    `push_xml_text` / `push_xml_attribute_value` carry DOM Parsing §5.2.1.5 `#dfn-xml-serializing-a-text-node` and
    §5.2.1.1.3 `#dfn-serializing-an-attribute-value` with the steps they implement and the *require well-formed*
-   note (D-6); the XMLSerializer cite is HTML §8.5.9 in `markup.rs` and `dom_parser.rs` (`git grep -n -F '8.5.8' --
-   crates/dom/elidex-dom-api/src/element/markup.rs crates/script/elidex-js/src/vm/host/dom_parser.rs` → 0) —
-   numbers from §0.4's lookups only.
+   note (D-6), and `push_xml_attribute_value`'s also the `>` ruling — step 3's list is normative and has no `>`, the
+   Note that says `>` is replaced is informative and not followed (D-6); the XMLSerializer cite is HTML §8.5.9 in
+   `markup.rs` and `dom_parser.rs`, and `markup.rs`'s module header names §8.5.4 / §8.5.5 / §8.5.6 / §8.5.7 (§4.1):
+   `git grep -n -F -e '8.5.3' -e '8.5.8' -- crates/dom/elidex-dom-api/src/element/markup.rs
+   crates/script/elidex-js/src/vm/host/dom_parser.rs` → 0, and each of `git grep -n -F -e '§8.5.4 HTML serialization
+   methods'`, `-e '§8.5.5 The innerHTML property'`, `-e '§8.5.6 The outerHTML property'`, `-e '§8.5.7 The
+   insertAdjacentHTML() method'`, `-e '§8.5.9 The XMLSerializer interface'` `-- crates/dom/elidex-dom-api/src/element/markup.rs`
+   → exactly 1 hit, in the module header — numbers from §0.4's lookups only.
 5. The PR body carries §7 (R1, R2 and their cells) verbatim.
 6. Every accepted-regression cell (U6's four functions, V1, V10, V11, V12, V13) has a code comment naming
    `#11-scripting-disabled-predicate-no-document` and the obligation that flips it (§6 U6, §7 R2). Check:
@@ -722,11 +810,13 @@ follow the same rule. It moves lines in:
 - `crates/dom/elidex-dom-api/src/element/markup.rs`. The pin list is a census over in-flight branches, not a named
   list (re-run 2026-11-18; re-run before landing). The command quotes every expansion and passes file names
   NUL-separated, so it gives the same 8 lines under `bash` and `zsh` (checked with both; Rev 4's form relied on
-  unquoted word splitting, which `zsh` does not do):
+  unquoted word splitting, which `zsh` does not do); `xargs -0 -r` runs nothing for a branch that changes no file
+  under `docs` (without `-r`, GNU `xargs` would run `git grep` once with no paths, i.e. over the whole tree of that
+  ref; re-run with `-r` on 2026-11-18: the same 8 lines):
   ```sh
   git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin | while IFS= read -r b; do
     [ "$(git rev-list --count "origin/main..$b" 2>/dev/null || echo 0)" -gt 0 ] || continue  # ahead of origin/main
-    git diff --name-only -z "origin/main...$b" -- docs | xargs -0 git grep -n -P 'markup\.rs(:[0-9]|`)' "$b" --  # docs the branch changes
+    git diff --name-only -z "origin/main...$b" -- docs | xargs -0 -r git grep -n -P 'markup\.rs(:[0-9]|`)' "$b" --  # docs the branch changes
   done | grep -v html-fragment-serializer-escape | sort -u
   ```
   Result (8 lines): branch `ecs-shadow-root-lifetime-plan` @`23aa745a` — the pr-ig memo
@@ -788,12 +878,13 @@ Landing (pmo, after merge):
   - old: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace prefixes) +
     `XMLSerializer.serializeToString` **Attr-root** contract."
   - new: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace prefixes,
-    Text escaped under raw-text parents, the *require well-formed* = true checks) +
+    the *require well-formed* = true checks) +
     `XMLSerializer.serializeToString` **Attr-root** contract. **Landed in the serializer PR (PM 785)**: the two
     escaping functions (parts) — `push_xml_text` (DOM Parsing §5.2.1.5 *XML serializing a Text node*, steps 3-5) and
     `push_xml_attribute_value` (§5.2.1.1.3 *serializing an attribute value*, step 3), in
     `crates/dom/elidex-dom-api/src/xml_serialization.rs`; `serialize_node_to_string` already calls them, on the HTML
-    walk. The XML serializer extends that module and uses both as they are."
+    walk without §13.3's literal raw-text branch (every Text escaped by §5.2.1.5). The XML serializer extends that
+    module and uses both as they are."
 
   and in the same row's **Why deferred**, replace
   - old: "all 5 accepted MIME currently HTML-parsed + HTML-serialized"
