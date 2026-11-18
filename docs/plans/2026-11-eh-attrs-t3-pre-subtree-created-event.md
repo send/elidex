@@ -58,7 +58,20 @@ restore function's direct slot write and `set_mutation_dispatcher`'s `Taken` ass
 upgrade at a fragment-parsed element's creation (`#11-custom-element-upgrade-at-fragment-creation`, L3, registered by
 PM 719; §7); RC-2b's use of the event (L3, PM decision 723).
 
-**Changelog.** *Rev 2.3* (2026-11-18; Step 4.5 focused re-check on rev 2.2 `9f5010d9`: IMP 2 / clerical 6). **N1
+**Changelog.** *Rev 2.4* (2026-11-18; PM decision 774, after a re-check of rev 2.3 `10af92ee`). **Generator removed
+(PM 774):** twice in a row the remedy §8.3 item 2 prescribed for `#11-form-control-state-template-contents-fragment-parse`
+produced a new IMP in its own added text (N1: "every control" regressed fieldset disabledness; F1: rev 2.3's
+re-derive-at-placement is the propagation that L3's `docs/plans/2026-07-form-derived-state-reconciliation.md` removes;
+F2: "template contents only", with DOMParser's loop folded in, drops `FormControlState` from every DOMParser control
+outside a template). Item 2 now states the defect only, in the ledger's shape (defect / spec / where / related root /
+closing cells (a)–(d) / one hand-off sentence); the constraint, its two options and the dispatcher dependence as a
+mechanism are deleted (the dependence stays as a fact the slot's plan must consider); the T3-pre sentences the fix
+makes false move to an append after the row. §4.6's form arm (its heading line, its comment, its rev-2.3 note), §4.8's
+form row and §10 name the slot and the arm as the fix's location, with no mechanism or constraint (F5). **F6:** DoD 7
+check (b) gains a positive control of its own expression on a known hit (this memo). **F3:** the umbrella's x14 row
+says T3's landing ends the window unless a slot's fix ended it first, and points to DoD 7 for the ends, sequence and
+bound and to §8.3 item 3 for the escalation (umbrella rev-list note).
+*Rev 2.3* (2026-11-18; Step 4.5 focused re-check on rev 2.2 `9f5010d9`: IMP 2 / clerical 6). **N1
 (IMP):** §8.3 item 2's *Where the fix goes* no longer hands the slot a mechanism ("attach `FormControlState` to every
 form control of the created set, absence-guarded"), which would leave a control parsed into a `<fieldset disabled>` by
 `innerHTML` enabled (a serial parse's event precedes placement, U-T12; `is_fieldset_disabled` climbs the parent); it
@@ -580,24 +593,23 @@ slot's fix landing before T3 would have made false).
   document's registry is null (DOM §4.5; HTML §8.5.1 `parseFromString` step 3), so step 16 gives no definition".
   Behaviour unchanged (PM decision 711 (4)).
 - `FormControlReconciler` (`reconciler.rs:53`): `Clone(scope)` → `apply_clone_form_state`, unchanged;
-  `FragmentParse` → **a no-op in T3-pre, and the creation-time write path that
-  `#11-form-control-state-template-contents-fragment-parse` (L3; registered by PM 767) fills** (rev 2.2, R3 W1-5).
+  `FragmentParse` → **a no-op in T3-pre, and the arm where the fix of
+  `#11-form-control-state-template-contents-fragment-parse` (L3; registered by PM 767) goes** (rev 2.2, R3 W1-5;
+  worded as a location in rev 2.4, PM 774).
   The arm's comment: "No-op in T3-pre. A parser-created resettable element is reset at its creation (HTML §13.2.6.1
   *create an element for a token* step 24), which elidex does by attaching `FormControlState`. A post-bind fragment
   parse gets it today from the `Insert` arm, whose walk misses template contents (HTML §4.12.3), so a control created
-  there gets none: `#11-form-control-state-template-contents-fragment-parse` fills this arm over the created set
-  (T3-pre memo §4.2), fixing before placement no state that depends on the element's ancestors (T3-pre memo §8.3 item
-  2), and folds DOMParser's separate template-inclusive loop into it. The form *cloning steps* (HTML §4.10.5 for
+  there gets none: `#11-form-control-state-template-contents-fragment-parse` is that defect, and its fix goes in this
+  arm (T3-pre memo §8.3 item 2). The form *cloning steps* (HTML §4.10.5 for
   `input`, §4.10.11 for `textarea`; DOM §4.4 *clone a node* step 3) are a clone's, in the `Clone` arm", followed by
   the common part. *Base defect, not T3-pre's:* `handle_insert` walks only `for_each_shadow_inclusive_descendant`
   (`crates/dom/elidex-form/src/reconciler.rs:89-99` @ `cee74989`), which misses template contents, while DOMParser's
   build covers them with its own loop over `collect_template_inclusive_descendants`
   (`crates/dom/elidex-form/src/inert_document.rs:162-174`); without `FormControlState` the `value` getter returns
   the empty string (`crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`). T3-pre stays behaviour-neutral
-  (§1.1); the slot's row text is §8.3 item 2. This pointer does not name T3, so T3's landing leaves it true. (Rev 2.3,
-  N1: the comment states the slot's constraint, not a mechanism: for a serial parse the event is dispatched before
-  placement (U-T12), so an ancestor-dependent field such as fieldset disabledness cannot be fixed at the arm; §8.3
-  item 2.)
+  (§1.1); the slot's row text is §8.3 item 2. This pointer does not name T3, so T3's landing leaves it true. The
+  comment names the slot and the location of its fix only; how the fix acts is the slot's own plan's (rev 2.4, PM 774;
+  until rev 2.4 it also stated a condition on the fix, and until rev 2.3 a mechanism).
 - **No pointer is rewritten at another unit's landing (rev 2.3; until rev 2.3 *The pointers' rewrite at T3's
   landing*, R3 Axis 5).** Neither arm's comment nor `inert_document.rs`'s added sentence (below) names T3 or a window
   end, so T3's landing leaves them true and T3's landing list carries no comment rewrite (the T3 memo rev 6.2 deletes
@@ -642,7 +654,7 @@ fire a policy-free `elidex-ecs` event; no policy or document reaches `elidex-ecs
 | `parse_fragment_strict`'s rustdoc (the added sentence); `parse_html_fragment` (`pub(crate)`) | T3-pre memo §4.3: fires no creation event; production code goes through `parse_fragment_progressive` |
 | `DispatcherSlot::Taken { pending }`, `DispatcherTake::restore`'s return value, `DispatcherTake::close`'s flush, `Drop`'s assertion | T3-pre memo §4.4 (PM decisions 711, 713, 720, 740): restore, then dispatch in order, each root checked alive at its dispatch; discarded on unwind and at unbind. (The restore's direct write and `set_mutation_dispatcher`'s `Taken` assertion carry ig's citations, not T3-pre's) |
 | the `FragmentParse` no-op arm of `CustomElementReactionConsumer` | the window (T3-pre memo DoD item 7, the common part; until rev 2.3 also T3 memo D-T12); **for HTML §13.4 fragment parses:** DOM §4.9 *create an element* steps 4.4 and 5.2.2 → HTML §4.13.6 *enqueue a custom element upgrade reaction* (HTML §13.2.6.1 *create an element for a token* steps 16, 17 and 19: with a definition and a non-null fragment context element, the element is created without running its constructor, so the upgrade is enqueued); **for DOMParser's build:** none (DOM §4.5: the document's registry is null, HTML §8.5.1 `parseFromString` step 3 setting none; so §13.2.6.1 step 16 gives definition null); slot `#11-custom-element-upgrade-at-fragment-creation` |
-| the `FragmentParse` no-op arm of `FormControlReconciler` | slot `#11-form-control-state-template-contents-fragment-parse` (the write path that fills the arm, under §8.3 item 2's constraint) and the window (T3-pre memo DoD item 7, the common part); HTML §13.2.6.1 *create an element for a token* step 24 (a resettable element, HTML §4.10.2, is reset at creation, HTML §4.10.23 *reset algorithm*); HTML §4.12.3 *template contents* (what `handle_insert`'s walk misses); HTML §4.10.5 (`input`) and §4.10.11 (`textarea`) *cloning steps*, run from DOM §4.4 *clone a node* step 3: the `Clone` arm's |
+| the `FragmentParse` no-op arm of `FormControlReconciler` | slot `#11-form-control-state-template-contents-fragment-parse` (its fix goes in this arm; §8.3 item 2) and the window (T3-pre memo DoD item 7, the common part); HTML §13.2.6.1 *create an element for a token* step 24 (a resettable element, HTML §4.10.2, is reset at creation, HTML §4.10.23 *reset algorithm*); HTML §4.12.3 *template contents* (what `handle_insert`'s walk misses); HTML §4.10.5 (`input`) and §4.10.11 (`textarea`) *cloning steps*, run from DOM §4.4 *clone a node* step 3: the `Clone` arm's |
 | `parse_into_inert_document`'s rustdoc (the added sentence, §4.6) | HTML §8.5.1 `parseFromString` step 4 (note: "Since document does not have a browsing context, scripting is disabled"); T3-pre memo §4.4 and DoD item 7 |
 
 ## §5. Populations, touched files, named risks
@@ -884,12 +896,13 @@ T3-pre's scope).
    through it (or the session's `apply_*` wrappers that call it), or its elements get no creation processing (T3-pre
    memo §4.3)."
 2. `#11-form-control-state-template-contents-fragment-parse` (registered by PM 767; owner L3; Re-eval-date
-   2026-12-31) — the row's text, in defect form (R3 W1-5), replacing its body after the registration header:
+   2026-12-31) — the row's text, in the shape defect / spec / where / related root / closing cells (PM 774; rev 2.4),
+   replacing its body after the registration header:
    "**Defect.** A form control that elidex gives `FormControlState` (among HTML §4.10.2's *resettable elements*:
-   `input`, `output`, `select`, `textarea`, form-associated custom elements, the last excluded by step 24) inside the template
-   contents (HTML §4.12.3) of a `template` that a post-bind fragment parse creates (`innerHTML`, `outerHTML`,
-   `insertAdjacentHTML`, `setHTMLUnsafe`, the queued `Mutation::SetInnerHtml`) never receives `FormControlState`, so its
-   value and checkedness are not initialised from its attributes: `FormControlReconciler::handle_insert` walks only
+   `input`, `output`, `select`, `textarea`, form-associated custom elements, the last excluded by step 24) inside the
+   template contents (HTML §4.12.3) of a `template` that a post-bind fragment parse creates (`innerHTML`, `outerHTML`,
+   `insertAdjacentHTML`, `setHTMLUnsafe`, the queued `Mutation::SetInnerHtml`) never receives `FormControlState`, so
+   its value and checkedness are not initialised from its attributes: `FormControlReconciler::handle_insert` walks only
    `for_each_shadow_inclusive_descendant` (`crates/dom/elidex-form/src/reconciler.rs:89-99` @ `cee74989`), which does
    not enter template contents, and no other path reaches them. The same element built by `DOMParser.parseFromString`
    does get it, from a separate loop over `collect_template_inclusive_descendants`
@@ -897,33 +910,28 @@ T3-pre's scope).
    an element for a token* step 24: a resettable element that is not a form-associated custom element has its reset
    algorithm (HTML §4.10.23) invoked at creation, which initialises its value and checkedness from its attributes; this
    holds for elements the parser creates in template contents too. For clones the form *cloning steps* (HTML §4.10.5
-   `input`, §4.10.11 `textarea`, run from DOM §4.4 *clone a node* step 3) already apply through the `Clone(scope)` arm.
-   **Where the fix goes.** The `FragmentParse` arm of `FormControlReconciler` (a no-op since T3-pre, #<PR>
-   `<squash>`), whose event covers the created set (T3-pre memo §4.2: shadow-including inclusive descendants plus
-   template contents, recursively). **Constraint:** the arm fixes no `FormControlState` field that depends on the
-   element's ancestors before the element is placed. For a serial parse (`innerHTML` and its siblings) the event is
-   dispatched at the fire, before the placement `Insert` (T3-pre memo §4.3, U-T12), when the parsed root has no
-   parent; `create_form_control_state` derives `disabled` from `is_fieldset_disabled`, which climbs `get_parent`
-   (`crates/dom/elidex-form/src/init.rs:89`, `crates/dom/elidex-form-core/src/fieldset.rs:46-67` @ `cee74989`), and
-   the `Insert` arm skips a control that already has `FormControlState`; so writing every control at the arm would
-   leave an `input` parsed by `innerHTML` into a `<fieldset disabled>` enabled, where the base disables it. Either the
-   arm writes only the controls the `Insert` arm cannot reach (template contents), or the ancestor-dependent fields
-   are re-derived at placement; this slot's plan chooses which, under One issue, one way. The goal stays one path:
-   DOMParser's separate loop is folded into the arm, its build reaching the arm through the window's queue (T3-pre
-   memo §4.4). With the loop deleted, DOMParser's `FormControlState` depends on a mutation dispatcher being installed
-   when its window opens; the slot's plan states that. It also states the order against DOMParser's base-URL
-   reconciler, which then runs before the arm. It does not need T3. **T3-pre sentences the fix makes false** (rewritten
-   in the fix's PR): the form arm's comment (replaced with the arm); the sentence T3-pre adds to
-   `parse_into_inert_document`'s rustdoc (`crates/dom/elidex-form/src/inert_document.rs`, "At T3-pre's head no
-   consumer acts on it …"), since the form arm then acts on the build. If the window is still open when the fix lands,
-   the fix ends it (T3-pre memo DoD item 7), and the window condition on `#11-eh-attrs-creation-time-call-sites`'s row
-   is cleared. **Closes when** cells pass on the bound VM: (a)
-   `d.innerHTML = '<template><input value=x></template>'; d.firstChild.content.firstChild.value === "x"` (at
-   `cee74989` the `value` getter returns `""` without `FormControlState`,
-   `crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`), and the same through `DOMParser` stays `"x"`;
-   (b) with `f` a connected `<fieldset disabled>`, `f.innerHTML = '<input>'; f.firstChild.matches(':disabled')` stays
-   `true` (the input's disabled state, HTML §4.10.19.5, which `:disabled` matches through `ElementState::DISABLED`; at
-   `cee74989` the `Insert` arm attaches after placement, with `disabled` true)."
+   `input`, §4.10.11 `textarea`, run from DOM §4.4 *clone a node* step 3) already apply through the `Clone(scope)`
+   arm. **Where the fix goes.** The `FragmentParse` arm of
+   `FormControlReconciler` (a no-op since T3-pre, #<PR> `<squash>`), with DOMParser's separate template-inclusive loop
+   collapsed into it (PM 767; One issue, one way). It comes after T3-pre and does not need T3. **Related root.** L3's
+   form-derived-state reconciliation (`docs/plans/2026-07-form-derived-state-reconciliation.md`): while
+   `FormControlState` caches effective disabledness, a write at creation could freeze state that depends on the
+   element's ancestors; the reconciliation's `is_effectively_disabled` pull removes that question. A fact the fix's
+   plan must consider: DOMParser's build reaches the arm only through the window's queue (T3-pre memo §4.4), which is
+   dispatched only when a mutation dispatcher was installed as the window opened. **Closes when** these cells pass on
+   the bound VM: (a) `d.innerHTML = '<template><input value=x></template>'; d.firstChild.content.firstChild.value ===
+   "x"` (at `cee74989` the `value` getter returns `""` without `FormControlState`,
+   `crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`); (b) with `f` a connected `<fieldset disabled>`,
+   `f.innerHTML = '<input>'; f.firstChild.matches(':disabled')` stays `true`; (c) `new
+   DOMParser().parseFromString('<input value=x>', 'text/html').body.firstChild.value === "x"` (a control outside any
+   template keeps the base behaviour); (d) the same through `DOMParser` inside a `template` stays `"x"`. The mechanism,
+   and its order against the reconciliation's slices, is chosen in this slot's own plan under its own plan-review."
+   Appended to the same row (T3-pre's record, not the defect; same shape as item 4's): "**T3-pre sentences the fix
+   makes false** (rewritten in the fix's PR): the form arm's comment (replaced with the arm); the sentence T3-pre adds
+   to `parse_into_inert_document`'s rustdoc (`crates/dom/elidex-form/src/inert_document.rs`, "At T3-pre's head no
+   consumer acts on it …"), since the form arm then acts on the build. If the window is still open when the fix
+   lands, the fix ends it (T3-pre memo DoD item 7), and the window condition on
+   `#11-eh-attrs-creation-time-call-sites`'s row is cleared."
 3. `#11-eh-attrs-creation-time-call-sites` (the umbrella's slot; owner Layout) — append the window condition and its
    escalation, so they outlive T3-pre's landing (R3 Axis 3). This text is the one statement of the escalation (rev
    2.3; DoD item 7 points here): "**Window condition (T3-pre memo DoD item 7; PM 756, 767 (1)).** From T3-pre's
@@ -1014,8 +1022,11 @@ T3-pre's scope).
    (handed off, §8.2). **Checked at T3-pre's head:** (a) §8.3 item 3's text is handed to the PM (item 6); (b) the shipped
    comments name no window end: `for f in crates/dom/elidex-custom-elements/src/consumer.rs
    crates/dom/elidex-form/src/reconciler.rs crates/dom/elidex-form/src/inert_document.rs; do /usr/bin/grep -c -e
-   'until T3' -e 'T3 lands' $f; done` → 0, 0, 0 (0, 0, 0 at `cee74989` too), with the control `/usr/bin/grep -c -F
-   'T3-pre memo DoD item 7'` over the same three files → at least 1 each (the common part, and the rustdoc sentence; the pointer is written on one source line).
+   'until T3' -e 'T3 lands' $f; done` → 0, 0, 0 (0, 0, 0 at `cee74989` too). Positive control of the same expression
+   on a known hit: `/usr/bin/grep -c -e 'until T3' -e 'T3 lands'
+   docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` → at least 1 (12 at `10af92ee`, 13 at rev 2.4; rev
+   2.4, F6). Control that the pointer is shipped: `/usr/bin/grep -c -F 'T3-pre memo DoD item 7'` over the same three
+   files → at least 1 each (the common part, and the rustdoc sentence; the pointer is written on one source line).
    (Until rev 2.3: the window ran "until T3's landing", and the triggers, raiser, cadence and the raise's ask were
    stated here in full as well as in §8.3 item 3.)
    (Until rev 2.2: "T3-ab lands before io lands", with "at risk" undefined; until rev 2.1: "PM 741 (3) puts a
@@ -1029,7 +1040,7 @@ T3-pre's scope).
 **Decided:** the split (PM decision 722); the flush shape (δ) (PM 720, P-P1); RC-2b's order and the three properties
 (PM decision 723); the order, unchanged, and the no-op window (until the first of T3's landing and the two slots' fixes, rev 2.3), with its bound and escalation, and T3-a's
 and T3-b's condition on it (PM decisions 740 (1), 741 (1), 756, 767 (1); DoD item 7); the form `FragmentParse` arm as
-the write path of `#11-form-control-state-template-contents-fragment-parse` (PM 767 (2); §4.6); the owner of R1 M2's two remedies, the restore function's direct slot write
+the location of the fix of `#11-form-control-state-template-contents-fragment-parse`, its mechanism left to that slot's plan (PM 767 (2), 774; §4.6, §8.3 item 2); the owner of R1 M2's two remedies, the restore function's direct slot write
 and `set_mutation_dispatcher`'s assertion while `Taken`: ig (PM decisions 740 (2), 741 (2); P-P2). T3-pre's own, within
 PM 713 / 720 / 740 (not new decisions): the restore function returns `pending` from its one replacement; `close`
 flushes after it; `Drop` asserts an empty list unless unwinding (§4.4). L3 confirmed the [L3 surface] sections of rev 1
