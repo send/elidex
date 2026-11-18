@@ -81,14 +81,25 @@ header lines only (PR-X DoD 4); (6) the pin census excludes this program's memos
 (§4.2; re-run, the same 8 lines).
 **Rev 8** (2026-11-18) — R1 plan-review fixes (5 axes over the three files; CRIT 0 / IMP 5 / MIN 16). The inert
 template document already carries `InertTemplateDocument`, so the obligation is that the null-browsing-context
-marker of `#11-domparser-full-document-parse-fidelity` (PM 795) reads or merges it — a facet of that slot, not a
-new writer (§5, PR-H §0.2 P5 / §7 R2); `#11-range-create-contextual-fragment` (closed) → `#11-range-full-impl`; the
-`#11-domparser-xml-real-parsing` landing item re-cut against the row as PM 795 left it; §3 names where preflight runs;
-S-3 gains its end condition and a ratify-time Re-eval move (PM 803); Q-5 decided by the PM's instruction (Axis 3
-chooses the cell) → XC2 (PR-X §6); the five XMLSerializer `§8.5.8` cites outside PR-X's two files go to the
+marker of `#11-domparser-full-document-parse-fidelity` (PM 795) reads or merges it (Rev 9: reads only) —
+a facet of that slot, not a new writer (§5, PR-H §0.2 P5 / §7 R2); `#11-range-create-contextual-fragment` (closed) →
+`#11-range-full-impl`; the `#11-domparser-xml-real-parsing` landing item re-cut against the row as PM 795 left it;
+§3 names where preflight runs; S-3 gains its end condition and a ratify-time Re-eval move (PM 803); Q-5 decided
+by the PM's instruction (Axis 3 chooses the cell) → XC2 (PR-X §6); the five XMLSerializer `§8.5.8` cites
+outside PR-X's two files go to the
 html-section renumber sweep (§5); `markup.rs`'s three `§4.4.6` cites → §8.5.4 in PR-X; base drift re-dated to
 `ae6a11a8`; §4.2's census result marked as a dated snapshot; PR-H §4.3 lists the `Namespace` writers; PR-X D-6
 quotes the Note it does not weigh.
+**Rev 9** (2026-11-18) — re-check fixes on Rev 8 (A2 0/0/1, A3 0/0/2, A4 0/1/1, A5 0/2/2). The null-browsing-context
+marker only **reads** `InertTemplateDocument` (a provenance fact used as an identity test, `template_owner.rs:42`),
+never merges with it (§5, PR-H §0.2 P5 / §7 R2); the marker facet names the other null-browsing-context documents —
+Document clones are covered by the marker's writer, `begin_detached_fragment`'s throwaway is outside with its reason;
+PR-H's target landing date is 2026-12-01 and the (d) / (e) Re-eval moves there, 12-12 staying the escalation
+threshold (PM 803; S-3, §4.1, §5, §7); the ratify-time ledger item replaces the PM 724 note's date and PR-shape
+sentences instead of appending parallel ones; `#11-domparser-xml-real-parsing`'s new Why-deferred points at the
+PM 795 note; §3 becomes the preflight-parsable union of the per-PR maps (§7 item 4); the renumber-sweep item also
+corrects the record's getHTML §8.5.3 → §8.5.4, attributed to PM 803; PR-H §4.3 cites
+`#11-vm-create-element-ns-missing` with a landing facet (§5); PR-H §6's selection re-run labels mutant (b) whole.
 
 ## §0. Frame, shared premises, program decisions
 
@@ -162,9 +173,11 @@ path) is PR-X's.
   process: PR-H is stacked on PR-X and is filed immediately after PR-X lands; PR-H's implementation may be stacked
   on PR-X's branch before PR-X lands. **End condition (PM 803): if PR-X's landing is expected past 2026-12-05, or
   PR-H's past 2026-12-12, the driver reports to the PM, who re-decides, the order included** (PM 797 set the
-  2026-12-05 report; PM 803 added PR-H's date and made the re-decision cover the order, (B)). The slot's (d) / (e)
-  Re-eval follows PR-H's target date: it moves from 2026-11-20 to 2026-12-12 at this umbrella's ratify (§5, "At the
-  umbrella's ratify"); until then a triage that reaches the 2026-11-20 date records it as "awaiting ratify, PM 803".
+  2026-12-05 report; PM 803 added PR-H's date and made the re-decision cover the order, (B)). **PR-H's target
+  landing date is 2026-12-01**; 2026-12-12 is the escalation threshold above, not the target. The slot's (d) / (e)
+  Re-eval follows PR-H's target date (PM 803): it moves from 2026-11-20 to 2026-12-01 at this umbrella's ratify (§5,
+  "At the umbrella's ratify"); until then a triage that reaches the 2026-11-20 date records it as "awaiting ratify,
+  PM 803".
   PR-X's PR body states this window (PR-X DoD 5).
 - **S-4 — review units.** The umbrella and both per-PR memos are written together (PM 797). Each per-PR memo goes
   through its own full `/elidex-plan-review` before its implementation; the coupled-invariant enumeration the
@@ -224,23 +237,36 @@ that lands each cell:
 | (i) × (iii) | The family picks the whole character map, never mixed in one walk: `HtmlFragment` → `push_escaped_string(Text \| Attribute)` (HEAD's `escape_html` / `escape_attr` between the PRs), `XmlSerialization` → `push_xml_text` / `push_xml_attribute_value` | U1-U3, V6 (PR-H) and XC2 (PR-X: U+0009 raw in an attribute value on `HtmlFragment`, exact for §13.3 before and after PR-H) vs XT1-XT3, XA1-XA3, X1-X3, X5 (PR-X) | the selection: PR-X; the `HtmlFragment` map: PR-H |
 | (ii) × (iii) | The raw-text decision is read only on the `HtmlFragment` family: literal iff `HtmlFragment` ∧ the walk's `in_raw_text`; through XMLSerializer every Text is escaped, a script / style parent included | XC1 (literal on `HtmlFragment`, PR-X; generalised to U4 by PR-H) vs X4 (escaped on `XmlSerialization`, PR-X) | PR-X (the gate); the predicate behind `in_raw_text`: PR-H |
 
-## §3. Spec coverage, by slice
+## §3. Spec coverage map
 
-This memo implements no spec step of its own; each per-PR memo carries the preflight-parsable `§3. Spec coverage
-map` and the citation table (§0.4) for its slice. **`/elidex-plan-review` Step 0 (the coverage-map preflight, a
-hard gate) runs on the two per-PR memos**, which hold the maps; the table below is an index of them, not a third
-map, and repeats none of their rows.
+This memo implements no spec step of its own. The table is the **union** of the two per-PR `§3. Spec coverage map`
+tables (PR-X §3, 3 rows; PR-H §3, 5 rows), copied with the same columns plus a trailing Slice column, so that
+`/elidex-plan-review` Step 0 (the coverage-map preflight, a hard gate with no umbrella carve-out) parses this memo as
+it parses the two per-PR ones. **The per-PR tables are authoritative for their rows**: a row is edited in its
+per-PR memo first and copied here in the same commit, and the union must equal them, row for row (checked at §7
+item 4); a section reference inside a copied cell (e.g. "§9") is the per-PR memo's. Each per-PR memo also
+carries the citation table (§0.4) for its rows.
 
-| Slice | Rows | Specs |
-|---|---|---|
-| PR-X | 3: HTML §8.5.9 `serializeToString` step 1; DOM Parsing §5.2.1.5 steps 3-5; DOM Parsing §5.2.1.1.3 *serializing an attribute value* step 3 | HTML, DOM Parsing |
-| PR-H | 5: HTML §13.3 *escaping a string* (text mode, attribute mode); §13.3 step 5.2 (literal list, noscript, otherwise) | HTML |
+| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow | Slice |
+|---|---|---|---|---|---|---|
+| WHATWG HTML §8.5.9 The XMLSerializer interface | `serializeToString(root)` step 1 | "the XML serialization of root given false" → the entry's escaping family is DOM Parsing's, *require well-formed* = false | `serialize_node_to_string` builds a `Walk` with `CharacterEscaping::XmlSerialization` and uses it in both of its arms | ✗ (escaping only; the XML serialization's walk is `#11-domparser-xml-real-parsing`) | yes | PR-X |
+| W3C DOM Parsing §5.2.1.5 XML serializing a Text node | steps 3-5 | *require well-formed* = false, every Text whatever its parent — an HTML raw-text parent included (`serialize_node_to_string`) | `push_xml_text`, the `XmlSerialization` arm of `push_text_data` (does not read `in_raw_text`) | ✗ (step 2, *require well-formed* = true: no caller; `#11-domparser-xml-real-parsing`) | yes | PR-X |
+| W3C DOM Parsing §5.2.1.1.3 Serializing an Element's attributes | *serializing an attribute value* step 3 | *require well-formed* = false, non-null value (`serialize_node_to_string`) | `push_xml_attribute_value`, the `XmlSerialization` arm of `push_attribute_value` | ✗ (step 1, *require well-formed* = true: no caller; step 2, null: no input; the rest of §5.2.1.1.3 — prefixes, namespace declarations — is `#11-domparser-xml-real-parsing`) | yes | PR-X |
+| WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-4 | text mode (Text data outside raw-text parents), §13.3 entry points | `push_escaped_string(.., Text)`, the `HtmlFragment` arm of `push_text_data` (`serialize_node` Text branch) | ✓ | yes | PR-H |
+| WHATWG HTML §13.3 Serializing HTML fragments | Escaping a string steps 1-5 | attribute mode (attribute values; the synthetic `is` value), §13.3 entry points | `push_escaped_string(.., Attribute)`, the `HtmlFragment` arm of `push_attribute_value` (the `is` and attribute-loop sites) | ✓ | yes | PR-H |
+| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent ∈ {style, script, xmp, iframe, noembed, noframes, plaintext}, HTML namespace → literal (§13.3 entry points only) | `text_children_literal` + the `HtmlFragment` arm of `push_text_data` | ✓ | yes | PR-H |
+| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | parent noscript → escaped in every document (PM 731) | `text_children_literal` (false) | ✗ (the "scripting is enabled for the node" → literal branch is not taken; N4, §9) | yes | PR-H |
+| WHATWG HTML §13.3 Serializing HTML fragments | step 5.2 (Text node) | otherwise (incl. same-named non-HTML-namespace parent) → escaped | `serialize_node` Text branch | ✓ | yes | PR-H |
+
+**Breadth**: K=2 specs (HTML, DOM Parsing), M=8 entries, the sum of the slices' (3 + 5). **Split decision**: split
+into the two slices above (S-1); each is single-PR at its own breadth (PR-X §3, PR-H §3).
 
 ## §4. Order, stacking, cross-lane pins
 
 ### §4.1 Order and stacking
 
-PR-X, then PR-H (S-2); the window and its end condition (the 2026-12-05 / 2026-12-12 reports) are S-3. PR-H's
+PR-X, then PR-H (S-2); the window, PR-H's target date (2026-12-01) and its end condition (the 2026-12-05 /
+2026-12-12 escalation reports) are S-3. PR-H's
 premises cite `markup.rs` lines at `c0578223`; PR-X moves them, so PR-H re-measures its cites at its own base (PR-X's head while stacked, `origin/main`
 once PR-X has landed) before implementation — by the commands its §0.2 / §5 give, which do not move.
 
@@ -293,22 +319,34 @@ Old texts are quoted from the rows of `project_open-defer-slots.md` as read on 2
 the pmo re-reads each row before the edit and reports any difference instead of applying.
 
 **At the umbrella's ratify** (PM 803; S-3):
-- `#11-html-fragment-serializer-conformance`: replace
-  - old: "**Re-eval: 2026-11-20** (because of (d) and (e))."
-  - new: "**Re-eval: 2026-12-12** (because of (d) and (e); PR-H's target landing date, umbrella S-3; moved from
-    2026-11-20 at the umbrella's ratify, PM 803)."
+- `#11-html-fragment-serializer-conformance`: four replacements in the row, nothing appended beside them, so that
+  the row states one date for (d) / (e) (the head's Re-eval) and one PR shape:
+  - head Re-eval — old: "**Re-eval: 2026-11-20** (because of (d) and (e))."
+  - head Re-eval — new: "**Re-eval: 2026-12-01** (because of (d) and (e); PR-H's target landing date, umbrella
+    S-3; moved from 2026-11-20 at the umbrella's ratify, PM 803)."
+  - PM 724 note, PR shape — old: "(e) と plaintext と noscript (fail-safe: scripting が有効だと分かる時だけ raw) を
+    1 本の小さな PR で直す。"
+  - PM 724 note, PR shape — new: "(d)(e) は 2 本の PR (serializer PR-X、PR-H。この順) で直す。plan は umbrella +
+    PR-X + PR-H の 3 本 (PM 797、`docs/plans/2026-11-html-fragment-serializer-umbrella.md`)。noscript は常に escape
+    する (PM 731)。"
+  - PM 724 note, date — old: "この部分の Re-eval は 2026-11-20 (PR の着地が目標)。"
+  - PM 724 note, date — new: "PR-X の着地の見込みが 12-05 を過ぎる時、または PR-H の見込みが 12-12 を過ぎる時は、
+    driver が PM に報告し、PM が順序を含めて決め直す (PM 803)。"
+  - PM 724 note, last sentence — old: "(d)(e) の Re-eval を 11-20 に置き換えた (PM 724)。"
+  - PM 724 note, last sentence — new: "(d)(e) の Re-eval は PM 724 が 11-20 に置き、umbrella の ratify で PR-H の着地
+    目標に移した (PM 803。日付は行頭の Re-eval)。"
 
-  and append "(PM 803) (d)(e) は umbrella + PR-X + PR-H の 3 本の plan で直す (PM 797)。(d)(e) の Re-eval は
-  PR-H の着地目標 2026-12-12。PR-X の着地が 12-05 より後、または PR-H の着地が 12-12 より後になりそうなら、driver
-  が PM に報告し、PM が順序を含めて決め直す。" (a) (b) (c) (f) keep Re-eval 2026-12-15. Until the ratify, a triage
-  that reaches the 2026-11-20 date records "awaiting ratify, PM 803" and edits nothing.
+  (a) (b) (c) (f) keep Re-eval 2026-12-15 (the sentence "(a)(b)(c)(f) は残し、Re-eval は 2026-12-15。" is
+  unchanged). Until the ratify, a triage that reaches the 2026-11-20 date records "awaiting ratify, PM 803" and
+  edits nothing.
 
 **At PR-X's landing:**
 - `#11-html-fragment-serializer-conformance`: add "PR-X landed (the XMLSerializer path escapes by DOM Parsing);
   items (d) and (e) stay open until PR-H — the §13.3 entries behave as before in between (umbrella S-3)". No item
   closes.
 - `#11-domparser-xml-real-parsing` (PM 785, PM 795): the two escaping functions (parts of its XML serializer) landed
-  in PR-X. Three replacements in the row, nothing appended beside them:
+  in PR-X, in `crates/dom/elidex-dom-api/src/xml_serialization.rs` (NEW: PR-X). Three replacements in the row,
+  nothing appended beside them:
   - scope — old: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace
     prefixes) + `XMLSerializer.serializeToString` **Attr-root** contract."
   - scope — new: "real XML parsing (XML/XHTML, not html5ever) + XML **serialization** (void self-close, namespace
@@ -318,8 +356,9 @@ the pmo re-reads each row before the edit and reports any difference instead of 
     HTML-parsed all MIME, serialized element/text-only, no Attr root) → VM ≥ boa, narrowing would be a boa
     regression; a real XML parser + XML serializer is a separable feature."
   - **Why deferred** — new: "all 5 accepted MIME currently HTML-parsed + serialized by the HTML walk (with DOM
-    Parsing's two escapes since serializer PR-X); a real XML parser needs an XML parser backend, which enters through
-    a plugin trait (PM 795; the boa-parity ground is gone since #458)."
+    Parsing's two escapes since serializer PR-X). The parser's ground: the PM 795 note below. The rest of the XML
+    serialization (void self-close, namespace prefixes and declarations, the doctype's identifiers, the *require
+    well-formed* checks) is the separable XML serializer feature, which this row keeps together with the parser."
   - PM 795 note — old: "部品は serializer の PR (PM 785) で入る。"
   - PM 795 note — new: "部品のうち escape の 2 関数は serializer の PR-X (PM 785、<PR 番号> `<merge sha>`) で入った:
     `push_xml_text` (DOM Parsing §5.2.1.5 *XML serializing a Text node* の step 3-5) と `push_xml_attribute_value`
@@ -330,8 +369,12 @@ the pmo re-reads each row before the edit and reports any difference instead of 
   The rest of the row (owner L3, Trigger, Date, the rest of the PM 795 note, **Re-eval-date** 2027-01-31) is
   unchanged by PR-X.
 - `project_html-section-renumber-sweep` (the cite-sweep record): PR-X fixes the XMLSerializer cite `HTML §8.5.8` →
-  §8.5.9 only in the two files it edits (`markup.rs`, `dom_parser.rs`; PR-X §9). Append "(serializer PR-X, PM 797)
-  XMLSerializer の cite `HTML §8.5.8` (正: §8.5.9 *The XMLSerializer interface*) が残る 5 箇所:
+  §8.5.9 only in the two files it edits (`markup.rs`, `dom_parser.rs`; PR-X §9). One replacement and one append:
+  - the Misc line's getHTML entry — old: "getHTML §4.4.6→§8.5.3" — new: "getHTML §4.4.6→§8.5.4" (`webref dfn html
+    getHTML` → §8.5.4 *HTML serialization methods*; §8.5.3 is *HTML streaming methods*; PR-X fixes `markup.rs`'s
+    three `§4.4.6` cites to §8.5.4, PR-X §4.1).
+  - append "(serializer PR-X, PM 803 / umbrella Rev 8) XMLSerializer の cite `HTML §8.5.8` (正: §8.5.9 *The
+  XMLSerializer interface*) が残る 5 箇所:
   `crates/script/elidex-js/src/vm/globals.rs:830`, `vm/host/structured_clone.rs:321`, `vm/object_kind.rs:720`,
   `vm/tests/tests_dom_parser.rs:1`, `:713` (`c0578223`、grep で引き直す)。"
 
@@ -371,14 +414,38 @@ the pmo re-reads each row before the edit and reports any difference instead of 
   and inserts the `InertTemplateDocument` marker (`crates/core/elidex-ecs/src/dom/template_owner.rs:55-56` at
   `c0578223`), whose doc says 'an inert template document, whose browsing context is null' (HTML §4.12.3
   *appropriate template contents owner document* step 1.1.1; `components.rs:388-394`). The null-browsing-context
-  marker (stated writers: DOMParser's build and *destroy a document*) must cover it by reading or merging that
-  existing component — one component for the one fact, not a second writer — so that N4's
-  `EcsDom::scripting_disabled_for` answers disabled for template content and obligation (2) of
-  `#11-scripting-disabled-predicate-no-document` reaches it. Until then N4 answers enabled for template content,
-  so its getter→setter round-trip growth falls in neither of the two cases of serializer PR-H's R2 (PR-H §7 R2)."
+  marker (stated writers: DOMParser's build and *destroy a document*) must cover it by **reading** that existing
+  component as implying a null browsing context — not a second writer of the fact, and never merged with it:
+  `InertTemplateDocument` is also a provenance fact, read as an identity test (`template_owner.rs:42`, *is this
+  document an inert template document*), so a merged component that DOMParser's build also wrote would make a
+  DOMParser document its own template contents owner. With that read, N4's `EcsDom::scripting_disabled_for`
+  answers disabled for template content and obligation (2) of `#11-scripting-disabled-predicate-no-document`
+  reaches it. Until then N4 answers enabled for template content, so its getter→setter round-trip growth falls in
+  neither of the two cases of serializer PR-H's R2 (PR-H §7 R2). **The other null-browsing-context documents**
+  (a Document's browsing context is null unless set, HTML §7.3.2 *Browsing contexts*, `#concept-document-bc`; the
+  production Document creators at `c0578223`, `git grep -n 'create_document_node()' c0578223 -- crates` read per
+  hit plus the clone path): (1) **Document clones** — `document.cloneNode()` (`importNode` rejects a Document);
+  DOM §4.4 *clone a single node* step 5's Document branch copies no browsing context, so the clone's is null.
+  `clone_subtree`'s Document branch (`crates/core/elidex-ecs/src/dom/tree_clone.rs:189`) does not copy
+  `InertTemplateDocument` (deliberately, `:31`: a clone of an inert document is an ordinary Document), so reading
+  that component does not reach a clone: the marker's writer must cover clones too (a clone of any Document, page or
+  not, has a
+  null browsing context). (2) **`begin_detached_fragment`'s throwaway Document**
+  (`crates/core/elidex-ecs/src/dom/tree/teardown.rs:309`) is outside the population: it is never script-reachable
+  — it is created with the mutation dispatcher taken out, the only node whose node document it is is the
+  synthetic `<html>` root, destroyed with it (`FragmentParseRoot` on the root redirects every node created under it
+  to the context's document, `:315-318`), the parser backends are
+  its only production callers, and it is destroyed by `finish_detached_fragment` (or the strict rollback) before
+  the parse returns. The page document (`create_document_root`) has a browsing context; DOMParser's build is a
+  stated writer; elidex-js has no `DOMImplementation` (no `createDocument` / `createHTMLDocument` native at
+  `c0578223`), whose documents would join (1)'s case when wired."
 - `#11-dom-api-handlers-unreachable-from-production` (registered, PM 583/744): cite PR-H in that slot (it left
   `GetInnerHtml` untouched pending the class, PR-H §9); the parse side (P6 F6 / F7, `"insertAdjacentHTML"` /
   `"innerHTML.set"`) also belongs to obligation (2)'s population.
+- `#11-vm-create-element-ns-missing` (PM 546, owner L3, Re-eval-date 2026-12-15): append "(serializer PR-H)
+  PR-H's raw-text decision reads `Namespace` (through `EcsDom::is_html_namespace`); a creator that does not
+  write it makes a foreign element's text literal (absent → HTML). When `createElementNS` is wired it creates
+  through `EcsDom::create_element_ns`, which writes the component (PR-H §4.3)."
 - No facet on `#11-browsing-context-state-ecs-components` (PM 731).
 
 ## §6. Out of scope
@@ -397,6 +464,10 @@ is not in one of those two lists.
 2. PR-H landed with its DoD (PR-H §10), X1-X5 / XC2 / XT / XA green and unedited at its head; §5's PR-H items
    applied.
 3. I-1's end state holds at PR-H's head (PR-H DoD 1).
+4. §3's table equals the union of PR-X §3's and PR-H §3's rows (first six columns byte-identical, each row once,
+   Slice naming its memo), checked whenever either per-PR §3 changes and before each PR lands; preflight on all
+   three memos reports no HARD FAIL.
 
 Open: none at the program level, and no per-PR open question (Q-5 decided, PR-X §11). Standing condition: S-3's end
-condition (the 2026-12-05 / 2026-12-12 reports, PM 803); §5's ratify-time item.
+condition (PR-H's target landing date 2026-12-01; the escalation reports past 2026-12-05 for PR-X / 2026-12-12 for
+PR-H, PM 803); §5's ratify-time item.

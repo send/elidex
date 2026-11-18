@@ -65,8 +65,10 @@ umbrella §0.2. P7 (the XMLSerializer path): PR-X §0.2.
   template document, whose browsing context is null", `crates/core/elidex-ecs/src/components.rs:388-394`). The node
   clause's ratified final representation is the enriched `#11-domparser-full-document-parse-fidelity`
   null-browsing-context marker (IBP-sandbox §6 OO → ECS row, `:661-663`; records `:706-710`; PM 795: owner L2
-  Layout, lands at IBP-sandbox N5), which must read or merge that existing component rather than add a second
-  writer of the same fact — a facet recorded on that slot at this PR's landing (umbrella §5).
+  Layout, lands at IBP-sandbox N5), which must read that existing component as implying a null browsing context —
+  neither a second writer of the same fact nor a merge with it (`InertTemplateDocument` is also a provenance fact,
+  read as an identity test at `template_owner.rs:42`) — a facet recorded on that slot at this PR's landing (umbrella
+  §5).
 - P6: the parse side of the same fact is a literal. HTML §13.4 *initialize an HTML fragment parser*
   (`#initialize-an-html-fragment-parser`, called from the *HTML fragment parsing algorithm*'s step 3) step 10: "Set
   parser's parser scripting disabled to true if scripting is disabled for contextDocument; otherwise false." elidex
@@ -284,8 +286,11 @@ namespace as a parameter and writes no `Namespace`. elidex-js has no `createElem
 'createElementNS' c0578223 -- crates/script ':!*tests*'` → 0; control: `'"createElement"'` → `document.rs:373`). So an element is foreign to this read iff a parser
 or a clone of a parsed foreign element made it so; any other element reads as HTML, and on the raw-text decision
 that is the literal (unsafe) side for a foreign element whose local name is in the list. That is the engine-wide
-representation, not this PR's (D-4 reads it as it is); a future foreign-element creator must write the component
-through `create_element_ns`.
+representation, not this PR's (D-4 reads it as it is). The future foreign-element creator is the `createElementNS`
+native of `#11-vm-create-element-ns-missing` (PM 546, owner L3, Re-eval-date 2026-12-15); it must create through
+`create_element_ns`, which writes the component. A landing facet on that slot records the dependency: this PR's
+raw-text decision reads `Namespace`, and a creator that does not write it makes a foreign element's text literal
+(absent → HTML) (umbrella §5, PR-H items).
 
 Algorithms live in `elidex-dom-api` (§13.3 in `element/markup.rs`); `vm/host/` is untouched (§4.2).
 
@@ -432,7 +437,9 @@ children arm (X2, X4's fragment half red; X1, X3, X4's element half, X5 green); 
 `XmlSerialization` arm calls `push_escaped_string` (X1's Text assertion); `push_attribute_value`'s
 `XmlSerialization` arm calls `push_escaped_string` (X1's attribute assertion, X3); and the reverse, an
 `HtmlFragment` arm calling the DOM Parsing function (V6's Text half / V6's `title` half, U2's `>` cell and XC2) —
-mutant (a), which PR-X could not observe, and mutant (b), whose attribute half PR-X kills with XC2 (PR-X §6).
+this is all of PR-X's mutant (b): its Text half, which PR-X could not observe, and its attribute half, which PR-X
+already kills with XC2 (PR-X §6). PR-X's mutant (a) is the `XmlSerialization`-arm one listed above
+(`push_text_data`'s arm calling `push_escaped_string`, X1's Text assertion).
 **The family gate, re-run at this PR's head** (the (ii) × (iii) conjunct; PR-X ran it with XC1): drop it, so the
 `XmlSerialization` arm emits the data verbatim when `in_raw_text` (X4, both halves, red; U4 green); and the
 reverse, the `HtmlFragment` arm ignoring `in_raw_text` (U4-entry, U4-recursion, V7 red; X4 green).
@@ -486,11 +493,13 @@ by this PR.
     *destroy a document* (`docs/plans/2026-09-ibp-sandbox.md:706-710`). The inert template document already carries
     the same fact in another component: `InertTemplateDocument`, inserted at its creation
     (`crates/core/elidex-ecs/src/dom/template_owner.rs:55-56`; HTML §4.12.3 step 1.1.1, "its browsing context is
-    null"; P5). So the obligation is not a new writer but that the marker read or merge that component (one fact, one
-    component); until it does, N4 answers "enabled" for template content and its round trip is neither of the two
-    cases above. Recorded as a facet of `#11-domparser-full-document-parse-fidelity`, which PM 795 made the home of
-    the marker's obligations (umbrella §5, PR-H items); other no-browsing-context documents, if any are created,
-    fall under the same slot. No cell here depends on it (V11 / V13 use DOMParser documents).
+    null"; P5). So the obligation is not a new writer but that the marker read that component as implying a null
+    browsing context, never merged with it (it is also a provenance fact, the identity test at
+    `template_owner.rs:42`); until it does, N4 answers "enabled" for template content and its round trip is neither
+    of the two cases above. Recorded as a facet of `#11-domparser-full-document-parse-fidelity`, which PM 795 made
+    the home of the marker's obligations (umbrella §5, PR-H items); the facet also names the other
+    null-browsing-context documents — Document clones, which the marker's writer must cover — and the fragment
+    parser's throwaway Document, outside the population. No cell here depends on it (V11 / V13 use DOMParser documents).
 
   Cells (each comments the slot id and its obligation, §6):
   - **V10** (page `div`): `div.innerHTML = '<noscript><p></p></noscript>'; g1 = div.innerHTML; div.innerHTML = g1;
