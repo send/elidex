@@ -31,9 +31,9 @@ slice a's implementation PR (the #541 precedent). "At umbrella approval" means "
 implementation is cut from main after that.
 
 **Changelog.** *Erratum: one element-aware lookup (PM decisions 782, 786, 823)* (2026-11-18; no rev bump; carried by the erratum PR, branch `layout-eh-attrs-lookup-erratum`, cut from `fecfc646` with T3-a (#639 `1146380f`) and T3-b (#642 `fecfc646`) landed; with the T3 memo rev 6.5 and the T3-a memo's record corrections, PM 786). Slot `#11-event-handler-attr-lookup-element-blind` (registered at T3-a's landing, PM 782): T3-a's `is_event_handler_content_attribute_of(dom, element, name) -> bool` wraps the name-only `event_handler_attr_lookup(name)`, which stays callable, so readers (a) and (c) scan the table twice and a later reader can take a row without asking about the element. **§4.1 now states one lookup**, `event_handler_content_attribute_row(dom, element, name) -> Option<(&'static str, HandlerScope)>`, which T3 writes in place of both (both deleted); the three readers, `is_window_delegating_pair` and `is_x_w_pair` call it; §4.1's code block, its *What is fixed here* (i), (ii) and (iv), the new (v) and (vi) and the stop condition follow, each with its earlier wording kept. Also edited in place: §4.1's heading and first paragraph (the census at `fecfc646`); §1.2's T3-a and T3 rows; x15. The final shape is still decided only in §4.1 (PM decision 741 (3)); the T3 memo implements it and the T3-a memo, a landed record, points to it. *Focused review of the erratum* (PM
-decision 825; no design change): (vi)'s residual points at the new slot drafted at T3 memo §8.3 item 14; *Home and
-visibility* states once what the lookup reads; *Why this mechanism*'s install-loop cite is corrected (`:222-254`,
-`:229`, `:253`; `:154` is the worker-list path); with the T3 memo rev 6.5.1.
+decision 825; no design change): (vi)'s residual points at the new slot drafted at T3 memo §8.1 item 6; *Home and
+visibility* states once what the lookup reads; *Why this mechanism*'s install-loop cite is corrected (`:222-289`,
+iterating at `:229`, calling at `:253`; `:154` is the worker-list path); with the T3 memo rev 6.5.1.
 *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): new §8.5, the one re-pin item for L3's unratified plans; x12 and x13 point to it.
 *Rev 8.<t>* (carried by T3's plan PR, branch `layout-eh-target-determination-plan`, with the T3 memo
 `docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 6.3, the T3-pre memo
@@ -901,7 +901,7 @@ target call.)
   test, so the lookup is never reached with a non-element from there. T3-a's ground for keeping a name-only lookup
   (the T3-a memo D-T8, *Rejected*: "`is_window_delegating_pair` and the VM's install loop ask about the name alone")
   does not hold for the second: the VM's install loop, `install_handler_attr_family`
-  (`vm/host/event_handler_attrs.rs:222-254` at `fecfc646`), iterates `EVENT_HANDLER_ATTRS` (`:229`) and calls
+  (`vm/host/event_handler_attrs.rs:222-289` at `fecfc646`), iterates `EVENT_HANDLER_ATTRS` (`:229`) and calls
   `event_handler_attr_event_type` (`:253`), never this lookup (the census above); so does the worker-list installer,
   `install_handler_attrs_from_list` (`:154`), over its own list. (Until the focused review of the erratum: "the VM's
   install loop … (`vm/host/event_handler_attrs.rs:154`, `:229`, `:253` at `fecfc646`)", `:154` being the
@@ -955,9 +955,9 @@ no element's content attributes) and returns an event type, not a row. The secon
 is no handler gets `Modern`), so it cannot answer whether a name is a handler at all; the three readers call it for
 the policy filter after the lookup (`mod.rs:121`, `:264`, `event_handler_consumer.rs:423` at `fecfc646`), and the VM's
 install loop calls it per table row. `EVENT_HANDLER_ATTRS` itself stays `pub`: the VM's install loop iterates it.
-What that leaves open, a content-attribute reader that scans the table or calls these functions in place of the
+What that leaves open, a content-attribute reader that scans the table or calls `event_handler_attr_event_type` in place of the
 lookup, with nothing structural to stop it, is a new slot (PM decision 825; proposed
-`#11-event-handler-attrs-table-reader-visibility`), whose text is T3 memo §8.3 item 14, not here. (Until the focused
+`#11-event-handler-attrs-table-reader-visibility`), whose text is T3 memo §8.1 item 6, not here. (Until the focused
 review of the erratum: "stated as a defect in T3 memo §8.3 item 13".) **Stop condition (PM decision 741
 (3), as PM decision 782 amends it):** if T3's implementation finds that it must change this shape (move or re-order
 a reader site, change the lookup's signature, keep or add a function that returns a row from a name alone, or add a

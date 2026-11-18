@@ -88,7 +88,7 @@ and are re-run at the commit the branch is actually cut from (§9 item 1).
   reader of an element's content attributes; it closes slot `#11-event-handler-attr-lookup-element-blind` (§8.3 item
   13). Which names are an element's (T3-a's D-T8 table) is not changed.
 - **PM decision 825 (rev 6.5.1; Q-T3):** that slot closes at T3; what stays reachable without an element (the `pub`
-  table and the name-only functions) is a new slot, drafted at §8.3 item 14; splitting the table is not T3's (§10).
+  table and the name-only functions) is a new slot, drafted at §8.1 item 6; splitting the table is not T3's (§10).
 - **PM decision 699 (O-10 (a)):** the **fragment parse's creation path** for an element whose node document at its
   creation is the active document: a fragment parse creates its elements in the context's node document (P-T17), and
   *determine the target of an event handler* steps 3–4 ask only whether that document is active, not whether the
@@ -140,12 +140,12 @@ other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; 
 
 **Changelog.** *Rev 6.5.1* (2026-11-18; focused plan-review of the erratum at `fe7c7938`; PM decision 825; no
 design change, PM 776). **IMP (Axis 3):** what stays reachable without an element after T3 (the `pub` table
-`EVENT_HANDLER_ATTRS` and the `pub` name-only functions `event_handler_attr_event_type` /
-`event_handler_attr_spec_level`) is a residual, guarded by DoD greps only. PM decision 825: the element-blind slot
-still closes at T3; the residual is a new slot, drafted at §8.3 item 14 (proposed id
+`EVENT_HANDLER_ATTRS` and the `pub` name-only functions `event_handler_attr_event_type`) is a residual: T3's DoD item 4 greps check it once, at T3's head; nothing checks it
+after T3 lands. (`event_handler_attr_spec_level` is the policy filter after the lookup, not a route to a row.) PM
+decision 825: the element-blind slot still closes at T3; the residual is a new slot, drafted at §8.1 item 6 (proposed id
 `#11-event-handler-attrs-table-reader-visibility`); the table split is not T3's. §7's last row points at it and its
-"Own deferrals" is 1; §8.3 item 13's last paragraph points at item 14 in place of stating the residual; §10 Q-T3 is
-the record of PM decision 825; the umbrella's §4.1 (vi) points at item 14. **MINs:** the lookup's signature, the
+"Own deferrals" is 1; §8.3 item 13's last paragraph points at §8.1 item 6 in place of stating the residual; §10 Q-T3 is
+the record of PM decision 825; the umbrella's §4.1 (vi) points at §8.1 item 6. **MINs:** the lookup's signature, the
 reader-line forms and R7's amended stop condition are stated once, in the umbrella's §4.1, and this memo points there
 (changelog rev 6.5, §4.1's row, §4.2, R7, §8.3 item 13; the removed text is `fe7c7938`'s); the §1 base-case list
 gains PM decision 782; §2 A1×A12 names the lookup's HTML arm, not T3-a's predicate; what the lookup reads is stated
@@ -943,8 +943,7 @@ the umbrella's *Rev 8.<t>* list, and PM 132 and 133, which bear on T3 alone.
   visits, so that Insertion finds every OR element it visits marked (D-T12; §4.5; until rev 4.8: "Creation walks
   the placement's own insertion-time set").
 - **A7×A12** — a created element's attributes pass the same applicability test at creation: Creation runs through the
-  processing function, whose snapshot T3-a filters (umbrella §4.1 step 2; cell U-T7 (iv); rev 6.5: the filter is the
-  lookup's `filter_map`, at the same place).
+  processing function, whose snapshot T3-a filters (umbrella §4.1 step 2, which puts the filter in the lookup; cell U-T7 (iv)).
 - **A7×A13** — the arm's Creation precedes every `Insert` of the caller's placement when no window encloses the parse,
   and follows the placement inside DOMParser's window, whose `Insert`s reach no consumer (the T3-pre memo §2 Q3×Q4); in
   both the Creation write is the first write any consumer makes to the created elements. A root despawned before the
@@ -1150,7 +1149,7 @@ no new delivery target: each delivery is D-T1's. Security boundaries (CSP, sandb
 | step-1 class | `is_body_or_frameset` (existing, session-private, gains the HTML namespace) | D-T5 |
 | steps 1–2 | `is_window_delegating_pair` (kept) | D-T2 |
 | applicability (step 1 of the attribute change steps, local name); `body`'s interface | T3-a's and T3-b's, on the base: `is_event_handler_content_attribute_of` and its three readers; the `body` arm and `require_body_receiver` (the T3-a and T3-b memos §4.1; the two `body` readers ask one function, `is_html_body_element`). T3 edits neither of T3-b's; of T3-a's it rewrites the predicate and its three reader lines into the lookup of the next row (rev 6.5; until rev 6.5: "T3 edits none of them") | the T3-a memo D-T8; the T3-b memo D-T11 |
-| the row of an element's event handler content attribute (rev 6.5) | `event_handler_content_attribute_row` (NEW), `session/event_handler_processing/mod.rs`. Its signature, steps, what it reads (*Home and visibility*) and its five callers are the umbrella's §4.1, stated there only (rev 6.5.1) | PM decision 782; the T3-a memo D-T8 (the table) |
+| the row of an element's event handler content attribute (rev 6.5) | `event_handler_content_attribute_row` (NEW), `session/event_handler_processing/mod.rs`. Its signature, steps and what it reads (*Home and visibility*) are the umbrella's §4.1, stated there only (rev 6.5.1) | PM decision 782; the T3-a memo D-T8 (the table) |
 | X-W's remaining population | `is_x_w_pair` (NEW), session-private, removed by S-5 | D-T7 |
 | creation processing (clone and fragment paths) | `process_created_subtree` (NEW), `pub`, same module, taking the event's `CreationCause`; `ProcessingTiming::Creation` (NEW); the element marker (D-1, existing); the fragment cause's walk is io's `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` (until rev 4.8: `handle_insert`'s collector) | D-T10, D-T12, D-T13 |
 | the creation event, its fire points and the window's queue | T3-pre's (`MutationEvent::SubtreeCreated`, `CreationCause`, `EcsDom::fire_subtree_created`, `DispatcherSlot::Taken { pending }`; NEW: T3-pre); T3 consumes it | the T3-pre memo §4.1 |
@@ -1665,7 +1664,7 @@ compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
 | Range element clones (`cloneContents`, `extractContents`' partial element clone) | not implemented (H-T26); through the canonical cloner from RC-2b they fire `SubtreeCreated` (`Clone` cause; D-T10; PM decision 723) | `#11-range-full-impl` |
 | the ASCII-case-insensitive tag compare in `is_body_or_frameset` (an HTML-namespace element whose local name is `BODY` would count as `body`) | **unreachable at the base, so no outcome differs**: no production path creates an HTML-namespace element with a non-lowercase local name. `createElement` lowercases (`crates/dom/elidex-dom-api/src/document.rs:197`), the HTML tokenizer lowercases tag names (HTML §13.2.5.8 Tag name state), DOMParser HTML-parses every MIME type, so no XML document exists (`#11-domparser-xml-real-parsing`), and the VM has no `createElementNS` (the T3-a memo H-A6). It is the engine-wide tag-predicate convention (`EcsDom::is_base_element`, `tag_matches_ascii_case`), so the fix is not one predicate's | recorded on `#11-vm-create-element-ns-missing`, whose wiring makes it reachable (the T3-b memo §8.3 item 1); until rev 6: "not changed; noted", with no home |
 | a bubbling event at an element not reaching the Window (H-T27) | not T3's mechanism; no T3 cell depends on it | `#11-event-path-window-missing` |
-| the name-only functions `event_handler_attr_event_type` and `event_handler_attr_spec_level`, and the `pub` table `EVENT_HANDLER_ATTRS` (rev 6.5) | excluded by PM decision 782: the IDL install surface's (`vm/host/event_handler_attrs.rs` installs accessors per interface and reads no element's content attributes); the first returns an event type and the second a level, neither a row. They stay callable without an element, and no structure stops a content-attribute reader from using them; splitting the table is not T3's (PM decision 825: T3 is edge-dense and does not grow) | the new slot drafted at §8.3 item 14 (proposed `#11-event-handler-attrs-table-reader-visibility`; PM decision 825); umbrella §4.1 (vi). (Until rev 6.5.1: "umbrella §4.1 (vi); what stays reachable is stated on the closing record (§8.3 item 13) and put to the PM (§10 Q-T3)") |
+| the name-only functions `event_handler_attr_event_type` and `event_handler_attr_spec_level`, and the `pub` table `EVENT_HANDLER_ATTRS` (rev 6.5) | excluded by PM decision 782: the IDL install surface's (`vm/host/event_handler_attrs.rs` installs accessors per interface and reads no element's content attributes); the first returns an event type and the second a level, neither a row. The table and the first stay reachable without an element, and no structure stops a content-attribute reader from using them; the second is total over names, so it is the policy filter after the lookup and not a route to a row (umbrella §4.1 (vi)); splitting the table is not T3's (PM decision 825: T3 is edge-dense and does not grow) | the new slot drafted at §8.1 item 6 (proposed `#11-event-handler-attrs-table-reader-visibility`; PM decision 825); umbrella §4.1 (vi). (Until rev 6.5.1: "umbrella §4.1 (vi); what stays reachable is stated on the closing record (§8.3 item 13) and put to the PM (§10 Q-T3)") |
 
 Own deferrals: **1**, the last row (PM decision 825; until rev 6.5.1: **0**). Residuals: **0** (PM decisions 168, 699, 705, 711). The custom-element row is L3's surface,
 recorded as a slot by PM decision 711 (4) and registered by PM 719, not a T3 deferral. The creation event's own
@@ -1695,6 +1694,40 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
    FragmentParse }` arm to `CustomElementReactionConsumer` (whose T3-pre no-op arm points at the slot, the T3-pre memo
    §4.6). Its trigger is T3-pre's landing (PM 732, which closed the T3-pre memo's Q-P1; until rev 6 this sentence
    still called it an open question).
+6. **New slot (rev 6.5.1; PM decision 825): the event handler table's reader visibility** — for the PM to register;
+    proposed id `#11-event-handler-attrs-table-reader-visibility`. Proposed **owner:** Layout, which owns the
+    EH-attrs program and the table (`event_handler_consumer.rs`); the install side (`vm/host/event_handler_attrs.rs`)
+    is VM P4's. Text (defect form; measured at `fecfc646`): "Content-attribute readers can bypass the element-aware
+    lookup (`event_handler_content_attribute_row`, T3; umbrella §4.1 of
+    `docs/plans/2026-10-event-handler-attrs-at-creation.md`) by scanning `pub EVENT_HANDLER_ATTRS` directly, or by
+    calling `event_handler_attr_event_type` with a name. T3's DoD item 4 greps check this once, at T3's head; nothing
+    checks it after T3 lands (no trip-wire or CI check names the table or these functions). Sites, in `crates/script/elidex-script-session/src/event_handler_consumer.rs`:
+    `EVENT_HANDLER_ATTRS` (`pub const`, `:79`), `event_handler_attr_event_type` (`pub fn`, `:228`),
+    `event_handler_attr_spec_level` (`pub fn`, `:326`); all three re-exported at the crate root (`lib.rs:39`, `:41`),
+    so every crate that depends on `elidex-script-session` can name them. A reader of an element's content attributes
+    that takes a row or an event type this way skips the attribute change steps' step 1 (WHATWG HTML §8.1.8.1 Event
+    handlers: 'localName is not the name of an event handler content attribute on element, then return'), and no
+    visibility rule stops it, because the table has to stay visible to the VM's install loop
+    (`install_handler_attr_family`, `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:222-289`, which
+    iterates it at `:229`): an unknown new reader falls on the unsafe side. Census: `git grep -n -w -e
+    EVENT_HANDLER_ATTRS -e event_handler_attr_event_type -e event_handler_attr_spec_level fecfc646 -- crates
+    ':!*tests*' | /usr/bin/grep -v -E ':[[:space:]]*//'` → 23 lines. 7 are in `vm/host/event_handler_attrs.rs`: the
+    `use` (`:51`, `:52`), the worker-list installer (`:154`) and the install loop (`:229`, `:250`, `:253`, `:254`).
+    16 are in `elidex-script-session`: the three definitions (`:79`, `:228`, `:326`), `event_handler_attr_event_type`'s
+    scan (`:229`), the three readers' policy filters (`:423`, `event_handler_processing/mod.rs:121`, `:264`), the `use`
+    (`mod.rs:15`), the name-only lookup's scan (`mod.rs:295`; T3 deletes it and the element-aware lookup's scan takes
+    its place), the re-exports (`lib.rs:39`, `:41`) and five lines of the inline `spec_level_tests` module (`:468`,
+    `:469`, `:492`, `:502`, `:503`; the path filter does not exclude an inline module). Control: the definition line
+    `event_handler_consumer.rs:79` is among the 23, and `git grep -l` with the same three names and no path filter
+    lists 6 files, the 4 non-test files above and `tests_applicability.rs`, `tests_insertion_and_write.rs`. The lines naming
+    `event_handler_attr_spec_level` (the definition `:326`, the three readers' policy filters, the install loop's call at
+    `vm/host/event_handler_attrs.rs:250`, the `use`s, the re-export and `spec_level_tests`) are the policy filter applied
+    after the lookup: reachable, and not a route to a row (it is total over names; umbrella §4.1 (vi)). **Fix
+    direction (PM 825):** split the table into an IDL-install view, for the VM's install loop, and a reader view, so
+    that the raw table is not visible from the reader side. ⚠ No mechanism reviewed. **Trigger:** T3's landing.
+    **Re-eval:** 2026-12-31."
+    (It is one statement: §8.3 item 13's closing text points here, and §7's last row, §10 Q-T3 and the umbrella's §4.1
+    (vi) point here. Until rev 6.5.1 the residual was stated in §8.3 item 13 and asked as Q-T3.)
 
 ### §8.2 Hand-offs
 
@@ -1933,46 +1966,16 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
     classifiers scan again for the entries they classify. T3-a's cells are green: U-A1 to U-A3 with the `active`
     argument, U-T8 rewritten to assert the lookup's row for every table row × element kind (T3 memo §5.2).
     **What it leaves open** (PM decision 825): the `pub` table and the name-only functions stay reachable without
-    the element, guarded by greps only; that defect is slot <the id the PM registers; proposed
-    `#11-event-handler-attrs-table-reader-visibility`> (T3 memo §8.3 item 14), not this one." (Until rev 6.5.1 this
-    paragraph stated the residual itself, headed "What stays reachable without an element"; its facts are item 14's
+    the element (T3's DoD item 4 greps check this once, at T3's head; nothing checks it after T3 lands); that defect is
+    slot <the id the PM registers; proposed `#11-event-handler-attrs-table-reader-visibility`> (T3 memo §8.1 item 6),
+    not this one." (Until rev 6.5.1 this paragraph stated the residual itself, headed "What stays reachable without an
+    element"; its facts are §8.1 item 6's
     text now.)
     Two rows that name the deleted predicate get one sentence each, appended: the closed row
     `#11-event-handler-content-attribute-applicability` and `#11-attribute-namespace-model` (whose text says "the
     three readers of T3-a's predicate"): "Since T3 (#<PR>, `<squash>`) T3-a's predicate
     `is_event_handler_content_attribute_of` is `event_handler_content_attribute_row`, which returns the row; its three
     reader sites and its table are unchanged (T3 memo §8.3 item 13)."
-14. **New slot (rev 6.5.1; PM decision 825): the event handler table's reader visibility** — for the PM to register;
-    proposed id `#11-event-handler-attrs-table-reader-visibility`. Proposed **owner:** Layout, which owns the
-    EH-attrs program and the table (`event_handler_consumer.rs`); the install side (`vm/host/event_handler_attrs.rs`)
-    is VM P4's. Text (defect form; measured at `fecfc646`): "Content-attribute readers can bypass the element-aware
-    lookup (`event_handler_content_attribute_row`, T3; umbrella §4.1 of
-    `docs/plans/2026-10-event-handler-attrs-at-creation.md`) by scanning `pub EVENT_HANDLER_ATTRS` directly, or by
-    calling `event_handler_attr_event_type` / `event_handler_attr_spec_level` with a name. Only DoD greps guard this
-    (T3 memo DoD item 4). Sites, in `crates/script/elidex-script-session/src/event_handler_consumer.rs`:
-    `EVENT_HANDLER_ATTRS` (`pub const`, `:79`), `event_handler_attr_event_type` (`pub fn`, `:228`),
-    `event_handler_attr_spec_level` (`pub fn`, `:326`); all three re-exported at the crate root (`lib.rs:39`, `:41`),
-    so every crate that depends on `elidex-script-session` can name them. A reader of an element's content attributes
-    that takes a row or an event type this way skips the attribute change steps' step 1 (WHATWG HTML §8.1.8.1 Event
-    handlers: 'localName is not the name of an event handler content attribute on element, then return'), and no
-    visibility rule stops it, because the table has to stay visible to the VM's install loop
-    (`install_handler_attr_family`, `crates/script/elidex-js/src/vm/host/event_handler_attrs.rs:222-254`, which
-    iterates it at `:229`): an unknown new reader falls on the unsafe side. Census: `git grep -n -w -e
-    EVENT_HANDLER_ATTRS -e event_handler_attr_event_type -e event_handler_attr_spec_level fecfc646 -- crates
-    ':!*tests*' | /usr/bin/grep -v -E ':[[:space:]]*//'` → 23 lines. 7 are in `vm/host/event_handler_attrs.rs`: the
-    `use` (`:51`, `:52`), the worker-list installer (`:154`) and the install loop (`:229`, `:250`, `:253`, `:254`).
-    16 are in `elidex-script-session`: the three definitions (`:79`, `:228`, `:326`), `event_handler_attr_event_type`'s
-    scan (`:229`), the three readers' policy filters (`:423`, `event_handler_processing/mod.rs:121`, `:264`), the `use`
-    (`mod.rs:15`), the name-only lookup's scan (`mod.rs:295`; T3 deletes it and the element-aware lookup's scan takes
-    its place), the re-exports (`lib.rs:39`, `:41`) and five lines of the inline `spec_level_tests` module (`:468`,
-    `:469`, `:492`, `:502`, `:503`; the path filter does not exclude an inline module). Control: the definition line
-    `event_handler_consumer.rs:79` is among the 23, and `git grep -l` with the same three names and no path filter
-    lists 6 files, the 4 non-test files above and `tests_applicability.rs`, `tests_insertion_and_write.rs`. **Fix
-    direction (PM 825):** split the table into an IDL-install view, for the VM's install loop, and a reader view, so
-    that the raw table is not visible from the reader side. ⚠ No mechanism reviewed. **Trigger:** T3's landing.
-    **Re-eval:** 2026-12-31."
-    (It is one statement: item 13's closing text points here, and §7's last row, §10 Q-T3 and the umbrella's §4.1
-    (vi) point here. Until rev 6.5.1 the residual was stated in item 13 and asked as Q-T3.)
 
 ### §8.4 Umbrella in-place edits carried by this PR (PM decisions: the one list in the umbrella's *Rev 8.<t>* entry)
 
@@ -2150,7 +2153,7 @@ Q-1 to Q-6 → H-T15 to H-T20.
   the table or calls that function is only detected, by DoD item 4's greps; does the element-blind slot's "Closes
   when" ("no caller outside the lookup's own module can get a row without the element") count the `pub` table, or is
   the fact on the closing text enough? Decided: `#11-event-handler-attr-lookup-element-blind` closes at T3 (§8.3 item
-  13), since the current readers' defect is fixed there; the residual is a new slot, drafted at §8.3 item 14; splitting
+  13), since the current readers' defect is fixed there; the residual is a new slot, drafted at §8.1 item 6; splitting
   the table is not T3's, which is edge-dense and does not grow. The PM's lens: security by structure, not review
   convention; an unknown reader must fall on the safe side, and today a new one falls on the unsafe side; one issue,
   one way (one entry point to a row). Until rev 6.5.1 this item was open, under "For the PM (rev 6.5)".
