@@ -735,6 +735,13 @@ pub(super) fn materialise_abort_reason(vm: &mut VmInner, reason: JsValue) -> JsV
 /// (`natives_timer::drain_timers`) only routes through here when
 /// the `pending_timeout_signals` map has an entry, which is itself
 /// engine-feature-gated.
+///
+/// Caller obligation (plan §4.1, "The `reason` closure's contract"): a caller
+/// that passes `undefined` — so the default `DOMException` is allocated inside
+/// the abort — while GC is enabled must keep `signal_id` reachable (root it)
+/// across the call, since the allocation may sweep.  The native paths satisfy
+/// this because they run with `gc_enabled = false`; the timer path passes a
+/// pre-built `TimeoutError`, so nothing is allocated.
 pub(in crate::vm) fn internal_abort_signal(
     vm: &mut super::super::VmInner,
     signal_id: ObjectId,

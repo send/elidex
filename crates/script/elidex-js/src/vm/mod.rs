@@ -287,7 +287,9 @@ pub(crate) struct VmInner {
     /// the abort loop's `Err` path reachable while the dispatch core never
     /// returns `Err` (cell `abort_err_does_not_skip_dependents`, DOM §3.2
     /// "signal abort" steps 5-6 are unconditional).  Removed when the
-    /// resource-limit slice P0a replaces it with its own injection point.
+    /// resource-limit slice P0a-1 replaces it with `InjectAt::SimpleEventDispatch(n)`
+    /// (`docs/plans/2026-11-vm-stack-safety-guard-p0a1.md`, paragraph "One
+    /// test-failure seam"; slot `#11-vm-call-depth-guard`).
     #[cfg(all(test, feature = "engine"))]
     pub(crate) fail_next_abort_dispatch: bool,
     /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated

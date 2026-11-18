@@ -808,7 +808,7 @@ classification PR-1 §5.3 makes ("`abort_signal` is cut on A-1").
 | `crates/script/elidex-js/src/vm/host/abort_statics.rs` | 181 | `any` on the algorithm; `abort` reason-only; docs; the seven citations |
 | `crates/script/elidex-js/src/vm/host/event_target.rs` | 734 | `:172-181` reads `reason.is_some()` (D-3); the 2 `§2.6.3` citation lines `:110`, `:168` (D-8 sub-family 2); no other change (its 14 EventTarget-only citation lines are §9.2's) |
 | `crates/script/elidex-js/src/vm/host/fetch/mod.rs` | 305 | `:298-305` `pre_flight_abort_reason` returns `state.reason` (D-3) |
-| `crates/script/elidex-js/src/vm/mod.rs` | 2785 | `any_composite_map` field + doc deleted (`:1358-1381`, incl. the `:1360` citation); `abort_signal_states` doc (`:1267-1278`); citation `:1242`; `#[cfg(test)] fail_next_abort_dispatch: bool` (NEW, beside `:276-277`; cell (o); removed by P0a, §9 Edges) |
+| `crates/script/elidex-js/src/vm/mod.rs` | 2785 | `any_composite_map` field + doc deleted (`:1358-1381`, incl. the `:1360` citation); `abort_signal_states` doc (`:1267-1278`); citation `:1242`; `#[cfg(all(test, feature = "engine"))] fail_next_abort_dispatch: bool` (NEW, beside `:276-277`; cell (o); removed by P0a, §9 Edges) |
 | `crates/script/elidex-js/src/vm/init.rs` | 858 | `:815` deleted |
 | `crates/script/elidex-js/src/vm/object_kind.rs` | 1645 | docs `:273-292` |
 | `crates/script/elidex-js/src/vm/globals.rs` | — (one comment line, `:719`) | citation |
@@ -926,7 +926,7 @@ VM cells (`tests_abort_dependent.rs` (NEW); red at `69fbe61f` where marked):
   (`natives_timer.rs:291-293`, `:358-359`) and its `Err` only reaches `eprintln!` (`:349-351`). Setup: `c = new
   AbortController()`, `d1 = AbortSignal.any([c.signal])`, `d2 = AbortSignal.any([c.signal])`, both kept, each with
   an `'abort'` listener that records it ran. The first dispatch of the plan (the source's own fire) is made to
-  return `Err` through a `#[cfg(test)]` field `VmInner::fail_next_abort_dispatch: bool` (NEW, test-only; the
+  return `Err` through a `#[cfg(all(test, feature = "engine"))]` field `VmInner::fail_next_abort_dispatch: bool` (NEW, test-only; the
   `force_gc_before_next_alloc` precedent, `mod.rs:276-277`), checked by `run_abort_steps` at step 3 in place of the
   `dispatch_vm_simple_event` call and cleared when it fires — the position P0a's `InjectAt::SimpleEventDispatch`
   takes (P0a §4.4). An injection seam is the only way to produce this `Err` today: `dispatch_vm_simple_event`
