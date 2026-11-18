@@ -1,8 +1,14 @@
-# Tree-model program: census data (at `84fee8fa`)
+# Tree-model program: census data (at `bfc63658`)
 
 Data file of [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (§6 there states what each population is for and which slice consumes it). This file holds the commands, the counts
 and the per-file tables. It is not a plan: it has no slice table and no slot table.
+
+Draft 3.3 (after the R3 plan-review of umbrella draft 3.2; base moved from `84fee8fa` to `bfc63658`): C-14 gains
+the driver's second probe (Range `deleteContents` over a host); C-13 places `next_in_preorder_global` (its child
+steps move in `ta`) and `apply_insert_adjacent_html` (it can meet a shadow root, umbrella §1.6) and names
+`sibling_order`; C-10 gains the `removeChild` row; C-9's count of the mutators' callers is corrected to the output of
+its command (45, not 53).
 
 Draft 3 (after the R2 plan-review of draft 2; base moved from `c0578223` to `84fee8fa`): the VM-host lines and the
 handler pairs are derived by a script (C-10, C-12) and carry reachability; C-13 groups the raw child reads by
@@ -17,7 +23,7 @@ relations by property, script in C-11); C-9 (writers) and C-10 (the VM native an
   is narrower or wider than the property, the row says so.
 - Every command is `git grep -n -P` (PCRE). `-E` is never used: `\b` and `\s` are silent zeros under `git grep -E`
   on this toolchain.
-- Every command runs from the repository root against the tree `84fee8fa`. "Non-test" is the pathspec
+- Every command runs from the repository root against the tree `bfc63658`. "Non-test" is the pathspec
   `-- crates ':!*tests*'`: it removes files and directories whose path contains `tests`. An inline
   `#[cfg(test)] mod tests` inside a non-test file is therefore counted as non-test (known over-count; the per-PR plan
   of the consuming slice subtracts by reading).
@@ -27,7 +33,7 @@ relations by property, script in C-11); C-9 (writers) and C-10 (the VM native an
 
 ## C-1. Populations
 
-| Id | Property (what the code does) | Command (after `git grep -n -P`, before `84fee8fa -- crates ':!*tests*'` unless noted) | Count | Positive control |
+| Id | Property (what the code does) | Command (after `git grep -n -P`, before `bfc63658 -- crates ':!*tests*'` unless noted) | Count | Positive control |
 |---|---|---|---|---|
 | P-UP | reads the stored parent of an entity through the public accessor | `'\bget_parent\('` | 143 lines (1 is the definition, `navigation.rs:16`; 142 call lines) | `crates/api/elidex-api-observers/src/mutation/mod.rs:215` |
 | P-UP-T | the same, in test paths | `'\bget_parent\('` over `-- crates`, minus P-UP | 174 − 143 = 31 lines | any line under a `tests` path; the two totals are both printed |
@@ -37,8 +43,8 @@ relations by property, script in C-11); C-9 (writers) and C-10 (the VM native an
 | P-MARK | tests or reads the `ShadowRoot` component of an entity | `'::<&?(\w+::)*(Ecs)?ShadowRoot>\|\bis_shadow_root\('` | 63 lines (2 false positives: `parse_state.rs:66`, `:335`, a method of the strict parser's own target enum) | `crates/core/elidex-ecs/src/dom/mod.rs:911` (`ChildrenIter`'s skip) |
 | P-HOST | reads the backward link field `ShadowRoot.host` | `'\.host\b(?!\s*\()'` | 41 lines, of which 14 are in shadow-related files (C-5); the rest are URL / cookie / origin `host` fields | `crates/core/elidex-ecs/src/dom/mod.rs:761` |
 | P-HOSTFN | reads the backward link through its accessor | `'\bshadow_host\('` | 2 lines (the definition `shadow.rs:521`, one caller `html_fragment.rs:81`) | the definition line |
-| P-DER | is a **derived relation**: a read-only function (no `&mut` in its signature) whose body reads a parent link (level 1), or calls a level-1 member (level 2) | the script of C-11, `python3 <script> 84fee8fa` | level 1: 114 climbing functions, 60 read-only and 54 mutating; level 2: 113 functions that call a read-only level-1 name, 45 read-only and 68 mutating (C-6) | `is_ancestor` at level 1 and `is_ancestor_or_self` at level 2 through it; negative control: `get_shadow_root` is not in the output |
-| P-CHW | is a function that reads a raw first or last child **and** a raw sibling: it can walk a whole raw child list, the only place where a shadow root appears as a child | the script of C-13, `python3 <script> 84fee8fa` | 104 reading lines (P-CH minus the 4 definition lines) in 54 functions of 25 files; 25 functions are walks, 23 of them outside elidex-ecs | `collect_focusable_entities` is printed as `walk`; negative control: `find_roots` (one raw read on a root) is printed as `hop` |
+| P-DER | is a **derived relation**: a read-only function (no `&mut` in its signature) whose body reads a parent link (level 1), or calls a level-1 member (level 2) | the script of C-11, `python3 <script> bfc63658` | level 1: 114 climbing functions, 60 read-only and 54 mutating; level 2: 113 functions that call a read-only level-1 name, 45 read-only and 68 mutating (C-6) | `is_ancestor` at level 1 and `is_ancestor_or_self` at level 2 through it; negative control: `get_shadow_root` is not in the output |
+| P-CHW | is a function that reads a raw first or last child **and** a raw sibling: it can walk a whole raw child list, the only place where a shadow root appears as a child | the script of C-13, `python3 <script> bfc63658` | 104 reading lines (P-CH minus the 4 definition lines) in 54 functions of 25 files; 25 functions are walks, 23 of them outside elidex-ecs | `collect_focusable_entities` is printed as `walk`; negative control: `find_roots` (one raw read on a root) is printed as `hop` |
 | P-VM | is a line under `crates/script/elidex-js/src/vm/host/` that calls a P-UP accessor, a child-side accessor (P-CH, P-CHX, or an elidex-ecs function that reads a raw link), or a read-only P-DER member | the script of C-12 | 58 lines in 25 files: UP 4, CH 10, DER 46 | `node_proto.rs:331` (UP), `html_input_proto.rs:876` (DER, `find_form_ancestor`), `parentnode.rs:159` (CH, passed as a path, not called) |
 | P-NAV | is a registered dom-api handler whose `impl DomApiHandler` block calls such a member | the script of C-12 | 39 of 217 registered handlers; 21 reachable from production, 18 not (C-10) | `parentNode.get` (unreachable), `isConnected.get` (reachable) |
 | P-WR | writes a parent link | `'\.parent\s*=[^=]'` over `-- crates/core/elidex-ecs/src ':!*tests*'` | 3 lines: one clear (`tree/mod.rs:86`), one link (`tree/mutation.rs:457`, in `link_node`), one doc comment (`tree/teardown.rs:54`) (C-9) | `crates/core/elidex-ecs/src/dom/tree/mutation.rs:457` |
@@ -57,6 +63,13 @@ script of C-11 gives the same count as at `c0578223`, and the P-UP line list is 
 (`git grep -n -P '\bget_parent\(' <rev> -- crates ':!*tests*'` for both revs, the rev prefix removed, `diff`: empty).
 `git diff --name-only `c0578223`..84fee8fa -- crates` lists 10 files, none of which is in a table of this census, so
 the `file:line` anchors are unchanged.
+
+**Re-measured at `bfc63658`** (2026-11-18, after the rebase of draft 3.3). Every command of C-1, C-4 and C-9 and
+the scripts of C-11, C-12 and C-13 give the same count and the same rows as at `84fee8fa` (saved outputs, `diff`:
+empty); the P-UP and P-CH line lists are the same lists (the command above for both revs). `git diff --name-only
+84fee8fa..bfc63658 -- crates` lists 17 files (VM GC rooting and coercion, the event-handler applicability files of
+elidex-script-session), none of which is in a table of this census. The handler census of C-10 was re-run on the
+`bfc63658` tree from a copy of its scripts: the same 56 unreachable names.
 
 ## C-2. P-UP by file, with the resolved relation
 
@@ -139,14 +152,14 @@ Legend (what the line takes in `ta`; names are in umbrella §1):
 | `shell/elidex-shell/src/content/form_input.rs` | 2 | E (`find_label_ancestor`: the label whose activation behaviour a click runs). Draft 1 read it as a form-ancestor climb | R-12 |
 | `shell/elidex-shell/src/content/iframe/lifecycle.rs` | 1 | T1 (`:604`, an inline test: the iframe's parent in the document tree) | — |
 
-Total: 143 lines in 60 files (`git grep -n -P '\bget_parent\(' 84fee8fa -- crates ':!*tests*' | cut -d: -f2 | sort -u | wc -l`
+Total: 143 lines in 60 files (`git grep -n -P '\bget_parent\(' bfc63658 -- crates ':!*tests*' | cut -d: -f2 | sort -u | wc -l`
 gives 60). **Predicted backlog** (lines, from this table; `ta`'s compiler list is binding): P:tm 2, P:tr 23, P:tf 13,
 P:te 3, in total 41; F 21, E 4, L 7; T2 5. No row is left unclassified, and no pending line is without a slice or
 an owner. The elidex-ecs half of the T2 question is not a P-UP line: `is_child_of` reads the field (C-6, C-9).
 
 ## C-3. P-CH by file
 
-`git grep -n -P '\b(get_first_child|get_last_child|get_next_sibling|get_prev_sibling)\(' 84fee8fa -- crates ':!*tests*' | cut -d: -f2 | uniq -c`
+`git grep -n -P '\b(get_first_child|get_last_child|get_next_sibling|get_prev_sibling)\(' bfc63658 -- crates ':!*tests*' | cut -d: -f2 | uniq -c`
 
 | File (under `crates/`) | Lines |
 |---|---|
@@ -186,17 +199,20 @@ needs (a **reading**, not run; `tc`'s plan re-reads all 23 and probes the ones i
 | Relation the walk needs | Functions (file under `crates/`) | In `tc` |
 |---|---|---|
 | **The explicit descent** (the walk must keep reaching a shadow tree) | `collect_focusable_entities` (`shell/elidex-shell/src/content/event_handlers.rs:456`, Tab order), `collect_iframe_entities` (`shell/elidex-shell/src/content/iframe/lifecycle.rs:437`, iframe discovery), `save_descendant_styles` (`layout/elidex-layout-block/src/helpers.rs:282`, the style save around a layout probe) (3) | `get_shadow_root`, then that root's tree children (umbrella §1.3); cells in umbrella §2 CHILD × SHELL, CHILD × RENDER |
-| **Tree children; entering a shadow tree is the defect** | Range and traversal: `child_index_in_ancestor`, `next_in_preorder_global` (`range/mod.rs`), `next_in_preorder`, `traverse_children`, `traverse_siblings`, `traverse_children_filtered`, `traverse_siblings_filtered`, `step_with_filter_previous_node` (`traversal.rs`); `normalize_entity` (`node_methods/core.rs:89`); form: `disable_descendants` (`elidex-form/src/fieldset.rs:35`), `find_first_descendant_control` (`label.rs:129`), `walk_options`, `init_select_options`, `get_option_text` (`select/mod.rs`), `walk_form_descendants` (`submit.rs:437`) (15) | the one set; observable (umbrella §3.1 `tc`) |
-| **Tree children; no shadow root can be met or it is filtered** (predicted) | `count_li_children` (`elidex-style/src/counter.rs:276`), `collect_text_recursive` (`elidex-dom-compat/src/presentational.rs:468`), `first_legend_child` (`elidex-form-core/src/fieldset.rs:12`), `collect_col_info` (`elidex-layout-table/src/helpers.rs:88`), `apply_insert_adjacent_html` (`mutation/html_fragment.rs:193`) (5) | the one set; no change predicted; each probed |
+| **Tree children; entering a shadow tree is the defect** | Range and traversal: `child_index_in_ancestor`, `next_in_preorder_global` (`range/mod.rs`; its two child steps move to the exposed accessors in `ta`, umbrella §1.6, so it leaves this population at `ta`'s head), `next_in_preorder`, `traverse_children`, `traverse_siblings`, `traverse_children_filtered`, `traverse_siblings_filtered`, `step_with_filter_previous_node` (`traversal.rs`); `normalize_entity` (`node_methods/core.rs:89`); form: `disable_descendants` (`elidex-form/src/fieldset.rs:35`), `find_first_descendant_control` (`label.rs:129`), `walk_options`, `init_select_options`, `get_option_text` (`select/mod.rs`), `walk_form_descendants` (`submit.rs:437`) (15) | the one set; observable (umbrella §3.1 `tc`) |
+| **Tree children; no shadow root can be met or it is filtered** (predicted) | `count_li_children` (`elidex-style/src/counter.rs:276`), `collect_text_recursive` (`elidex-dom-compat/src/presentational.rs:468`), `first_legend_child` (`elidex-form-core/src/fieldset.rs:12`), `collect_col_info` (`elidex-layout-table/src/helpers.rs:88`) (4) | the one set; no change predicted; each probed |
+| **Tree children; it hands a raw child to an elidex-ecs mutator** (a shadow root **can** be met) | `apply_insert_adjacent_html` (`mutation/html_fragment.rs:193`): "afterbegin" passes the raw first child (`:216`) and "afterend" the raw next sibling (`:243`) as the reference, which for a host is its shadow root (umbrella §1.6; drafts 3 to 3.2 listed it in the row above, against §1.6) (1) | the one set; the stored position changes, the tree-child order does not (umbrella §2 ORD × RENDER, §3.1 `tc`); cells session-level (C-10) |
 
-3 + 15 + 5 = 23. Limits of the instrument: a function that reads one raw link and is driven in a loop by its caller
+3 + 15 + 4 + 1 = 23. Limits of the instrument: a function that reads one raw link and is driven in a loop by its caller
 is printed as `hop` (29 functions; the nine `tree_nav.rs` handlers and the three `find_roots` are of this kind and
 do not descend); a walk built on a compensating accessor never meets a shadow root and is not in this population,
-because it cannot rely on crossing.
+because it cannot rely on crossing. `sibling_order` (`core/elidex-ecs/src/dom/tree/walkers.rs:308`) reads only a
+raw next sibling, so it is printed as `hop`; it orders two siblings of the stored list for `tree_order_cmp`, and
+umbrella §1.3 keeps it a stored-order read until `ts`.
 
 ## C-4. P-CHX: compensating child-side accessors
 
-Command per row: `git grep -n -P '\b<pattern>' 84fee8fa -- crates ':!*tests*' | wc -l`.
+Command per row: `git grep -n -P '\b<pattern>' bfc63658 -- crates ':!*tests*' | wc -l`.
 
 | Accessor | Pattern | Lines | What compensates |
 |---|---|---|---|
@@ -240,7 +256,7 @@ CHILD × NAV).
 P-HOST in shadow-related files (14 lines): `core/elidex-ecs/src/dom/shadow.rs` 5, `dom/tree/walkers.rs` 2,
 `dom/tree/teardown.rs` 1, `dom/tree/mutation.rs` 1, `dom/mod.rs` 1, `dom/elidex-a11y/src/tree.rs` 2,
 `script/elidex-script-session/src/event_dispatch/mod.rs` 1, `script/elidex-js/src/vm/host/shadow_root_proto.rs` 1
-(`git grep -n -P '\.host\b(?!\s*\()' 84fee8fa -- crates ':!*tests*' | cut -d: -f2 | sort | uniq -c`). Two of the 14
+(`git grep -n -P '\.host\b(?!\s*\()' bfc63658 -- crates ':!*tests*' | cut -d: -f2 | sort | uniq -c`). Two of the 14
 are doc comments (`shadow.rs:512`, `:518`) and one is a doc comment in `tree.rs:223`, so 11 lines read the field.
 
 **Who still reads the field after `ta`** (the input to "what PR (io)'s fold has to edit", umbrella §7.2). `ta`
@@ -259,10 +275,10 @@ not repeat it.
 link (level 1), or whose body calls a level-1 member (level 2). A caller of such a function obtains a relation
 without writing a step, so deleting `get_parent` does not make the compiler report it. Draft 1 listed these
 functions by hand and missed `is_ancestor_or_self` (R1 plan-review, CRIT): it has 16 call lines outside elidex-ecs
-(`git grep -n -P '\bis_ancestor_or_self\(' 84fee8fa -- crates ':!*tests*'` prints 18 lines: the definition, one
+(`git grep -n -P '\bis_ancestor_or_self\(' bfc63658 -- crates ':!*tests*'` prints 18 lines: the definition, one
 comment, 16 calls) and none of them calls `get_parent`.
 
-**Instrument.** The script of C-11 (`python3 <script> 84fee8fa`, run 2026-11-15). It splits every non-test `.rs`
+**Instrument.** The script of C-11 (`python3 <script> bfc63658`, run 2026-11-15). It splits every non-test `.rs`
 file under `crates/` into function bodies, marks a body that contains `get_parent(` or, inside elidex-ecs, a read of
 a `.parent` field, and then marks every function whose body calls a read-only level-1 name. Limits: braces inside
 string or character literals are counted as braces; a call is matched by bare name, so two functions with one name
@@ -300,7 +316,7 @@ Level 1, read-only (60):
 | `find_nearest_layout_box`, `multicol_container_writing_mode` (elidex-render), `is_sectioning_content_descendant` (elidex-a11y), `find_offset_parent`, `accumulated_scroll_offset` (`layout_query.rs`), `is_in_hidden_subtree` (`focus/predicate.rs:303`), `collect_hover_chain`, `find_scroll_target` (elidex-shell) | flat-tree ancestors, approximated by the stored parent | ND (F), 8 functions |
 | `build_propagation_path` (`event_dispatch/mod.rs:203`), `find_link_ancestor_with_target` (`app/events.rs:204`), `find_label_ancestor` (`content/form_input.rs:308`) | event *get the parent* chain | ND (E), 3 functions |
 | `match_components`, `match_pseudo_class` (`selector/matching.rs:12`, `:185`), `is_root_element` (`selector/traverse.rs:24`) | the selector tree's parent | ND (L), 3 functions |
-| `find_tree_root` (`walkers.rs:408`), `is_connected` (`walkers.rs:232`), `root_entities` (`navigation.rs:372`) | tree root; connected; parentless non-fragment entities | K. Each name is the relation, and it is the same relation at every head (the marker stop, then the storage). 24, 26 and 5 lines call them (`git grep -n -P '\b<name>\(' 84fee8fa -- crates ':!*tests*' \| wc -l`, definitions included) |
+| `find_tree_root` (`walkers.rs:408`), `is_connected` (`walkers.rs:232`), `root_entities` (`navigation.rs:372`) | tree root; connected; parentless non-fragment entities | K. Each name is the relation, and it is the same relation at every head (the marker stop, then the storage). 24, 26 and 5 lines call them (`git grep -n -P '\b<name>\(' bfc63658 -- crates ':!*tests*' \| wc -l`, definitions included) |
 | `is_child_of` (`dom/tree/mod.rs:57`) | one stored-link equality, `pub(super)`; the check of `remove_child`, `insert_before`, `replace_child` (`tree/mutation.rs:72`, `:116`, `:165`) on a child a caller supplied | K by name. Draft 2 kept it as a raw read; R2 found that the child can be script-supplied (`removeChild` has no other check). It stays a raw read (storage maintenance, P-REL) until `ts`; the spec's child-of steps are asked in the engine-independent layer from `ta`, pre-remove step 1 on the `removeChild` path only (umbrella §1.6, Q-19 closed by PM 800, home corrected in umbrella draft 3.2; C-9) |
 | `find_roots` (`css/elidex-style/src/walk.rs:119`), `is_in_document` (`focus/sot.rs:69`) | shadow-including (C-8 R-5, R-8) | K; the step takes `shadow_including_parent` |
 | `resolve_pseudo_content`, `ensure_pre_insertion_validity`, `ensure_replace_validity`, `ancestor_table`, `cell_index`, `section_row_index`, `resolve_adjacent_site`, `is_first_summary_of_details`, `get_cellpadding_hints`, `compute_table_fragmentation`, `collect_row_group_infos`, `capture_move_source`, `source_removal_record`, `apply_set_outer_html_replaces_element_in_parent` | a single hop, or a walk with a guard (C-2: T1 / T, g) | K, 14 functions |
@@ -344,7 +360,7 @@ one relation (the delegate passes the choice through); otherwise its body is one
 ## §C8. Spec coverage map for the rows draft 1 left at "?" (C-8)
 
 Each row was looked up with `.claude/tools/webref` on 2026-11-15 (the `body` command is in the row); the quoted
-words are the spec's. "Base" is the reading of the code at `84fee8fa`. The row id (R-n) is what C-2 and the umbrella
+words are the spec's. "Base" is the reading of the code at `bfc63658`. The row id (R-n) is what C-2 and the umbrella
 cite.
 
 | Spec section | Step | Branch (the spec's words) | Touch (site → relation; base) | Full enum? | User-input flow |
@@ -356,7 +372,7 @@ cite.
 | WHATWG DOM §4.9 Interface Element | `closest` step 3 | "Let elements be this's inclusive ancestors that are elements, in reverse tree order." (`body dom dom-element-closest`) | **R-6**: `child_node/selectors.rs` → tree parent; base stops at the first non-element parent: T, g | ✓ | yes |
 | WHATWG HTML §15.1 Introduction | *being rendered* | "if it has any associated CSS layout boxes"; "The presence of the hidden attribute normally means the element is not being rendered" (`body html being-rendered`) | **R-7**: `focus/predicate.rs:313` `is_in_hidden_subtree` → a rendering fact, so the flat tree (not defined here); base reads the stored parent, and its doc says so on purpose: F | ✓ | yes |
 | WHATWG DOM §4.2.2 Shadow tree | *connected* | "A node is connected if its shadow-including root is a document" (`body dom concept-shadow-tree`) | **R-8**: `focus/sot.rs:69` `is_in_document` (the same question, for one given document) → shadow-including; base reads the stored parent: S, equal | ✓ | yes |
-| WHATWG DOM §1.1 Trees | *tree order*; §4.4 `compareDocumentPosition` step 6; §5.2 *position* | "If node1 or node2 is null, or node1's root is not node2's root, then return the result of adding DOCUMENT_POSITION_DISCONNECTED, …"; "Assert: nodeA and nodeB have the same root." (`body dom interface-node`, `body dom boundary-points`) | **R-9**: `tree_order_cmp` and its 5 call lines (`git grep -n -P '\btree_order_cmp\(' 84fee8fa -- crates ':!*tests*'` prints 6 lines with the definition). Tree order for `compare_document_position` (`equality.rs:203`: it returns before the call when the tree roots differ) and for `find_radio_group_scoped` (`radio.rs:143`: the group is filtered to one tree root first): equal at base, taken in `ta`. Range's `compare_points` (`range/mod.rs:538`): pending, tr. Paint and hit-test layer order (`builder/walk.rs:620`, `hit_test.rs:235`): the flat tree's order (not defined here). Base: one crossing chain for all five | ✓ | yes |
+| WHATWG DOM §1.1 Trees | *tree order*; §4.4 `compareDocumentPosition` step 6; §5.2 *position* | "If node1 or node2 is null, or node1's root is not node2's root, then return the result of adding DOCUMENT_POSITION_DISCONNECTED, …"; "Assert: nodeA and nodeB have the same root." (`body dom interface-node`, `body dom boundary-points`) | **R-9**: `tree_order_cmp` and its 5 call lines (`git grep -n -P '\btree_order_cmp\(' bfc63658 -- crates ':!*tests*'` prints 6 lines with the definition). Tree order for `compare_document_position` (`equality.rs:203`: it returns before the call when the tree roots differ) and for `find_radio_group_scoped` (`radio.rs:143`: the group is filtered to one tree root first): equal at base, taken in `ta`. Range's `compare_points` (`range/mod.rs:538`): pending, tr. Paint and hit-test layer order (`builder/walk.rs:620`, `hit_test.rs:235`): the flat tree's order (not defined here). Base: one crossing chain for all five | ✓ | yes |
 | WHATWG HTML §15.3.8 Tables | `cellpadding` | "any td and th elements that have corresponding cells in the table corresponding to the table element" (`body html tables-2`) | **R-10**: `presentational.rs` `get_cellpadding_hints` → tree parent (the table model is built from children); base breaks at a parent without `TagType`: T, g | ✓ | no |
 | WHATWG DOM §5.6 Interface Range | `setStartBefore` steps 1-2 | "Let parent be node's parent. If parent is null, then throw an \"InvalidNodeTypeError\" DOMException." (`body dom dom-range-setstartbefore`) | **R-11**: `range_proto.rs:529` → tree parent (a shadow root's parent is null); base finds the host for a shadow-root argument: P:tr | ✓ | yes |
 | WHATWG DOM §2.9 Dispatching events | *dispatch*, the activation target | "Let parent be the result of invoking target's get the parent with event."; "If isActivationEvent is true, event's bubbles attribute is true, activationTarget is null, and parent has activation behavior, then set activationTarget to parent." (`body dom dispatching-events`) | **R-12**: `app/events.rs:204`, `content/form_input.rs:308` → the event path (not defined here); base reads the stored parent: E | ✓ | yes |
@@ -371,9 +387,9 @@ form-ancestor lookup.
 
 ## C-9. P-WR: who writes a tree edge
 
-`git grep -n -P '\.parent\s*=[^=]' 84fee8fa -- crates/core/elidex-ecs/src ':!*tests*'` prints 3 lines. One site
+`git grep -n -P '\.parent\s*=[^=]' bfc63658 -- crates/core/elidex-ecs/src ':!*tests*'` prints 3 lines. One site
 writes `Some(parent)`: `link_node` (`crates/core/elidex-ecs/src/dom/tree/mutation.rs:449`, the write at `:457`).
-`git grep -n -P '\blink_node\(' 84fee8fa -- crates ':!*tests*'` prints its definition and three callers:
+`git grep -n -P '\blink_node\(' bfc63658 -- crates ':!*tests*'` prints its definition and three callers:
 `append_child` (`mutation.rs:53`), `insert_before` (`:132`), `replace_child` (`:214`). No function outside the
 `dom::tree` module can write a link field (`pub(crate)` fields, and `link_node` / `update_rel` are `pub(super)`).
 
@@ -383,12 +399,15 @@ role I are in elidex-dom-api and elidex-script-session, and `attach_shadow_with_
 (umbrella §2 TREE × WR, the node half).
 
 Nothing refuses a shadow root as the **child** either (the reference child, the old child, the removed child):
-`is_child_of` compares the stored parent, which is the host. `git grep -n -P '\bis_child_of\(' 84fee8fa -- crates`
+`is_child_of` compares the stored parent, which is the host. `git grep -n -P '\bis_child_of\(' bfc63658 -- crates`
 prints the definition and its three callers (`tree/mutation.rs:72`, `:116`, `:165`).
 
 **Who passes a child to the three mutators.**
-`git grep -n -P '\.(remove_child|insert_before|replace_child)\(' 84fee8fa -- crates ':!*tests*' | wc -l` → 53
-(calls and inline tests; the definitions are not matched). Read once for "can the child argument be a shadow
+`git grep -n -P '\.(remove_child|insert_before|replace_child)\(' bfc63658 -- crates ':!*tests*' | wc -l` → 45
+(calls and inline tests; the definitions are not matched). Drafts 3 to 3.2 printed 53 here: that is the count of
+the `\b` form (`'\b(remove_child|insert_before|replace_child)\('`), which also matches the definitions and
+same-named functions; the `\.` command prints 45 at `c0578223`, `84fee8fa` and `bfc63658`. The reading below was
+done over the wider set, so it covers the 45. Read once for "can the child argument be a shadow
 root": the script paths (`mutation/child_list.rs:318`, `:340`, `:369`, `:458`, `:465`, `:509`, `:565`) pass what
 the script supplied; and three engine callers pass a **raw** first child or next sibling, which for a host can be
 its shadow root: `css/elidex-style/src/pseudo.rs:74` (the raw read is `:72`),
@@ -403,7 +422,7 @@ pick tree children at `tc`.
 Draft 2 built this table by hand and R2 found 13 VM-host lines and three members missing. It is now the output of
 the script in C-12 (P-VM: 58 lines; P-NAV: 39 handlers), grouped by reading. **Reach** is the handler census of
 `#11-dom-api-handlers-unreachable-from-production` (its scripts and outputs are in the PM's hand-off directory
-`handoff/l3-dom-handler-census/`, `run.sh`; re-run on the `84fee8fa` tree: 217 registered, 161 reached, 56
+`handoff/l3-dom-handler-census/`, `run.sh`; re-run on the `bfc63658` tree: 217 registered, 161 reached, 56
 unreachable, the same list as on 2026-11-15): **R** some production entry reaches the handler, **U** none does. It
 is not "the literal occurs somewhere" (PM 583).
 
@@ -422,10 +441,11 @@ Parent side and derived relations (`ta`):
 | `getRootNode` | R (`node_methods_extras.rs:98`) | `node_methods/core.rs:210` (`find_root` / `find_root_non_composed`) | the native calls the handler | shadow-including root or tree root, by the option, as at base |
 | `compareDocumentPosition` | R (`node_methods_extras.rs:136`) | `node_methods/core.rs:58` (`compare_document_position`) | the native calls the handler | tree order within one root (C-8 R-9), as at base |
 | `closest` | R (`element_proto.rs:385`) | `child_node/selectors.rs:51` | the native calls the handler | T, g |
-| `insertBefore`, `replaceChild`, `replaceWith` | R | `element/tree.rs:97`, `:235`, `child_node/mutations.rs:196` (`ensure_pre_insertion_validity`, `ensure_replace_validity`, `get_parent`) | the natives call the handlers | H for the cycle test; **T2** for the child-of question (umbrella §1.6): the one change |
+| `insertBefore`, `replaceChild`, `replaceWith` | R | `element/tree.rs:97`, `:235`, `child_node/mutations.rs:196` (`ensure_pre_insertion_validity`, `ensure_replace_validity`, `get_parent`) | the natives call the handlers | H for the cycle test; **T2** for the child-of question (umbrella §1.6): the first of `ta`'s two declared changes |
+| `removeChild` | R (`node_proto.rs:712`, `native_node_remove_child` → `invoke_dom_api("removeChild")`) | `element/tree.rs:182` (the `impl`; `invoke` calls `apply_remove_child` at `:199`) | the native calls the handler | **new call in `ta`**: `ensure_pre_remove_validity` (NEW, `child_node/mod.rs`) before `:199`, pre-remove step 1 as the tree-parent question (umbrella §1.6). Not printed by the C-12 script, because at base the handler calls no P-UP, P-CH or P-DER member; added by hand (R3) |
 | `appendChild`, `append`, `prepend`, `before`, `after`, `remove`, `replaceChildren`, `insertAdjacentElement`, `insertAdjacentText` | R | `element/tree.rs:43`, `:352`, `:412`, `child_node/mutations.rs:77`, `:128`, `:166`, `:255`, `:291`, `:322` | the natives call the handlers | H; T1 for the receiver's parent |
 | `options.add`, `options.remove`, `options.length` | R | `element/select.rs:130`, `:222`, `:277` | the natives call the handlers | `add`'s two ancestor tests: pending, `Flip::Tf` ([H12]); the rest T1 |
-| `insertAdjacentHTML` | U | `element/markup.rs:70` | — | T1 |
+| `insertAdjacentHTML` | U | `element/markup.rs:70` | — | T1. Its apply function (`mutation/html_fragment.rs:193`) is one of `tc`'s three engine callers (umbrella §1.6); with no VM native, `tc`'s cells for it are session-level |
 | `getBoundingClientRect`, `getClientRects`, `offsetParent`, `scrollIntoView` | U | `element/layout_query.rs:14`, `:203`, `:96`, `:259` | — | F: the flat-tree pending names (umbrella §1.5) |
 
 Child side (`tc`; not touched in `ta`, umbrella §2 CHILD × NAV):
@@ -453,7 +473,7 @@ Lines: 4 (UP) + 10 (CH) + 44 (DER; 46 calls, two lines hold two) = 58.
 
 ## C-11. The P-DER script
 
-Run from the repository root: save the block as a file and run `python3 <file> 84fee8fa`. It prints the two count
+Run from the repository root: save the block as a file and run `python3 <file> bfc63658`. It prints the two count
 lines and one row per function (level, RO / MUT, `file:line`, name, the level-1 name it calls).
 
 ```python
@@ -507,7 +527,7 @@ for tag, rows in (('1', [(x, '') for x in l1]), ('2', l2)):
 
 ## C-12. The P-VM / P-NAV script
 
-Run from the repository root: `python3 <file> 84fee8fa <saved output of C-11 at the same rev> <unreachable.txt>`
+Run from the repository root: `python3 <file> bfc63658 <saved output of C-11 at the same rev> <unreachable.txt>`
 (the third argument is the handler census's list of unreachable registered names, one per line, C-10). It prints
 the two count lines, one `V` row per VM-host call (kind, file, line, enclosing function, member) and one `H` row
 per handler (registered name, R / U, `file:line` of the `impl`, the members it calls). Limits: calls are matched
@@ -590,7 +610,7 @@ for r in sorted(hs):
 
 ## C-13. The P-CHW script
 
-Run from the repository root: `python3 <file> 84fee8fa`. It prints the count line and one row per function that
+Run from the repository root: `python3 <file> bfc63658`. It prints the count line and one row per function that
 reads a raw child or sibling link (file, function, its line, the number of reading lines, `walk` or `hop`, the
 lines).
 
@@ -621,8 +641,10 @@ for (f, fn, st), v in rows.items():
 
 ## C-14. Probes that were run
 
-One, by the driver, for umbrella §0.1 item 6: a temporary VM test at `84fee8fa` (rustc 1.99.1) in a scratch
-worktree, removed afterwards. With `h` a connected host, `sr = h.attachShadow({mode: "open"})` holding one
+Two, both by the driver, for umbrella §0.1 item 6. Each was a temporary VM test (rustc 1.99.1) in a scratch
+worktree, removed afterwards.
+
+**First probe** (at `84fee8fa`, the child-of question). With `h` a connected host, `sr = h.attachShadow({mode: "open"})` holding one
 `<span>`, and `n` a new element:
 
 | Call | Observed at `84fee8fa` | DOM ([D13] of the umbrella) |
@@ -631,5 +653,14 @@ worktree, removed afterwards. With `h` a connected host, `sr = h.attachShadow({m
 | `h.insertBefore(n, sr)` | no exception; `n` is inserted | "NotFoundError" (*ensure pre-insert validity* step 3) |
 | `h.replaceChild(n, sr)` | no exception; `sr` is replaced in the child list | "NotFoundError" (*replace* step 1, through the same step 3) |
 
-The test is not in the tree; `ta`'s plan re-creates it as its first probe and keeps it as the cells of umbrella
-§1.6. Everything else in this census that speaks of behaviour is a reading (C-7).
+**Second probe** (at `bfc63658`, R3 Axis 2 IMP-1, Range's contained-node walk). With `h` a connected host whose
+shadow root is **closed** and holds a `<span>`, and a `MutationObserver` observing `h` with `childList: true`:
+
+| Call | Observed at `bfc63658` | DOM ([D8] of the umbrella) |
+|---|---|---|
+| `range.setStart(h, 0); range.setEnd(h.parentNode, idx(h) + 1); range.deleteContents()` (`idx(h)` = the host's index in its parent) | no exception; the observer receives a record on `h` whose `removedNodes` contains the closed shadow root (so page script holds a reference that closed mode withholds); the span's `isConnected` is still true while the shadow root is out of the host's child list (the links diverge, as in the first probe) | the shadow root is not *contained* ("node's root is range's root" fails: its root is itself), so it is not among the nodes to remove and no record names it |
+
+Neither test is in the tree; `ta`'s plan re-creates both as its first probes and keeps them as the cells of umbrella
+§1.6. Side finding of the second probe, not this program's: `Array.prototype.indexOf.call(nodeList, x)` throws
+TypeError ("Array.prototype method called on non-array"), a generic Array method on an array-like; reported to the
+PM for VM P4. Everything else in this census that speaks of behaviour is a reading (C-7).
