@@ -224,14 +224,18 @@ pub(crate) fn is_event_handler_content_attribute_of(
         return false;
     };
     match (dom.namespace_of(element), scope) {
-        (Namespace::Svg, _) => true,
-        (
+        // SVG2 §15.8: every name on every SVG element; G: HTML §8.1.8.2 lists (i) and
+        // (ii), the partial mixins, MathML Core §2.2.3.
+        (Namespace::Svg, _)
+        | (
             Namespace::Html | Namespace::MathMl,
             HandlerScope::Global | HandlerScope::DocumentElement,
         ) => true,
+        // W: HTML list (iii), body and frameset only.
         (Namespace::Html, HandlerScope::Window) => is_body_or_frameset(dom, element),
-        (Namespace::MathMl, HandlerScope::Window) => false,
-        (Namespace::Html | Namespace::MathMl, HandlerScope::DocumentOnly) => false,
+        // W on MathML; D (HTML list (iv): Document objects) on HTML and MathML.
+        (Namespace::MathMl, HandlerScope::Window)
+        | (Namespace::Html | Namespace::MathMl, HandlerScope::DocumentOnly) => false,
     }
 }
 
