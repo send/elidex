@@ -301,7 +301,7 @@ Level 1, read-only (60):
 | `build_propagation_path` (`event_dispatch/mod.rs:203`), `find_link_ancestor_with_target` (`app/events.rs:204`), `find_label_ancestor` (`content/form_input.rs:308`) | event *get the parent* chain | ND (E), 3 functions |
 | `match_components`, `match_pseudo_class` (`selector/matching.rs:12`, `:185`), `is_root_element` (`selector/traverse.rs:24`) | the selector tree's parent | ND (L), 3 functions |
 | `find_tree_root` (`walkers.rs:408`), `is_connected` (`walkers.rs:232`), `root_entities` (`navigation.rs:372`) | tree root; connected; parentless non-fragment entities | K. Each name is the relation, and it is the same relation at every head (the marker stop, then the storage). 24, 26 and 5 lines call them (`git grep -n -P '\b<name>\(' 84fee8fa -- crates ':!*tests*' \| wc -l`, definitions included) |
-| `is_child_of` (`dom/tree/mod.rs:57`) | one stored-link equality, `pub(super)`; the check of `remove_child`, `insert_before`, `replace_child` (`tree/mutation.rs:72`, `:116`, `:165`) on a child a caller supplied | K by name. Draft 2 kept it as a raw read; R2 found that the child can be script-supplied (`removeChild` has no other check). Whether its body becomes the tree-parent equality in `ta` or stays a raw read until `ts` is open (umbrella §7.3 Q-19; C-9) |
+| `is_child_of` (`dom/tree/mod.rs:57`) | one stored-link equality, `pub(super)`; the check of `remove_child`, `insert_before`, `replace_child` (`tree/mutation.rs:72`, `:116`, `:165`) on a child a caller supplied | K by name. Draft 2 kept it as a raw read; R2 found that the child can be script-supplied (`removeChild` has no other check). It stays a raw read (storage maintenance, P-REL) until `ts`; the spec's child-of steps, pre-remove step 1 included, are asked in the mutation layer from `ta` (umbrella §1.6, Q-19 closed by PM 800; C-9) |
 | `find_roots` (`css/elidex-style/src/walk.rs:119`), `is_in_document` (`focus/sot.rs:69`) | shadow-including (C-8 R-5, R-8) | K; the step takes `shadow_including_parent` |
 | `resolve_pseudo_content`, `ensure_pre_insertion_validity`, `ensure_replace_validity`, `ancestor_table`, `cell_index`, `section_row_index`, `resolve_adjacent_site`, `is_first_summary_of_details`, `get_cellpadding_hints`, `compute_table_fragmentation`, `collect_row_group_infos`, `capture_move_source`, `source_removal_record`, `apply_set_outer_html_replaces_element_in_parent` | a single hop, or a walk with a guard (C-2: T1 / T, g) | K, 14 functions |
 
@@ -395,7 +395,8 @@ its shadow root: `css/elidex-style/src/pseudo.rs:74` (the raw read is `:72`),
 `script/elidex-script-session/src/mutation/html_fragment.rs:222` (raw read `:216`), `:251` (raw read `:243`). All
 three discard the result. The other callers pass an element found by a filtered search, a node they just created,
 or a text child (a reading, not run). R2's fix decision assumed only scripts supply such a child; this list is why
-umbrella §1.6 leaves the elidex-ecs half open (Q-19).
+umbrella §1.6 leaves elidex-ecs unchanged in `ta` (Q-19 (b′), PM 800): the three callers keep base behaviour and
+pick tree children at `tc`.
 
 ## C-10. The VM natives and the dom-api handlers that answer the same question
 
