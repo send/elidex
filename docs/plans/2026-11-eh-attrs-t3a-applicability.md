@@ -54,7 +54,8 @@ reflecting six and an SVG `body` keep HEAD's target here, §1.2); the attribute 
 completeness of the name table against `GlobalEventHandlers` and its partial extensions (a pre-existing table defect,
 §7).
 
-**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): H-A9's tree-model citation is an
+**Changelog.** *Clerical (PM 783): slot registered* (2026-11-18; no rev bump): `#11-event-handler-content-attribute-applicability` is registered, open; T3-a's landing updates its status (§8.3 item 1).
+*Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): H-A9's tree-model citation is an
 unratified reading, re-pinned at L3's ratification (umbrella §8.5).
 *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): the ledger search
 for the name table's missing names is stated once, with its control and the pending slot (PM 776), in §10 Q-A7, and
@@ -628,9 +629,10 @@ None. (The foreign-interface defect text is the T3-b memo §8.2 item 1.)
 
 ### §8.3 Records for existing slots (for the PM, exact texts; at T3-a's landing)
 
-1. `#11-event-handler-content-attribute-applicability` — **register, as closed** (the ledger has no row; PM 377 set
+1. `#11-event-handler-content-attribute-applicability` — **registered (PM 783), open; at T3-a's landing its status is updated to closed for facets (1) and (3)**, the row
+   text replaced with the text below (until PM 783: "register, as closed (the ledger has no row; PM 377 set
    its registration at T3's landing, which PM decisions 741 (3) and 767 move to T3-a's; PM decision 770 moves facet
-   (2) to another slot, so no facet stays open in this row) with this text: "pre-existing.
+   (2) to another slot, so no facet stays open in this row)"): "pre-existing.
    The attribute change steps (HTML §8.1.8.1 Event handlers) step 1 return when the attribute's namespace is not
    null, or its local name is not the name of an event handler content attribute on the element. Before T3-a elidex
    realised neither test: (1) every reader looked the name up in `EVENT_HANDLER_ATTRS` regardless of the element
@@ -668,8 +670,8 @@ None. (The foreign-interface defect text is the T3-b memo §8.2 item 1.)
    *New:* "facet (2) → `#11-attribute-namespace-model` (PM 770)", as in the text above; the row carries no owner,
    trigger or Re-eval of its own for facet (2) (they are that slot's: owner L3, Re-eval 2027-01-15). Measured
    2026-11-18: `/usr/bin/grep -c 'event-handler-content-attribute-applicability' project_open-defer-slots.md` → 0
-   (control: `/usr/bin/grep -c 'attribute-namespace-model'` on the same file → 2), so no ledger row holds the old
-   wording today and the new line arrives with the registration. PM decision 168's slice-b premise is otherwise
+   (control: `/usr/bin/grep -c 'attribute-namespace-model'` on the same file → 2), so no ledger row held the old
+   wording then; the row was registered by PM 783 and the new line arrives with T3-a's landing update. PM decision 168's slice-b premise is otherwise
    written only in this program's memos, which this plan PR re-points (umbrella §8.1 and §10.2; T3 memo §7, §8.2,
    §8.3 item 1, §10 O-7). One sentence of the receiving row for the PM to align in the same edit:
    `#11-attribute-namespace-model` symptom (2)'s "(Layout T3 R3 W1-3; T3-b facet (2) waits on this)" names T3-b,

@@ -129,10 +129,11 @@ build, and declarative shadow content and template contents created by a fragmen
 consumer's fragment cause (§8.1 item 5, L3); the creation event itself, its fire points, its queue and every other consumer's migration (T3-pre, PM decision 722); insertion adoption (C0) and template contents' owner document (C1), both landed before T3; `document.body`'s class
 test (PM decision 133, D-T5); the attribute change steps' step 1 (its local-name half is T3-a's, the T3-a memo
 D-T8; its namespace half is applicability facet (2), which has no case at the base and is `#11-attribute-namespace-model`'s, PM decision 770, the T3-a memo §8.3 item 1); the `HTMLFrameSetElement` interface
-(`#11-htmlframesetelement-interface`, compat, PM decision 130; registered at T3-b's landing, the T3-b memo §8.3 item 2); `body`'s interface (the T3-b memo D-T11) and the
+(`#11-htmlframesetelement-interface`, compat, PM decision 130; registered (PM 783); the T3-b memo §8.3 item 2); `body`'s interface (the T3-b memo D-T11) and the
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
+**Changelog.** *Clerical (PM 783): slot registered* (2026-11-18; no rev bump): the applicability and frameset slots are registered, open; T3-a's and T3-b's landings update their status.
+*Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
 *Clerical* (2026-11-18; no rev bump): clerical (PM 780): §8.1 item 3 is a site record, not a separate registration.
 *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): D-T3 (A) quotes B1 §5 req 5 as written;
 L3's plans are unratified readings (H-T32); the re-pin moves to L3's ratification, the umbrella §8.5, with R7's
@@ -168,7 +169,7 @@ gains rows for `HostData::active_document()`, D-4, the VmObject pair and the mod
 gains a relied-on parser row; §8.2's tree-model entry is re-pulled from draft 2 (`1593a5ad`: tp → ta → tc → tr → tf
 → tm → te → ts, then io) and the walker entry follows PM decision 761 (1), without the "slice 1 after T3" branch;
 the unbind caveat's home is `#11-browsing-context-state-ecs-components` (§7, §8.3 item 12);
-`#11-htmlframesetelement-interface` is registered at T3-b's landing, the first that cites it, and T3 only cites it
+`#11-htmlframesetelement-interface` is registered (PM 783), and T3 only cites it
 and appends (D-T9, §7, §8.3 item 9); DoD item 4's `EcsDom`-call count covers the rebinding form; §5.3's
 `inert_document.rs` rewrite keeps what the form slot's fix may have added; H-T15's caveat command uses a POSIX class
 with a control (`\s` under `git grep -E` matches nothing); an SVG `body`'s interface is "not `HTMLBodyElement`"
@@ -593,8 +594,8 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   Creation timing runs through the same processing function, so a created element's attributes pass the same test
   (A7×A12). T3's D-T5 adds the HTML namespace to `is_body_or_frameset`, which the predicate's HTML arm calls; inside
   that arm the clause is redundant, so the predicate's answers do not change at T3.
-- **D-T9 — `frameset`'s interface is compat (PM decision 130).** `#11-htmlframesetelement-interface` is registered at
-  T3-b's landing, the first of this plan PR's landings to cite the id (the T3-b memo §8.3 item 2, which has its
+- **D-T9 — `frameset`'s interface is compat (PM decision 130).** `#11-htmlframesetelement-interface` is registered
+  (PM 783; the T3-b memo §8.3 item 2 has its
   text; until rev 6.2: at T3's landing, §8.3 item 9, which is now T3's one-sentence append), in the compat layer: `frameset` is an obsolete feature (HTML §16.3.2 Frames, under §16.3 Requirements for
   implementations), so its interface belongs to a compat plugin, not core (CLAUDE.md core/compat/deprecated). Owner: none
   until the compat plugin work starts. T3 changes only target determination for a `frameset`; its interface is not
@@ -1577,7 +1578,7 @@ compiled on its own (`event_dispatch/mod.rs:317`, `engine.rs:234`).
 | creation-time processing on S-1's other paths (declarative shadow content and template contents created by the pre-bind document parse) | slice b's S-1 (PM decision 153 moved the clone path; PM decisions 699, 705 and 711 the whole fragment path, DOMParser's build, declarative shadow content and template contents it creates included, D-T12; until rev 4.8 those three stayed here) | slice b S-1 |
 | the custom-element consumer's `FragmentParse` arm (the upgrade enqueue at a fragment-parsed element's creation) | T3 does not change custom-element behaviour (PM decision 711 (4)) | L3-owned slot `#11-custom-element-upgrade-at-fragment-creation` (**registered** 2026-11-13, PM 719; §8.1 item 5), closed by a later L3 PR |
 | `body`'s interface; foreign elements' HTML interfaces other than `body`'s | T3-b's D-T11; the general fix needs the SVG / MathML interface families | the T3-b memo D-T11; its proposed defect text (the T3-b memo §8.2 item 1); the class is recorded on `#11-html-element-type-tests-without-namespace` (PM 780) |
-| **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (registered at T3-b's landing, the T3-b memo §8.3 item 2; T3's append: §8.3 item 9) |
+| **the `HTMLFrameSetElement` interface**: no `HTMLFrameSetElement.prototype`, so its 18 WindowEventHandlers IDL attributes and `cols` / `rows` read `undefined` | an interface surface; compat (PM decision 130, D-T9) | `#11-htmlframesetelement-interface` (registered (PM 783); the T3-b memo §8.3 item 2; T3's append: §8.3 item 9) |
 | **attribute change steps step 1**: its local-name half; its namespace half (a non-null attribute namespace) | the local-name half is T3-a's (PM decision 741 (3)); the namespace half has no case at the base and needs attribute-namespace modelling and a namespaced writer first (the T3-a memo H-A8; H-T19) | the T3-a memo D-T8; the namespace half (applicability facet (2)) → `#11-attribute-namespace-model` symptom (4), owner L3 (PM decisions 768, 770; the T3-a memo §8.3 item 1 has the prerequisites and the ledger's old → new; until rev 6.2: the applicability slot's facet (2), its owner an open question, Q-A6) |
 | `document.body`'s tag-only class test (H-T12) | PM decision 133: T3's steps 3–4 do not use "the body element" | not registered; site of `#11-html-element-type-tests-without-namespace` (PM 780; §8.1 item 3 is the site record) |
 | attribute change steps step 5.1 (CSP) | not modelled | `#11-csp-inline-handler-enforcement` |
@@ -1785,10 +1786,10 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 5. (withdrawn in rev 3; number kept.)
 6. Umbrella K-0's E-G1 (i) and the ledger row's facet (4) bullet: closed by T3 (the record of item 1 covers both).
 7. (withdrawn in rev 4.1: a Range clone through the canonical cloner fires `CloneCreated`, D-T10; number kept.)
-8. (moved in rev 6; now the T3-a memo §8.3 item 1: `#11-event-handler-content-attribute-applicability` is registered at
-   T3-a's landing, with facets (1) and (3) closed by T3-a; PM decision 741 (3), revising PM 377's "at T3's landing"
+8. (moved in rev 6; now the T3-a memo §8.3 item 1: `#11-event-handler-content-attribute-applicability` is registered (PM 783), open, and T3-a's landing
+   updates it with facets (1) and (3) closed; PM decision 741 (3), revising PM 377's "at T3's landing"
    and PM decision 168; number kept. Rev 5's text had M15's correction; the moved text keeps it.)
-9. `#11-htmlframesetelement-interface` — **append** (the row is registered at T3-b's landing, with the text of the
+9. `#11-htmlframesetelement-interface` — **append** (the row is registered (PM 783), with the text of the
    T3-b memo §8.3 item 2; until rev 6.2 this item registered it, with rev 3's §8.1 item 1 text at a `74e15df1`
    coordinate and no Re-eval date): "Since T3 (#<PR>, `<squash>`) a `frameset`'s handler content attributes and the
    six Window-reflecting IDL attributes it inherits from `HTMLElement.prototype` act on the Window (HTML §8.1.8.1
