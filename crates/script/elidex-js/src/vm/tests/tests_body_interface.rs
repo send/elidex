@@ -25,12 +25,19 @@ fn t19_non_html_body_is_not_an_html_body_element() {
              r.push(fnRan === 0, window.onhashchange === null); \
              mathBody.onhashchange = fn; \
              r.push(window.onhashchange === null); \
-             try { D.get.call(svgBody); r.push(false) } catch (e) { r.push(e instanceof TypeError) }",
+             var brand = function (f) { try { f(); return false } catch (e) { \
+                 return e instanceof TypeError && /Illegal invocation/.test(e.message) } }; \
+             r.push(typeof D.get === 'function' && typeof D.set === 'function' \
+                 && (D.get.call(document.body), true) \
+                 && brand(function () { D.get.call(svgBody) }) \
+                 && brand(function () { D.set.call(svgBody, fn) }) \
+                 && brand(function () { D.get.call(mathBody) }))",
         );
         assert_eq!(
             got, "false,true,true,true,true",
-            "T-19: a foreign `body` takes HTMLElement.prototype, its on<T> is an ordinary property, \
-             and the body pair's accessor rejects it with a TypeError"
+            "T-19: a foreign `body` does not take the body prototype, its on<T> is an \
+             ordinary property, and the body pair's accessor (descriptor present; getter and setter on \
+             svgBody, getter on mathBody) rejects it with the brand-check TypeError (Illegal invocation)"
         );
     });
 }

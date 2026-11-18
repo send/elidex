@@ -410,14 +410,15 @@ pub(super) fn native_vm_event_handler_set(
 // ---------------------------------------------------------------------------
 
 /// Brand check for the body-delegation accessors: the receiver must be an
-/// `HTMLBodyElement` (WHATWG HTML §8.1.8.2 — only `<body>`/`<frameset>`
-/// delegate WindowEventHandlers to the Window; §4.3.1 The body element:
+/// `HTMLBodyElement` (WHATWG HTML §8.1.8.1 *determine the target of an event
+/// handler* — only `<body>`/`<frameset>` delegate WindowEventHandlers to the
+/// Window; §8.1.8.2 lists the attributes; §4.3.1 The body element:
 /// `HTMLBodyElement includes WindowEventHandlers`). Without this, the
-/// accessor would redirect to the Window from *any* receiver via
-/// `.call()`. Returns `Ok(None)` for an unbound / non-wrapper receiver
-/// (silent), `Err` ("Illegal invocation") for a wrapper that is not an HTML
-/// `body` (`is_html_body_element`); a receiver that does not implement the
-/// interface is a `TypeError` (Web IDL §3.7.6 Attributes).
+/// accessor would redirect to the Window from *any* receiver via `.call()`.
+/// A wrapper that is not an HTML `body` (`is_html_body_element`) is a
+/// `TypeError` ("Illegal invocation"; Web IDL §3.7.6 Attributes). A
+/// non-wrapper receiver returns `Ok(None)` (getter `null`, setter no-op) — a
+/// pre-existing deviation from §3.7.6, unchanged by T3-b.
 fn require_body_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

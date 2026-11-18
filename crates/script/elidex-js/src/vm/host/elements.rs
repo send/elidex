@@ -466,7 +466,8 @@ impl VmInner {
 /// nothing and DOM §4.5 Interface Document's default (`Element`) stands unless
 /// that namespace's spec states otherwise, so a foreign `body` takes the
 /// fallback `HTMLElement.prototype` every foreign element without an HTML
-/// namesake takes today (the foreign-interface defect, plan §8.2 item 1).
+/// namesake takes today (the foreign-interface class, registered as
+/// `#11-html-element-type-tests-without-namespace`).
 ///
 /// The tag test comes first: it is false for an unbound host, and `dom_shared`
 /// asserts a bound one.
@@ -475,7 +476,8 @@ impl VmInner {
 /// `HostData::tag_matches_ascii_case` compares ASCII-case-insensitively, so an
 /// HTML-namespace element whose local name is `BODY` would pass. No production
 /// path creates one yet; it becomes creatable with `createElementNS`
-/// (`#11-vm-create-element-ns-missing`, which records it).
+/// (`#11-vm-create-element-ns-missing`); the case issue is recorded under
+/// `#11-html-element-type-tests-without-namespace`.
 #[cfg(feature = "engine")]
 pub(super) fn is_html_body_element(
     host: &super::super::host_data::HostData,

@@ -186,8 +186,8 @@ pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
 /// `body` (the HTML parser's foreign content breaks out at a `body` start tag,
 /// HTML §13.2.6.5, and JS `createElementNS` is not VM-wired), so the cells that
 /// need one take it from here. When `#11-vm-create-element-ns-missing` wires
-/// `createElementNS`, those cells (T-21) take their script form (T3-a memo
-/// §8.3 item 3). Test support: no spec step.
+/// `createElementNS`, those cells (T-21: T3-a memo §8.3 item 3; T-19: T3-b memo §8.3
+/// item 1) take their script form. Test support: no spec step.
 ///
 /// The elements are created **before** the VM is bound (the pre-bind shape of
 /// `setup_page`): once bound, the VM holds raw pointers into `dom`, so writing
