@@ -1,5 +1,7 @@
 # K2 wire CR#1 — step 1 at the new T: the delta to the final-head runbook (companion of the CR#1 plan)
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
 ## §0 Spec coverage map
 
 **No spec surface**: a runbook of shell-harness runs, as `…-cr2-plan-finalhead-runbook.md` is; `preflight.py` is
@@ -49,7 +51,7 @@ cited here, `67488c8d` equals `fdded560` and `cdc7c6ec`: plan, Frame); a number 
 
 **The definitions file** (runbook §6.0's writer, as `defs-writer.sh`): written to `$H/cr2/work/fh2-scripts/defs.sh`;
 the **sourcing line** becomes `. /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh2-scripts/defs.sh ||
-exit 1` in every script. The runbook's text (its `H=` line comes before `K=`), except these lines:
+exit 1` (path not retained — see the note at the top of this file) in every script. The runbook's text (its `H=` line comes before `K=`), except these lines:
 
 ```sh
 W=/Users/kazuaki/repos/send.sh/elidex-wt-citeaudit
@@ -128,7 +130,7 @@ and the landing memo are not edited for it.
 ## §3 The dry pass and the anchor re-check at T (finalhead §7 C5), before BN
 
 After the definitions writer (§1, Order), a dry pass in its own `K`, started with the paths written out (the
-invoking shell has no `$H`; the definitions define it):
+invoking shell has no `$H`; the definitions define it; paths not retained — see the note at the top of this file):
 
 ```sh
 K=/Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh2-dry /opt/homebrew/bin/bash /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh2-scripts/dry.sh
@@ -144,7 +146,7 @@ count on the way must hold. Then, in the dry `K`:
 
 1. **The anchors**: the counts below, each `/usr/bin/grep -cF` (or `-cx` for a whole line) in `c0`, the clone at T.
    The X5 and X13 anchors are also asserted by their own scripts at run time.
-2. The dry `K` is then deleted by its path, written out: `chmod -R u+rwX
+2. The dry `K` is then deleted by its path, written out (path not retained — see the note at the top of this file): `chmod -R u+rwX
    /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh2-dry && rm -rf
    /Users/kazuaki/repos/send.sh/elidex-fgit-handoff/cr2/work/fh2-dry` (no glob).
 

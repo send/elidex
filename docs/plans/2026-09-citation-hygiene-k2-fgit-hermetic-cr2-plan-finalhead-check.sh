@@ -9,6 +9,14 @@
 #   this file and a fresh mktemp -d.
 #   An output directory is cleared only if it is empty or carries the marker .fhd-check-out; the handoff's out/ is
 #   never cleared when this file runs from anywhere but the handoff.
+# ⚠ PM 815/816 (2026-11-18): both H (/Users/kazuaki/repos/send.sh/elidex-fgit-handoff) and W (/Users/kazuaki/repos/send.sh/elidex-wt-fgit-hermetic)
+# are gone and not retained. H's working tree was deleted 2026-11-18; W no longer exists. This script cannot be re-run
+# (`cd "$W"` exits 2, and lines that read $H/runners/logs, $H/cell15.sh and find "$H" have nothing to read). It is kept as
+# the record of the evidence taken at T.
+# The file as run is this file without the block from the `# ⚠ PM 815/816` line through this line; its sha256
+# (c1df1af1…, recorded in …-impl-cr2-d.md :592) reproduces with:
+#   sed '/^# ⚠ PM 815\/816/,/^#   end of PM 815\/816 block$/d' <this file> | shasum -a 256
+#   end of PM 815/816 block
 set -u
 W=/Users/kazuaki/repos/send.sh/elidex-wt-fgit-hermetic; H=/Users/kazuaki/repos/send.sh/elidex-fgit-handoff
 HERE=$(cd "$(dirname "$0")" && pwd); SELFP=$HERE/$(basename "$0")

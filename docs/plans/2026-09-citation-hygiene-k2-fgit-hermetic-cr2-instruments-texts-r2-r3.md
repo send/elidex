@@ -1,10 +1,12 @@
 # K2 fixture git — PR #527 CR2 round: the instruments (as run), §E.3, 1 of 2 — the exit path's texts [r2], [r3], [r3f]
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
 Companion of `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-sweep.md` ("the sweep file"), which holds CR2's sweep, §E.1 and §E.4,
 and whose §E index names the file of every instrument. The first half of §E.3 was split out of it at CR2-M (touch-time, the
 1000-line rule), each block byte-identical. The plan is `…-cr2-plan.md`, with its companion
 `…-cr2-plan-exitpath.md` (written there as x§6.n). **Frame `706049ad`.** How a `cr2/bin/<name>` resolves, how a
-block is re-run and what it reads: the sweep file's header and §E.4. This file is excluded from CR2's sweep and
+block is re-run and what it reads: the sweep file's header and §E.4 (path not retained — see the note at the top of this file). This file is excluded from CR2's sweep and
 from the plan's claim rows over `docs/plans/*k2-fgit*`, as the sweep file is (the plan's §10 and §11).
 
 ## §0 Spec coverage map
