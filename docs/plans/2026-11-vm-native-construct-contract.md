@@ -68,7 +68,7 @@ those two facts on the object. Mutable per-instance state that a kind keeps outs
 | 1.1 | §9: R-0b moved to 11-24 (after this umbrella's plan-review); §9's dates are canonical; P0a-1's implementation fixed at 11-28; PR-A1 recorded as landed (#628 `c0578223`, 11-13). §4.5 / §4.5.1: R-NAT branch ownership, pull-in by merge, per-commit green record. No other design content changed. | PM 687, PM 688 |
 | 1.2 | R1 plan-review at `d11c4df7` (CRIT 0 / IMP 9 / MIN 21 after dedup). **F1** WebSocket protocol-list validation goes to `elidex-api-ws`; R-0d re-derived (§4.1, §7). **F2** the outside-write population is defined by property, four classes, one no-orphan rule (§4.4 item 3; E-7 and A5×A10 refer to it). **F3** `HTMLElement`'s sync path runs phase 1 before the spawn (§4.4 item 5, §8.4). **F4** per-constructor Call-mode table; the active-function branch is its own helper entry (§4.3, E-11, §3). **F5** P-11 enumerates 13 stale upgrade cites and homes them. **F6** R-0c / R-0d are §9.1 steps 8 / 9 (the later steps renumbered). **F7** repo `:293` is VM P4's, in the rustdoc PR (§5.4, §9.1 step 4). **F8** PM `:271` / `:1327` added to §5.4. **F9** VM-P4 family homes named and split (§4.2, §1.3). MIN: Web IDL §3.7.1 steps are 1.7 / 1.8 / 1.9; OrdinaryCallBindThis, GetThisEnvironment, MakeBasicObject, OrdinaryObjectCreate step ranges; WebAssembly JS API rows (§3); docstring rule for NEW functions; M-6's full command; PM-ledger line numbers re-measured; Re-eval dates (§5.4); A6×A7 and the `invoke_upgrade` row state S-2's flow change; `call_internal` row (§8.1); plan-review skip for R-0b / R-0c / R-0d (§4.1); §4.4 row schema gains layering and state-shape columns; R-0c's seam choice recorded; the scope of "written once" (§0); the R-JS-stage fallback's edge to `#11-vm-proxy-reflect`; `EvalError` / `SharedArrayBuffer` homes (§1.3); wires #1 / #3 exempt the helper module by property (§4.6); `vm/mod.rs` verdict cites its slot (§7). **PM 737**: the R-JS plan window is triggered by the umbrella's ratification; no date moves at the estimate (§9.1). **PM 745**: the host-chapter window is PM-confirmed. | PM 737, PM 743, PM 745 |
 | 1.3 | R2 plan-review at `e47adadc` (CRIT 0 / IMP 9 / MIN 18 after dedup). **Altitude correction (PM 754; precedent #374):** §4.4's class table, per-class write orders, windows and cells were host-chapter content at umbrella altitude and kept producing findings (G2, G3, four A2 MINs). They are removed; the umbrella keeps one invariant, stated once (E-7), and §4.4 lists what L3's chapter must contain. **G1** R-0d mints no token predicate; the predicate's home is for the PM (§4.1). **G4** `invoke_upgrade`'s Phase 3 under S-2: `:244` stays; `:245` is D-17b §6's and is not retracted here (O-1, for the PM; §5.3). **G5** Rust-driven `Construct` cells required of R-NAT's plan (§4.3). **G6** P-11 by property over `crates/`: 19 lines (§1.4, M-8). **G7** the upvalue candidate's dependency on `#11-vm-upvalue-tdz-check` / umbrella C (§4.2, §5.2). **G8** R-JS against the parked Slice 1aa / 1ac (§4.2). **G9** L3's capacity for 12-08 … 12-12 is an open condition (§9.1 step 11). MIN: OrdinaryCallBindThis step 6; per-prerequisite plan-review (§4.1); wire #5's complement by property (§4.6); `HTMLElement`'s Call mode at HTML §3.2.3 step 5; Proxy forwards only without a trap (§0, §3); `define` steps 14.1-14.2; phase 1 = Web IDL §3.8 step 3 (3.2-3.3); row → PR ownership (§3); the Layering column's disposition and the State-shape values (§4.4 item 1); `#11-error-object-builtintag-dual-representation` in the Re-eval sweep (§5.4); the `push_js_call_frame` row's `pr1.md` reference (§8.1); "at `4b723d4b`"; the family-layout pin (§4.2). Vanished with the removed layer: the two definitions of "window", EventSource's unnamed pattern, the `HTMLElement` class-(a) row, S-1's missing reference. **PM 750**: R-0c targets 11-21, R-0d 11-24, hard edge 12-04. **PM 752**: `#11-data-transfer-drag-data-store-layering` cited; `SharedArrayBuffer` is `#11-wasm-threads`'s (§1.3). | PM 750, PM 752, PM 754 |
-| 1.4 | PM 784 on Rev 1.3's open items. **(1) O-1** is with the user, not decided: every S-2 site stays conditional, D-17b §6 unchanged (§5.3). **(2) G1** option (A): `elidex-api-ws` depends on `elidex-api-fetch` and R-0d's validator calls `is_valid_header_name`; (B), a `token` predicate in `elidex-plugin`, rejected (Plugin-first); the host header copy and the `elidex-net` matcher go to a slot the PM registers (§4.1, §7, M-10). **(3)** R-0b / R-0d: a short memo and `/elidex-plan-review` each, targets 11-24, hard edge 12-04, a date past 11-26 reported to the PM (§4.1, §9.1 steps 3 / 9). **(4) G8** R-JS before 1aa (§4.2). **(5) G6** all 11 `elidex-custom-elements` cites on `#11-ce-upgrade-returned-object-typeerror` (L3) (§1.4 P-11, §5.2, §5.4, M-8). **(6)** R-0d's open condition closed by (A) (§9.1 step 9). **(7) G9** stays open; L3 re-derives its dates after its tree-model R2 (§9.1 step 11). No other design change. | PM 784 |
+| 1.4 | PM 784 on Rev 1.3's open items. **(1) O-1** closed: D-17b §6 retracted (user, 11-18, PM 789); S-2 is unconditional (§4.2, §5.3, §5.4). **(2) G1** option (A): `elidex-api-ws` depends on `elidex-api-fetch` and R-0d's validator calls `is_valid_header_name`; (B), a `token` predicate in `elidex-plugin`, rejected (Plugin-first); the host header copy and the `elidex-net` matcher go to a slot the PM registers (§4.1, §7, M-10). **(3)** R-0b / R-0d: a short memo and `/elidex-plan-review` each, targets 11-24, hard edge 12-04, a date past 11-26 reported to the PM (§4.1, §9.1 steps 3 / 9). **(4) G8** R-JS before 1aa (§4.2). **(5) G6** all 11 `elidex-custom-elements` cites on `#11-ce-upgrade-returned-object-typeerror` (L3) (§1.4 P-11, §5.2, §5.4, M-8). **(6)** R-0d's open condition closed by (A) (§9.1 step 9). **(7) G9** stays open; L3 re-derives its dates after its tree-model R2 (§9.1 step 11). No other design change. | PM 784, PM 789 |
 
 ## §1. Scope
 
@@ -140,7 +140,7 @@ trip-wire extension, and the cells of §2.
 | `call_construct_native` (`vm/interpreter.rs:95`) | its `this` parameter goes | R-JS |
 | `ensure_instance_or_alloc` (`vm/inner.rs:152`, 14 calls) and `promote_to_*` (`vm/inner.rs:213-277`, 6 calls) | deleted; Date's `store` setter (`vm/natives_date/mod.rs:115`) becomes a payload write | R-NAT |
 | the 97 creating members | create through the helper at their creation step | R-NAT |
-| `invoke_upgrade`'s pre-construct `prototype` read (`vm/host/custom_elements/upgrade.rs:216-222`) | S-2's subject (§5.3); kept as today until open item O-1 is ruled | R-JS |
+| `invoke_upgrade`'s pre-construct `prototype` read (`vm/host/custom_elements/upgrade.rs:216-222`) | S-2's subject (§5.3): deleted, with Phase 3's `set_wrapper_prototype` call (`:245`) | R-JS |
 | `resolve_validated_prototype` (`vm/host/custom_elements/html_element.rs:276`) | folded onto the helper's phase 1 (§5.3 S-1) | R-NAT (host) |
 
 **Unchanged (re-verified):** `with_call_mode` (`vm/interpreter.rs:160`); `NativeContext::new_target` /
@@ -210,7 +210,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A2×A3 | a derived constructor resolves no prototype (§10.2.2 step 3 is base-only); today `do_new` resolves one for it |
 | A2×A4 | the prototype `[[Get]]` precedes the body, so a getter's effects stay observable when the body returns another Object |
 | A2×A5 | the `[[Get]]` may run user code before allocation; only newTarget is live and it is rooted (value stack / caller frame) |
-| A2×A6 | `resolve_validated_prototype` and the upgrade pre-read are two more resolvers; the first folds onto phase 1 (§5.3 S-1), the second is S-2's, subject to O-1 |
+| A2×A6 | `resolve_validated_prototype` and the upgrade pre-read are two more resolvers; the first folds onto phase 1 (§5.3 S-1), the second is S-2's and is deleted |
 | A2×A7 | the helper's fallible `? Get` is a new producer path under P0a-2a rule 1 (reach); every member's `?` on it is a carrier use (§9.1) |
 | A2×A8 | the default prototype is an argument, so the core helper reads no engine-gated `VmInner` field |
 | A2×A9 | — |
@@ -233,7 +233,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A5×A8 | — |
 | A5×A9 | the live-frame roots (`vm/gc/roots.rs:277-313`) and the suspended-frame roots (`vm/gc/trace.rs:335-372`) are two copies of one enumeration; R-JS edits both (R-0b) |
 | A5×A10 | a creation step that writes state outside the object (an entity, a side-table row, a reverse-map entry, a sent message) has a window between that write and the object's allocation or link; the invariant for it is E-7 |
-| A6×A7 | P0a-2b reads two `Err` paths of `invoke_upgrade` (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`upgrade.rs:216`), and D-4, the `construct_synchronous` call (`:277`). R-JS changes D-4's arguments only. If O-1 (§5.3) rules that the read goes, D-3's site goes with its two failure exits (S-2, a flow change: P0a-2b's D-3 row has no site afterwards) |
+| A6×A7 | P0a-2b reads two `Err` paths of `invoke_upgrade` (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`upgrade.rs:216`), and D-4, the `construct_synchronous` call (`:277`). R-JS changes D-4's arguments and deletes the read: D-3's site goes with its two failure exits (S-2, a flow change: P0a-2b's D-3 row has no site afterwards) |
 | A6×A8 | custom elements are engine-gated; the core entry has no CE knowledge |
 | A6×A9 | `vm/tests/tests_custom_elements.rs` (1321): new cells go to a new file |
 | A6×A10 | `HTMLElement`'s step 9.1 creates through the wrapper identity map (`create_element_wrapper`), not the helper's allocation; only phase 1 is shared, and its position on the sync path is E-7 applied (§4.4 item 5) |
@@ -330,7 +330,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | Web IDL §3.12 Invoking callback functions | construct 1-11 | no receiver | `invoke_upgrade` → the entry | ✓ | yes |
 | WHATWG HTML §3.2.3 HTML element constructors | 5, 9-16 | no definition for NewTarget → TypeError (step 5, which is also where Call mode throws: NewTarget undefined matches no definition); empty construction stack creates from NewTarget; else returns the stack element; step 11 fallback | `native_html_element_ctor`, `resolve_validated_prototype` | ✓ | yes |
 | WHATWG HTML §4.13.5 Upgrades | upgrade 11.3-11.4 | constructResult ≠ element → TypeError | `invoke_upgrade` | ✓ | yes |
-| WHATWG HTML §4.13.4 The CustomElementRegistry interface | define 14.1-14.2 | `? Get(constructor, "prototype")`; non-Object → TypeError: the only prototype check HTML has for a definition (S-2) | `invoke_upgrade` pre-read (S-2, O-1) | ✓ | yes |
+| WHATWG HTML §4.13.4 The CustomElementRegistry interface | define 14.1-14.2 | `? Get(constructor, "prototype")`; non-Object → TypeError: the only prototype check HTML has for a definition (S-2) | `invoke_upgrade` pre-read, deleted by R-JS (S-2) | ✓ | yes |
 
 Numbers: `webref heading` / `aoid` at this draft (§10 M-6). ECMA-262 rows are keyed by AO name where one
 exists. `✗` rows are seams for future callers, not this program's behaviour. Breadth K = 4, M = 34, the
@@ -426,8 +426,16 @@ derivation; it may yield children along those axes, and each child is plan-revie
   Object reaching a native): it does not land between R-JS and R-NAT, where the default would be
   `%Object.prototype%` instead of the member's own (§9.1 step 11). R-NAT's flip deletes this allocation and
   its `debug_assert`.
-- **Upgrade.** `invoke_upgrade` loses `receiver` and `pre_alloc`. Its Phase 2 read and Phase 3
-  (`create_element_wrapper`, `set_wrapper_prototype`) stay as today until O-1 is ruled (S-2).
+- **Upgrade.** `invoke_upgrade` loses `receiver`, `pre_alloc` and S-2's two statements (the Phase 2
+  `prototype` read, Phase 3's `set_wrapper_prototype` call); `create_element_wrapper` stays (§5.3).
+  - **DoD.** The two tests whose comments name D-17b §6 (`vm/tests/tests_custom_elements.rs:904`, `:919`)
+    keep their assertions and pass: both read the prototype after the upgrade. A new cell pins the
+    retraction: a constructor observing its element before `super()` sees the pre-upgrade prototype.
+  - **Scope: the comments stating the retracted invariant are rewritten** (at `4b723d4b`; by `git grep -n
+    -i -P 'pre-?publi|§6 pre-write|D-17b §6' 4b723d4b -- crates`, 13 lines, and by reading):
+    `upgrade.rs` `invoke_upgrade` `:128`, `:207-215`, `:231-243`; `html_element.rs` module doc `:19-29`,
+    `native_html_element_ctor` `:188-197`, `set_wrapper_prototype`'s docstring `:258-262`; both tests'
+    citations. Kept (not the invariant): `upgrade.rs:156`, `elidex-shell/src/ipc.rs:40`, `:124`.
 - **Already closed by R-JS** (not waiting for R-NAT): both receiver vectors of
   `#11-vm-native-ctor-receiver-promotion-admission`. A native now only ever receives a fresh `Ordinary`
   minted by the native arm: a second `super()` gets a new one (then ReferenceError), and the upgrade no
@@ -706,25 +714,16 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
   only at `define` (§4.13.4); a plain function's `prototype` stays writable, so `F.prototype = 1` after
   `define` makes elidex skip the constructor (its side effects) where the spec runs it and then fails at
   step 11.4. The read is host-side marshalling (`vm/host/custom_elements/upgrade.rs`); the crate
-  `elidex-custom-elements` is not touched (§8.4). Home: R-JS, subject to O-1: the read is the only
-  input of Phase 3's `set_wrapper_prototype(…, proto_id)` (`:245`), D-17b §6's write. **Rev 1.3 keeps
-  `:245`, and so the read, as they are today** (PM 754); R-JS removes only the receiver, and every S-2
-  site of this memo is conditional on O-1. Phase 3's `create_element_wrapper(entity)` (`:244`) stays
-  under any ruling: `native_html_element_ctor`'s upgrade branch (`get_cached_wrapper(entity)`,
-  `html_element.rs:199`) and the step 11.4 SameValue test (`upgrade.rs:321`) need the wrapper.
-  - **O-1 (open; with the user (PM 784 (1)); the PM's recommendation is to retract (HTML's upgrade reads
-    no prototype; the prototype changes at §3.2.3 step 14 inside `super()`)): S-2 against D-17b §6.** (1)
-    D-17b §6, the "pre-publication invariant": the wrapper's `[[Prototype]]` is `constructor.prototype`
-    before the construction stack is pushed, so a synchronous observer between that point and the
-    `HTMLElement` constructor's own write (a DOM walker, a construction-stack peek) sees it. Recorded in
-    D-17b's plan memo (PM memory `m4-12-pr-d17b-html-element-constructor-base-plan.md` §5 / §6; #232
-    `e30722f4`; its R4 removed the write, R5 restored it), in comments (`upgrade.rs:210`, `:233-243`;
-    `html_element.rs:22`, `:189-190`), and named by two tests (`vm/tests/tests_custom_elements.rs:904`,
-    `:919`) that read the prototype after the upgrade, not in that window. (2) HTML has no such write:
-    *upgrade an element* reads no `prototype`; the element's prototype changes at §3.2.3 step 14, inside
-    `super()`. (3) S-2 is fixed only when the read's two failure exits are gone, and `:245` needs a
-    `proto_id`: removing the read retracts §6; keeping §6 keeps a pre-construct `Get`. Rev 1.3 decides
-    neither.
+  `elidex-custom-elements` is not touched (§8.4). Home: R-JS, which deletes in `invoke_upgrade` the Phase 2
+  `Get` with its two failure exits and Phase 3's `set_wrapper_prototype(ctx.vm, wrapper_id, proto_id)`
+  (`:245`), its only consumer (§4.2). `create_element_wrapper(entity)` (`:244`) stays:
+  `native_html_element_ctor`'s upgrade branch (`get_cached_wrapper(entity)`, `html_element.rs:199`) and
+  the step 11.4 SameValue test (`upgrade.rs:321`) need the wrapper. The only prototype write left is HTML
+  §3.2.3 step 14's, inside `super()` (`html_element.rs:205`).
+  - **O-1 (closed: the user retracted D-17b §6, 11-18, PM 789).** Basis, the spec: *upgrade an element*
+    reads no `prototype`; it changes at HTML §3.2.3 step 14, inside `super()`. History: §6's "pre-publication
+    invariant" wrote `constructor.prototype` to the wrapper before the construction-stack push (D-17b's
+    plan memo §5 / §6; #232 `e30722f4`: R4 removed the write, R5 restored it; overturned at R-JS).
 - **S-3 `DataTransfer` / `Touch` ignore the subclass prototype.** Both allocate with the fixed interface
   prototype (`vm/host/events_modern/data_transfer.rs:332-341`, `vm/host/events_modern/touch.rs:327-335`),
   so `class T extends Touch {}; new T(init) instanceof T` is false. Home: R-NAT host chapter.
@@ -744,6 +743,8 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
 - PM `:1320` points `#11-vm-class-instance-field-init` at the repo ledger, where `:386` records it as
   withdrawn; re-point to `#11-step9-class-extras` (Slice 2ab).
 - PM `:330`: add "after R-NAT" and the inherited cells (§5.2).
+- D-17b's plan memo (PM memory `m4-12-pr-d17b-html-element-constructor-base-plan.md`): annotate §6's
+  pre-publication invariant as retracted by PM 789 (user, 11-18), effective at R-JS (§5.3 O-1).
 - **Re-eval dates that §9.1 passes** (the slot's date is earlier than the day the schedule acts on it;
   the new date is proposed, the PM sets it): PM `:1326` (derived-this), `:1311` / `:1312` (N / S), `:1045`
   and `:289` (`#11-step9-class-extras`) carry 2026-12-01, and R-JS lands 12-05 → 12-05; PM `:250`
@@ -819,7 +820,7 @@ Under 1000 and touched: `vm/ops.rs` 893, `vm/natives_promise.rs` 961, `vm/host/r
 | `call_internal` (`vm/interpreter_call.rs:270`) | P0a-1 cites its async branch (`p0a1.md:278`, `interpreter_call.rs:367-397`); PR-1 cites it (`pr1.md:353`) | R-JS: its three `new_instance: None` frame literals (`:385`, `:420`, `:469`); `home_class` stays (§4.2, family homes) | P0a-1 | R-JS. `:385` is inside the async branch P0a-1 cites: one field of its frame literal, not its control flow, so P0a-1's reading ("builds the initial frame … without pushing a frame") stays true. PR-1 re-reads its anchors at its plan-review |
 | `push_js_call_frame` (`vm/interpreter_call.rs:505`) | PR-1 names it only in its split verdict for `vm/interpreter.rs` (`pr1.md:353`, the call-op dispatch half); it places no probe in it | R-JS: the `new_instance` parameter (`:511`) and its frame literals (`:619`, `:671`, `:718`) | R-JS | PR-1 re-reads its anchors at its plan-review |
 | `instantiate_module` (`vm/host/wasm/instance.rs:151`) | P0a-1 CP-3b: `check_entry` as the first statement | R-NAT: the receiver parameter and `.kind =` (`:188`) | P0a-1 | R-NAT |
-| `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads two `Err` arms (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`:216`), and D-4, `construct_synchronous` (`:277`) | R-JS: the call's arguments change (D-4's `Err` arm stays). S-2: if O-1 rules that the read goes, D-3's site goes with its two failure exits | R-JS | P0a-2b re-checks D-4's anchor, and drops D-3's row only under that ruling |
+| `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads two `Err` arms (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`:216`), and D-4, `construct_synchronous` (`:277`) | R-JS: the call's arguments change (D-4's `Err` arm stays); the read is deleted, and D-3's site goes with its two failure exits (S-2) | R-JS | P0a-2b re-checks D-4's anchor and drops D-3's row |
 | `run_reaction` (`vm/natives_promise.rs:665`) | P0a-1 D-16: `ReactionTarget` in the reaction record, the `Err` arm | none; R-NAT edits `native_promise_constructor` (`:712`) in the same file | P0a-1 | — (different function) |
 | `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`roots.rs:416-428`, `trace.rs:284`) | R-0b / R-JS: the frame-root blocks (`roots.rs:277-313`, `trace.rs:335-372`) | either | the later one (different statements) |
 | `coroutine_types.rs` `Reaction` | P0a-1 D-16 changes the record | the shim retirement rewrites `value::Reaction` imports (§9.2) | P0a-1 | the retirement (script-regenerated) |
@@ -848,8 +849,7 @@ L3's ShadowRoot PR may touch this area. Every function in it that R-JS or R-NAT 
 - `invoke_upgrade` (`vm/host/custom_elements/upgrade.rs:129`), R-JS: its `construct_synchronous` call loses
   `JsValue::Object(wrapper_id)` / `Some(wrapper_id)` (the call becomes a receiver-less call of the single
   entry); `create_element_wrapper` (`:244`), the step 11.4 SameValue test and the construct's `Err` arm
-  are unchanged; the pre-construct `prototype` read (`:216-222`) and `set_wrapper_prototype` (`:245`)
-  are S-2's, unchanged until O-1 is ruled; its stale step cites are fixed (P-11).
+  are unchanged; the `prototype` read (`:216-222`) and `set_wrapper_prototype` (`:245`) go (S-2); cites: P-11.
 - `native_html_element_ctor` (`vm/host/custom_elements/html_element.rs:107`), R-NAT host chapter: the
   construction-stack return (steps 12-16) is unchanged; its two `resolve_validated_prototype` calls
   (`:204`, `:249`) go through the helper's phase 1 (S-1); the sync path's order is §4.4 item 5's. A
@@ -858,7 +858,7 @@ L3's ShadowRoot PR may touch this area. Every function in it that R-JS or R-NAT 
 - The engine-independent crate `elidex-custom-elements` is not touched by R-JS or R-NAT: `prepare_upgrade`,
   `enter_constructor`, `finalize_success`, `finalize_failure`, the construction stack and
   `spawn_custom_element_entity` keep their bodies and signatures (the host changes only when it calls the
-  last one). The upgrade algorithm stays there; S-2's read is host-side. Its stale cites: L3 (P-11).
+  last one). The upgrade algorithm stays there; S-2's deletion is host-side. Its stale cites: L3 (P-11).
 - Untouched: `invoke_upgrade`'s callers `invoke_one` (`vm/host/custom_elements/flush.rs:100`), the
   creation path (`creation.rs:238`) and the `upgrade()` walk (`lookup.rs:183`); `flush_ce_reactions`
   (`flush.rs:39`); `invoke_callback` (`flush.rs:156`; lifecycle callbacks are calls, not constructs);
