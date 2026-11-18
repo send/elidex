@@ -49,7 +49,8 @@ compat, PM decision 130; registered at this PR's landing, the first that cites i
 `HTMLBodyElement` interface object (the VM has none, nor any per-tag HTML interface object but `HTMLElement`, H-B2;
 not this program's, §10 Q-B1).
 
-**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): Placement points to the umbrella §8.5.
+**Changelog.** *Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
+*Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): Placement points to the umbrella §8.5.
 *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): Q-A2 points at
 §1.3 for K and M instead of restating them (F2), and §8.3 item 2's registration text leaves T3's effect to T3's
 append, the T3 memo §8.3 item 9 (F7).
@@ -492,7 +493,7 @@ once, in the T3-pre memo §8.3 item 3, and not here.
 
 ### §8.2 Slot texts (for the PM; defects only)
 
-1. **Foreign elements take HTML interfaces** (pre-existing, engine-wide; PM to route; the ledger has no row for it:
+1. **Foreign elements take HTML interfaces** (pre-existing, engine-wide; recorded on `#11-html-element-type-tests-without-namespace` (PM 780, owner L3), which carries the full census; T3-b fixes only the `body` arm and `require_body_receiver`; until PM 780 the ledger had no row for it:
    re-measured 2026-11-18, `/usr/bin/grep -n -E 'SVGElement|MathMLElement|foreign element|foreign-element'
    project_open-defer-slots.md` → 0 hits, control `/usr/bin/grep -c 'attribute-namespace-model'` on the same file →
    2; the nearest rows are its namespace siblings registered by PM decision 768,
@@ -523,7 +524,7 @@ once, in the T3-pre memo §8.3 item 3, and not here.
    `crates/css/elidex-style/src/walk.rs:592-596` at `cee74989`: the `body` whose overflow propagates to the viewport,
    CSS Overflow 3 §3.1.4 Overflow Viewport Propagation) and of `elidex-dom-api`'s `offsetParent` fallback
    (`crates/dom/elidex-dom-api/src/element/layout_query.rs:374`), both exact-match and without a namespace test;
-   `document.body`'s (`first_body_or_frameset_child`) has its own text (T3 memo §8.1 item 3). **Trigger:** an SVG / MathML DOM interface PR, the `M4-13:#svg` program's plan, or a
+   `document.body`'s (`first_body_or_frameset_child`) has its own text (T3 memo §8.1 item 3), and is a site of `#11-html-element-type-tests-without-namespace` (PM 780). **Trigger:** an SVG / MathML DOM interface PR, the `M4-13:#svg` program's plan, or a
    WPT `svg/` / `mathml/` subset. **Re-eval:** 2026-12-31. ⚠ No remedy reviewed."
 
 ### §8.3 Records for existing slots (for the PM, exact texts; at T3-b's landing)
