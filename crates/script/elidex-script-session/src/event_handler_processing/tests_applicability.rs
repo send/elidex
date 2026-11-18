@@ -47,9 +47,9 @@ fn expected(kind: Kind, scope: HandlerScope) -> bool {
     let global = matches!(scope, HandlerScope::Global | HandlerScope::DocumentElement);
     match kind {
         Kind::SvgBody | Kind::SvgRect => true,
-        Kind::MathBody | Kind::MathFrameset | Kind::MathMi => global,
+        // MathML kinds (not HTML body/frameset, not SVG) and HTML div (not body/frameset) share one ground: global scope only.
+        Kind::MathBody | Kind::MathFrameset | Kind::MathMi | Kind::HtmlDiv => global,
         Kind::HtmlBody | Kind::HtmlFrameset => global || scope == HandlerScope::Window,
-        Kind::HtmlDiv => global,
     }
 }
 
