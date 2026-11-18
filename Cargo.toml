@@ -95,8 +95,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
-phf = "0.13"
-phf_codegen = "0.13"
+phf = "0.14"
+phf_codegen = "0.14"
 fontdb = "0.24"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 rustybuzz = "0.20"
