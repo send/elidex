@@ -373,7 +373,7 @@ pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
 ///
 /// **Do not use for WebIDL attributes tagged `[EnforceRange]`**
 /// (e.g. `ResponseInit.status`).  Those must reject out-of-range
-/// inputs rather than wrap; use [`enforce_range_unsigned_short`]
+/// inputs rather than wrap; use `enforce_range_unsigned_short` (engine-only)
 /// instead.
 pub(crate) fn f64_to_uint16(n: f64) -> u16 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {

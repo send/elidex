@@ -44,7 +44,7 @@ pub(super) struct GcRoots<'a> {
     /// Per-subclass TypedArray constructor slots, parallel to
     /// [`Self::subclass_array_proto_roots`] and addressed by the
     /// same [`super::super::value::ElementKind::index`].  Strong roots
-    /// because [`super::super::VmInner::subclass_array_ctors`] holds
+    /// because `super::super::VmInner::subclass_array_ctors` (engine-only) holds
     /// these `ObjectId`s for the static `%TypedArray%.of` /
     /// `.from` reverse-lookup; without GC marking, severing the
     /// global ctor reference (e.g. `delete globalThis.Uint8Array`)

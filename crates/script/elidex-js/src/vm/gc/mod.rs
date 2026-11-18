@@ -20,7 +20,7 @@
 //! one-phase-per-file mapping:
 //!
 //! - [`mod@roots`] — root-set walker (`GcRoots` snapshot + `mark_roots`).
-//! - [`mod@keepalive`] — the keepalive-predicate seam: marks each non-Node
+//! - `keepalive` — the keepalive-predicate seam: marks each non-Node
 //!   `EventTarget` whose spec keepalive rule holds (engine-only).
 //! - [`mod@trace`] — work-list closure walker (`trace_work_list`).
 //! - [`mod@sweep`] — post-mark slot reclamation + IC invalidation.

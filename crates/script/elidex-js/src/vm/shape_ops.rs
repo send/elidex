@@ -493,8 +493,8 @@ impl VmInner {
     }
 
     /// Core native-function allocator; `bound_key` carries the per-accessor
-    /// key for [`Self::install_bound_accessor_pair`] (`None` for ordinary
-    /// natives).  WebIDL §3.7.6.
+    /// key for the engine-only `Self::install_bound_accessor_pair`; `None` for
+    /// ordinary natives.  WebIDL §3.7.6.
     fn create_native_function_keyed(
         &mut self,
         name_id: StringId,
