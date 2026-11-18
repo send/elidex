@@ -214,7 +214,7 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     let NodeData::Element { name, attrs, .. } = &handle.data else {
         return None;
     };
-    let tag = name.local.to_string();
+    let tag = String::from(&*name.local);
     let namespace = if name.ns == ns!(svg) {
         Namespace::Svg
     } else if name.ns == ns!(mathml) {

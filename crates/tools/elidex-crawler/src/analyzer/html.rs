@@ -110,7 +110,7 @@ fn walk_tree(root: &Handle, features: &mut HtmlFeatures, root_in_script: bool) {
 
         match &handle.data {
             NodeData::Element { name, attrs, .. } => {
-                let tag = name.local.as_ref();
+                let tag = &*name.local;
 
                 // Check for deprecated tags.
                 if DEPRECATED_TAGS.contains(&tag) {
@@ -120,7 +120,7 @@ fn walk_tree(root: &Handle, features: &mut HtmlFeatures, root_in_script: bool) {
                 // Check for deprecated attributes.
                 let attrs = attrs.borrow();
                 for attr in attrs.iter() {
-                    let attr_name = attr.name.local.as_ref();
+                    let attr_name = &*attr.name.local;
                     if DEPRECATED_ATTRS.contains(&attr_name) {
                         *features
                             .deprecated_attrs
