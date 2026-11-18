@@ -51,8 +51,10 @@ C0a → C0b → C0c (PM decision 244). The option text the user saw: 「順番�
 ig: its flush sits on ig's guard) ∥ L3's tree-model program (PM 730) → L3's PR (io) (T3-pre uses neither)} → **T3**
 (after both T3-pre and io) → slice b. **T3-a** and **T3-b** (PM decisions 741 (3), 767) are each cut from main and are ordered against none
 of these, nor against each other, except T3, which both precede (the T3-a and T3-b memos §8.1; umbrella x15, x16); their condition on the no-op window is the T3-pre memo DoD item 7's. T3-pre's order is unchanged by PM decisions 740 (1) and 741 (1); the window in
-which its `FragmentParse` arms are no-ops runs until T3 lands, and its sequence, bound and escalation are the T3-pre
-memo DoD item 7 (until the T3-pre memo rev 2 this line read "T3 is Layout's next unit after T3-pre").
+which its `FragmentParse` arms are no-ops runs until the first of T3's landing and the fixes of the two slots that fill
+those arms, and its ends, sequence and bound are the T3-pre memo DoD item 7, its escalation the T3-pre memo §8.3 item 3
+(until the T3-pre memo rev 2 this line read "T3 is Layout's next unit after T3-pre"; until rev 6.2, "runs until T3
+lands").
 **T3's base** ("the base") is main when T3's implementation branch is cut, after C1, T3-a, T3-b, T3-pre and io land (and so
 after L3's tree-model program, which precedes io, PM 730; §8.2): `4fd85f4e` (N1's
 implementation and #585 landed) plus C0a, C0b and C0c with their D-14 splits, RC-2a (PM decision 359: D-T10; from
@@ -130,7 +132,17 @@ D-T8; its namespace half is applicability facet (2), which has no case at the ba
 (`#11-htmlframesetelement-interface`, compat, PM decision 130); `body`'s interface (the T3-b memo D-T11) and the
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 6.1* (2026-11-18; references only, no design change): PM decision 767, after plan-review R3 wave 1's Axis 3
+**Changelog.** *Rev 6.2* (2026-11-18; references only, no design change): the T3-pre memo rev 2.3 (Step 4.5 re-check
+N2) states the no-op window of T3-pre's `FragmentParse` arms as ending at the first of T3's landing and the fixes of
+`#11-custom-element-upgrade-at-fragment-creation` and `#11-form-control-state-template-contents-fragment-parse`
+(either slot can land before T3), and words the custom-element arm's comment so that it names only its own slot and
+no window end. So T3's landing makes no T3-pre comment false, and **§8.3 item 13 is deleted** (it removed the "until T3
+lands" part of that comment at T3's landing; the comment no longer has one), with its §5.3 entry
+(`elidex-custom-elements` `consumer.rs` moves to *Not touched*) and its §9 item 4 grep (the T3-pre memo DoD item 7 now
+greps that the shipped comments name no window end). The Order line and §8.2's T3-pre entry say "the first of", not
+"until T3 lands"; §5.3's `inert_document.rs` entry no longer says the custom-element consumer ignores the cause (false
+once its slot's fix lands), but that it enqueues no upgrade for the build (null registry), which stays true.
+*Rev 6.1* (2026-11-18; references only, no design change): PM decision 767, after plan-review R3 wave 1's Axis 3
 split verdict (W1-1), splits the T3-ab memo into the **T3-a memo** (D-T8) and the **T3-b memo** (D-T11). Every
 reference to T3-ab here names T3-a, T3-b or both; umbrella x15 is T3-a → T3 and the new x16 is T3-b → T3 (header,
 Placement, Order, §1, §1.2, §1.3 S1, §2, §2.1, §3, §4, §5, §6, §7, §8, §9, §10). Facts that changed with the two memos
@@ -1251,13 +1263,12 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
   and the `EventHandlerAttributeConsumer` then sets raw handlers, compilation being null without a browsing context
   (HTML §8.1.8.1 *get the current value of the event handler* step 3.2, N1's gate), replacing "HTML §8.1.3.4 does NOT
   process event-handler attrs when scripting is disabled … Leaving both off is the CORRECT inert behavior" (P-T19,
-  D-T13); `CustomElementReactionConsumer` still ignores the `FragmentParse` cause (§8.1 item 5). Cells T-26, T-26b,
+  D-T13); `CustomElementReactionConsumer` enqueues no upgrade for the build, its document's registry being null (§8.1
+  item 5; until rev 6.2 "still ignores the `FragmentParse` cause", false once that slot's fix lands). Cells T-26, T-26b,
   T-27, T-28, T-29 are in `tests_event_handler_target.rs` (above).
 - The creation event, its fire points, the queue and the other consumers' migration (`elidex-ecs`,
   `elidex-html-parser`, `elidex-dom-api`, `elidex-custom-elements`, `elidex-form`'s reconciler and clone code, and
   their tests): T3-pre's touched files (the T3-pre memo §5.3), not T3's (until rev 5 listed here).
-- `crates/dom/elidex-custom-elements/src/consumer.rs` — a comment only (rev 6.1): the `FragmentParse` arm's "until T3
-  lands" part is removed and its slot pointer kept (§8.3 item 13).
 - docs: the umbrella (§8.4, in this PR).
 
 Not touched: `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (858; C-i rejected, D-T12; its
@@ -1265,7 +1276,10 @@ Not touched: `crates/script/elidex-script-session/src/mutation/html_fragment.rs`
 implementation); `crates/script/elidex-script-session/src/scripting.rs` (D-T4: C0b rewrote clause (b));
 `crates/core/elidex-ecs/src/dom/classify.rs` and `crates/dom/elidex-dom-api/src/char_data/document_props.rs` (D-T5, PM
 decision 133); `crates/script/elidex-js/src/vm/host_data/` other than `engine_feature/bind.rs`'s constructor (Q-14);
-`crates/script/elidex-js/src/vm/host/elements.rs` (the `body` arm is T3-b's; until rev 6 T3 edited it).
+`crates/script/elidex-js/src/vm/host/elements.rs` (the `body` arm is T3-b's; until rev 6 T3 edited it);
+`crates/dom/elidex-custom-elements/src/consumer.rs` (its `FragmentParse` arm's comment names only its slot and no
+window end since the T3-pre memo rev 2.3, so T3's landing leaves it true; rev 6.1 edited its comment, §8.3 item 13,
+deleted in rev 6.2).
 `crates/dom/elidex-dom-api/src/node_methods/clone.rs` (D-T10's rejected site) and
 `crates/script/elidex-js/src/vm/host/node_methods_extras.rs` (rev 4's site, D-T10) get no processing call; the event's
 rename in them is T3-pre's (rev 4.7 to 4.8.2 listed it as T3's).
@@ -1520,8 +1534,9 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 - **T3-pre** (PM decision 722; umbrella x14: T3 after T3-pre): T3 relies on the event as the T3-pre memo §4.2–§4.6
   states it (both causes, the fragment fire's order against the placement, the queue's flush at the outermost close,
   the `Clone` cause unchanged, I-RC1 to I-RC3) and adds only the event-handler consumer's arm (§4.5). T3's landing
-  ends the no-op window of T3-pre's `FragmentParse` arms (the T3-pre memo DoD item 7: its sequence, bound and
-  escalation; PM decisions 740 (1), 741 (1)).
+  ends the no-op window of T3-pre's `FragmentParse` arms unless the custom-element or form slot's fix has ended it
+  first (the T3-pre memo DoD item 7: its ends, sequence and bound; its escalation, the T3-pre memo §8.3 item 3; PM
+  decisions 740 (1), 741 (1)).
 - **T3-a and T3-b** (PM decisions 741 (3), 767; umbrella x15, x16: T3 after both): T3 relies on the predicate
   `is_event_handler_content_attribute_of` with its three reader sites, (T3-a), and on the HTML-namespace `body` test and its two readers in
   `vm/host/` (T3-b; the T3-a and T3-b memos §4.2). T3 writes its parts of the two shared functions around T3-a's, in the shape the
@@ -1658,12 +1673,6 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 12. `#11-browsing-context-state-ecs-components` — append to C1-pre's R-11 defect: "T3 (#<PR>, `<squash>`) adds readers
     of the same association: `ActiveDocument`, constructed by `HostData::active_document()` and read at bind for the
     handler consumer and by the VM handler accessors (T3 memo D-T3)."
-13. **The custom-element `FragmentParse` arm's comment (source, in T3's implementation PR; the T3-pre memo §4.6 *The
-    pointers' rewrite at T3's landing*, R3 wave 1 Axis 5).** In `crates/dom/elidex-custom-elements/src/consumer.rs`
-    the arm's comment loses the T3-pre memo §4.6's common part ("No consumer acts on this cause until T3 lands …",
-    with the window's sequence), which T3's landing makes false, and keeps its slot pointer to
-    `#11-custom-element-upgrade-at-fragment-creation` (the arm stays a no-op until that slot's fix). The form arm's
-    comment names no T3 window and is not edited. §9 item 4 has its grep.
 
 ### §8.4 Umbrella in-place edits carried by this PR (PM decisions: the one list in the umbrella's *Rev 8.<t>* entry)
 
@@ -1730,7 +1739,6 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
    /usr/bin/grep -c -E 'dom_shared\(\)\.|\.dom\(\)\.' $f; done` → 0 and 1 at T3's head, equal to T3's base (T3-b's
    one `is_html_namespace` read, in `is_html_body_element`; 0 and 0 at `cee74989`; rev 6: 1 and 1): T3 adds none. (Until rev 6 this item paired each
    `tag_matches_ascii_case(entity, "body")` with its namespace read; the T3-b memo §9 item 4 has its successor.)
-   The custom-element arm's comment (§8.3 item 13): `/usr/bin/grep -n 'until T3 lands' crates/dom/elidex-custom-elements/src/consumer.rs` → 0 at T3's head (control on T3's base, after T3-pre: at least 1), and `/usr/bin/grep -c 'custom-element-upgrade-at-fragment-creation' crates/dom/elidex-custom-elements/src/consumer.rs` → at least 1.
 5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-form --all-features` green
    (`elidex-form`: the rustdoc of `inert_document.rs`; the other crates T3-pre's migration touched are T3-pre's DoD);
    `mise run ci` before push.
