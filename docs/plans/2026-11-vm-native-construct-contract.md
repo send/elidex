@@ -751,14 +751,14 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
   carries 12-01 (PM 489; it closes on E1's landing), and E1 follows R-NAT (12-15) and Slice F → Slice F's
   date for both; PM `:1544` (shim retirement) carries 12-15, and its PR is 12-16 → 12-16.
 
-**For VM P4, in the default-row rustdoc PR (11-25; PM 665, PM 687):** repo `:293`. The row today holds
+**For VM P4, in this umbrella's plan PR (PM 787; it ratifies the R-JS / R-NAT terms, so the row is written once, where its terms land):** repo `:293`. The row today holds
 the carve, the four regressions with their base controls, the three axes, and the PM 374 severity
 paragraph (the double-`super()` panic, and why a guard before Construct is wrong). Its trigger cell reads
 "with umbrella 2ab's derivation … or the next call-frame PR" (`call_internal` / `push_js_call_frame`). It
 has no PM 660 / 664 facet: PM 665's facet-1 wording (the PR-0A admission helper) was never written
 there, and PR-0A is withdrawn (PM 675). The PR writes, in R-JS / R-NAT terms: closed by R-JS (this
 umbrella); the PM 660 facet as "no guard is written" (as above); the PM 664 facet as the brand-check
-§6.2 cell's expectation; the trigger's "next call-frame PR" resolved to R-JS. It is a VM-P4 family edit
+§6.2 cell's expectation; the trigger's "next call-frame PR" resolved to R-JS (PM 665 / 687 had put it in the default-row rustdoc PR, before this umbrella; PM 787 moves it here). It is a VM-P4 family edit
 (the umbrella checker runs on the entry memo). The repo ledger has no row for
 `#11-vm-native-ctor-receiver-promotion-admission` (`grep -c` → 0), so PM 665's owner edit has no repo site.
 
@@ -883,8 +883,8 @@ Order, with the reason for each edge (dependency or regression):
    copies change), which starts 11-28. 11-24 holds while the umbrella is ratified by 11-23; if it is
    later, R-0b is the day after the ratification, still ahead of R-JS's implementation (step 6).
    A short plan memo and `/elidex-plan-review` first; dates as §4.1 (PM 784 (3)).
-4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link. It also
-   carries repo-ledger `:293`, rewritten in R-JS / R-NAT terms (PM 665, PM 687; §5.4).
+4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link. Repo-ledger
+   `:293` is not its: this umbrella's plan PR writes it (PM 787; §5.4).
 5. P0a-1 implementation — **11-28** (PM 687; the stack-safety program's date). Before R-JS:
    P0a-1's ratified plan cites `call_construct_native` / `construct_synchronous` as they are today, and
    R-JS first would change a ratified surface (a re-review); P0a-1 first leaves R-JS a mechanical rebase of
