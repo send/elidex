@@ -48,7 +48,10 @@ compat, PM decision 130; registered at this PR's landing, the first that cites i
 `HTMLBodyElement` interface object (the VM has none, nor any per-tag HTML interface object but `HTMLElement`, H-B2;
 not this program's, §10 Q-B1).
 
-**Changelog.** *Rev 1.1* (2026-11-18; this memo's R1 = R3 wave 2: CRIT 0 / IMP 0 / MIN 13; its Axes 1 and 2 ruled the
+**Changelog.** *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): Q-A2 points at
+§1.3 for K and M instead of restating them (F2), and §8.3 item 2's registration text leaves T3's effect to T3's
+append, the T3 memo §8.3 item 9 (F7).
+*Rev 1.1* (2026-11-18; this memo's R1 = R3 wave 2: CRIT 0 / IMP 0 / MIN 13; its Axes 1 and 2 ruled the
 placement of `is_html_body_element` acceptable, the wave-2a tally). No decision changes. **Spec (Axis 4):** an SVG-namespace `body`
 is "not an `HTMLBodyElement`", and its interface is DOM §4.5's default `Element`, not `SVGElement` (SVG2 §4.4.1 states
 `SVGElement` for elements of the SVG language; rev 1 said `SVGElement`); a MathML `body` is an unknown MathML element
@@ -551,9 +554,7 @@ once, in the T3-pre memo §8.3 item 3, and not here.
    `crates/script/elidex-js/src/vm/host/elements.rs:216-376` at `cee74989`; the fallback at `:131-133`). So
    `frameset.cols` / `.rows` and its 18 WindowEventHandlers IDL attributes read `undefined`. A `frameset`'s handler
    content attributes do not depend on the interface (the session reads the tag): today they are written to the
-   element, and T3 (`#11-event-handler-target-determination`) moves them, and the six Window-reflecting IDL
-   attributes a `frameset` inherits from `HTMLElement.prototype`, to the Window (HTML §8.1.8.1 *determine the target
-   of an event handler* steps 1–2); T3's landing appends that to this row. **Layer:** compat: `frameset` is an
+   element; T3's landing appends its effect (T3 memo §8.3 item 9). **Layer:** compat: `frameset` is an
    obsolete feature (HTML §16.3 Requirements for implementations), so the interface belongs to a compat plugin, not
    core (CLAUDE.md core/compat/deprecated). **Owner:** none; decided when the compat plugin work starts (PM decision
    130). **Trigger:** the compat plugin's first plan, or a compatibility-survey hit on a frameset page. **Re-eval:**
@@ -605,7 +606,7 @@ the foreign `body` cells are harness-built (P-A2).
 
 **For the PM / the driver:**
 - **Q-A2 (a further split) — answered (PM decision 767): two memos.** Preflight still reports SPLIT-RECOMMENDED for
-  this memo (K = 4, M = 5); §1.3 states why no seam remains.
+  this memo (its K and M: §1.3); §1.3 states why no seam remains.
 - **Q-A3 (the no-op window) — answered (PM decisions 756, 767): not an escalation**; the condition (T3-a and T3-b
   land before io lands) is the T3-pre memo DoD item 7's, and what is raised when it is at risk is the T3-pre memo
   §8.3 item 3's (§8.1).

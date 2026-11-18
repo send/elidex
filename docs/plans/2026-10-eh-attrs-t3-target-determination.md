@@ -132,7 +132,20 @@ D-T8; its namespace half is applicability facet (2), which has no case at the ba
 (`#11-htmlframesetelement-interface`, compat, PM decision 130; registered at T3-b's landing, the T3-b memo §8.3 item 2); `body`'s interface (the T3-b memo D-T11) and the
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 6.3* (2026-11-18; plan-review R3 wave 2 on rev 6.2, `10af92ee`: CRIT 0 / IMP 2 / MIN 18; PM
+**Changelog.** *Rev 6.4* (2026-11-18; Step 4.5 re-check of rev 6.3, `8ca6f589`: IMP F1, MINs F2–F7; PM 774, 776).
+**IMP F1, reverted (PM 776):** rev 6.3's one design change, D-4's delegation to `HostData::active_document()`, rested
+on "the association has one reader in the VM; B1 replaces one function, not two", which is false: at `cee74989` 17
+`elidex-js` sites read the bound document and 6 read its Window (§8.3 item 12). T3 does not edit D-4's body; §5.3 keeps
+`document_accessors.rs` for one rustdoc sentence only ("The one place …" → "one of the readers listed on
+`#11-browsing-context-state-ecs-components`"); `active_document()`'s rustdoc does not claim to be the only reader
+(D-T3, §4.1, §4.2, §4.4, §5.2, §5.3, §8.2, DoD item 4). §8.3 item 12 states the readers as a fact list, file:line,
+as what B1 replaces, with no remedy (PM 774/776 form); §8.2's B1 entry points at it. **MINs:** §4.4's
+`handle_attribute_change` row removes only the step-3 clause of `mod.rs:64-68` (F4); §8.3 item 12's 0-hit caveat
+grep gains the `= Some` control (F5); §3 gains a relied-on row for HTML §13.2.6.4.16 and the breadth command
+includes it (F6); §8.3 item 9 is the one statement of T3's effect on `#11-htmlframesetelement-interface`, the T3-b
+memo's registration text pointing at it (F7, the T3-b memo's edit). The T3-a memo (F3) and the T3-b memo (F2, F7)
+carry one-line clerical notes.
+*Rev 6.3* (2026-11-18; plan-review R3 wave 2 on rev 6.2, `10af92ee`: CRIT 0 / IMP 2 / MIN 18; PM
 decisions 756, 761, 770). **IMP (Axis 2; entered at the rev 6 carve):** §5.2 said T3 does not change the outcomes
 of T3-a's cells and DoD item 3 kept them green, while DoD item 4 requires 0 hits of `resolve_handler_target`, which
 T3-a's U-T8 reads. T3 owns the rewrite: §5.2 lists T3-a's session cells T3 rewrites, each with its expectation at
@@ -142,7 +155,8 @@ T3's head (U-T8's three legs, `onstorage_content_attribute_gated_by_policy`, and
 facet (2) is `#11-attribute-namespace-model`'s (owner L3), not slice b's (header, §2.1, §7, §8.2, §8.3 item 1, §10
 O-7). **One design change, flagged for the re-check (Axis 1):** C1-pre's D-4 predicate
 `document_has_browsing_context` delegates to `HostData::active_document()`, so the VM reads the browsing-context ↔
-Document association in one place (D-T3 with its ground; §4.1, §4.2, §4.4, §5.3, §8.2, DoD item 4). **MINs:** Q-T1
+Document association in one place (D-T3 with its ground; §4.1, §4.2, §4.4, §5.3, §8.2, DoD item 4; **reverted in rev
+6.4**, PM 776: the "one place" ground was false). **MINs:** Q-T1
 and Q-T2 are decided (PM decision 756; §1.3, §10); §2 gains A7×A15; §4.4's attribute-change row reads steps 2–5 and
 gains rows for `HostData::active_document()`, D-4, the VmObject pair and the module docs that become false at T3
 (three timings, X-W, `frameset`; §5.3 too); §4.5's `frameset`-in-`template` ground adds the frameset-ok flag; §3
@@ -478,22 +492,18 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   `document_has_browsing_context` reads (the bound document): step 3 asks D-4's question in the session, and
   `HostData::active_document()` is host marshalling beside D-4, in the same layer (until rev 4.5: "the VM helper
   building `ActiveDocument`").
-  **D-4 delegates to the constructor (rev 6.3; R3 wave 2 Axis 1).** `document_has_browsing_context`
-  (`elidex-js/vm/host/document_accessors.rs:53-59`) reads `HostData::document_entity_opt()` itself, and its rustdoc
-  calls it "The one place the VM's single browsing-context ↔ Document association is read" (`:44-48`). T3's
-  constructor reads the same association, so from T3 that sentence is false and the association has two readers.
-  Decided: D-4's body becomes `host.active_document().is_some_and(|a| a.document == doc)`, and its rustdoc names
-  `HostData::active_document()` as the one place. *Ground: one issue, one way* (CLAUDE.md): one reader of the
-  association, and D-4 a question asked of it; B1 then replaces one function, not two (§8.2). *Not taken:* keeping
-  D-4's body and rewording its rustdoc to "one of two places" (a §5.3 doc edit only): it records the duplication
-  instead of removing it. *Behaviour: equal on every reachable path.* On a Window VM `Vm::bind` resolves the Window
-  in the scope that binds the document (`vm_api.rs:222-238`), so after any bind `active_document()` is `Some`
-  exactly when `document_entity_opt()` is, with the same document, and unbound both are `None`. On a worker VM
-  `bind_worker` (`vm_api.rs:396-416`) sets no Window, so the delegated D-4 answers `false` where the base answers
-  `true` for the worker's internal document; that is the direction D-4's own rustdoc asks for ("On a worker / SW VM
-  the internal bound document would wrongly answer `true`, so no non-Window path may call this", `:50-52`), on a
-  path no script reaches (`Document.prototype` natives exist only on Window VMs, C1-pre's G1). C1-pre's cells on
-  D-4's six call sites (`document_accessors.rs:66`, `:282`, `:327`, `:367`, `:409`, `:612`) stay green (§5.2).
+  **D-4 is not edited beyond one rustdoc sentence (rev 6.4; PM 776).** `document_has_browsing_context`
+  (`elidex-js/vm/host/document_accessors.rs:53-59`, C1-pre's ratified surface) keeps its body, which reads
+  `HostData::document_entity_opt()`. Its rustdoc calls it "The one place the VM's single browsing-context ↔ Document
+  association is read" (`:44-48`); that is already false at `cee74989`, where the VM has many readers of the bound
+  document (§8.3 item 12 lists them, file:line), and T3's `HostData::active_document()` adds one more. §5.3's only
+  edit there is that sentence, which becomes "one of the readers listed on `#11-browsing-context-state-ecs-components`".
+  The readers are recorded on that slot as what B1 replaces (§8.2, §8.3 item 12); this memo does not decide how.
+  (Until rev 6.4: "D-4 delegates to the constructor (rev 6.3; R3 wave 2 Axis 1)": D-4's body became
+  `host.active_document().is_some_and(|a| a.document == doc)` and its rustdoc named `HostData::active_document()` as
+  the one place, on the ground that the association then had one reader in the VM and B1 replaced one function, not
+  two. The ground was false, since other `elidex-js` sites read the same fact (§8.3 item 12), and the edit changed a
+  ratified surface unasked; PM 776 reverted it.)
   `EcsDom::window_entity` loses its last production reader and is deleted (H-T11; dead-code rule). **PM decision 132:**
   marshalling is accepted; the active document and its Window are browsing-context state, not a per-element fact, so the
   side-store→component rule does not apply, and their move into ECS components is
@@ -802,9 +812,10 @@ T3 (PM decision 699).
 Seven own axes (A1–A7) meet in one algorithm with three spec callers and two creation causes, and eight external
 couplings (A8–A15) bound it (§2). So CLAUDE.md "Edge-dense work" applies and plan-review is mandatory (rule (b)).
 Breadth (all §3 rows): `.claude/tools/webref coverage-map html 8.1.8.1 html 8.1.8.2 html 7.3.2 html 8.1.3.3.4 html
-13.2.6.1 html 13.4 html 13.2.6.4.4 html 13.2.6.4.7 html 8.5.1 html 16.3.2 dom 4.4 dom 4.9` → K = 2 specs, 12 unique
-sections, "ok → single PR scope"; preflight counts the 16 table rows as M (verified 2026-11-18, with rev 6.3's
-relied-on row for §13.2.6.4.7; rev 6: 11 sections, 15 rows; rev 5: K = 4, M = 18, "分割推奨").
+13.2.6.1 html 13.4 html 13.2.6.4.4 html 13.2.6.4.7 html 13.2.6.4.16 html 8.5.1 html 16.3.2 dom 4.4 dom 4.9` → K = 2
+specs, 13 unique sections, "ok → single PR scope"; preflight counts the 17 table rows as M (verified 2026-11-18, with
+rev 6.4's relied-on row for §13.2.6.4.16; rev 6.3: 12 sections, 16 rows, with its relied-on row for §13.2.6.4.7; rev
+6: 11 sections, 15 rows; rev 5: K = 4, M = 18, "分割推奨").
 
 **Splits: each seam, in both directions.** A direction passes when the part that lands first has no row of §2.1
 worse than its own base (K-0's criterion, §1.2). (Until rev 6 this paragraph tested only "T3 first, the part later";
@@ -990,6 +1001,7 @@ creation, OR-3 is base-equal or on the spec, and OR-4 to OR-6 are on the spec). 
 | WHATWG HTML §13.4 Parsing HTML fragments | *HTML fragment parsing algorithm* steps 1–2 (the parser's own new `Document`; the fragment in target's node document) | the elements are not created in step 1's Document (P-T17) | C0b's `node_document_for_new_nodes` redirection (landed); T3 reads it through D-T4 | ✗ | yes |
 | WHATWG HTML §13.2.6.4.4 The "in head" insertion mode | a `template` start tag with `shadowrootmode` (declarative shadow root) | the shadow root's children are created by *create an element for a token* inside the fragment parse (rev 4.8, PM decision 711) | `process_created_subtree`'s `FragmentParse` walk, `WalkScope::WithTemplateContents` (io; D-T12) | ✗ | yes |
 | WHATWG HTML §13.2.6.4.7 The "in body" insertion mode | start tags "body" and "frameset" (**relied on, not touched**; rev 6.3) | a second `body` is never created; a `frameset` start tag is ignored when the stack's second element is not a `body` or the frameset-ok flag is "not ok", which the `template` start tag sets (§13.2.6.4.4 step 3): no `body` or `frameset` is created inside a `template` or a declarative shadow root | no site of T3's: the parsers are not edited. §4.5's *Visit order* claim rests on it (the Window-delegating elements a fragment parse creates are light-tree `body` / `frameset` elements); witness cell T-29 | ✗ | yes |
+| WHATWG HTML §13.2.6.4.16 The "in template" insertion mode | "Any other start tag" (push "in body" onto the stack of template insertion modes, switch to "in body", reprocess) (**relied on, not touched**; rev 6.4) | inside a `template`, a `body` or `frameset` start tag reaches §13.2.6.4.7's rules, which ignore it (the row above) | no site of T3's: the parsers are not edited. §4.5's frameset-ok ground rests on it with §13.2.6.4.7 | ✗ | yes |
 | WHATWG HTML §8.5.1 The DOMParser interface | `parseFromString` steps 3–4 (a new Document; "Since document does not have a browsing context, scripting is disabled") | the build's elements are created in that Document; their creation event is queued in the build's window and dispatched at its close (rev 4.8, PM decisions 711, 713) | the arm's Creation processing of the build's elements at the window's close (D-T12, D-T13; the queue is T3-pre's, the T3-pre memo §4.4); the rustdoc of `parse_into_inert_document` (`crates/dom/elidex-form/src/inert_document.rs`, P-T19) | ✗ | yes |
 | WHATWG HTML §8.1.8.1 Event handlers | attribute change steps 5.5–5.6 (raw uncompiled value, activate); *get the current value of the event handler* step 3.2 (null while the node document's browsing context is null) | a creation in a document without a browsing context sets the raw handler; compilation reads null there (D-T13) | the Creation timing of `process_handler_content_attributes`; N1's compile gate (`scripting_disabled_for_platform_object`, `crates/script/elidex-script-session/src/scripting.rs`, unchanged) | ✗ | yes |
 | WHATWG DOM §4.9 Interface Element | *append an attribute* step 4; *handle attribute changes* step 3 | the attribute change steps run for each appended attribute | `ProcessingTiming::Creation` (NEW) in `crates/script/elidex-script-session/src/event_handler_processing/mod.rs:50` | ✗ | yes |
@@ -1051,7 +1063,9 @@ Rev 6.3 (2026-11-18), for §4.5's `frameset`-in-`template` ground: `webref headi
 template" insertion mode, `#parsing-main-intemplate`); step texts `webref body html parsing-main-inhead` (start tag
 "template", step 3: "Set the frameset-ok flag to "not ok""), `parsing-main-inbody` (start tag "frameset": "If the
 frameset-ok flag is set to "not ok", ignore the token"), `parsing-main-intemplate` ("Any other start tag": push "in
-body" and reprocess).
+body" and reprocess). Rev 6.4 (2026-11-18), for §3's §13.2.6.4.16 row: `webref heading html 13.2.6.4.16` and
+`webref body html parsing-main-intemplate` re-run ("Any other start tag": pop the current template insertion mode,
+push "in body", switch to "in body", reprocess; `body` and `frameset` are not among the start tags it lists).
 
 ### §3.1 User-input touch audit
 
@@ -1078,7 +1092,7 @@ no new delivery target: each delivery is D-T1's. Security boundaries (CSP, sandb
 |---|---|---|
 | target determination | `determine_event_handler_target` (NEW), free fn, `session/event_handler_processing/mod.rs` | D-T1 |
 | active-document context | `ActiveDocument` (NEW), `Copy` struct of two `pub` entities, same module; constructed only by `HostData::active_document()` (NEW, `host_data/engine_feature/bind.rs`; PM 441; both NEW unless the event-path PR-B landed first); held by `EventHandlerAttributeConsumer` (constructor `EventHandlerAttributeConsumer::new(policy, active)`, replacing `with_policy`; `Default` derive removed), which `Vm::bind` builds from it; read per call by the VM accessors through it (PM 455) | D-T3 |
-| "this Document has a browsing context" (C1-pre D-4) | `document_has_browsing_context` (existing, `pub(super)`, `elidex-js/vm/host/document_accessors.rs`): its body asks `HostData::active_document()` (rev 6.3), so the association has one reader | D-T3 |
+| "this Document has a browsing context" (C1-pre D-4) | `document_has_browsing_context` (existing, `pub(super)`, `elidex-js/vm/host/document_accessors.rs`): body unchanged; one rustdoc sentence edited (rev 6.4, PM 776; until rev 6.4 its body asked `HostData::active_document()`) | D-T3 |
 | node document | `EcsDom::node_document` (C0b D-1, landed), read only | D-T4 |
 | step-1 class | `is_body_or_frameset` (existing, session-private, gains the HTML namespace) | D-T5 |
 | steps 1–2 | `is_window_delegating_pair` (kept) | D-T2 |
@@ -1150,9 +1164,8 @@ the definition and one call (the consumer's `SubtreeCreated` arm, both causes; r
 that delegates to `HostData::active_document()` (D-T3; PM 441: no second constructor; `None` = unbound → the accessor's
 existing silent no-op, G7; until rev 4.5: "`ActiveDocument` from `host.document_entity_opt()` and
 `host.window_entity()`"). It reads `HostData` only (marshalling,
-Layering mandate). C1-pre's `document_has_browsing_context` asks the same constructor (D-T3, rev 6.3):
-`ctx.vm.host_data.as_deref().and_then(HostData::active_document).is_some_and(|a| a.document == doc)`, replacing
-its own `document_entity_opt` read (`document_accessors.rs:54-58`). **T3 adds no direct `EcsDom` method call in `vm/host/`**: the accessors pass the dom to the
+Layering mandate). C1-pre's `document_has_browsing_context` keeps its own `document_entity_opt` read
+(`document_accessors.rs:54-58`; D-T3, rev 6.4, PM 776; until rev 6.4 it asked `HostData::active_document()`). **T3 adds no direct `EcsDom` method call in `vm/host/`**: the accessors pass the dom to the
 session's `determine_event_handler_target`, as they already pass it to `process_before_handler_write`
 (`event_handler_attrs.rs:610`), and call nothing on it themselves. DoD item 4 counts it, in three forms (chained, bound to a name, called on a bound name; rev 6.3, the T3-b memo
 H-A11): the direct calls in
@@ -1186,15 +1199,15 @@ the result on the listener store.
 |---|---|
 | `determine_event_handler_target` (NEW) | HTML §8.1.8.1 *determine the target of an event handler* steps 1–4; step 3 = "not an active document" in the single-browsing-context model (H-T6); B1 hand-off; the node document is `EcsDom::node_document` (C0b) |
 | `ActiveDocument` (NEW) | HTML §7.3.2 *active document*; §8.1.3.3.4 *relevant global object*; §7.3.1 (active window = active document's relevant global); `#11-browsing-context-state-ecs-components` (PM decision 132); the unbind caveat (H-T15) |
-| `HostData::active_document()` (NEW unless the event-path PR-B landed it) | HTML §7.3.2 *active document* and §8.1.3.3.4 *relevant global object*, in the single-browsing-context model: the bound document and the VM's Window; the one construction of `ActiveDocument` and the one place the VM reads the browsing-context ↔ Document association (PM 441; D-T3); `None` when unbound or when no Window was bound (a worker VM); the unbind caveat and its home, `#11-browsing-context-state-ecs-components` (rev 6.3) |
-| `document_has_browsing_context` (C1-pre D-4; rustdoc `document_accessors.rs:44-52`) | HTML §7.3.2 Browsing contexts (kept); "The one place the VM's single browsing-context ↔ Document association is read" → the question is asked of `HostData::active_document()`, which is that place; the worker sentence reads "answers `false` on a worker / SW VM, which binds no Window" (rev 6.3; D-T3) |
+| `HostData::active_document()` (NEW unless the event-path PR-B landed it) | HTML §7.3.2 *active document* and §8.1.3.3.4 *relevant global object*, in the single-browsing-context model: the bound document and the VM's Window; the one construction of `ActiveDocument` (PM 441; D-T3) and one of the readers of the browsing-context ↔ Document association listed on `#11-browsing-context-state-ecs-components` (rev 6.4, PM 776; until rev 6.4 "the one place the VM reads" it); `None` when unbound or when no Window was bound (a worker VM); the unbind caveat and its home, `#11-browsing-context-state-ecs-components` (rev 6.3) |
+| `document_has_browsing_context` (C1-pre D-4; rustdoc `document_accessors.rs:44-52`) | HTML §7.3.2 Browsing contexts (kept); "The one place the VM's single browsing-context ↔ Document association is read" → "one of the readers listed on `#11-browsing-context-state-ecs-components`" (rev 6.4, PM 776; D-T3); every other sentence, the worker sentence included, kept. (Until rev 6.4 the row pointed the sentence at `HostData::active_document()` as the one place and reworded the worker sentence, with D-4's delegated body.) |
 | `is_body_or_frameset` | HTML §8.1.8.1 step 1 ("a body element or a frameset element", HTML namespace); §16.3.2 `frameset`; the clause "as [`is_body_element`] compares it" (`mod.rs:224-225`) is removed with that function (D-T1) |
 | `is_window_delegating_pair` | "Reads the tag and the name only" (`mod.rs:213-215`) → the tag, the namespace (D-T5) and the name |
 | `is_x_w_pair` (NEW) | umbrella §0.5 X-W as narrowed by PM decision 129; removed by slice b's S-5; slot `#11-eh-attrs-creation-time-call-sites` defect (7) |
 | `process_created_subtree` (NEW), `ProcessingTiming::Creation` (NEW) | DOM §4.4 *clone a single node* step 2.5; HTML §13.2.6.1 *create an element for a token* step 21; DOM §4.9 *append an attribute* step 4, *handle attribute changes* step 3; umbrella S-1 (clone path, PM decision 153; fragment path, PM decision 705); the entry point slice b's other paths call (S-6) |
 | `native_event_handler_get` / `_set`, body pair | HTML §8.1.8.1 event handler IDL attribute getter steps 1–3 / setter steps 1–4 |
 | `native_vm_event_handler_get` / `_set` (the VmObject handler pair; rev 6.3) | HTML §8.1.8.1 *determine the target of an event handler* step 1, by type: its receivers are never `body` / `frameset` elements, so the target is the receiver and the function is not called (D-T1); getter steps 1–3 / setter steps 1–4 otherwise as the normal pair |
-| `handle_attribute_change`, `process_handler_content_attributes` | HTML §8.1.8.1 attribute change steps **2–5** (rev 6.3; until rev 6.2 "1–3", stale since the rev 6 carve): step 2 by `determine_event_handler_target`, step 3 the null return, steps 4–5 as on the base (5.1 not modelled). Step 1 is not T3's text: its local-name half is T3-a's sentence in the same docstrings and its namespace half T3-a's "Not realised" (`#11-attribute-namespace-model`), neither edited. The docstring's "Not realised: step 3" at `mod.rs:64-68` is removed; the X-W paragraph `:70-75` is rewritten for D-T7 |
+| `handle_attribute_change`, `process_handler_content_attributes` | HTML §8.1.8.1 attribute change steps **2–5** (rev 6.3; until rev 6.2 "1–3", stale since the rev 6 carve): step 2 by `determine_event_handler_target`, step 3 the null return, steps 4–5 as on the base (5.1 not modelled). Step 1 is not T3's text: its local-name half is T3-a's sentence in the same docstrings and its namespace half T3-a's "Not realised" (`#11-attribute-namespace-model`), neither edited. Of the "Not realised" paragraph at `mod.rs:64-68`, only the step-3 clause ("step 3 (a null target, … slot `#11-event-handler-target-determination`, T3)") is removed; the paragraph stays, with step 5.1 (CSP) and T3-a's step-1 namespace half (rev 6.4, F4; until rev 6.4 "The docstring's "Not realised: step 3" at `mod.rs:64-68` is removed"); the X-W paragraph `:70-75` is rewritten for D-T7 |
 | the module doc of `event_handler_consumer.rs` (`:1-31`) and `ProcessingTiming`'s doc (`mod.rs:46-48`), false at T3 as written (rev 6.3; R3 wave 2 Axis 3) | "at three timings (`ProcessingTiming`), each element processed once" (`event_handler_consumer.rs:6-9`) → four, with **Creation** (the `SubtreeCreated` arm: a clone's, a fragment parse's and a DOMParser build's elements; DOM §4.9 *append an attribute* step 4); the Insert bullet's "which realises the creation-time attribute processing at insertion" (`:21-22`) → for the elements no creation event reached (the interim mechanism of `#11-eh-attrs-creation-time-call-sites` as T3 narrows it, §8.3 item 2); "Window-delegating `<body>` / `<frameset>` pairs (X-W) are delivered at bind and insertion and never at the first write" (`:30-31`) → X-W is `body` × the WindowEventHandlers names only (PM decision 129): delivered at bind, creation and insertion; `body` × the Window-reflecting names and every Window-delegating name on a `frameset` are delivered at bind and creation and are not re-raw'd at insertion; none at the first write. `ProcessingTiming`'s "umbrella K-0's T-a1 / T-a2 / T-a3. No spec step defines it" → gains `Creation`, which is the spec's own point (the attribute change steps when an attribute is appended at creation); "no spec step defines it" stays for the other three |
 | `EventHandlerAttributeConsumer::handle`, the `SubtreeCreated` arm | T3 memo §4.5 (the arm) and the T3-pre memo §4.2 (the event); DOM §4.4 *clone a node* steps 5 and 6.7 (the clone walk's order, D-T10); the fragment walk = every node the parse created, `WalkScope::WithTemplateContents` (D-T12), whose order is the parser's creation order wherever it is observable: HTML §13.2.6.1 Creating and inserting nodes, *insert an HTML element* → *insert a foreign element* → *create an element for a token* (an element is created, with its attributes, when its start tag token is processed), witness cell T-29 (T3 memo §4.5 *Visit order*); HTML §8.1.8.1 attribute change steps 5.5–5.6 and *get the current value of the event handler* step 3.2 (D-T13) |
 | `parse_into_inert_document`'s rustdoc (`inert_document.rs:64-90`, corrected) | HTML §8.1.8.1 attribute change steps (no scripting test) and *get the current value of the event handler* step 3.2; HTML §8.5.1 `parseFromString` step 4's note (scripting disabled because no browsing context); D-T13, P-T19; the queue: the T3-pre memo §4.4 |
@@ -1288,8 +1301,7 @@ on H-T27 or H-T28 (static evidence).
 Kept green and checked: `tests_event_handler_attrs.rs` F-12 (`:235`), F-12b (`:446`), F-14 (`:263`); N1's C8h (outcome
 unchanged, mechanism now step 3); `tests_call_listener.rs:97`; the shell E1–E8 (`content_eh_attrs_bind_tests.rs`); C1's
 cells (the C1 memo §6); C1-pre's cells on the browsing-context facts D-4 gates (its module doc's list: `defaultView`, `cookie`,
-`referrer`, `hidden`, `visibilityState`, `hasFocus`, `getSelection`; D-T3's delegation is behaviour-neutral on a
-Window VM); T3-b's cell
+`referrer`, `hidden`, `visibilityState`, `hasFocus`, `getSelection`; D-4's body is not edited, rev 6.4); T3-b's cell
 T-19 and T3-a's VM cells T-21 and T-A1 to T-A4 (their memos' §6.1: scripts through `with_page`, which name no session
 function; ‡ rows; T-A4 stays `true,true` once the clone is processed at its creation). For T3-a's and T3-b's cells
 what T3 does not change is the **predicate values** (which names are an element's event handler content attributes;
@@ -1338,8 +1350,12 @@ Sizes and paths re-verified 2026-11-13 against `cee74989` (`git show cee74989:<p
   `SubtreeCreated` arm.
 - `crates/script/elidex-js/src/vm/host_data/engine_feature/bind.rs` — `HostData::active_document()` (NEW, beside
   `document_entity_opt` `:474`; D-T3, PM 441), unless the event-path PR-B landed it first (573 lines).
-- `crates/script/elidex-js/src/vm/host/document_accessors.rs` (616 at `cee74989`) — `document_has_browsing_context`'s
-  body (`:53-59`) and rustdoc (`:44-52`) only (D-T3's delegation, rev 6.3; §4.4); its six callers are not edited.
+- `crates/script/elidex-js/src/vm/host/document_accessors.rs` (616 at `cee74989`) — **rustdoc only, one sentence**:
+  `document_has_browsing_context`'s "The one place the VM's single browsing-context ↔ Document association is read"
+  (`:46-47`) becomes "one of the readers listed on `#11-browsing-context-state-ecs-components`" (T3 adds
+  `HostData::active_document()` as another; D-T3, §4.4). The file is in this list for that line only: the body
+  (`:53-59`), the rest of the rustdoc and the six callers are not edited (rev 6.4, PM 776; until rev 6.4 the body
+  and rustdoc were rewritten for D-4's delegation).
 - tests: `session/event_handler_processing/tests_target.rs` (NEW), `tests_bind.rs`, `tests_insertion_and_write.rs`
   (harness; T3-a's two U3 (i) cells' signatures), `tests_applicability.rs` (T3-a's file: U-T8's three legs and U-A1
   to U-A3, §5.2); `elidex-js/vm/tests/tests_event_handler_target.rs` (NEW), `tests_event_handler_attrs_window_delegating.rs`
@@ -1596,10 +1612,12 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 - **B1** (`docs/plans/2026-06-agent-scoped-ecsdom-world.md` §5 req 5 / req 7): `ActiveDocument` is the single-browsing-
   context form of steps 3–4. Under a multi-realm World, "active" and "relevant global" become per document; B1's plan
   replaces `ActiveDocument`'s one constructor, `HostData::active_document()`, which both marshalling points read (the
-  consumer's construction in `Vm::bind`, the VM accessor helper; PM 441, 455) and which C1-pre's
-  `document_has_browsing_context` asks since T3 (D-4; D-T3, rev 6.3: one function to replace, where rev 6.2 named
-  two), with a per-document resolution, and `determine_event_handler_target`'s body; no caller
-  changes. BFCache (a document kept non-active with its Window) is the case that makes this a real distinction. The
+  consumer's construction in `Vm::bind`, the VM accessor helper; PM 441, 455), with a per-document resolution, and
+  `determine_event_handler_target`'s body; no caller of these changes. `HostData::active_document()` is one of the VM's
+  readers of the browsing-context ↔ Document association; the others at `cee74989`, C1-pre's
+  `document_has_browsing_context` (D-4) among them, are listed on `#11-browsing-context-state-ecs-components` (§8.3
+  item 12) as what B1 replaces; this memo states no remedy for them (rev 6.4, PM 776; until rev 6.4: "and which
+  C1-pre's `document_has_browsing_context` asks since T3 … one function to replace, where rev 6.2 named two"). BFCache (a document kept non-active with its Window) is the case that makes this a real distinction. The
   unbind caveat (H-T15) becomes structurally impossible under "1 agent = 1 World = 1 Vm". The ECS home of the pair is
   `#11-browsing-context-state-ecs-components` (PM decision 132), which also records the caveat (§8.3 item 12).
 - **N4** (node memo §0.4 D8): none from T3. C0 D-15 re-states N4's planned `effective_node_document` as C0b's
@@ -1779,16 +1797,33 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
     walk, `for_each_uncapped_shadow_inclusive(root, WalkScope::WithTemplateContents, …)` over every node the parse
     created (T3 memo D-T12)." (Until rev 4.8 the third was "one capped caller … (`traverse_descendants`, through
     `children_iter_rev`'s `MAX_ANCESTOR_DEPTH` per-parent cap), which shares `handle_insert`'s collector".)
-12. `#11-browsing-context-state-ecs-components` — append to C1-pre's R-11 defect: "T3 (#<PR>, `<squash>`) adds readers
-    of the same association: `ActiveDocument`, constructed by `HostData::active_document()` and read at bind for the
-    handler consumer and by the VM handler accessors (T3 memo D-T3); `document_has_browsing_context` asks the same
-    constructor, so the association has one reader in the VM. **Relied-on caveat, homed here** (T3 memo H-T15):
-    `HostData::window_entity` is set once and is not cleared on unbind (`git grep -n -E
-    'window_entity[[:space:]]*=[[:space:]]*None' -- crates/script/elidex-js/src` → none at `cee74989`), so a `Vm`
+12. `#11-browsing-context-state-ecs-components` — append to C1-pre's R-11 defect: "T3 (#<PR>, `<squash>`) adds a reader
+    of the same association: `ActiveDocument`, constructed by `HostData::active_document()`
+    (`vm/host_data/engine_feature/bind.rs`) and read at bind for the handler consumer and by the VM handler accessors
+    (T3 memo D-T3). **What B1 replaces: the VM's readers of the association** (paths under
+    `crates/script/elidex-js/src/`; every line at `cee74989`, plus T3's). The bound document through
+    `HostData::document_entity_opt()` (`vm/host_data/engine_feature/bind.rs:474`): `vm/host/document_accessors.rs:57`
+    (`document_has_browsing_context`, C1-pre D-4), `vm/host/custom_elements/html_element.rs:231`,
+    `vm/host/custom_elements/define.rs:333`, `vm/host/media_query.rs:324`, `:430`, `vm/host/node_proto.rs:460`,
+    `vm/gc/keepalive.rs:248`; through `HostData::document()` (`bind.rs:465`): `vm/host/globals.rs:43`,
+    `vm/host/dom_selection_mutation.rs:89`, `:166`, `vm/host/dom_selection_proto.rs:372`, `:691`,
+    `vm/host/event_handler_attrs.rs:539`, `vm/host/html_element_proto.rs:281`, `vm/host/range_proto.rs:286`,
+    `vm/host/wasm/exported_func.rs:295`, `vm/natives_promise.rs:460`. Its Window through `HostData::window_entity()`
+    (`bind.rs:492`): `vm/vm_api.rs:233` (bind), `vm/host/event_handler_attrs.rs:448`, `:471`,
+    `vm/host/history_events.rs:76`, `:224`, `engine.rs:699` (the `HostDriver` item). From T3: `HostData::active_document()`,
+    which reads both halves. (Re-runnable: `git grep -n -P
+    '(HostData::document_entity_opt|\.document_entity_opt\(\)|\.document\(\))' cee74989 -- crates/script/elidex-js/src
+    ':!*/tests/*'` and the same with `'(HostData::window_entity\b|\.window_entity\(\))'`, each piped through `grep -v
+    -E ':[[:space:]]*//'` → the 17 and 6 lines above; every `.document()` hit is a `HostData` receiver.) **Relied-on
+    caveat, homed here** (T3 memo H-T15): `HostData::window_entity` is set once and is not cleared on unbind (`git grep
+    -n -E 'window_entity[[:space:]]*=[[:space:]]*None' cee74989 -- crates/script/elidex-js/src` → none; positive
+    control, the same expression with `Some` → `bind.rs:509`), so a `Vm`
     re-bound to a different `EcsDom` would give `ActiveDocument` the old World's Window, and step 4 of *determine
     the target of an event handler* would return it. 'One `EcsDom` per `Vm`' is a caller contract (doc comments),
     not enforced; no production path rebinds across `EcsDom`s. B1's '1 agent = 1 World = 1 Vm' makes it
-    structural." (Rev 6.3: the caveat's sentences are new; until rev 6.2 it had no slot.)
+    structural." (Rev 6.3: the caveat's sentences are new; until rev 6.2 it had no slot. Rev 6.4, PM 774/776: the
+    reader list is new, stated as the defect with no remedy; until rev 6.4 the text said "`document_has_browsing_context`
+    asks the same constructor, so the association has one reader in the VM", and the caveat's grep had no control.)
 
 ### §8.4 Umbrella in-place edits carried by this PR (PM decisions: the one list in the umbrella's *Rev 8.<t>* entry)
 
@@ -1865,11 +1900,13 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
    controls, run with the counts: (B) on `crates/script/elidex-js/src/vm/host/html_table_proto.rs` → at least 1
    (`:143` at `cee74989`); (C) on `crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs` → at least 1
    (`:159`). (The same three counts on `crates/script/elidex-js/src/vm/host/document_accessors.rs` are equal at T3's
-   base and head: D-4's new body calls a `HostData` method.)
-   D-4's delegation (D-T3, rev 6.3): `git grep -c 'document_entity_opt' --
-   crates/script/elidex-js/src/vm/host/document_accessors.rs` → no hit (1 at `cee74989`, D-4's body), and `git grep
-   -c 'active_document' -- crates/script/elidex-js/src/vm/host/document_accessors.rs` → at least 1 (0 at
-   `cee74989`). (Until rev 6 this item paired each
+   base and head: D-4's body is not edited.)
+   D-4 keeps its body (D-T3, rev 6.4, PM 776): `git grep -c 'document_entity_opt' --
+   crates/script/elidex-js/src/vm/host/document_accessors.rs` → 1 (as at `cee74989`, D-4's body), and `git grep -c
+   'active_document' -- crates/script/elidex-js/src/vm/host/document_accessors.rs` → no hit (as at `cee74989`); `git
+   grep -n 'The one place' -- crates/script/elidex-js/src/vm/host/document_accessors.rs` → no hit (the §5.3 rustdoc
+   sentence). (Until rev 6.4 this check required D-4's delegation: `document_entity_opt` no hit, `active_document` at
+   least 1.) (Until rev 6 this item paired each
    `tag_matches_ascii_case(entity, "body")` with its namespace read; the T3-b memo §9 item 4 has its successor.)
 5. `cargo test -p elidex-script-session -p elidex-js -p elidex-ecs -p elidex-shell -p elidex-form --all-features` green
    (`elidex-form`: the rustdoc of `inert_document.rs`; the other crates T3-pre's migration touched are T3-pre's DoD);

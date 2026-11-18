@@ -54,7 +54,10 @@ reflecting six and an SVG `body` keep HEAD's target here, §1.2); the attribute 
 completeness of the name table against `GlobalEventHandlers` and its partial extensions (a pre-existing table defect,
 §7).
 
-**Changelog.** *Rev 1.1* (2026-11-18; this memo's R1 = R3 wave 2: CRIT 0 / IMP 2 / MIN 9; PM decisions 756, 761,
+**Changelog.** *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): the ledger search
+for the name table's missing names is stated once, with its control and the pending slot (PM 776), in §10 Q-A7, and
+§7's row points to it (F3).
+*Rev 1.1* (2026-11-18; this memo's R1 = R3 wave 2: CRIT 0 / IMP 2 / MIN 9; PM decisions 756, 761,
 770). **IMP (Axis 4; entered with the wave-1 fold):** class G's ground. "85 = HTML §8.1.8.2's lists (i) and (ii)"
 was false: those lists give 76 names, of which the table has 71, and its other 14 G names are members that Pointer
 Events §5 and CSS Transitions §6.3 add to the mixin by `partial interface mixin GlobalEventHandlers`. G is restated
@@ -576,7 +579,7 @@ The D-8 entry and the mark are also run through the rewritten U3 (i) cells (§5.
 | target determination, every facet; the namespace in `is_body_or_frameset` | T3 (PM decisions 25, 129) | the T3 memo D-T1 to D-T7 |
 | an SVG `body`'s class W content attribute reaching the Window | the target rule (T3 memo FN-2, D-T5) | T3 |
 | attribute change steps step 1, namespace half (applicability facet (2)) | no case at the base: no attribute namespace is modelled and no writer of a namespaced attribute exists (H-A8). It needs attribute-namespace modelling and a namespaced writer first | `#11-attribute-namespace-model` symptom (4) (owner L3; PM decisions 768, 770; §8.3 item 1; until rev 1.1: the applicability slot's facet (2), with slice b, PM decision 168) |
-| the name table's completeness: 5 attributes of HTML's `GlobalEventHandlers` block (`oncommand`, four `onwebkit*`) and members of partial mixins (`onpointerrawupdate`, `onanimation*`, `onselectstart`, `onselectionchange`, `ontouch*`) have no row (H-A2) | pre-existing; a table and IDL-install defect (no content attribute and no accessor for the name on any element), not applicability: T3-a's predicate answers for the rows the table has | no slot found; reported to the driver for routing (§10 Q-A7) |
+| the name table's completeness: 5 attributes of HTML's `GlobalEventHandlers` block (`oncommand`, four `onwebkit*`) and members of partial mixins (`onpointerrawupdate`, `onanimation*`, `onselectstart`, `onselectionchange`, `ontouch*`) have no row (H-A2) | pre-existing; a table and IDL-install defect (no content attribute and no accessor for the name on any element), not applicability: T3-a's predicate answers for the rows the table has | the ledger search and its result, and the slot (pending): §10 Q-A7 |
 | `document.createElementNS` | not this program's | `#11-vm-create-element-ns-missing` (L3; §8.3 item 3) |
 | an element outside the three namespaces | no representation (P-A3) | recorded in §8.3 item 1's text; arises with a fourth `Namespace` variant |
 | `HandlerScope::DocumentElement`'s doc; `window.oncopy` / `oncut` / `onpaste` | not applicability | `#11-clipboard-handlers-missing-on-window` (owner L3, Re-eval 2026-12-31; PM decision 764; §10 Q-A4) |
@@ -776,7 +779,13 @@ removal leg (iii).
   measured, `onpointerrawupdate` (Pointer Events), `onanimationstart` / `onanimationiteration` / `onanimationend` /
   `onanimationcancel` (CSS Animations), `onselectstart` / `onselectionchange` (Selection API) and `ontouchstart` /
   `ontouchend` / `ontouchmove` / `ontouchcancel` (Touch Events). The list of partial mixins was not enumerated
-  exhaustively. Pre-existing and outside T3-a (§7): T3-a opens no slot for it and does not depend on the answer;
-  whether a ledger row covers it was not searched beyond the slot ids this memo cites.
+  exhaustively. Pre-existing and outside T3-a (§7): T3-a opens no slot for it and does not depend on the answer.
+  **Ledger search** (2026-11-18): `/usr/bin/grep -nE
+  'oncommand|onwebkit|onpointerrawupdate|onselectstart|ontouchstart|onanimationstart'
+  /Users/kazuaki/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory/project_open-defer-slots.md` → 0 hits,
+  so no ledger row covers it; control, the same file with `/usr/bin/grep -c 'vm-create-element-ns-missing'` → 1. The
+  PM is opening one Layout-owned slot for the table's missing names (PM 776); its id is pending. (Until this clerical
+  pass: "whether a ledger row covers it was not searched beyond the slot ids this memo cites", while §7 said "no slot
+  found".)
 
 No browser measurement is needed: every outcome in §2.1 is spec-defined (H-A2).
