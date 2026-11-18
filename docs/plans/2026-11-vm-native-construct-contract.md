@@ -744,9 +744,9 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
   carries 12-01 (PM 489; it closes on E1's landing), and E1 follows R-NAT (12-15) and Slice F → Slice F's
   date for both; PM `:1548` (shim retirement) carries 12-15, and its PR is 12-16 → 12-16.
 
-**For VM P4, in this umbrella's plan PR (PM 787; it ratifies the R-JS / R-NAT terms, so the row is written once, where its terms land):** repo `:293`. The row today holds
+**For VM P4, in this umbrella's plan PR (PM 787; it ratifies the R-JS / R-NAT terms, so the row is written once, where its terms land) — done in this plan PR:** repo `:293`. Before this PR the row held
 the carve, the four regressions with their base controls, the three axes, and the PM 374 severity
-paragraph (the double-`super()` panic, and why a guard before Construct is wrong). Its trigger cell reads
+paragraph (the double-`super()` panic, and why a guard before Construct is wrong). Its trigger cell read
 "with umbrella 2ab's derivation … or the next call-frame PR" (`call_internal` / `push_js_call_frame`). It
 has no PM 660 / 664 facet: PM 665's facet-1 wording (the PR-0A admission helper) was never written
 there, and PR-0A is withdrawn (PM 675). The PR writes, in R-JS / R-NAT terms: closed by R-JS (this
@@ -878,7 +878,8 @@ Order, with the reason for each edge (dependency or regression):
    11-19, plan-review 11-20 … 11-24, implementation 11-28 … 12-04. The implementation starts at the later
    of P0a-1's landing (11-28, step 5) and the end of the R-JS plan's own review (seven days after the
    umbrella's ratification), so 11-28 holds while the umbrella is ratified by 11-20. Each day past 11-20
-   moves this row and steps 8-12 by a day; no date moves at the estimate. After P0a-1 (above); before
+   moves this row and steps 10-15 by a day (10 and 11 wait on R-JS; 12-15 on step 11, as its contingency
+   lists them; 7-9 do not); no date moves at the estimate. After P0a-1 (above); before
    R-NAT (PM 675, E-4); before P0a-2a's PR, so P0a-2a's measured report sees the final construct entries.
 7. PR-D — **12-04** (unchanged; doc links only; whichever lands second rebases trivially).
 8. **R-0c** (the `data_transfer.rs` split, L3; a pure move) — **targets 11-21, hard edge 12-04 (PM
