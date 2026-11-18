@@ -3,7 +3,7 @@
 Nested PR **T3-pre** of the standalone program `EH-attrs-at-creation` (umbrella
 `docs/plans/2026-10-event-handler-attrs-at-creation.md`, "the umbrella"; its in-place edits for this PR are carried by
 the T3 memo's *Rev 8.<t>* entry, since the program's plan memos land in one plan PR (PM decision 722)). It is the prerequisite of
-**T3** (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 6.2), split out of T3 rev 4.8.2 by
+**T3** (`docs/plans/2026-10-eh-attrs-t3-target-determination.md`, "the T3 memo", rev 6.3), split out of T3 rev 4.8.2 by
 **PM decision 722** (plan-review R1 F1 on T3 rev 4.8.2 `571cd9c8`: the queue / window cluster is edge-dense on its own,
 §1.3). It carries the creation event and its queue; T3 carries the event-handler consumer of it.
 
@@ -612,7 +612,7 @@ slot's fix landing before T3 would have made false).
   until rev 2.4 it also stated a condition on the fix, and until rev 2.3 a mechanism).
 - **No pointer is rewritten at another unit's landing (rev 2.3; until rev 2.3 *The pointers' rewrite at T3's
   landing*, R3 Axis 5).** Neither arm's comment nor `inert_document.rs`'s added sentence (below) names T3 or a window
-  end, so T3's landing leaves them true and T3's landing list carries no comment rewrite (the T3 memo rev 6.2 deletes
+  end, so T3's landing leaves them true and T3's landing list carries no comment rewrite (the T3 memo rev 6.3 deletes
   its §8.3 item 13). Each slot's fix replaces its own arm and that arm's comment; the T3-pre sentences that a slot's
   fix makes false are listed in that slot's row (§8.3 items 2 and 4). DoD item 7 has the grep.
 - `LiveRangeBridge` (`range/live.rs:160`, its ignored-variant list): the listed name changes to `SubtreeCreated { .. }`;
@@ -877,7 +877,7 @@ T3-pre's scope).
   PM 694's "on PR (i), using `owned_entities`" kept), no longer "stacks on io". No ordering edge with T3-pre (T3-pre
   edits only `walkers.rs` docs); merge contact. Its edge with T3's creation walk is the T3 memo's (§8.2).
 - **L3's tree-model slice `ta`** (R3 Axis 5): U-T13 (§6.1) reads a returned root's parent; if T3-pre lands before
-  `ta`, that test line is a `get_parent` caller in `ta`'s census, re-typed to the tree parent (§8.1). For L3's
+  `ta`, that test line is a `get_parent` caller in `ta`'s census: `ta` deletes `get_parent`, and the census rewrites the caller to its replacement accessor, the tree parent (§8.1). For L3's
   information; no rewording of L3's plans.
 - **T3's landing list** (R3 Axis 5; for the T3 memo): `#11-eh-attrs-creation-time-call-sites`'s ledger
   *Trigger* text, which at T3-pre's writing still reads "T3 and N1 landed, and C1's handling decided" while the
@@ -924,7 +924,7 @@ T3-pre's scope).
    `crates/script/elidex-js/src/vm/host/html_input_value.rs:62-65`); (b) with `f` a connected `<fieldset disabled>`,
    `f.innerHTML = '<input>'; f.firstChild.matches(':disabled')` stays `true`; (c) `new
    DOMParser().parseFromString('<input value=x>', 'text/html').body.firstChild.value === "x"` (a control outside any
-   template keeps the base behaviour); (d) the same through `DOMParser` inside a `template` stays `"x"`. The mechanism,
+   template keeps the base behaviour); (d) `new DOMParser().parseFromString('<template id=t><input value=x></template>', 'text/html').getElementById('t').content.firstChild.value === "x"` (green on the base; a regression guard). The mechanism,
    and its order against the reconciliation's slices, is chosen in this slot's own plan under its own plan-review."
    Appended to the same row (T3-pre's record, not the defect; same shape as item 4's): "**T3-pre sentences the fix
    makes false** (rewritten in the fix's PR): the form arm's comment (replaced with the arm); the sentence T3-pre adds
