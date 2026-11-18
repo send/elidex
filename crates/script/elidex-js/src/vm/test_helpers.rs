@@ -178,6 +178,35 @@ pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
     );
 }
 
+/// [`with_page`] plus two harness-built foreign `body` elements, exposed as the
+/// globals `svgBody` (SVG namespace) and `mathBody` (MathML namespace), each
+/// owned by the bound document and detached. No script can create a foreign
+/// `body` (the HTML parser's foreign content breaks out at a `body` start tag,
+/// HTML §13.2.6.5, and JS `createElementNS` is not VM-wired), so the cells that
+/// need one take it from here. Test support: no spec step.
+#[cfg(test)]
+pub(crate) fn with_page_and_foreign_bodies(body: impl FnOnce(&mut Vm)) {
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            #[allow(unsafe_code)]
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe {
+                setup_page(vm, session, dom, doc);
+            }
+            for (global, namespace) in [
+                ("svgBody", elidex_ecs::Namespace::Svg),
+                ("mathBody", elidex_ecs::Namespace::MathMl),
+            ] {
+                let owner = dom.node_document_for_new_nodes(doc);
+                let e = dom.create_element_ns("body", namespace, Attributes::default(), owner);
+                let wrapper = vm.inner.create_element_wrapper(e);
+                vm.set_global(global, JsValue::Object(wrapper));
+            }
+        },
+        body,
+    );
+}
+
 /// `fn` (a counted IDL callable), two DOMParser documents with an empty body
 /// (`dp`, `dp2`) and the result array `r`; the prelude of [`run`].
 #[cfg(test)]

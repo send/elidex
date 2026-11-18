@@ -68,6 +68,7 @@ mod tests_element_subtree_query;
 mod tests_element_wrapper;
 mod tests_event_constructor;
 mod tests_event_extras_constructor;
+mod tests_event_handler_applicability;
 mod tests_event_handler_attrs;
 mod tests_event_handler_attrs_once;
 mod tests_event_handler_attrs_window_delegating;

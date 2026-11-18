@@ -190,6 +190,17 @@ fn is_processed(dom: &EcsDom, element: Entity) -> bool {
     dom.world().get::<&HandlerAttrsProcessed>(element).is_ok()
 }
 
+/// RED-COMMIT STUB (replaced by the fix commit): answers like the base, the
+/// name table alone, so the applicability cells compile and fail on behaviour.
+#[allow(dead_code)]
+pub(crate) fn is_event_handler_content_attribute_of(
+    _dom: &EcsDom,
+    _element: Entity,
+    name: &str,
+) -> bool {
+    event_handler_attr_lookup(name).is_some()
+}
+
 /// `true` iff `name` is the one and only handler content attribute of
 /// `element` that is ordinary (not Window-delegating) and installed by
 /// `policy`. Stops at the first mismatch or second hit.
@@ -298,7 +309,9 @@ fn ensure_event_listeners(entity: Entity, dom: &mut EcsDom) {
 /// Shared harness for the unit cells (plan §4.1 "Unit (session)").
 #[cfg(test)]
 mod test_support {
-    use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent};
+    use elidex_ecs::{
+        Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, NewNodeOwner,
+    };
     use elidex_plugin::SpecLevelPolicy;
 
     use crate::{EventHandlerAttributeConsumer, EventListeners};
@@ -334,6 +347,21 @@ mod test_support {
             a.set(*name, *value);
         }
         dom.create_element_ownerless_fixture(tag, a)
+    }
+
+    /// Spawn `tag` in `namespace` with `attrs` baked into `Attributes` (the
+    /// parser's foreign-content shape), ownerless, not inserted.
+    pub(super) fn foreign_elem(
+        dom: &mut EcsDom,
+        tag: &str,
+        namespace: Namespace,
+        attrs: &[(&str, &str)],
+    ) -> Entity {
+        let mut a = Attributes::default();
+        for (name, value) in attrs {
+            a.set(*name, *value);
+        }
+        dom.create_element_ns(tag, namespace, a, NewNodeOwner::ownerless_fixture())
     }
 
     /// Append, asserting the tree operation succeeded.
@@ -404,6 +432,8 @@ mod test_support {
     }
 }
 
+#[cfg(test)]
+mod tests_applicability;
 #[cfg(test)]
 mod tests_bind;
 #[cfg(test)]
