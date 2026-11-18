@@ -49,8 +49,10 @@ fn armed_gc_fired(vm: &Vm, k: usize) -> bool {
     if k == 1 {
         !vm.inner.force_gc_before_next_alloc
     } else {
-        // `collect_garbage` resets the threshold to at least the floor.
-        vm.inner.gc_threshold >= VmInner::gc_threshold_floor()
+        // `collect_garbage` resets the threshold to at least 32768 (the
+        // inline floor in `vm/gc/collect.rs`; not shared here so this fix
+        // does not touch that >1000-line file).
+        vm.inner.gc_threshold >= 32768
     }
 }
 
