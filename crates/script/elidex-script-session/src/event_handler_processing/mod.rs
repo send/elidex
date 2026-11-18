@@ -381,11 +381,7 @@ mod test_support {
     /// Spawn `tag` with `attrs` baked into `Attributes` (no `AttributeChange`,
     /// the parser / clone shape), not inserted.
     pub(super) fn elem(dom: &mut EcsDom, tag: &str, attrs: &[(&str, &str)]) -> Entity {
-        let mut a = Attributes::default();
-        for (name, value) in attrs {
-            a.set(*name, *value);
-        }
-        dom.create_element_ownerless_fixture(tag, a)
+        foreign_elem(dom, tag, Namespace::Html, attrs)
     }
 
     /// Spawn `tag` in `namespace` with `attrs` baked into `Attributes` (the

@@ -166,6 +166,13 @@ pub(crate) fn with_bound_vm(
 /// Run `body` against a fresh VM bound to a [`setup_page`] page.
 #[cfg(test)]
 pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
+    with_page_then(|_, _, _| {}, body);
+}
+
+/// [`with_page`] with an `extra` setup step run right after [`setup_page`],
+/// against the same VM / DOM / document.
+#[cfg(test)]
+fn with_page_then(extra: impl FnOnce(&mut Vm, &mut EcsDom, Entity), body: impl FnOnce(&mut Vm)) {
     with_bound_vm(
         |vm, session, dom, doc| {
             #[allow(unsafe_code)]
@@ -173,6 +180,7 @@ pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
             unsafe {
                 setup_page(vm, session, dom, doc);
             }
+            extra(vm, dom, doc);
         },
         body,
     );
@@ -186,18 +194,13 @@ pub(crate) fn with_page(body: impl FnOnce(&mut Vm)) {
 /// need one take it from here. Test support: no spec step.
 #[cfg(test)]
 pub(crate) fn with_page_and_foreign_bodies(body: impl FnOnce(&mut Vm)) {
-    with_bound_vm(
-        |vm, session, dom, doc| {
-            #[allow(unsafe_code)]
-            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
-            unsafe {
-                setup_page(vm, session, dom, doc);
-            }
+    with_page_then(
+        |vm, dom, doc| {
+            let owner = dom.node_document_for_new_nodes(doc);
             for (global, namespace) in [
                 ("svgBody", elidex_ecs::Namespace::Svg),
                 ("mathBody", elidex_ecs::Namespace::MathMl),
             ] {
-                let owner = dom.node_document_for_new_nodes(doc);
                 let e = dom.create_element_ns("body", namespace, Attributes::default(), owner);
                 let wrapper = vm.inner.create_element_wrapper(e);
                 vm.set_global(global, JsValue::Object(wrapper));

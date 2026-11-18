@@ -8,7 +8,7 @@
 //! insertion delivery, both of which T3 replaces (plan §8.4).
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, Namespace};
-use elidex_plugin::EngineMode;
+use elidex_plugin::{EngineMode, SpecLevelPolicy};
 
 use super::test_support::{
     append, compat, elem, entry, foreign_elem, install, is_marked, page, raw, Entry,
@@ -80,8 +80,9 @@ fn attribute_change(
     name: &str,
     old_value: Option<&str>,
     new_value: Option<&str>,
+    policy: SpecLevelPolicy,
 ) {
-    EventHandlerAttributeConsumer::with_policy(compat()).handle(
+    EventHandlerAttributeConsumer::with_policy(policy).handle(
         &MutationEvent::AttributeChange {
             node,
             name,
@@ -100,6 +101,8 @@ fn u_t8_applicability_table_is_complete_and_applied_by_every_reader() {
         for kind in KINDS {
             let want = expected(kind, scope);
             let ctx = format!("{kind:?} x {name} ({scope:?})");
+            // Legs (i) and (ii) share one oracle: the handler is wired iff applicable.
+            let set_expect = if want { raw("X") } else { Entry::Absent };
 
             // The predicate's value.
             {
@@ -117,9 +120,12 @@ fn u_t8_applicability_table_is_complete_and_applied_by_every_reader() {
                 let (mut dom, _) = bare_dom();
                 let el = make(&mut dom, kind, &[]);
                 let target = resolve_handler_target(el, scope, &dom);
-                attribute_change(&mut dom, el, name, None, Some("X"));
-                let expect = if want { raw("X") } else { Entry::Absent };
-                assert_eq!(entry(&dom, target, event_type), expect, "(i) set: {ctx}");
+                attribute_change(&mut dom, el, name, None, Some("X"), compat());
+                assert_eq!(
+                    entry(&dom, target, event_type),
+                    set_expect,
+                    "(i) set: {ctx}"
+                );
             }
 
             // (ii) a first insertion of an element carrying the attribute; fresh DOM.
@@ -129,10 +135,9 @@ fn u_t8_applicability_table_is_complete_and_applied_by_every_reader() {
                 let el = make(&mut dom, kind, &[(name, "X")]);
                 let target = resolve_handler_target(el, scope, &dom);
                 append(&mut dom, body, el);
-                let expect = if want { raw("X") } else { Entry::Absent };
                 assert_eq!(
                     entry(&dom, target, event_type),
-                    expect,
+                    set_expect,
                     "(ii) insertion: {ctx}"
                 );
             }
@@ -148,7 +153,7 @@ fn u_t8_applicability_table_is_complete_and_applied_by_every_reader() {
                     raw("X"),
                     "(iii) control: {ctx}"
                 );
-                attribute_change(&mut dom, el, name, Some("X"), None);
+                attribute_change(&mut dom, el, name, Some("X"), None, compat());
                 let expect = if want { Entry::NoSource } else { raw("X") };
                 assert_eq!(
                     entry(&dom, target, event_type),
@@ -197,15 +202,7 @@ fn u_a3_div_onstorage_is_neither_wired_nor_marked_under_either_policy() {
         // An AttributeChange.
         let (mut dom, _) = bare_dom();
         let d = elem(&mut dom, "div", &[]);
-        EventHandlerAttributeConsumer::with_policy(policy).handle(
-            &MutationEvent::AttributeChange {
-                node: d,
-                name: "onstorage",
-                old_value: None,
-                new_value: Some("X"),
-            },
-            &mut dom,
-        );
+        attribute_change(&mut dom, d, "onstorage", None, Some("X"), policy);
         assert!(!is_marked(&dom, d), "{mode:?}: set: not marked");
         assert_eq!(entry(&dom, d, "storage"), Entry::Absent, "{mode:?}");
     }
