@@ -28,7 +28,8 @@
 //!   WindowEventHandlers (on Window) / DocumentAndElementEventHandlers /
 //!   Document-specific attributes.
 //! - **body-delegation pair** ([`native_body_weh_get`] / [`native_body_weh_set`]):
-//!   redirects the target to the Window entity (WHATWG HTML §8.1.8.2 —
+//!   redirects the target to the Window entity (WHATWG HTML §8.1.8.1
+//!   *determine the target of an event handler* —
 //!   `<body>.onbeforeunload` reads/writes the Window's handler). Used
 //!   only for the WindowEventHandlers overrides installed on
 //!   `HTMLBodyElement.prototype`.
@@ -201,8 +202,8 @@ impl VmInner {
     /// Install the WindowEventHandlers (18 attrs) onto
     /// `HTMLBodyElement.prototype` as **delegation** accessors: their
     /// getter/setter redirect to the Window object rather than the body
-    /// element (WHATWG HTML §8.1.8.2 — body/frameset delegate
-    /// WindowEventHandlers to the Window). GlobalEventHandlers are
+    /// element (WHATWG HTML §8.1.8.1 *determine the target of an event
+    /// handler* — body/frameset delegate WindowEventHandlers to the Window). GlobalEventHandlers are
     /// inherited from `HTMLElement.prototype` and not re-installed here.
     pub(in crate::vm) fn install_body_weh_delegation(&mut self, target: ObjectId) {
         self.install_handler_attr_family(
@@ -406,15 +407,20 @@ pub(super) fn native_vm_event_handler_set(
 }
 
 // ---------------------------------------------------------------------------
-// Body-delegation backend: target = Window entity (HTML §8.1.8.2)
+// Body-delegation backend: target = Window entity (HTML §8.1.8.1)
 // ---------------------------------------------------------------------------
 
 /// Brand check for the body-delegation accessors: the receiver must be an
-/// `HTMLBodyElement` (WHATWG HTML §8.1.8.2 — only `<body>`/`<frameset>`
-/// delegate WindowEventHandlers to the Window). Without this, the
-/// accessor would redirect to the Window from *any* receiver via
-/// `.call()`. Returns `Ok(None)` for an unbound / non-wrapper receiver
-/// (silent), `Err` ("Illegal invocation") for a bound non-`<body>` wrapper.
+/// `HTMLBodyElement` (WHATWG HTML §8.1.8.1 *determine the target of an event
+/// handler* — only `<body>`/`<frameset>` delegate WindowEventHandlers to the
+/// Window; §8.1.8.2 lists the attributes; §4.3.1 The body element:
+/// `HTMLBodyElement includes WindowEventHandlers`). Without this, the
+/// accessor would redirect to the Window from *any* receiver via `.call()`.
+/// A wrapper that is not an HTML `body` (`is_html_body_element`) is a
+/// `TypeError` ("Illegal invocation"; Web IDL §3.7.6 Attributes). A
+/// non-wrapper receiver returns `Ok(None)` (getter `null`, setter no-op) — a
+/// pre-existing deviation from §3.7.6, unchanged by T3-b
+/// (`#11-vm-host-receiver-brand-check-unification`).
 fn require_body_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -424,7 +430,7 @@ fn require_body_receiver(
         matches!(kind, NodeKind::Element)
     })?;
     if let Some(entity) = entity {
-        if !ctx.host().tag_matches_ascii_case(entity, "body") {
+        if !super::elements::is_html_body_element(ctx.host(), entity) {
             return Err(VmError::type_error(format!(
                 "Failed to execute '{method}' on 'HTMLBodyElement': Illegal invocation"
             )));
@@ -435,7 +441,7 @@ fn require_body_receiver(
 
 /// `HTMLBodyElement.prototype` WindowEventHandlers getter — brand-checks
 /// the `<body>` receiver, then delegates to the Window object (WHATWG HTML
-/// §8.1.8.2). No-op (`null`) if no Window is bound.
+/// §8.1.8.1 *determine the target of an event handler*). No-op (`null`) if no Window is bound.
 fn native_body_weh_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -457,7 +463,7 @@ fn native_body_weh_get(
 
 /// `HTMLBodyElement.prototype` WindowEventHandlers setter — brand-checks
 /// the `<body>` receiver, then delegates to the Window object (WHATWG HTML
-/// §8.1.8.2). No-op if no Window is bound.
+/// §8.1.8.1 *determine the target of an event handler*). No-op if no Window is bound.
 fn native_body_weh_set(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
