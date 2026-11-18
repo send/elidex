@@ -40,7 +40,7 @@ fn arm_gc_at_alloc(vm: &mut Vm, k: usize) {
     } else {
         // alloc i (1-based) collects iff (i-1)·E + E >= k·E, i.e. i >= k.
         vm.inner.gc_bytes_since_last = 0;
-        vm.inner.gc_threshold = k * VmInner::OBJECT_ALLOC_ESTIMATE;
+        vm.inner.gc_threshold = k * VmInner::object_alloc_estimate();
     }
 }
 
@@ -49,8 +49,8 @@ fn armed_gc_fired(vm: &Vm, k: usize) -> bool {
     if k == 1 {
         !vm.inner.force_gc_before_next_alloc
     } else {
-        // `collect_garbage` resets the threshold to at least 32768.
-        vm.inner.gc_threshold >= 32768
+        // `collect_garbage` resets the threshold to at least the floor.
+        vm.inner.gc_threshold >= VmInner::gc_threshold_floor()
     }
 }
 

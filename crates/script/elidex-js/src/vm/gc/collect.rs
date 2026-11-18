@@ -19,7 +19,18 @@ use super::sweep::{invalidate_ics, sweep_objects, sweep_upvalues};
 use super::trace::trace_work_list;
 use super::{clear_marks, resize_marks};
 
+/// Lower bound on the `gc_threshold` a collection resets to (step 6 of
+/// [`VmInner::collect_garbage`]).
+const GC_THRESHOLD_FLOOR: usize = 32768;
+
 impl VmInner {
+    /// [`GC_THRESHOLD_FLOOR`] for tests that detect a collection by the
+    /// threshold reset.
+    #[cfg(test)]
+    pub(crate) const fn gc_threshold_floor() -> usize {
+        GC_THRESHOLD_FLOOR
+    }
+
     /// Run a full GC cycle: mark, sweep, invalidate ICs.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn collect_garbage(&mut self) {
@@ -2059,6 +2070,6 @@ impl VmInner {
 
         // 6. Reset allocation counter and adjust threshold.
         self.gc_bytes_since_last = 0;
-        self.gc_threshold = (live_count * 128).max(32768);
+        self.gc_threshold = (live_count * 128).max(GC_THRESHOLD_FLOOR);
     }
 }

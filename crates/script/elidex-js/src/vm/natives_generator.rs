@@ -95,9 +95,12 @@ impl VmInner {
     /// `frame.base..` is the locals region (including the rest array) and
     /// `frame.cleanup_base` the stack height to restore (callee and
     /// receiver below `base`; equal to `base` when there is nothing to
-    /// drop).  The frame itself holds no GC-heap allocation — only
-    /// `ObjectId`s that are rooted by the caller (on the VM stack below
-    /// `base`, or by the caller's contract).
+    /// drop).  The frame's values are rooted on the VM stack (the locals at
+    /// `base..`, the callee and receiver below `base`) or by the caller's
+    /// contract (`call_internal`'s `this`, `args` and callee) — except
+    /// `actual_args`, which `create_coroutine` roots itself:
+    /// `push_js_call_frame` clears an excess argument (no rest parameter)
+    /// from its stack slot, so the `Vec` can be its only holder.
     ///
     /// Invariant: values leave the VM stack only into an already-allocated
     /// container, with no allocation between the drain and the install.
@@ -110,23 +113,31 @@ impl VmInner {
     ///
     /// Async coroutines also get their wrapper Promise here, returned as
     /// the second element.  The wrapper is a fresh object held only by a
-    /// Rust local while the coroutine is allocated, so it is rooted across
-    /// that allocation and stored into the coroutine before the scope ends.
-    /// `push_temp_root` would be the single-value guard but it is
-    /// engine-only, and coroutines exist in every row.
+    /// Rust local while the coroutine is allocated.
+    ///
+    /// One stack scope, opened before the first allocation (the wrapper,
+    /// else the shell), holds `actual_args` and the wrapper across the
+    /// allocations.  It ends before the drain: anything still pushed would
+    /// be drained into the frame's `stack_slice`.  A scope rather than
+    /// `push_temp_root`, because the number of values is data-dependent and
+    /// `push_temp_root` is engine-only while coroutines exist in every row.
     pub(crate) fn create_coroutine(
         &mut self,
         is_async: bool,
         mut frame: CallFrame,
     ) -> (ObjectId, Option<ObjectId>) {
-        let wrapper = is_async.then(|| super::natives_promise::create_promise(self));
-        let gen_id = {
+        let locals_end = self.stack.len();
+        let (gen_id, wrapper) = {
             let mut scope = self.push_stack_scope();
+            if let Some(args) = &frame.actual_args {
+                scope.stack.extend_from_slice(args);
+            }
+            let wrapper = is_async.then(|| super::natives_promise::create_promise(&mut scope));
             if let Some(w) = wrapper {
                 scope.stack.push(JsValue::Object(w));
             }
             let proto = scope.generator_prototype;
-            scope.alloc_object(Object {
+            let gen_id = scope.alloc_object(Object {
                 kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
                     status: GeneratorStatus::SuspendedStart,
                     suspended: None,
@@ -135,8 +146,14 @@ impl VmInner {
                 storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
                 prototype: proto,
                 extensible: true,
-            })
+            });
+            (gen_id, wrapper)
         };
+        debug_assert_eq!(
+            self.stack.len(),
+            locals_end,
+            "create_coroutine: the rooting scope must end before the locals are drained",
+        );
         // No allocation from here to the install below.
         let stack_slice: Vec<JsValue> = self.stack.drain(frame.base..).collect();
         self.stack.truncate(frame.cleanup_base);

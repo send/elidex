@@ -84,7 +84,14 @@ impl VmInner {
     /// GC runs **before** the new object is placed in the heap, so the new
     /// object cannot be prematurely collected.
     /// Estimated byte cost per object allocation (struct size + inline overhead).
-    pub(crate) const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
+    const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
+
+    /// [`Self::OBJECT_ALLOC_ESTIMATE`] for tests that place a collection at
+    /// the k-th `alloc_object` through `gc_threshold`.
+    #[cfg(test)]
+    pub(crate) const fn object_alloc_estimate() -> usize {
+        Self::OBJECT_ALLOC_ESTIMATE
+    }
 
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
         // GC trigger BEFORE insertion.  Callers must ensure that any

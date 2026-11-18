@@ -301,8 +301,8 @@ impl VmInner {
         let is_generator = compiled.is_generator;
         let is_async = compiled.is_async;
         // Eval-kind callers (top-level script via `run_function`) must
-        // not target an async or generator FuncId — the suspended-
-        // frame arms below hardcode `FrameKind::Function` and a
+        // not target an async or generator FuncId — the coroutine
+        // branch below builds its frame as `FrameKind::Function` and a
         // mismatched `kind` would be silently dropped. Top-level
         // script bodies are never async/generator in elidex-js core
         // (per `docs/design/ja/14-script-engines-webapi.md` §14.1
@@ -389,7 +389,14 @@ impl VmInner {
         // (hence its upvalues) are not on the VM stack on this entry path;
         // rooting them across `call_internal` is the caller's contract
         // (e.g. microtask jobs hold them in `current_microtask`).
+        // `actual_args` is a copy of the caller-rooted `args`.  A
+        // coroutine frame is always `FrameKind::Function` (the
+        // `debug_assert!` above), whatever `kind` was passed.
         if is_async || is_generator {
+            let frame = CallFrame {
+                kind: FrameKind::Function,
+                ..frame
+            };
             let (gen_id, wrapper) = self.create_coroutine(is_async, frame);
             return match wrapper {
                 Some(w) => {
@@ -427,7 +434,6 @@ impl VmInner {
     /// check so every Op::Call / Op::CallMethod / Vm::call entry
     /// path inherits the gate without per-site duplication
     /// (One-issue-one-way).
-    #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn push_js_call_frame(
         &mut self,
         callee: JsCalleeInfo,
