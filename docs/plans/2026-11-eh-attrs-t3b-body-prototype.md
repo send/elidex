@@ -45,11 +45,12 @@ cited line), and none moved (H-A10).
 determination, every facet (T3); the HTML-namespace test of step 1's class in `is_body_or_frameset` (T3 memo D-T5);
 the interfaces of foreign elements other than `body` (§8.2 item 1); `document.createElementNS`
 (`#11-vm-create-element-ns-missing`, L3); the `HTMLFrameSetElement` interface (`#11-htmlframesetelement-interface`,
-compat, PM decision 130; registered at this PR's landing, the first that cites it, §8.3 item 2); a global
+compat, PM decision 130; registered (PM 783), its status updated at this PR's landing, §8.3 item 2); a global
 `HTMLBodyElement` interface object (the VM has none, nor any per-tag HTML interface object but `HTMLElement`, H-B2;
 not this program's, §10 Q-B1).
 
-**Changelog.** *Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
+**Changelog.** *Clerical (PM 783): slot registered* (2026-11-18; no rev bump): `#11-htmlframesetelement-interface` is registered, open; T3-b's landing updates its status (§8.3 item 2).
+*Clerical* (2026-11-18; no rev bump): clerical: pointer to `#11-html-element-type-tests-without-namespace` (PM 780).
 *Clerical* (2026-11-18; no rev bump): clerical (PM 780): Q-B1 answered; the §7 row and H-B2 point at `#11-dom-interface-objects-exposure`.
 *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): Placement points to the umbrella §8.5.
 *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): Q-A2 points at
@@ -68,7 +69,7 @@ the seven tag-only `body` tests in four crates are listed with their homes; the 
 (`elidex-style`'s `find_body_child`, `elidex-dom-api`'s `offsetParent` fallback) join §8.2 item 1's defect text,
 which also says that `is_html_body_element`'s body migrates under the general fix; the slot-less "later convergence"
 wording is removed (D-T11, §7, §8.2 item 1). **Records (Axis 5):** `#11-htmlframesetelement-interface` is registered
-at this PR's landing, the first that cites it (§8.3 item 2; the text moved from the T3 memo §8.3 item 9, restated at
+(PM 783), its status updated at this PR's landing (§8.3 item 2; the text moved from the T3 memo §8.3 item 9, restated at
 `cee74989` with a Re-eval date); §8.2 item 1's "no ledger row" is re-measured and names the PM 768 siblings; Q-B1
 names its likely home and H-B2 is widened (no per-tag HTML interface object exists but `HTMLElement`); §8.1's
 *Result* and Q-A3 point to the T3-pre memo DoD item 7 and §8.3 item 3 and no longer allow a landing after io; the
@@ -458,7 +459,7 @@ production wrapper path, and the existing F-24 (`body_weh_accessor_rejects_non_b
 | an `EcsDom` predicate for "HTML `body`"; one form for every "HTML `body`" test (the seven sites of D-T11, *The sibling sites*) | D-T11, *Placement*: the general fix's form is tag-parameterised, and a per-tag predicate now would be one more form to migrate | §8.2 item 1 (the general fix; its text names the sites). Not changed here: T3 memo D-T5, PM decision 133 |
 | `document.createElementNS` | not this program's | `#11-vm-create-element-ns-missing` (L3; §8.3 item 1) |
 | a global `HTMLBodyElement` interface object | not R-D; the VM exposes no per-tag HTML interface object but `HTMLElement` (H-B2) | none opened here; recorded on `#11-dom-interface-objects-exposure` (PM 780, owner VM P4; §10 Q-B1) |
-| the `HTMLFrameSetElement` interface | compat (PM decision 130); not R-D | `#11-htmlframesetelement-interface`, registered at this PR's landing (§8.3 item 2) |
+| the `HTMLFrameSetElement` interface | compat (PM decision 130); not R-D | `#11-htmlframesetelement-interface`, registered (PM 783); status updated at this PR's landing (§8.3 item 2) |
 
 Own deferrals: **0**. Residuals: **0**.
 
@@ -546,7 +547,7 @@ once, in the T3-pre memo §8.3 item 3, and not here.
    reachable that would call for starting the wiring. What waits on it is the cells' script form, an obligation of
    the wiring PR, which the appended sentences state. A Trigger tied to T3-a, T3-b or T3 would schedule L3's work on
    an event that changes no reachable outcome.
-2. `#11-htmlframesetelement-interface` — **register** (PM decision 130, compat layer; the ledger has no row:
+2. `#11-htmlframesetelement-interface` — **registered (PM 783), open; at T3-b's landing its status is updated** (PM decision 130, compat layer; until PM 783 the ledger had no row:
    `/usr/bin/grep -c 'htmlframesetelement-interface' project_open-defer-slots.md` → 0 on 2026-11-18). Registered
    here because this memo is the first of the plan PR's landings to cite the id (*Not in scope*), and a cited id
    needs a row (driver's decision in R1; until T3 memo rev 6.2 the registration was T3's landing, T3 memo §8.3 item
@@ -568,7 +569,7 @@ once, in the T3-pre memo §8.3 item 3, and not here.
 
 - **T3** (x16): T3 relies on D-T11 being on its base (its rows FN-3 ‡, its seam S1) and edits neither site. T3's
   `svgBody` cells (T-9, T-9b) reuse the harness helper of §6.1. T3 cites `#11-htmlframesetelement-interface` and
-  appends one sentence to it at its landing (T3 memo §8.3 item 9); the registration is §8.3 item 2's.
+  appends one sentence to it at its landing (T3 memo §8.3 item 9); the registration (PM 783) is §8.3 item 2's.
 - **L3's `#11-vm-create-element-ns-missing`**: §8.3 item 1.
 - **T3-a**: none in production code; the test helper of §6.1.
 
