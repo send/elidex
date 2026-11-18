@@ -23,7 +23,7 @@ use super::host;
 impl Vm {
     /// Create a new main-thread (Window) VM with built-in globals registered.
     ///
-    /// Uses [`EngineMode::BrowserCompat`] — the full compat surface, byte-identical
+    /// Uses `EngineMode::BrowserCompat` (engine-only) — the full compat surface, byte-identical
     /// to the pre-gate engine. This is the **sole public production constructor**:
     /// the non-compat modes are not selectable for a real session until the async
     /// core storage (`#11-async-core-storage-cookiestore`) lands — see
@@ -160,7 +160,7 @@ impl Vm {
     /// `register_globals` runs at the tail (before any caller can observe the
     /// VM), so the scope kind **and** the engine mode must be threaded in here
     /// rather than flipped afterwards — the install seams consult the derived
-    /// [`SpecLevelPolicy`](elidex_plugin::SpecLevelPolicy) at install time, so a
+    /// `SpecLevelPolicy` (engine-only) at install time, so a
     /// mode that arrived later could not *prevent* an install. The scope kind
     /// and the mode are parameters only under the `engine` feature: without it
     /// no DOM / worker / Web-API surface exists, so there is nothing to select.

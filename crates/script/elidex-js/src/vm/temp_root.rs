@@ -12,7 +12,7 @@
 //!   `ctx.call_function` boundaries) need the same rooting.
 //!   `vm.stack` is in `GcRoots` regardless of feature flags, so
 //!   the multi-value scope guard is sound everywhere.
-//! - [`VmInner::push_temp_root`] / [`VmTempRoot`] —
+//! - `VmInner::push_temp_root` / `VmTempRoot` —
 //!   **engine-only** (`#[cfg(feature = "engine")]`).  Single-
 //!   value identity-asserting variant; current callers all live
 //!   in the host bridge (event objects, PromiseRejection
@@ -128,10 +128,10 @@ impl VmInner {
     /// Begin a stack-scope: snapshot `stack.len()` and return an
     /// RAII guard that truncates back on drop.
     ///
-    /// Companion to [`Self::push_temp_root`].  Use a stack scope
+    /// Companion to `Self::push_temp_root` (engine-only).  Use a stack scope
     /// when the rooted region pushes an arbitrary number of values
     /// (e.g. draining an iterator into the stack) — the
-    /// single-value identity check on [`VmTempRoot`] doesn't fit
+    /// single-value identity check on `VmTempRoot` (engine-only) doesn't fit
     /// that shape, but the same panic-safe restore semantics are
     /// still required to avoid leaking GC roots through a
     /// `catch_unwind` boundary upstream.
@@ -148,10 +148,10 @@ impl VmInner {
     /// // guard drops here; stack restored to `iter_slot`
     /// ```
     ///
-    /// Unlike [`VmTempRoot`] there is no value-identity check —
+    /// Unlike `VmTempRoot` (engine-only) there is no value-identity check —
     /// the guard only enforces the `len` invariant.  Code that
     /// roots a single known value should prefer
-    /// [`Self::push_temp_root`] for the stronger contract.
+    /// `Self::push_temp_root` (engine-only) for the stronger contract.
     pub(crate) fn push_stack_scope(&mut self) -> VmStackScope<'_> {
         let saved_len = self.stack.len();
         VmStackScope {
@@ -167,7 +167,7 @@ impl VmInner {
 /// Truncates the VM stack back to the saved length on drop —
 /// **including during panic unwinding** — so any rooted values
 /// pushed during the scope are released regardless of exit path.
-/// Unlike [`VmTempRoot`] no value-identity is asserted on clean
+/// Unlike `VmTempRoot` (engine-only) no value-identity is asserted on clean
 /// drop; the guard is only useful when the rooted region pushes
 /// an arbitrary (data-dependent) number of values.
 pub(crate) struct VmStackScope<'a> {

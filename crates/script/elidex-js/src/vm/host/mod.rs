@@ -50,22 +50,22 @@
 //! - [`event_target`] — `EventTarget.prototype` intrinsic + native
 //!   `addEventListener` / `removeEventListener` / `dispatchEvent`
 //!   inherited by every DOM wrapper.
-//! - [`node_proto`] — `Node.prototype` intrinsic, carrying the
+//! - `node_proto` (engine-only) — `Node.prototype` intrinsic, carrying the
 //!   Node-common accessors (`parentNode`, `textContent`, …) and
 //!   tree-mutation methods (`appendChild`, …).  Chains to
 //!   `EventTarget.prototype`.  `cloneNode` /
 //!   `compareDocumentPosition` / `isEqualNode` /
 //!   `ownerDocument` / `isSameNode` / `getRootNode` bodies live in
-//!   [`node_methods_extras`] to keep `node_proto.rs` under the
+//!   `node_methods_extras` (engine-only) to keep `node_proto.rs` under the
 //!   1000-line convention; the install-time references stay in
 //!   `node_proto`.
-//! - [`element_proto`] — `Element.prototype` intrinsic, carrying
+//! - `element_proto` (engine-only) — `Element.prototype` intrinsic, carrying
 //!   Element-only members (`getAttribute`, `children`, `matches`, …).
 //!   Chains to `Node.prototype`.
 //! - [`elements`] — `create_element_wrapper` (entity → wrapper
 //!   ObjectId, with per-entity prototype branching: Element vs
 //!   non-Element Nodes).
-//! - [`dom_bridge`] — shared selector-parse / wrapper-lift helpers
+//! - `dom_bridge` (engine-only) — shared selector-parse / wrapper-lift helpers
 //!   used by both `document.rs` and Element / Node prototype natives,
 //!   **plus** the `DomApiHandler` dispatch bridge (`invoke_dom_api`).
 

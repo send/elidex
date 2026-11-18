@@ -22,8 +22,8 @@
 //!
 //! - **`IntegerIndex(u32)`** — non-negative integer in `[0, u32::MAX]`.
 //!   In-range writes go through
-//!   [`super::host::typed_array::write_element_raw`]; reads through
-//!   [`super::host::typed_array::read_element_raw`].  Out-of-range
+//!   `super::host::typed_array::write_element_raw` (engine-only); reads through
+//!   `super::host::typed_array::read_element_raw` (engine-only).  Out-of-range
 //!   reads return `undefined`; out-of-range writes are silent no-ops
 //!   (§10.4.5.18 step 1).
 //! - **`CanonicalNonInteger`** — canonical numeric string that ISN'T a
@@ -33,8 +33,8 @@
 //!   silent no-ops; neither path creates an ordinary own property.
 //! - **`NotNumeric`** — falls through to ordinary property storage.
 //!
-//! The classification helpers ([`classify_typed_array_number_key`] /
-//! [`classify_typed_array_string_key`]) are private to this module
+//! The classification helpers (`classify_typed_array_number_key` (engine-only) /
+//! `classify_typed_array_string_key` (engine-only)) are private to this module
 //! since they're only consumed by the element-access methods.
 
 use super::coerce::{get_property, to_string};

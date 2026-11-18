@@ -15,7 +15,7 @@ use super::VmInner;
 /// in insertion order.
 ///
 /// Returns a `Result` so handler-side errors from the
-/// [`super::host::dataset::collect_keys`] DOMStringMap branch surface
+/// `super::host::dataset::collect_keys` (engine-only) DOMStringMap branch surface
 /// at `Object.keys/values/entries`, `JSON.stringify`, and record-coercion
 /// callers instead of silently degrading to an empty key set.
 pub(crate) fn collect_own_keys_es_order(

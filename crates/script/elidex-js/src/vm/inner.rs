@@ -11,7 +11,7 @@
 //! ## Method groups
 //!
 //! - **Listener cleanup**:
-//!   [`super::VmInner::remove_listener_and_prune_back_ref`] (engine-only)
+//!   `super::VmInner::remove_listener_and_prune_back_ref` (engine-only)
 //! - **Allocation**: [`super::VmInner::alloc_symbol`] /
 //!   [`super::VmInner::alloc_object`] /
 //!   [`super::VmInner::create_array_object`] /
