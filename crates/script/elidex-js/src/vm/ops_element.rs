@@ -33,8 +33,8 @@
 //!   silent no-ops; neither path creates an ordinary own property.
 //! - **`NotNumeric`** — falls through to ordinary property storage.
 //!
-//! The classification helpers (`classify_typed_array_number_key` (engine-only) /
-//! `classify_typed_array_string_key` (engine-only)) are private to this module
+//! The classification helpers (`classify_typed_array_number_key` /
+//! `classify_typed_array_string_key`), both engine-only, are private to this module
 //! since they're only consumed by the element-access methods.
 
 use super::coerce::{get_property, to_string};

@@ -148,10 +148,10 @@ impl VmInner {
     /// // guard drops here; stack restored to `iter_slot`
     /// ```
     ///
-    /// Unlike `VmTempRoot` (engine-only) there is no value-identity check —
+    /// Unlike `VmTempRoot` there is no value-identity check —
     /// the guard only enforces the `len` invariant.  Code that
     /// roots a single known value should prefer
-    /// `Self::push_temp_root` (engine-only) for the stronger contract.
+    /// `Self::push_temp_root` for the stronger contract.
     pub(crate) fn push_stack_scope(&mut self) -> VmStackScope<'_> {
         let saved_len = self.stack.len();
         VmStackScope {
