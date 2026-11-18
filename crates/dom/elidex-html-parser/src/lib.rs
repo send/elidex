@@ -126,7 +126,7 @@ pub fn parse_html_fragment(
         match roots.as_slice() {
             [only] => match &only.data {
                 markup5ever_rcdom::NodeData::Element { name, .. }
-                    if name.local.as_ref() == "html" =>
+                    if name.local.as_str() == "html" =>
                 {
                     only.clone()
                 }

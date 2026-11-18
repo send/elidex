@@ -131,13 +131,13 @@ fn try_attach_declarative_shadow(
     else {
         return false;
     };
-    if name.local.as_ref() != "template" {
+    if name.local.as_str() != "template" {
         return false;
     }
     let attrs = attrs.borrow();
     let mode_attr = attrs
         .iter()
-        .find(|a| a.name.local.as_ref() == "shadowrootmode")
+        .find(|a| a.name.local.as_str() == "shadowrootmode")
         .map(|a| a.value.as_ref());
     let Some(mode_str) = mode_attr else {
         return false;
@@ -152,16 +152,16 @@ fn try_attach_declarative_shadow(
     };
     let delegates_focus = attrs
         .iter()
-        .any(|a| a.name.local.as_ref() == "shadowrootdelegatesfocus");
+        .any(|a| a.name.local.as_str() == "shadowrootdelegatesfocus");
     let clonable = attrs
         .iter()
-        .any(|a| a.name.local.as_ref() == "shadowrootclonable");
+        .any(|a| a.name.local.as_str() == "shadowrootclonable");
     let serializable = attrs
         .iter()
-        .any(|a| a.name.local.as_ref() == "shadowrootserializable");
+        .any(|a| a.name.local.as_str() == "shadowrootserializable");
     let slot_assignment = attrs
         .iter()
-        .find(|a| a.name.local.as_ref() == "shadowrootslotassignment")
+        .find(|a| a.name.local.as_str() == "shadowrootslotassignment")
         .and_then(|a| {
             if a.value.eq_ignore_ascii_case("manual") {
                 Some(SlotAssignmentMode::Manual)
@@ -216,7 +216,7 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     let NodeData::Element { name, attrs, .. } = &handle.data else {
         return None;
     };
-    let tag = name.local.as_ref().to_string();
+    let tag = String::from(name.local.as_str());
     let namespace = if name.ns == ns!(svg) {
         Namespace::Svg
     } else if name.ns == ns!(mathml) {
@@ -227,7 +227,7 @@ fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)
     };
     let mut attributes = Attributes::default();
     for attr in attrs.borrow().iter() {
-        attributes.set(attr.name.local.as_ref(), &*attr.value);
+        attributes.set(attr.name.local.as_str(), &*attr.value);
     }
     Some((tag, namespace, attributes))
 }
