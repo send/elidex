@@ -58,7 +58,10 @@ restore function's direct slot write and `set_mutation_dispatcher`'s `Taken` ass
 upgrade at a fragment-parsed element's creation (`#11-custom-element-upgrade-at-fragment-creation`, L3, registered by
 PM 719; §7); RC-2b's use of the event (L3, PM decision 723).
 
-**Changelog.** *Rev 2.4* (2026-11-18; PM decision 774, after a re-check of rev 2.3 `10af92ee`). **Generator removed
+**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): L3's plans are unratified readings
+(§0.1, §8.1); the re-pin and R-P3's checks move to L3's ratification, the umbrella §8.5 (§0.1, R-P3, §8.2); DoD 1
+says how it differs.
+*Rev 2.4* (2026-11-18; PM decision 774, after a re-check of rev 2.3 `10af92ee`). **Generator removed
 (PM 774):** twice in a row the remedy §8.3 item 2 prescribed for `#11-form-control-state-template-contents-fragment-parse`
 produced a new IMP in its own added text (N1: "every control" regressed fieldset disabledness; F1: rev 2.3's
 re-derive-at-placement is the propagation that L3's `docs/plans/2026-07-form-derived-state-reconciliation.md` removes;
@@ -145,14 +148,15 @@ cee74989 -- <paths>`, `git show cee74989:<path> | sed -n <range>p` or `/usr/bin/
 Paths are abbreviated after first use: `ecs/…` = `crates/core/elidex-ecs/src/…`. Spec text is `.claude/tools/webref
 body` output of 2026-11-13 (rev 2's additions: 2026-11-15); every `§X.Y = title` pair is `webref heading` / `dfn`
 output (§3's footnote).
-**L3's names** are cited by symbol and section from L3's split plans at one pre-ratification snapshot, **`23aa745a`**
+**L3's names** are cited by symbol and section from L3's split plans at one pre-ratification snapshot, **`23aa745a`**,
+an **unratified reading** of L3's memos (no ratified sha exists; the re-pin is the umbrella §8.5's)
 (the tip of L3's local plan branch on 2026-11-15, read only through `git show`; this is the one place the sha is
 recorded, and "the snapshot" below means it; rev 1 read `6d31ced1`): "the PR (ig) plan"
 (`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md`) and "the L3 umbrella"
 (`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md`). From ig: `DispatcherTake` (NEW: ig; PR (ig) plan §4.1, "the
 one way to take the mutation dispatcher out of an `EcsDom`"), its consuming `DispatcherTake::close` (NEW: ig), its
 private `DispatcherTake::restore` (NEW: ig), its `Drop`, and `TeardownWindow` (NEW: ig) with its own
-`TeardownWindow::close`. Every L3 citation is re-pinned to L3's ratified sha before T3-pre is ratified (R-P3). "The RC-2a plan" is
+`TeardownWindow::close`. Every L3 citation is re-pinned at L3's ratification (the umbrella §8.5; R-P3's checks run then). "The RC-2a plan" is
 `docs/plans/2026-11-range-rc2a-clone-created.md` (on main, #589; implementation #596), cited by section.
 
 ### §0.2 Premises re-measured
@@ -716,10 +720,13 @@ D-T13).
 - **R-P2 — a consumer panic during the flush** leaves later queued roots undispatched (Q3×Q5); a consumer panic is
   already a bug that unwinds the whole mutation (as at any dispatch).
 - **R-P3 — L3's surface, cited at a snapshot.** Every L3 citation (H-P5, §4.4, §4.5) is re-pinned to L3's ratified sha
-  before T3-pre is ratified; a citation whose symbol or section is gone there is re-derived, not carried. The re-pin
+  at L3's ratification (the umbrella §8.5, PM 779; until then: before T3-pre is ratified); a citation whose symbol or
+  section is gone there is re-derived, not carried. The re-pin
   also checks that the PR (ig) plan then carries §4.4's (e) and (f) (PM 740 (2)), which the snapshot predates, and
-  the reworded sentences of §8.2. **Stop condition:** T3-pre stops for the PM if ig is ratified or lands without any
-  of §4.4's (a) to (f): no consuming `close` as the restore point on the returning path of a window that can enclose
+  the reworded sentences of §8.2. **Stop condition** (checked at that re-pin against ig's ratified text, and at DoD
+  item 1 against ig's landed code): T3-pre stops for the PM if ig's ratified plan or its landed code lacks any
+  of §4.4's (a) to (f), and a trip at the re-pin reopens the affected section with a focused plan-review before
+  implementation starts (the umbrella §8.5): no consuming `close` as the restore point on the returning path of a window that can enclose
   a fragment parse (a); a second home of take/restore state (b); no single private restore function that `close`
   runs while it still holds `&mut EcsDom` and that `Drop` shares (c); a restore that goes through
   `set_mutation_dispatcher` instead of writing the slot directly (e); or `set_mutation_dispatcher` not asserting
@@ -797,7 +804,8 @@ T3-pre's scope).
 - **No edge** with L3's PR (io): merge contact in `ecs/dom/mod.rs` and `walkers.rs` docs only; whichever lands second
   re-pulls the other's coordinates.
 - **No edge** with L3's tree-model program (PM 730: the shadow root becomes a tree root linked to its host by a pair
-  of link components; owner L3; between ig and io). **Re-pulled in rev 2.2** from that program's umbrella, draft 2
+  of link components; owner L3; between ig and io). **Re-pulled in rev 2.2** from that program's umbrella, draft 2, an
+  **unratified reading** re-pinned at L3's ratification (the umbrella §8.5)
   (`git show "1593a5ad:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md"`, §5 table, §5.1, §7.2; its
   census `2026-11-tree-model-census.md` at the same sha). Eight slices, in the order **tp → ta → tc → tr → tf → tm →
   te → ts**, then PR (io) rewritten on that base (its §5.1). Merge contacts with the files T3-pre edits (§5.3), by
@@ -819,7 +827,7 @@ T3-pre's scope).
   - `ecs/dom/tree_clone.rs`: not named by the census (0 hits); left as a contact to re-check at the base.
   Command for the census side: for each file `f` of §5.3, `git show "1593a5ad:docs/plans/2026-11-tree-model-census.md"
   | /usr/bin/grep -c -F "$f"` (rev 2.2 counts: `dom/mod.rs` 11, `walkers.rs` 13, `node_methods/clone.rs` 2,
-  `range/live.rs` 1, `consumer.rs` 1, `html_fragment.rs` 5, `tree_clone.rs` 0; re-run at L3's ratified sha, R-P3).
+  `range/live.rs` 1, `consumer.rs` 1, `html_fragment.rs` 5, `tree_clone.rs` 0; re-run at the re-pin, the umbrella §8.5).
   T3-pre reads no parent link in production code and walks nothing, and §4.2's created set is stated by the DOM's
   terms, not by how elidex links a shadow root to its host, so the program changes no T3-pre statement; whichever lands
   second re-pulls the other's coordinates. (PM decisions 740 (1), 741 (1): T3-pre is not moved behind it.)
@@ -847,8 +855,8 @@ T3-pre's scope).
   direct slot write (§4.4 (e)); `set_mutation_dispatcher`'s `debug_assert!` while `Taken` (§4.4 (f)); the cell for it
   (rev 1's U-T11 (f): an install inside an open window asserts) and its mutant rows (the restore through
   `set_mutation_dispatcher`; the assertion removed). Sentences of L3's plans at the snapshot that these decisions and
-  PM 722 make stale, for L3 to reword (T3-pre edits none of L3's plans); each is re-pinned before T3-pre is ratified
-  (R-P3):
+  PM 722 make stale, for L3 to reword (T3-pre edits none of L3's plans); each is re-pinned at L3's ratification
+  (the umbrella §8.5; R-P3):
   1. PR (ig) plan §4.1, the `restore` body (`let _ = self.dom.set_mutation_dispatcher(dispatcher);`) → the direct
      write.
   2. PR (ig) plan §4.1, "No new assertion is added; the slot behaviour on the return path is today's
@@ -962,7 +970,8 @@ T3-pre's scope).
    re-measured there by its command (H-P1, all three parts of its population, (iii) expecting 0; §4.5's anchors at
    ig's head, with DOMParser's window body read against §4.2's invariant (between the fire and the close, no step
    changes what hangs from a returned root); sizes of §5.3); every L3 citation is re-pinned to L3's ratified sha (R-P3), §8.2's reworded sentences
-   included. **What ig provides is checked on ig's landed code before T3-pre's first commit** (these are ig's, so
+   included. (This item re-measures the base and ig's landed code when T3-pre's branch is cut; the umbrella §8.5 re-pins
+   the plan citations earlier, at L3's ratification, and this item checks that re-pin is done.) **What ig provides is checked on ig's landed code before T3-pre's first commit** (these are ig's, so
    they are checks here, not T3-pre's greps): `git grep -n 'set_mutation_dispatcher(' --
    crates/core/elidex-ecs/src/dom/dispatcher_take.rs` → 0 (§4.4 (e): the restore writes the slot directly);
    `set_mutation_dispatcher`'s body debug-asserts on `Taken` and a cell of ig's pins it (§4.4 (f)); `close` runs the

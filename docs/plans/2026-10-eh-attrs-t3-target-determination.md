@@ -132,7 +132,10 @@ D-T8; its namespace half is applicability facet (2), which has no case at the ba
 (`#11-htmlframesetelement-interface`, compat, PM decision 130; registered at T3-b's landing, the T3-b memo §8.3 item 2); `body`'s interface (the T3-b memo D-T11) and the
 other foreign-element interfaces (the T3-b memo §8.2 item 1); multi-realm (B1; §8.2 hand-off).
 
-**Changelog.** *Rev 6.4* (2026-11-18; Step 4.5 re-check of rev 6.3, `8ca6f589`: IMP F1, MINs F2–F7; PM 774, 776).
+**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): D-T3 (A) quotes B1 §5 req 5 as written;
+L3's plans are unratified readings (H-T32); the re-pin moves to L3's ratification, the umbrella §8.5, with R7's
+checks (rev 4.8.1 note, §0.1, R7, §8.2, §9 item 1).
+*Rev 6.4* (2026-11-18; Step 4.5 re-check of rev 6.3, `8ca6f589`: IMP F1, MINs F2–F7; PM 774, 776).
 **IMP F1, reverted (PM 776):** rev 6.3's one design change, D-4's delegation to `HostData::active_document()`, rested
 on "the association has one reader in the VM; B1 replaces one function, not two", which is false: at `cee74989` 17
 `elidex-js` sites read the bound document and 6 read its Window (§8.3 item 12). T3 does not edit D-4's body; §5.3 keeps
@@ -229,7 +232,7 @@ references, R1 M21).
 *Rev 4.8.1* (2026-11-13): re-anchor only, on L3's split (PM decision 714) and PM 718's citation rule.
 L3's names are cited by symbol and section from the PR (ig) plan, the PR (io) plan and the L3 umbrella, read at one
 pre-ratification snapshot (§0.1, H-T32 rewritten); premise added: every L3 citation is re-pinned to L3's ratified
-sha before T3 is ratified (R7, §9 item 1). P-T20 answered: ig has a consuming `DispatcherTake::close` and guarantees
+sha before T3 is ratified (R7, §9 item 1; from PM 779 at L3's ratification, the umbrella §8.5). P-T20 answered: ig has a consuming `DispatcherTake::close` and guarantees
 (a) and (b) (its §8 *T3 intersection*), so §4.5 item 4 relies on them plus T3's change to `close` instead of stating
 a requirement on ig; one residual stays open, the shape of the flush against ig's `Drop` as the one restore site
 (P-T20 *Residual*, for the PM with L3). §4.5 item 4 uses no `is_outermost`. R7's stop condition and §9 item 1 are
@@ -332,8 +335,8 @@ memo's history names `CloneCreated` or "the `CloneCreated` arm" for T3's own cod
 (ig) and PR (io), landing is → ig → io → ii (PM decision 714; L3 umbrella §5 *Order*); T3 lands after io and T3-pre.
 T3 cites, by symbol and section, only "the PR (io) plan"
 (`docs/plans/2026-11-ecs-entity-lifetime-pr-io-owned-entities-walk-scope.md`) and "the L3 umbrella"
-(`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md`), as read at the snapshot H-T32 names (pre-ratification; every
-citation is re-pinned to L3's ratified sha before T3 is ratified, R7): from **io**, `WalkScope` (`ShadowIncludingTree`,
+(`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md`), as read at the snapshot H-T32 names (pre-ratification, an
+unratified reading, H-T32; every citation is re-pinned at L3's ratification, the umbrella §8.5; R7): from **io**, `WalkScope` (`ShadowIncludingTree`,
 `WithTemplateContents`, `LifetimeUnit`), `OwnedKind` (NEW: io) with `OwnedKind::in_scope` (NEW: io; its exhaustive
 match; until rev 6, from the older snapshot: `OwnedEntity::in_scope`), `OwnedEntity` (NEW: io; the link the walker hands
 its visitor) and `for_each_uncapped_shadow_inclusive<F: FnMut(Entity, Option<OwnedEntity>)>(&self, root, scope:
@@ -379,7 +382,7 @@ names (`DispatcherTake`, its `close`) are the T3-pre memo's (its §0.1, H-P5); T
 | H-T29 | (rev 4.7; **moved to the T3-pre memo H-P4**, rev 5) The fragment build's own window; one function returns every fragment parse | the T3-pre memo H-P4 | `parse_fragment_progressive` (`crates/dom/elidex-html-parser/src/lib.rs:223`) is the one return point of both backends, called only from `crates/script/elidex-script-session/src/mutation/html_fragment.rs`, which places the returned nodes after it returns; the base delivers a fragment-parsed `body`'s Window-delegating pairs at the placement (`ProcessingTiming::Bind \| Insertion`, `session/event_handler_processing/mod.rs:121`). Entry points and coordinates: the T3-pre memo H-P4 |
 | H-T30 | (rev 4.7; **moved to the T3-pre memo H-P4**, rev 5) DOMParser's window encloses a fragment parse | the T3-pre memo H-P4 | `parse_into_inert_document` holds the dispatcher taken across its `apply_set_inner_html` call, so the slot is still `Taken` when `parse_fragment_progressive` returns there |
 | H-T31 | (rev 4.7; **moved to the T3-pre memo H-P3**, rev 5) The `CloneCreated` population | the T3-pre memo H-P3 | 73 lines in 19 files at `cee74989` (verified 2026-11-13), migrated by T3-pre; at T3's base `EventHandlerAttributeConsumer::handle` matches `AttributeChange` and `Insert` with a catch-all (`session/event_handler_consumer.rs:381-391`), and T3 adds its `SubtreeCreated` arm (§4.5) |
-| H-T32 | (rev 4.8.1; rev 5: the PR (io) half and the order; the PR (ig) half is the T3-pre memo H-P5; **re-pinned in rev 6** to the T3-pre memo rev 2's snapshot) L3's walk scopes and order, as planned (pre-ratification snapshot of L3's split plans; PM decisions 711, 713, 714, 718, 730) | `S=23aa745a; P=docs/plans/2026-11-ecs-entity-lifetime` (the one snapshot read, the T3-pre memo §0.1's: the tip of L3's local plan branch on 2026-11-15, read only through `git show`; rev 5 read `6d31ced1`), then `git show "$S:$P-pr-io-owned-entities-walk-scope.md" \| /usr/bin/grep -n -e 'pub enum OwnedKind' -e 'pub struct OwnedEntity' -e 'pub enum WalkScope' -e 'const fn in_scope' -e 'FnMut(Entity, Option<OwnedEntity>)' -e 'take its place in the re-exports' -e 'dom-walkers-iterative-over-ecs-links'` → `:261`, `:270`, `:285`, `:299`, `:437`, `:439`, `:441`, `:684`; `git show "$S:$P-umbrella.md" \| /usr/bin/grep -n -e '^\*\*Order\.\*\*' -e 'Layout T3 lands after PR (io)'` → `:347`, `:353`; for PM 730's order, `git show 379acc15:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md \| /usr/bin/grep -n -e '^\*\*Order\.\*\*' -e 'between PR' -e 'Layout T3 / T3-pre' -e 'Q-4 (fact needed' -e 'Q-10 (Layout)'` → `:312`, `:395`, `:397`, `:425`, `:443` (L3's tree-model umbrella, draft 1, read only through `git show`) | **PR (io) plan** §4.1: `pub enum OwnedKind { ShadowRoot, TemplateContents, InertTemplateDocument }`; `pub struct OwnedEntity` (private fields `kind`, `entity`, `owner`, `const` accessors); `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }`; `OwnedKind::in_scope(self, scope)`, `pub(in crate::dom)`, an exhaustive match with no wildcard: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only. §4.2: the walker is `for_each_uncapped_shadow_inclusive<F: FnMut(Entity, Option<OwnedEntity>)>(&self, root, scope: WalkScope, visit: &mut F)`, the second argument `Some` for an entity reached through an owner link and `None` for the root and a light child ("The callers that need no edge ignore it"); `TemplateContentsWalk` is deleted, and `WalkScope`, `OwnedEntity` and `OwnedKind` take its place in the re-exports; `despawn_subtree` passes `WithTemplateContents`, the base's `Include`. **L3 umbrella** §5 *Order*: is → ig → io → ii; "Layout T3 lands after PR (io)"; §8 hand-offs: the DOM-walker program's slice 1 (`#11-dom-walkers-iterative-over-ecs-links`) stacks on PR (io) and touches `walkers.rs` (§8.2). **PM 730:** L3's tree-model program (slices ta → tc / tm / tr / tf → te → ts) lands between ig and io; the L3 umbrella's own order line does not name it at the snapshot (the tree-model umbrella §7.2: "That umbrella's order line gains this program between PR (ig) and PR (io)"), so L3's order is is → ig → tree-model program → io → ii, and T3, after io, is after that program (§8.2). Rev 5 read `OwnedEntity::in_scope` and a one-argument `visit` at `6d31ced1`; the change PM 718 announced is in this snapshot. Until rev 4.8.1: cited from the pre-split PR (i) plan |
+| H-T32 | (rev 4.8.1; rev 5: the PR (io) half and the order; the PR (ig) half is the T3-pre memo H-P5; **re-pinned in rev 6** to the T3-pre memo rev 2's snapshot) L3's walk scopes and order, as planned (pre-ratification snapshot of L3's split plans, an **unratified reading** of L3's memos, its tree-model umbrella included; re-pinned at L3's ratification, the umbrella §8.5; PM decisions 711, 713, 714, 718, 730) | `S=23aa745a; P=docs/plans/2026-11-ecs-entity-lifetime` (the one snapshot read, the T3-pre memo §0.1's: the tip of L3's local plan branch on 2026-11-15, read only through `git show`; rev 5 read `6d31ced1`), then `git show "$S:$P-pr-io-owned-entities-walk-scope.md" \| /usr/bin/grep -n -e 'pub enum OwnedKind' -e 'pub struct OwnedEntity' -e 'pub enum WalkScope' -e 'const fn in_scope' -e 'FnMut(Entity, Option<OwnedEntity>)' -e 'take its place in the re-exports' -e 'dom-walkers-iterative-over-ecs-links'` → `:261`, `:270`, `:285`, `:299`, `:437`, `:439`, `:441`, `:684`; `git show "$S:$P-umbrella.md" \| /usr/bin/grep -n -e '^\*\*Order\.\*\*' -e 'Layout T3 lands after PR (io)'` → `:347`, `:353`; for PM 730's order, `git show 379acc15:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md \| /usr/bin/grep -n -e '^\*\*Order\.\*\*' -e 'between PR' -e 'Layout T3 / T3-pre' -e 'Q-4 (fact needed' -e 'Q-10 (Layout)'` → `:312`, `:395`, `:397`, `:425`, `:443` (L3's tree-model umbrella, draft 1, read only through `git show`) | **PR (io) plan** §4.1: `pub enum OwnedKind { ShadowRoot, TemplateContents, InertTemplateDocument }`; `pub struct OwnedEntity` (private fields `kind`, `entity`, `owner`, `const` accessors); `pub enum WalkScope { ShadowIncludingTree, WithTemplateContents, LifetimeUnit }`; `OwnedKind::in_scope(self, scope)`, `pub(in crate::dom)`, an exhaustive match with no wildcard: `ShadowRoot` ∈ all three, `TemplateContents` ∈ `WithTemplateContents` and `LifetimeUnit`, `InertTemplateDocument` ∈ `LifetimeUnit` only. §4.2: the walker is `for_each_uncapped_shadow_inclusive<F: FnMut(Entity, Option<OwnedEntity>)>(&self, root, scope: WalkScope, visit: &mut F)`, the second argument `Some` for an entity reached through an owner link and `None` for the root and a light child ("The callers that need no edge ignore it"); `TemplateContentsWalk` is deleted, and `WalkScope`, `OwnedEntity` and `OwnedKind` take its place in the re-exports; `despawn_subtree` passes `WithTemplateContents`, the base's `Include`. **L3 umbrella** §5 *Order*: is → ig → io → ii; "Layout T3 lands after PR (io)"; §8 hand-offs: the DOM-walker program's slice 1 (`#11-dom-walkers-iterative-over-ecs-links`) stacks on PR (io) and touches `walkers.rs` (§8.2). **PM 730:** L3's tree-model program (slices ta → tc / tm / tr / tf → te → ts) lands between ig and io; the L3 umbrella's own order line does not name it at the snapshot (the tree-model umbrella §7.2: "That umbrella's order line gains this program between PR (ig) and PR (io)"), so L3's order is is → ig → tree-model program → io → ii, and T3, after io, is after that program (§8.2). Rev 5 read `OwnedEntity::in_scope` and a one-argument `visit` at `6d31ced1`; the change PM 718 announced is in this snapshot. Until rev 4.8.1: cited from the pre-split PR (i) plan |
 | H-T33 | (rev 4.8) The spec's attribute change steps do not consult scripting; compilation does | `.claude/tools/webref body html event-handler-attributes`; `webref dfn html 'get the current value of the event handler'`; `webref heading html 8.1.3.4`; `git show cee74989:crates/dom/elidex-form/src/inert_document.rs \| sed -n 64,90p`; `git show cee74989:crates/script/elidex-script-session/src/scripting.rs \| sed -n 40,90p` | HTML §8.1.8.1 Event handlers, the attribute change steps: step 1 (namespace / name test), 2 (determine the target), 3 (null → return), 5.1 (CSP), 5.5 "Set eventHandler's value to the internal raw uncompiled handler value/location", 5.6 "Activate an event handler": no step reads scripting or the browsing context. *Get the current value of the event handler* (§8.1.8.1, `#getting-the-current-value-of-the-event-handler`) step 3.2: "If document's browsing context is null, or document's active sandboxing flag set has its sandboxed scripts browsing context flag set, then return null" (document = the element's node document, step 3.1). §8.1.3.4 is *Enabling and disabling scripting*. `inert_document.rs:78-84` says the `EventHandlerAttributeConsumer` must stay off for a DOMParser document because "HTML §8.1.3.4 does NOT process event-handler attrs when scripting is disabled": wrong (P-T19). N1's compile gate (landed, #580; clause (b) read through `EcsDom::node_document` since C0b) realises step 3.2 for a node whose node document is not the bound document (`scripting_disabled_for_platform_object`, `scripting.rs:40-90`), consulted by `ensure_event_handler_current` on every read and dispatch (`elidex-js/vm/host/event_handler_attrs.rs:515-560`) |
 
 ### §0.3 Premise errors (reported)
@@ -508,8 +511,9 @@ foreign-namespace `body` / `frameset` with any of those 24 names; **OR** = every
   marshalling is accepted; the active document and its Window are browsing-context state, not a per-element fact, so the
   side-store→component rule does not apply, and their move into ECS components is
   `#11-browsing-context-state-ecs-components`, decided with B1. *Rejected:* (A) a component relating the Document and
-  its Window, written at bind (it duplicates `HostData`'s `document_entity` / `window_entity` pair, which B1 §5 req 5
-  migrates as one cluster); (D) `document_root()` keying (slice a's D-5 / cell U12; the node memo's "No reader keys on
+  its Window, written at bind (it duplicates `HostData`'s `document_entity` / `window_entity` pair, browsing-context
+  fields that B1 §5 req 5 rehomes field by field, each onto the entity whose fact it is, subsuming
+  `#11-browsing-context-state-ecs-components` in full); (D) `document_root()` keying (slice a's D-5 / cell U12; the node memo's "No reader keys on
   `document_root()`"). *Relied-on caveat* (H-T15): `ActiveDocument.window` comes from `HostData::window_entity`, which
   unbind does not clear; T3 is correct only under the caller contract "one `EcsDom` per `Vm`", which every production
   bind path keeps. B1 makes it structural (§8.2).
@@ -1415,14 +1419,17 @@ rename in them is T3-pre's (rev 4.7 to 4.8.2 listed it as T3's).
   The event, its queue and their L3 review are T3-pre's
   (the T3-pre memo R-P3, with its stop condition on ig); T3 relies on T3-pre's landed surface as stated in the T3-pre
   memo §4.2–§4.6 and §2, and on io's `pub` walker taking `WalkScope::WithTemplateContents` (H-T32). **Premises:** (1)
-  L3's io plan and umbrella are cited at a pre-ratification snapshot (H-T32) by symbol and section; before T3 is
-  ratified every such citation in this memo and in the umbrella's x12 row is re-pinned to L3's ratified sha, and a
-  citation whose symbol or section is gone there is re-derived, not carried (PM 718's announced changes, H-T32, are not
+  L3's io plan and umbrella are cited at a pre-ratification snapshot (H-T32) by symbol and section; at L3's
+  ratification every such citation in this memo and in the umbrella's x12 row is re-pinned to L3's ratified sha (the
+  umbrella §8.5, PM 779; until then: before T3 is ratified), and a citation whose symbol or section is gone there is
+  re-derived, not carried (PM 718's announced changes, H-T32, are not
   relied on). (2) T3 lands after T3-pre and io (umbrella x14, x12), so their landed code is T3's base: the walker's
   names and order are re-pulled at T3's base, which has io and whatever of the DOM-walker program's slice 1 has landed (§8.2), and the
   arm's match at T3-pre's head (§9 item 1). (3) L3's tree-model program lands before io (PM 730), so on T3's base
-  too: the facts T3 reads from the tree's links are re-pulled there (§8.2's tree-model entry, §9 item 1). **Stop condition:** T3 stops for the PM if T3-pre lands with a different
-  event shape or cause set than the T3-pre memo §4.2 states, if io lands without a `pub` walker taking
+  too: the facts T3 reads from the tree's links are re-pulled there (§8.2's tree-model entry, §9 item 1). **Stop condition** (checked at the re-pin at L3's ratification against io's ratified text, where a trip reopens the
+  affected section with a focused plan-review before implementation starts, the umbrella §8.5; and at T3's base against
+  the landed code, §9 item 1): T3 stops for the PM if T3-pre lands with a different
+  event shape or cause set than the T3-pre memo §4.2 states, if io is ratified or lands without a `pub` walker taking
   `WalkScope::WithTemplateContents`, or if T3's implementation would have to move, re-order or rewrite one of T3-a's
   reader sites or change its predicate (umbrella §4.1; PM decision 741 (3): a mis-drawn slice). (Until rev 5 R7 carried T3-pre's ig premises and stop condition, now the T3-pre
   memo R-P3.)
@@ -1656,7 +1663,7 @@ records (the fragment-path fallback for `#11-range-full-impl`) are T3-pre's (the
 - **L3's ecs-entity-lifetime PR io** (PM decisions 711, 714; umbrella x12: T3 after io): T3 relies on io's `pub` walker
   taking `WalkScope::WithTemplateContents` (§4.5), cited by symbol and section from the PR (io) plan and the L3
   umbrella at the snapshot H-T32 names (`23aa745a` from rev 6, the T3-pre memo rev 2's), re-pinned to L3's ratified
-  sha before T3 is ratified and re-pulled at io's landed head (R7, §9 item 1). At that snapshot the walker's visitor
+  sha at L3's ratification (the umbrella §8.5) and re-pulled at io's landed head (R7, §9 item 1). At that snapshot the walker's visitor
   is `FnMut(Entity, Option<OwnedEntity>)`; T3's two calls ignore the second argument. L3's ig reaches T3 only through
   T3-pre (the T3-pre memo x13, R-P3).
 - **L3's tree-model program** (PM 730; no edge; **re-pulled in rev 6.3** from its umbrella's draft 2, `git show
@@ -1849,8 +1856,10 @@ order line's T3-a and T3-b, x15, x16 and the new §4.1 (the two shared functions
    is cut after **T3-pre and L3's PR (io)** land (umbrella x14, x12; so after is and ig); the walker's names and order
    (`WalkScope`, `for_each_uncapped_shadow_inclusive`'s signature and `visit` type) are re-pulled at io's head against
    H-T32, and with the DOM-walker program's slice 1 as far as it is on the base (§8.2; it starts after `ta`, PM decision 761 (1)); the arm's match is written on T3-pre's landed
-   `SubtreeCreated` (the T3-pre memo §4.2) and T3 stops for the PM on R7's stop condition; before T3 is ratified, every
-   L3 citation is re-pinned from the H-T32 snapshot to L3's ratified sha (R7 premise 1). (Until rev 5 this item
+   `SubtreeCreated` (the T3-pre memo §4.2) and T3 stops for the PM on R7's stop condition; every L3 citation
+   is re-pinned from the H-T32 snapshot to L3's ratified sha (R7 premise 1). (This item re-pulls io's and T3-pre's
+   landed code at T3's base; the umbrella §8.5 re-pins the plan citations earlier, at L3's ratification, and this item
+   checks that re-pin is done.) (Until rev 5 this item
    re-pulled ig's take / restore anchors and checked ig's guard for (δ); those are the T3-pre memo §9 item 1.)
    Rev 6 (PM decisions 730, 741 (3)): the branch is also cut after **T3-a** and **T3-b** land (umbrella x15, x16): `git grep -n 'is_html_body_element(' -- crates ':!*tests*'` → the definition and two calls (the T3-b memo §4.2), and `git grep -n
    'is_event_handler_content_attribute_of(' -- crates ':!*tests*'` → the definition and three calls, at the places

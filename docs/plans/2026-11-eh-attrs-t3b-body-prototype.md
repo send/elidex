@@ -25,7 +25,8 @@ changed.
 **Placement and order (PM decisions 741 (3), 767; measured in §8.1).** Row **T3-b** of the umbrella's §1.2. One edge:
 **x16** T3-b → T3 (umbrella §1.3). **No edge with T3-a, L3's PR (is), PR (ig), PR (io), L3's tree-model program or
 T3-pre**: T3-b edits two functions of `vm/host/` that none of them edits, and reads no creation event, dispatcher
-window, walker or tree link (§8.1). Its prerequisites are all on main, so its implementation branch can be cut from
+window, walker or tree link (§8.1); it cites no L3 plan at a snapshot, and the program's re-pin of L3's unratified
+plans is the umbrella §8.5. Its prerequisites are all on main, so its implementation branch can be cut from
 main today, and it lands in parallel with every unit between C1 and T3. The user's order (PM decision 153: N1 → C0 →
 C1 → T3 → slice b) is kept: T3-b is a part of T3's scope landing earlier, between C1 and T3.
 
@@ -48,7 +49,8 @@ compat, PM decision 130; registered at this PR's landing, the first that cites i
 `HTMLBodyElement` interface object (the VM has none, nor any per-tag HTML interface object but `HTMLElement`, H-B2;
 not this program's, §10 Q-B1).
 
-**Changelog.** *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): Q-A2 points at
+**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): Placement points to the umbrella §8.5.
+*Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): Q-A2 points at
 §1.3 for K and M instead of restating them (F2), and §8.3 item 2's registration text leaves T3's effect to T3's
 append, the T3 memo §8.3 item 9 (F7).
 *Rev 1.1* (2026-11-18; this memo's R1 = R3 wave 2: CRIT 0 / IMP 0 / MIN 13; its Axes 1 and 2 ruled the
