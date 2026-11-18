@@ -41,6 +41,9 @@ MINs; changelog at the end.
 **Rev 2.4** (2026-11-18) — erratum (PM 760), written before the implementation changes: the module sets the dependent
 result's abort reason ("create a dependent abort signal" step 2) and makes the one step-1 test of "signal abort"; the
 host keeps neither. D-4, D-5, §2 D, §3, §4.1, §4.3, §6 (b) / (d), DoD 12; record at the end.
+**Rev 2.5** (2026-11-18) — re-check fixes to the Rev 2.4 erratum (PM 788): `create_dependent_abort_signal` returns
+`()` (`DependentCreation` deleted), the `reason` closure's contract (§4.1), the reason-writer census (DoD 12); record
+at the end of the erratum.
 
 ## §0. Frame, premises, decisions
 
@@ -327,7 +330,7 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
   2's "otherwise" value is engine-bound (a `DOMException` object), and **the module, not the host, decides whether
   step 2 is reached** — step 1 is tested in one place, and no default reason is constructed for a no-op abort
   (Rev 2.4). The VM's `abort_signal` then: calls `signal_abort` with a closure over its one materialisation helper
-  (`reason` if it is given, otherwise a new "AbortError" `DOMException`), returns `Ok(())` on `None`, **roots every
+  (`reason` if it is given, otherwise a new "AbortError" `DOMException`; the closure's contract is §4.1's), returns `Ok(())` on `None`, **roots every
   handle of the plan on the VM stack for the rest of the call** — one `push_stack_scope()` frame (`temp_root.rs:155`) onto whose `stack` it pushes `JsValue::Object(h)` for
   `plan.signal` and each dependent, with the loop running on `NativeContext::new_call(&mut frame)` (the shape of
   `internal_abort_signal`, `abort.rs:681-688`, and of the event-payload root at
@@ -382,12 +385,14 @@ lines that cite `§2.6.3` for the signal option's already-aborted short-circuit 
   dependent (`dependent` stays false, `source_signals` empty — step 3 is not reached), which §3.2.1 (PR-B) relies on.
   **Who performs each set (Rev 2.4).** "create a dependent abort signal" step 2 is a step of the module's algorithm,
   so **the module performs it whole**: `create_dependent_abort_signal` reads the aborted input's reason, writes it to
-  `result` with the trait's `set_abort_reason`, and returns the payload-free status
-  `DependentCreation::AlreadyAborted`. The host receives no reason and has nothing left to do for step 2; a host
-  that ignores the returned status is still correct, so an aborted result with no reason cannot be built by
-  omission. The static `abort(reason)` method steps are a native's own three steps over one fresh signal (no other
-  signal is read, no algorithm of the module is entered): the host materialises the step-2 value and writes it
-  with the same `set_abort_reason`. These are the only two writers of a reason outside `signal_abort` (DoD 12).
+  `result` with the trait's `set_abort_reason`, and returns `()`. The host receives nothing back and has nothing left
+  to do for step 2, so an aborted result with no reason cannot be built by omission. Which branch was taken is not
+  returned (Rev 2.5): it is a fact of the row — after the call `abort_reason(result).is_some()` ⇔ step 2 returned,
+  `links(result)` dependent ⇔ steps 3-4 ran — and a status would carry that fact a second time (D-3's ground: one fact is not carried twice). The static
+  `abort(reason)` method steps are a native's own three steps over one fresh signal (no other signal is read, no
+  algorithm of the module is entered): the host materialises the step-2 value and writes it with the same
+  `set_abort_reason` (why the Layering mandate allows that write: the Rev 2.4 erratum's "Why"). These are the only
+  two writers of a reason outside `signal_abort` (DoD 12 counts them on both sides of the crate boundary).
 - **D-6 Sets are ordered and deduplicated; a signal's `dependent_signals` is emptied after planning.** "Append" to an
   Infra set is a no-op for a present member (membership is a hashed lookup, so an append stays O(1) like today's
   `push`), so `any([a, a])` records one source and one dependent (today the map
@@ -568,11 +573,12 @@ rejection and the event fire stay in `vm/host/`).
   takes step 2 (the signal is aborted) and creates a non-dependent, already-aborted result — it is not appended to the
   signal's (already emptied, D-6) dependent set. A listener that adds an `'abort'` listener to a planned dependent
   sees it fire in step 6 (the dependent is aborted but its abort steps have not run — the spec's order).
-- **D**: the module exports `DependentLinks`, `AbortSignalGraph`, `DependentCreation { AlreadyAborted, Linked }`
-  (NEW; a status with no payload — the module has already written the reason, D-5), `create_dependent_abort_signal`,
-  `AbortPlan`, `signal_abort` and nothing else (no separate step-1 predicate: `signal_abort` is the one place that
+- **D**: the module exports `DependentLinks`, `AbortSignalGraph`, `create_dependent_abort_signal` (returns `()`; the
+  module has already written the reason, D-5), `AbortPlan`, `signal_abort` and nothing else (no separate step-1 predicate: `signal_abort` is the one place that
   tests it, D-4); it names no `ObjectId`, `JsValue`, `Entity`, listener or fetch type. `vm/host/abort.rs` keeps: the `DOMException` materialisation, `run_abort_steps`, the two
-  algorithm stores, `dispatch_vm_simple_event`; `abort_statics.rs` keeps the brand checks and the Array read.
+  algorithm stores, `dispatch_vm_simple_event`; `abort_statics.rs` keeps the brand checks, the Array read, and the
+  host's one reason write — `native_abort_signal_static_abort` allocates a signal and `set_abort_reason`s the
+  materialised value (D-5).
 
 | Pair | Intersection |
 |---|---|
@@ -589,7 +595,7 @@ rejection and the event fire stay in `vm/host/`).
 |---|---|---|---|---|---|
 | WHATWG DOM §3.2 Interface AbortSignal | static any(signals) method steps (create a dependent abort signal with AbortSignal and the current realm) | sequence argument (Array read today) | `native_abort_signal_static_any` → `create_dependent_abort_signal` (NEW) | ✗ (sequence conversion: `#11-webidl-sequence-dense-array-fast-path`, §8) | yes |
 | WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 1 (new object) | — | `create_abort_signal` on `VmInner` (row with `DependentLinks::default()`) | ✓ | yes |
-| WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 2 (an input is aborted → copy its reason, return; not dependent) | first aborted input / none | `create_dependent_abort_signal` (NEW) sets `result`'s reason through the trait and returns `DependentCreation::AlreadyAborted` (NEW); the VM does nothing further (D-5) | ✓ | yes |
+| WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 2 (an input is aborted → copy its reason, return; not dependent) | first aborted input / none | `create_dependent_abort_signal` (NEW) sets `result`'s reason through the trait and returns; the VM does nothing further (D-5) | ✓ | yes |
 | WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 3 (dependent ← true) | — | `create_dependent_abort_signal` (NEW) | ✓ | yes |
 | WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 4.1 (non-dependent input: append to sources; append result to its dependents) | non-dependent input; duplicate input (set) | same | ✓ | yes |
 | WHATWG DOM §3.2 Interface AbortSignal | create a dependent abort signal step 4.2 (dependent input: for each of its source signals, assert not aborted and not dependent; append both ways) | dependent input; its sources | same; `debug_assert!` for 4.2.1 | ✓ | yes |
@@ -662,15 +668,14 @@ pub trait AbortSignalGraph {
     fn links(&self, h: Self::Handle) -> Option<&DependentLinks<Self::Handle>>;
     fn links_mut(&mut self, h: Self::Handle) -> Option<&mut DependentLinks<Self::Handle>>;
 }
-pub enum DependentCreation { AlreadyAborted, Linked }   // a status; the reason is already on `result` (D-5)
-pub fn create_dependent_abort_signal<G: AbortSignalGraph>(g: &mut G, result: G::Handle, signals: &[G::Handle]) -> DependentCreation;
+pub fn create_dependent_abort_signal<G: AbortSignalGraph>(g: &mut G, result: G::Handle, signals: &[G::Handle]);   // the outcome is on `result`'s row (D-5)
 pub struct AbortPlan<H> { pub signal: H, pub dependents: Vec<H> }
 pub fn signal_abort<G: AbortSignalGraph>(g: &mut G, signal: G::Handle, reason: impl FnOnce(&mut G) -> G::Reason) -> Option<AbortPlan<G::Handle>>;
 ```
 
 `create_dependent_abort_signal` is steps 2-5 verbatim (`result` is the host's step-1 object): step 2, for the first
-aborted input, calls `g.set_abort_reason(result, <that input's reason>)` and returns `AlreadyAborted` without
-touching `result`'s links (D-5: the set is the module's, the host gets no reason back); step 3 `set_dependent`; step
+aborted input, calls `g.set_abort_reason(result, <that input's reason>)` and returns without touching `result`'s
+links (D-5: the set is the module's, the host gets nothing back); step 3 `set_dependent`; step
 4 appends through the set primitives, step 4.2.1 as `debug_assert!(g.abort_reason(s).is_none() && g.links(s).is_some_and(|l| !l.is_dependent()))`.
 `signal_abort` is steps 1-4: `None` if `links(signal)` is `None` (no such signal — today's `let Some(state) … else
 { return Ok(()) }` at `abort.rs:555-557`, kept as a contract rather than an accident) or `abort_reason(signal).is_some()`
@@ -680,6 +685,22 @@ graph and has written nothing when it calls `reason`, so the closure may allocat
 back as `&mut G`); nothing but `signal` is carried across the call. This is the only test of step 1: the module
 exports no predicate for the host to pre-check with, so `signal_abort`'s `None` is the host's one no-op branch.
 
+**The `reason` closure's contract** (D-4 refers here; Rev 2.5). The closure produces step 2's value and nothing
+else. It must not: (i) write any signal's abort reason or links — the one exception is a GC sweep it triggers by
+allocating, whose `retain_live` prune removes dead handles only (§4.4); (ii) run script (no call into JS, no event
+dispatch, no microtask checkpoint); (iii) let `signal` die — the caller keeps `signal` alive across the call. The host
+meets this without a root of its own: on the native entry points the native-call gate (`gc_enabled = false`, D-4)
+prevents any sweep; the timer entry point (`internal_abort_signal`, whose one production caller is the
+`AbortSignal.timeout` drain, `natives_timer.rs:375` at `8d04643e`) passes a given `TimeoutError` reason built before
+the call, so its closure returns that value and allocates nothing. A future caller that passes `undefined` with
+`gc_enabled = true` must root `signal` first. In exchange the module
+promises: the closure is called at most once, only after step 1 has passed, with no borrow of the graph held. What
+the module assumes after the call: `signal`'s row still exists and `abort_reason(signal)` is still `None` (by (i)
+and (iii); `debug_assert!`), and it **re-reads** `signal`'s links after the closure returns — step 4's dependents are
+taken then, never from a read made before the call — so a prune the allocation caused is seen, and no handle it
+removed is planned. The host's closure meets this: `materialise_abort_reason` either returns `reason` or builds a
+`DOMException` through `build_dom_exception`, which allocates and runs no script.
+
 **The `links(h) == None` contract.** In the VM every row is created by the one constructor
 `VmInner::create_abort_signal` (`abort.rs:322-332`; `git grep -n 'AbortSignalState::new' -- crates` → that one
 site) with `links: DependentLinks::default()`, and a row is removed only when its object dies, in the sweep
@@ -687,7 +708,8 @@ site) with `links: DependentLinks::default()`, and a row is removed only when it
 collected. Where the module can meet it: (i) `create_dependent_abort_signal`'s `result` and every element of
 `signals` — the VM has brand-checked each (`abort_statics.rs:137-141`), and a brand-checked live `AbortSignal` has a
 row, so the module treats a `None` here as a caller bug (`debug_assert!`, then skip the handle; for `result` the
-test comes first, before step 2, so the module never calls `set_abort_reason` on a handle with no row); (ii) a member of a
+test comes first, before step 2, so the module never calls `set_abort_reason` on a handle with no row — a `result`
+with no row is a no-op on the row: nothing is written and, the call returning `()`, there is no status to choose); (ii) a member of a
 `source_signals` / `dependent_signals` set — never `None`: a member's row and its set entries die in the same sweep
 (A × B), and no sweep runs between planning and the plan loop on the native paths, while on the timer path the plan
 handles are rooted (D-4); (iii) `signal_abort`'s `signal` — `None` returns `None` (contract above). The VM impl of
@@ -713,9 +735,9 @@ classification PR-1 §5.3 makes ("`abort_signal` is cut on A-1").
 - `impl AbortSignalGraph for VmInner` (local type, foreign trait — permitted): four one-line methods over
   `abort_signal_states`.
 - `native_abort_signal_static_any`: validation as today (brand check, first-aborted capture dropped — the algorithm
-  does step 2); allocate; `create_dependent_abort_signal(ctx.vm, composite, &inputs)`; return the composite. The
-  native has no branch on the returned status and writes no reason: on `AlreadyAborted` the module has set it (D-5),
-  on `Linked` there is none to set. The self-reference guard at `:170-172` goes (a fresh handle cannot be an
+  does step 2); allocate; `create_dependent_abort_signal(ctx.vm, composite, &inputs)` (returns `()`); return the
+  composite. The native writes no reason: when an input is aborted the module has set it (D-5), otherwise there is
+  none to set. The self-reference guard at `:170-172` goes (a fresh handle cannot be an
   input).
 - `native_abort_signal_static_abort`: allocate; materialise the default if `undefined`; set the reason with
   `set_abort_reason` (D-5 — the host's one direct write of a reason). No `abort_signal` call.
@@ -724,7 +746,10 @@ classification PR-1 §5.3 makes ("`abort_signal` is cut on A-1").
   1: today's `:528-535` / `:555-557`), taken before anything is materialised because the module calls the closure
   only after step 1 has passed; the host makes no test of its own before the call. `materialise_abort_reason` (the
   one helper for "reason if it is given; otherwise a new "AbortError" `DOMException`", shared with the static
-  `abort()`) takes the VM, not a `NativeContext`, so that it can run inside the closure. Root the plan in **one stack scope** held to the end
+  `abort()`) takes the VM, not a `NativeContext`, so that it can run inside the closure; its callee
+  `create_default_abort_error` (`vm/host/abort.rs:716` at `8d04643e`, `(ctx: &mut NativeContext<'_>)` today) changes
+  with it to take the VM (its body reads only `ctx.vm`). The closure meets §4.1's contract (it allocates a
+  `DOMException` or returns the given value, and runs no script). Root the plan in **one stack scope** held to the end
   of the call (the timer-path guarantee, §0.2 item 7; why not `push_temp_root`, D-4):
   `let mut frame = ctx.vm.push_stack_scope(); frame.stack.push(JsValue::Object(plan.signal)); for &d in
   &plan.dependents { frame.stack.push(JsValue::Object(d)); } let mut rooted = NativeContext::new_call(&mut frame);`
@@ -830,11 +855,12 @@ deleted.
 Module unit tests (`elidex-dom-api`, no VM; a `HashMap` graph with `u32` handles and `&str` reasons):
 
 - (a) `flattening_sources_are_never_dependent`: `d1 = create([a])`, `d2 = create([d1, b])` → `d2.sources == [a, b]`,
-  `a.dependents == [d1, d2]`, `d1.dependents == []`, `d2.dependent && d1.dependent`.
-- (b) `already_aborted_input_short_circuits`: `create([a_aborted, b])` → `AlreadyAborted`, **the result's
-  `abort_reason` is `Some("ra")` on return** (set by the module; the test makes no `set_abort_reason` call of its
-  own — D-5), result not dependent, no links written on `b`; with two aborted inputs the result carries the first
-  one's reason.
+  `a.dependents == [d1, d2]`, `d1.dependents == []`, `d2.dependent && d1.dependent`, and neither result has an
+  abort reason (the row is the outcome; the call returns `()`, D-5).
+- (b) `already_aborted_input_short_circuits`: `create([a_aborted, b])` → **the result's `abort_reason` is
+  `Some("ra")` on return** (set by the module; the test makes no `set_abort_reason` call of its own — D-5), result
+  not dependent with empty `source_signals`, no links written on `b`; with two aborted inputs the result carries the
+  first one's reason.
 - (c) `set_semantics`: `create([a, a])` → one source, one dependent on `a`.
 - (d) `signal_abort_plans_then_empties`: `abort(a)` with dependents `d1`, `d2` (`d2` pre-aborted) → plan `[d1]`, both
   reasons set (`d1 == a`'s), `a.dependents == []` after, second `abort(a)` → `None`; **the `reason` closure runs
@@ -1207,8 +1233,22 @@ Every command is re-runnable at the PR head.
     `native_abort_signal_static_any` or `abort_signal` (control at `8d04643e`: 2 lines, `abort_statics.rs:47` and
     `:154` — the second is the host's step-2 write this erratum removes). `git grep -nw 'can_signal_abort' -- crates`
     → **no output** (control at `8d04643e`: 4 lines — the definition and its use in `elidex-dom-api/src/abort.rs`,
-    the import and the host's pre-check in `vm/host/abort.rs`). `git grep -nP 'AlreadyAborted\(' -- crates` →
-    **no output** (control at `8d04643e`: 4 lines; the variant carries no payload).
+    the import and the host's pre-check in `vm/host/abort.rs`). `git grep -nw 'DependentCreation' -- crates` →
+    **no output** (control at `8d04643e`: 10 lines — 8 in `elidex-dom-api/src/abort.rs`, 2 in
+    `abort_statics.rs`; Rev 2.5, the call returns `()`).
+    The writer census on both sides (Rev 2.5; D-5's "only two writers outside `signal_abort`"):
+    - module, production code only (the `awk` stops at the test module):
+      `awk '/^#\[cfg\(test\)\]/{exit} {print NR": "$0}' crates/dom/elidex-dom-api/src/abort.rs | grep -P '\.set_abort_reason\('`
+      → exactly **3 lines**: `signal_abort` step 2 (the signal), step 4 (each non-aborted dependent) and
+      `create_dependent_abort_signal` step 2 (control at `8d04643e`, the same pipeline over
+      `git show 8d04643e:crates/dom/elidex-dom-api/src/abort.rs` → 2 lines, `:276` and `:285`; the same file without
+      the `awk` cut → 3, the third being the test module's `:394`, so the cut is measured to exclude tests).
+    - host, any direct store into a row's reason: `git grep -nP '\.reason\s*=(?!=)' -- crates/script/elidex-js/src ':!crates/script/elidex-js/src/vm/tests'`
+      → exactly **1 line**, `state.reason = Some(reason);` inside `impl AbortSignalGraph for VmInner`'s
+      `set_abort_reason` — i.e. **0 outside the trait impl**; that one line is the command's own positive control
+      (control at `8d04643e`: the same 1 line, `vm/host/abort.rs:160`). `(?!=)` keeps `===` comparisons out.
+    Together with the first command of this item: one host writer (`native_abort_signal_static_abort`), the trait
+    impl as the only store, and the module's three.
 
 ## §10. Open questions
 
@@ -1350,9 +1390,9 @@ materialising the default reason and then call `signal_abort`, which tests step 
 **What changes.**
 
 1. *Finding #3 — step 2 of "create a dependent abort signal" is performed in the module.*
-   `create_dependent_abort_signal` writes `result`'s reason with the trait's `set_abort_reason` and returns
-   `DependentCreation::AlreadyAborted` with no payload; `DependentCreation` loses its type parameter. The host's
-   write in `native_abort_signal_static_any` is deleted and the native no longer branches on the status. (D-5, §2 D,
+   `create_dependent_abort_signal` writes `result`'s reason with the trait's `set_abort_reason` and returns `()`;
+   `DependentCreation` is deleted (Rev 2.4 kept it as a payload-free status; Rev 2.5 removed it, record below). The
+   host's write in `native_abort_signal_static_any` is deleted and the native has no branch after the call. (D-5, §2 D,
    §3 step-2 row, §4.1, §4.3, §6 (b), DoD 12.)
 2. *Finding #11 — "signal abort" step 1 is tested once, in the module.* `signal_abort` takes the step-2 value as
    `reason: impl FnOnce(&mut G) -> G::Reason` and calls it only after step 1 has passed. The host's pre-check and
@@ -1373,12 +1413,24 @@ VM cell of §6 (the observable behaviour is the same; cells (b) and (d) gain ass
   resultSignal's abort reason is a numbered step of a DOM algorithm, and "is the signal already aborted" is step 1
   of another; neither is prototype install, brand check or value marshalling. What stays in the host is what is
   engine-bound: allocating the result object and constructing the `DOMException`.
+  *Why the static `abort(reason)` set stays in the host under the same mandate* (Rev 2.5). "Numbered DOM step" alone
+  is not the test — the static method's step 2 is one too. The mandate's test is whether the host would be running
+  an *algorithm* (a step that reads DOM state and decides on it) rather than marshalling. "Create a dependent abort
+  signal" step 2 reads the graph: which input is aborted, and that input's reason, are graph state the module's loop
+  has in hand, so returning the value for the host to store split one algorithm step across the boundary. The static
+  step 2 reads no graph state: its object is the one the native has just allocated (step 1), its value is either the
+  JS argument passed through (marshalling) or a `DOMException` (engine-bound construction, D-4), and the one store
+  goes through the module's own trait method `set_abort_reason` — the same boundary the module writes through. Moving
+  it into the module would add an exported function whose body is that one trait call, with no test and no read:
+  a wrapper, not an algorithm. What the mandate forbids — the host deciding on DOM state — has nothing to act on
+  there. (If the static path ever gains a read of another signal, it moves to the module under this same test.)
 - *One issue, one way.* Each step has one performer: step 2 of "create a dependent abort signal" in
   `create_dependent_abort_signal`, step 1 of "signal abort" in `signal_abort`. Rev 2.3 had the first split across
   the crate boundary and the second written twice.
 - *Fail-safe direction.* With the payload, a host that dropped the return value produced a non-dependent,
-  non-aborted, unlinked signal where the spec requires an aborted one — silently. With the status, dropping it is
-  harmless. Likewise a host cannot skip or misplace the step-1 test, and cannot construct a default reason for an
+  non-aborted, unlinked signal where the spec requires an aborted one — silently. With `()` there is nothing to
+  drop (Rev 2.4's payload-free status was already harmless to drop; Rev 2.5 deleted it as a second copy of the row's
+  fact). Likewise a host cannot skip or misplace the step-1 test, and cannot construct a default reason for an
   abort that will not happen.
 
 **Alternatives not taken for #11.** (i) Keep the eager argument and delete only the host's pre-check: one test, but
@@ -1394,3 +1446,23 @@ AbortSignal; `dfn dom 'create a dependent abort signal'` → §3.2 `#create-a-de
 dependent abort signal step 2 (quoted above), signal abort step 1 "If signal is aborted, then return." and step 2
 "Set signal's abort reason to reason if it is given; otherwise to a new "AbortError" DOMException.", and the
 static abort(reason) method steps step 2 (the same sentence). No number or step in the memo moved.
+
+**Re-check fixes (Rev 2.5, PM 788, 2026-11-18).** A focused Axis 1 + Axis 2 re-check of the Rev 2.4 commit
+(`2eae706b`), each item checked against the plan text and the code at `8d04643e` before it was applied:
+
+- Axis 2 IMP (PM 788 delegated the call to Axis 2): `DependentCreation` was dead information — after Rev 2.4 no host
+  code reads it (the one reader, `abort_statics.rs:151` at `8d04643e`, is the write Rev 2.4 deletes), only module
+  tests did, and what it said is the row's fact (`abort_reason(result).is_some()` / `links(result)` dependent).
+  `create_dependent_abort_signal` returns `()`; `DependentCreation` deleted (D-5, §2 D, §3 step-2 row, §4.1, §4.3,
+  §6 (a)/(b) assert the row, DoD 12 `DependentCreation` → 0 lines, control 10). The "result has no row → which
+  status?" MIN goes with it: a no-op on the row (§4.1, the `links(h) == None` contract (i)).
+- Axis 1 MIN: §2 D's host list names the host's remaining reason write (`native_abort_signal_static_abort`, D-5).
+- Axis 1 MIN: the Layering reason is stated in the mandate's own terms, and why the static `abort(reason)` set stays
+  in the host ("Why" above).
+- Axis 1 MIN + Axis 2 MIN: the `reason` closure's contract written once, in §4.1 (no reason/link write but the GC
+  prune, no script, `signal` kept alive by the caller; the module re-reads links after the call); D-4 and §4.3
+  refer to it.
+- Axis 2 MIN: DoD 12 counts reason writers on both sides — module production writers (3 at the head; control 2 at
+  `8d04643e`) and the host's direct `.reason` stores (1, the trait impl; control 1 at `8d04643e`).
+- Axis 1 note: §4.3 names `create_default_abort_error` (`vm/host/abort.rs:716` at `8d04643e`) as changing with
+  `materialise_abort_reason`.
