@@ -1,5 +1,9 @@
 # K2 fixture git — PR #527's final-head sequence, step 1 narrowed to the instruments that exist (plan delta, option B)
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
+> ⚠ `…-cr2-plan-finalhead-check.sh` (this plan's checker) cannot be re-run either; see the header of that file (PM 815/816).
+
 **Status: accepted** (draft r6, by `/elidex-plan-review` rounds R1–R3, R3's focused re-check after r5 and its narrow re-check after r6, 2026-10-24). r6 applies the focused re-check
 after r5 (`cr2/PLAN-REVIEW-FH-R3.md`, its last section: IMPORTANT 2 / MINOR 4): landing :339–:344's new text takes
 §1.3's scope and keeps X8's exception; the new slot is #527's second own deferral, so landing :271 and residuals
@@ -23,7 +27,7 @@ change before step 1 runs (`feedback_plan-ratified-surface-is-a-design-change`).
 residuals, provenance (PROV), census, umbrella = `…-landing.md`, `…-corpus.md`, `…-residuals.md`, `…-provenance.md`,
 `…-census.md`, `docs/plans/2026-07-citation-hygiene-umbrella.md`; impl-d = `…-impl-cr2-d.md`; PR527, R15 =
 `…-pr527.md`, `…-pr527-r15.md`. `W` = the worktree `/Users/kazuaki/repos/send.sh/elidex-wt-fgit-hermetic` (branch
-`k2-wire-fgit-hermetic`, head `3b7ff6d5`, read only); `H` = the handoff `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff`.
+`k2-wire-fgit-hermetic`, head `3b7ff6d5`, read only); `H` = the handoff `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (path not retained — see the note at the top of this file).
 **Every doc line cite is at `3b7ff6d5`, the frame. A tool cite "fixtures :N" (wire, controls, mutations, mutgen,
 records alike) is at T = `01fb2924`**, whose tool code `3b7ff6d5` equals (§7 C1). `PROV@ff1322bb` and `PROV@453b7b0f`
 = `git show <commit>:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`.

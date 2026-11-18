@@ -1,5 +1,7 @@
 # K2 wire CR#1 — the four `mktemp` sites make every scratch directory through one helper, and the exit path removes recursively only what the run made (plan, PR #501)
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
 Slice of PR #501's loop (branch `webref-cite-audit-tool`). It covers **the four `mktemp` sites**: the wire's scratch
 root (CR#1) and the three inner sites (NEW-1: controls :222, harness :175, harness :803). **Frame**: every
 `file:line` below is read at `67488c8d`, the branch's head, pushed: its merge of `origin/main` at `b9122157` (#547,
@@ -20,7 +22,7 @@ Codex
 `…trip-wire.<part>.sh`; "landing", "runbook" (`-cr2-plan-finalhead-runbook`), "finalhead", "impl-d"
 (`-impl-cr2-d`), "residuals", "corpus", "census memo" (`-census`) are `2026-09-citation-hygiene-k2-fgit-hermetic-*`
 memos, and "design memo" is `2026-09-citation-hygiene-k2-fgit-hermetic.md`. Findings:
-`elidex-fgit-handoff/cr2/CLASSIFICATION.md` :16, :36. R1 (2026-10-25): CRIT 0, IMP 7, MIN 16, applied in r2. R2:
+`elidex-fgit-handoff/cr2/CLASSIFICATION.md` :16, :36 (path not retained — see the note at the top of this file). R1 (2026-10-25): CRIT 0, IMP 7, MIN 16, applied in r2. R2:
 CRIT 0, IMP 11, MIN 19, applied in r3 (PM decisions 20, 22, 26: D1, the root's template and one helper mode).
 R3 (2026-10-26): CRIT 0, IMP 7 (6 distinct), MIN ≈ 22; r4 applies PM decision 27 and the user's decision of
 2026-10-26: the own-dir census leaves CR#1 for the program (IMP A; §4, §5), the helper refuses an answer that is a
@@ -389,7 +391,7 @@ the census's record, left with the census and its number is not reused; 11 new, 
 `mkdir -p`, not `true`: with the proof removed outright every normal run fails at harness :54 with rc 2 and no label
 (measured in r2). **Method**, all on the final r4 tree, 2026-10-26, each shell in its own clone and one run at a time
 per shell (the two shells side by side): each kill is the real opt-in path filtered to one record
-(`scratchpad/cr1r4/bin/optin.sh`, a copy of `elidex-fgit-handoff/cr2/bin/r3-optin.sh`; HUP/INT/TERM at their
+(`scratchpad/cr1r4/bin/optin.sh`, a copy of `elidex-fgit-handoff/cr2/bin/r3-optin.sh` (path not retained — see the note at the top of this file); HUP/INT/TERM at their
 default; `scratchpad/cr1r4/log/kill.R<n>.<sh>.log`); each survive arm is the same trial with the named arms removed
 (`cr1r4/edits/R<n>.ed`, written by `cr1r4/bin/r4-survive-gen.py` from `r4-survive.spec`; `survive.R<n>.<sh>.log`);
 the labels a mutant reds were read from a plain run with the record applied in place (`inplace.R<n>.<sh>.log`; that

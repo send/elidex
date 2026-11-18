@@ -1,5 +1,7 @@
 # K2 fixture git — PR #527 CR2 round: the sweep and the instruments (as run)
 
+> ⚠ The local working tree `/Users/kazuaki/repos/send.sh/elidex-fgit-handoff` (cr2/, runners/, snapshots, logs) was deleted 2026-11-18 and is not retained (PM 815). Paths under it below are records of where runs took place; they cannot be read or re-run.
+
 Companion of `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-cr2-plan.md` ("the plan") and its companion `…-cr2-plan-exitpath.md` (the plan's §6,
 written there as x§6.n). Created by CR2-M (the plan's §11, row CR2-M), on the CR round's precedent: a citation in the
 repo must resolve in the repo, so the instruments the plan's claim, guard and blind-spot rows cite are kept here as
@@ -10,7 +12,7 @@ run (`…-cr-plan.md` §7, "The move", that round's R3 H1; `…-provenance.md` �
 instrument companion the §E index below names, verbatim (the list is the plan's §14, "Instruments"; each block's sha256 prefix is of the file as run, and the frozen
 texts' prefixes equal those the plan companion's header, `…-cr2-plan-exitpath.md`, names in its Texts line). The logs (`cr2/logs/…`) and the clones (`cr2/work/…`) were
 measured outside the repo and stay there; the plan states their figures. The scripts name the handoff directory by
-its absolute path (`H=…/elidex-fgit-handoff/cr2`): to re-run one, give it a directory laid out as that one — the
+its absolute path (`H=…/elidex-fgit-handoff/cr2` (path not retained — see the note at the top of this file)): to re-run one, give it a directory laid out as that one — the
 blocks under `bin/`, an empty `work/` and `logs/`, the inputs of §E.4 — beside a `git clone --local` of the frame
 checked out at `706049ad` and named `cr2-wt` (the `*-clone.sh` scripts clone it).
 
