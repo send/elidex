@@ -25,7 +25,7 @@
 //!   `super::host::typed_array::write_element_raw` (engine-only); reads through
 //!   `super::host::typed_array::read_element_raw` (engine-only).  Out-of-range
 //!   reads return `undefined`; out-of-range writes are silent no-ops
-//!   (§10.4.5.18 step 1).
+//!   (§10.4.5.18 step 3).
 //! - **`CanonicalNonInteger`** — canonical numeric string that ISN'T a
 //!   valid integer index (`"-0"` / `"NaN"` / `"Infinity"` /
 //!   `"-Infinity"` / negative integer / fractional / exponential with
@@ -59,8 +59,8 @@ enum TypedArrayStringKey {
     /// (`"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"`, negative
     /// integer, fractional, exponential with canonical round-trip).
     /// TypedArray Get returns `undefined`; Set is a silent no-op;
-    /// neither creates an ordinary property (§10.4.5.17 step 3 /
-    /// §10.4.5.18 step 1).
+    /// neither creates an ordinary property (§10.4.5.17 step 1 /
+    /// §10.4.5.18 step 3).
     CanonicalNonInteger,
     /// Not a canonical numeric string — falls through to ordinary
     /// property storage.
