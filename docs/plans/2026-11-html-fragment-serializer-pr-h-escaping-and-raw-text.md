@@ -393,7 +393,7 @@ serializer, which reads no document state; see U6 for what N4 will make of each)
   onerror=f()>">` (built by `createElement` / `setAttribute`); `d.innerHTML = ns.outerHTML` → no `img`. Red on old
   code independently of D-3: the `p` is an element child, so the old output already took the element path, and
   `escape_attr` left `<`/`>` in the attribute, which the page's RAWTEXT noscript reads as its end tag.
-- V6 nbsp: `p.textContent = 'a b'` → `p.innerHTML === 'a&nbsp;b'`; `setAttribute('title', 'a b')` →
+- V6 nbsp: `p.textContent = 'a\u00a0b'` → `p.innerHTML === 'a&nbsp;b'`; `setAttribute('title', 'a\u00a0b')` →
   `outerHTML` contains `title="a&nbsp;b"`.
 - V7 plaintext: `<plaintext>` created by `createElement`, `textContent = '<b>'` → `innerHTML === '<b>'`.
 - V10 / V11 (innerHTML) and V12 / V13 (outerHTML) round-trip growth (§7 R2), pinned expectations.
