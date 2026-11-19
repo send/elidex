@@ -211,7 +211,7 @@ pub enum ObjectKind {
     /// methods `preventDefault` / `stopPropagation` /
     /// `stopImmediatePropagation`.  The `cancelable` / `passive` fields
     /// are immutable after construction — `preventDefault` silently
-    /// no-ops when either is `false` (matches browser behaviour for
+    /// no-ops when either is `false` (DOM "set the canceled flag" for
     /// passive listeners and non-cancelable events, WHATWG DOM §2.9).
     ///
     /// `composed_path` is the lazily-built JS array returned by

@@ -144,7 +144,7 @@ fn ensure_character_data(
 /// ECMA-262 §7.1.8) — the spec-mandated conversion for CharacterData
 /// offsets.  Unlike a naive `to_number + floor`, this wraps
 /// out-of-range / negative inputs mod 2^32 before range-checking
-/// against the data length, matching browser behaviour.  Returns the
+/// against the data length (WebIDL `unsigned long`, ToUint32).  Returns the
 /// uint32 packaged as a `JsValue::Number` so the caller can hand it
 /// straight to the handler dispatch (the dom-api `require_usize_arg`
 /// extracts via `JsValue::Number(n) as usize`).

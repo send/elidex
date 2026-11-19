@@ -33,7 +33,7 @@ const MIN_UNWRAP_BYTES: usize = 3 * IV_LEN; // 24
 /// an `OperationError`.  Additionally NIST SP 800-38F §5.3.1 requires at least
 /// **two** semiblocks (≥ 16 bytes) — the `aes-kw` crate would otherwise accept a
 /// single 8-byte semiblock (e.g. an exported 64-bit HMAC key) and emit a
-/// nonstandard 16-byte wrap that browsers reject, so the minimum is guarded
+/// 16-byte wrap that RFC 3394 leaves undefined (it requires n ≥ 2), so the minimum is guarded
 /// here.  The `kek` length is validated to 16/24/32 bytes upstream by
 /// [`crate::ops::generate_key`] / [`crate::ops::import_key`].
 pub fn wrap(kek: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, AlgorithmError> {

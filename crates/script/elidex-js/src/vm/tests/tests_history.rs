@@ -529,7 +529,7 @@ fn date_state_succeeds_and_degrades_to_null(// Codex R4
     // does NOT throw on it — `toJSON` renders it as an ISO String, so a traversal
     // would silently restore a **String** where structured clone restores a Date.
     // Degrade to `None` up front (`structured_serialize::contains_date`), the same
-    // CR-3 policy: a `pushState` browsers accept must not start throwing. Full
+    // CR-3 policy: a `pushState` that StructuredSerializeForStorage accepts must not start throwing. Full
     // fidelity is D1 (`#11-history-state-structured-serialize-fidelity`).
     let mut vm = new_vm_with_base(); // http://localhost/
     vm.eval("history.pushState({ d: new Date(0) }, '', '/date');")

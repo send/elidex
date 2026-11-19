@@ -39,7 +39,7 @@
 //! *VisualViewport*). The latter fires **only when the visual viewport's offset
 //! relative to the layout viewport (`offsetLeft`/`offsetTop`) changes** — i.e.
 //! pinch-zoom pan — NOT on an ordinary layout-viewport/document scroll. This is
-//! the interoperable browser behavior the WPT
+//! the behaviour CSSOM-View specifies, which the WPT
 //! `visual-viewport/viewport-scroll-event-manual.html` encodes:
 //! `assert_equals(didGetScrollEvent, scrollChangedOffset)` (the WICG explainer:
 //! "fire a `scroll` event … whenever the `offsetLeft` or `offsetTop` attributes

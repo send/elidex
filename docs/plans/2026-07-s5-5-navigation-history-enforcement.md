@@ -534,7 +534,7 @@ layer:
   is a call-site `cursor_op` fact, not a URL-classification. This **preserves, not generalizes,** the
   `is_fragment_only` logic (§3.1): its `url.fragment().is_some()` clause is exactly step 15's "url's
   fragment is non-null" and is already spec-correct — `/a#x → /a` (removal, target fragment null) is
-  CrossDocument (a full reload, matching real browsers) and `/a#x → /a#` (emptied, target fragment
+  CrossDocument (a full reload) and `/a#x → /a#` (emptied, target fragment
   `Some("")`) is Fragment (same-document), so nothing "must be generalized". 5b keeps the clause and
   fixes the **wiring** (§3.1: the flag's only consumer was the SW-skip; the document rebuilt
   regardless), upgrading the crude `split('#')` string compare to the `url` crate's `equals(exclude
@@ -859,8 +859,8 @@ same-document path is engine-agnostic-now**; the **firing is flip-inert**.
 AND the target's fragment is **non-null**, navigate §7.4.2.2 step 15, §4.2): fragment **add** (`/a →
 /a#x`); **change** (`/a#x → /a#y`); **empty** (`/a#x → /a#`, and `/a → /a#` — an empty fragment ⇒
 top-of-document scroll, §2.5); **remove** (`/a#x → /a` — target fragment **null** ⇒ **CrossDocument**,
-a full rebuild that fires **nothing** on the fragment path, matching real browsers' reload-on-fragment-
-removal); **identical excluded** (`/a → /a`, both fragments null — a **rebuild / CrossDocument**, NOT
+a full rebuild that fires **nothing** on the fragment path, since navigate step 15 needs a non-null
+fragment); **identical excluded** (`/a → /a`, both fragments null — a **rebuild / CrossDocument**, NOT
 fragment nav); path-or-query differ (`/a → /b`, `/a → /a?q`) ⇒ CrossDocument (rebuild, unchanged). Both
 the removal and emptied cases are already classified **correctly** by `is_fragment_only`'s
 `fragment().is_some()` clause (removal → CrossDocument, emptied → Fragment); only the **wiring** was

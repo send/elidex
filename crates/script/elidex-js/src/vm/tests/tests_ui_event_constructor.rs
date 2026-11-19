@@ -145,7 +145,7 @@ fn ui_event_detail_coerces_via_webidl_long() {
     // §3.10.9.  Integer-in-range values pass through, fractional
     // inputs truncate toward zero, out-of-range inputs wrap
     // modulo 2^32, and NaN / ±Infinity map to 0 (matching
-    // browser behaviour for `new UIEvent('x', {detail: NaN})`).
+    // WebIDL `long` ConvertToInt maps NaN to 0 for `new UIEvent('x', {detail: NaN})`).
     assert_eq!(eval_number("new UIEvent('x', {detail: 7}).detail"), 7.0);
     assert_eq!(eval_number("new UIEvent('x', {detail: '42'}).detail"), 42.0);
     // Fractional → truncate toward zero.
@@ -342,7 +342,7 @@ fn mouse_event_related_target_accepts_dom_wrapper() {
 fn mouse_event_related_target_rejects_non_event_target() {
     // WebIDL `EventTarget? relatedTarget` — plain `{}` and non-DOM
     // objects (including primitives) are not EventTargets, so they
-    // throw TypeError per browser behaviour.  Covers the regression
+    // throw TypeError per WebIDL interface-type conversion.  Covers the regression
     // where the resolver accepted any `JsValue::Object(_)`.
     let mut vm = Vm::new();
     expect_type_error(&mut vm, "new MouseEvent('m', {relatedTarget: {}})");

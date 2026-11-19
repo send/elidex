@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -252,6 +253,175 @@ class Controls(unittest.TestCase):
         self.allow("N\t-\ta.md\tmatches Chrome here")
         subprocess.run(["git", "add", "allow.tsv"], cwd=self.root, check=True, env=self.env)
         self.assertEqual(self.check(), [])
+
+
+SRC = os.path.join(HERE, "ecs_mission_ratchet.py")
+LINE = "matches Chrome here"
+
+
+class AddNewHarness:
+    """Builds a temp repo and runs add_new from module `m` (the real one, or a mutant copy)."""
+
+    def __init__(self, m, files, rows=()):
+        self.m = m
+        self.td = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.td.name, "repo")
+        os.makedirs(self.root)
+        self.env = m.git_env()
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
+        for name, data in files.items():
+            p = os.path.join(self.root, name)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(data)
+            subprocess.run(["git", "add", name], cwd=self.root, check=True, env=self.env)
+        self.al = os.path.join(self.td.name, "allow.tsv")
+        with open(self.al, "w", encoding="utf-8") as f:
+            f.write("# header\n" + "".join(r + "\n" for r in rows))
+
+    def slurp(self):
+        with open(self.al, "rb") as f:
+            return f.read()
+
+    def add(self, *spec):
+        return self.m.add_new(self.root, self.al, self.m.parse_spec("\n".join(spec) + "\n"))
+
+    def close(self):
+        self.td.cleanup()
+
+
+def sc_control(m):
+    h = AddNewHarness(m, {"a.md": "ok\n" + LINE + "\n"})
+    try:
+        errs, added = h.add("T\t#11-x\ta.md\t2")
+        return (errs == [] and added == ["T\t#11-x\ta.md\t" + LINE]
+                and h.slurp() == ("# header\nT\t#11-x\ta.md\t" + LINE + "\n").encode()
+                and m.check(h.root, h.al) == [])
+    finally:
+        h.close()
+
+
+def _rejected(m, files, spec, rows=()):
+    h = AddNewHarness(m, files, rows)
+    try:
+        before = h.slurp()
+        errs, added = h.add(*spec)
+        return bool(errs) and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_class_s(m):  # (a)
+    return _rejected(m, {"a.md": LINE + "\n"}, ["S\t#11-x\ta.md\t1"])
+
+
+def sc_slot_dash(m):  # (b)
+    return _rejected(m, {"a.md": LINE + "\n"}, ["T\t-\ta.md\t1"])
+
+
+def sc_not_denied(m):  # (d) denied()
+    return _rejected(m, {"a.md": "plain\n" + LINE + "\n"}, ["T\t#11-x\ta.md\t1"])
+
+
+def sc_covered(m):  # (d) count vs existing row
+    return _rejected(m, {"a.md": LINE + "\n"}, ["T\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE])
+
+
+def sc_range(m):  # (c) line_no
+    return _rejected(m, {"a.md": LINE + "\n"}, ["T\t#11-x\ta.md\t9"])
+
+
+def sc_self_file(m):  # (c) SELF_FILES
+    rel = m.SELF_FILES[0]
+    return _rejected(m, {rel: LINE + "\n"}, ["T\t#11-x\t%s\t1" % rel])
+
+
+def sc_atomic(m):
+    return _rejected(m, {"a.md": LINE + "\n", "b.md": "plain\n"},
+                     ["T\t#11-x\ta.md\t1", "T\t#11-y\tb.md\t1"])
+
+
+def sc_count(m):
+    two = LINE + "\n" + LINE + "\n"
+    h = AddNewHarness(m, {"a.md": two}, ["N\t-\ta.md\t" + LINE])
+    try:
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        if errs or len(added) != 1:
+            return False
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t2")
+        if not errs or added or h.slurp() != before:
+            return False
+    finally:
+        h.close()
+    # within one batch the rows consume occurrences in turn
+    return _rejected(m, {"a.md": two}, ["T\t#11-x\ta.md\t1", "T\t#11-x\ta.md\t2"], ["N\t-\ta.md\t" + LINE])
+
+
+SCENARIOS = {
+    "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
+    "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
+}
+# (mutant name, ((source text, replacement), ...), scenarios that must go red)
+MUTANTS = [
+    ("a: any class", (('ADD_CLASSES = "TD"', 'ADD_CLASSES = "TDSECN"'),), ["class_s"]),
+    ("b: any slot", (("if not SLOT.match(slot):", "if False:"),), ["slot_dash"]),
+    ("c: SELF_FILES scanned", (("excluded = SELF_FILES + (", "excluded = ("),), ["self_file"]),
+    ("c: no range check", (("if not 1 <= i <= len(lines):", "if i < 1:"),), ["range"]),
+    # the explicit denied() test is subsumed by the occurrence count (occ counts denied lines only), so
+    # the mutant removes both; removing either alone leaves the other check rejecting the row.
+    ("d: denied not required", (("elif not denied(lines[i - 1]):", "elif False:"),
+                                ("if denied(l) and normalise(l) == text", "if normalise(l) == text")), ["not_denied"]),
+    ("d: coverage ignored", (("if not occ > al[key] + used[key]:", "if not occ > 0:"),), ["covered", "count"]),
+    ("d: batch consumption ignored", (("if not occ > al[key] + used[key]:", "if not occ > al[key]:"),), ["count"]),
+    ("atomic: writes despite errors", (("    if errs:\n        return errs, []", "    if False:\n        return errs, []"),), ["atomic"]),
+]
+
+
+def mutant_module(old, new):
+    pairs = old if isinstance(old, tuple) else ((old, new),)
+    with open(SRC, encoding="utf-8") as f:
+        src = f.read()
+    for o, n in pairs:
+        assert src.count(o) == 1, o
+        src = src.replace(o, n)
+    m = types.ModuleType("ecs_ratchet_mutant")
+    m.__file__ = SRC
+    exec(compile(src, SRC, "exec"), m.__dict__)
+    return m
+
+
+def passes(fn, m):
+    try:
+        return bool(fn(m))
+    except Exception:
+        return False
+
+
+class AddNew(unittest.TestCase):
+    def test_scenarios_hold(self):
+        for name, fn in SCENARIOS.items():
+            with self.subTest(scenario=name):
+                self.assertTrue(fn(mod))
+
+    def test_mutants_are_caught(self):
+        for name, old, must_fail in MUTANTS:
+            m = mutant_module(old, None)
+            for sc in must_fail:
+                with self.subTest(mutant=name, scenario=sc):
+                    self.assertFalse(passes(SCENARIOS[sc], m))
+
+    def test_inserted_in_sorted_position(self):
+        h = AddNewHarness(mod, {"a.md": LINE + "\n", "b.md": LINE + "\n"}, ["N\t-\tb.md\t" + LINE])
+        self.addCleanup(h.close)
+        errs, _ = h.add("D\t#11-x\ta.md\t1")
+        self.assertEqual(errs, [])
+        self.assertEqual(mod.check(h.root, h.al), [])
+
+    def test_cli_mutually_exclusive_and_usage(self):
+        self.assertEqual(mod.main(["--add-new"]), 2)
+        self.assertEqual(mod.main(["--add-new", "x", "--prune"]), 2)
+        self.assertEqual(mod.main(["--prune", "--add-new", "x"]), 2)
 
 
 if __name__ == "__main__":

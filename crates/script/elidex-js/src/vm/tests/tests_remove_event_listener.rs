@@ -217,7 +217,7 @@ fn remove_with_non_callable_callback_throws_type_error() {
     // (e.g. number) is a conversion failure that throws TypeError.
     // Previously `removeEventListener` silently ignored non-null
     // non-callable values, masking user bugs.  Now matches
-    // `addEventListener`'s validation and browser behaviour.
+    // `addEventListener`'s validation.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

@@ -428,8 +428,8 @@ pub(super) fn parse_listener_options(
             Ok(out)
         }
         // Other types coerce via ToBoolean per WHATWG (treated as
-        // capture flag).  Browsers accept e.g. `true === 1` style
-        // calls; mirror that.
+        // capture flag).  The WebIDL union `(AddEventListenerOptions or boolean)`
+        // converts a Number to boolean, e.g. `true === 1` style calls.
         other => Ok(ListenerOptions {
             capture: super::super::coerce::to_boolean(ctx.vm, other),
             ..Default::default()
@@ -444,7 +444,7 @@ pub(super) fn parse_listener_options(
 /// narrower than addEventListener's: it only consults the `capture`
 /// property.  Reading `once` / `passive` (which `parse_listener_options`
 /// does for addEventListener) would be observable through user
-/// getters or Proxy traps, deviating from browser behaviour.  This
+/// getters or Proxy traps, which DOM's flatten (it reads only `capture`) does not do.  This
 /// helper preserves that observability invariant by touching only
 /// the capture slot.
 #[cfg(feature = "engine")]
@@ -460,7 +460,7 @@ fn parse_capture_only(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<bool,
             Ok(super::super::coerce::to_boolean(ctx.vm, v))
         }
         // Other primitive types coerce via ToBoolean per WHATWG —
-        // browsers accept e.g. `el.removeEventListener('click', f, 1)`.
+        // the WebIDL union `(EventListenerOptions or boolean)` converts a Number to boolean, e.g. `el.removeEventListener('click', f, 1)`.
         other => Ok(super::super::coerce::to_boolean(ctx.vm, other)),
     }
 }
@@ -568,7 +568,7 @@ pub(super) fn native_event_target_remove_event_listener(
     // WebIDL `EventListener? callback`: null/undefined are explicitly
     // allowed and become a silent no-op (§2.7.7 step 2); any other
     // non-callable value is a conversion failure that throws
-    // `TypeError`, matching `addEventListener` and browser behaviour
+    // `TypeError`, matching `addEventListener` (WebIDL callback interface conversion)
     // (silently dropping `el.removeEventListener('click', 42)` would
     // mask user bugs).
     let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);

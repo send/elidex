@@ -344,7 +344,7 @@ fn navigator_cookie_enabled_true_at_about_blank_with_jar() {
     // `navigator.cookieEnabled` is the UA-level cookie-capability signal (HTML
     // §8.10.1.5: "the user agent attempts to handle cookies"), NOT per-document
     // write-eligibility. A cookie-capable session (a jar bound) reports `true`
-    // even at host-less `about:blank` — matching real browsers and the A3 design
+    // even at host-less `about:blank` — matching the A3 design
     // SSoT (independent of the current document's origin). The host-less
     // `document.cookie` write behavior is the separate
     // `#11-cookie-opaque-origin-securityerror` concern, not this signal. This

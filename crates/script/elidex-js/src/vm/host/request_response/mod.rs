@@ -28,7 +28,7 @@
 //! that hit the `Response.prototype` accessor — the accessor consults
 //! `VmInner::response_states`, which is the authoritative source.
 //! This matches PR5a2 R7.1 (internal-slot authoritative) and the
-//! browser behaviour for attribute reflection.
+//! WebIDL attribute getter semantics.
 //!
 //! ## Module layout
 //!

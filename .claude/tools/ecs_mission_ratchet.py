@@ -8,7 +8,8 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
-(one row per occurrence). The allowlist only shrinks: there is no command that adds a row.
+(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855): a PR that widens the classifier may append rows for the lines the widening newly denies, only through `--add-new`, only of class T or D, each with a slot; the PR body lists the added rows and the command. Every other row change is a deletion.
+The lexical classifier is a floor, not the population: a sentence that grounds a claim in existing-browser behaviour without these words (a paraphrase, or a phrase split across lines) is not caught. The population is defined by that property and covered by a periodic concept sweep (owner CI/tools; monthly and at each milestone exit; PM 499).
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
 construction (class N); scanning them would make every fixture edit an allowlist addition.
@@ -27,7 +28,7 @@ axes.md Axis 2 sub-check 2d (authority source) grades them.
 Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
 checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
-Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
+Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv>]
 """
 import collections
 import os
@@ -55,6 +56,7 @@ UA_STRIP = (
 )
 
 CLASSES = "SECTDN"
+ADD_CLASSES = "TD"  # the only classes --add-new may append
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecs-mission-allowlist.tsv")
 SELF_FILES = tuple(".claude/tools/" + n for n in (
@@ -262,17 +264,95 @@ def prune(repo_root, allowlist_path):
     return len(drop), (read_allowlist(allowlist_path), new, [])
 
 
+def parse_spec(text):
+    """-> list of (spec_lineno, fields) for every non-comment non-blank line."""
+    return [(i, raw.split("\t")) for i, raw in enumerate(text.split("\n"), 1)
+            if not raw.startswith("#") and raw.strip()]
+
+
+def add_new(repo_root, allowlist_path, spec_rows):
+    """Append rows for lines that are new hits now. All-or-nothing. -> (errs, added rows).
+    Each spec row is class, slot, path, line_no (1-based, '\\n'-numbered)."""
+    errs = []
+    new_rows = []
+    excluded = SELF_FILES + (_rel(repo_root, allowlist_path),)
+    texts = dict(iter_texts(repo_root, excluded))
+    al = collections.Counter((f[2], f[3]) for _, f in read_allowlist(allowlist_path) if len(f) == 4)
+    used = collections.Counter()
+    seen = set()
+    for n, f in spec_rows:
+        where = "spec line %d" % n
+        if len(f) != 4:
+            errs.append("%s: need 4 TAB-separated columns (class, slot, path, line_no), got %d" % (where, len(f)))
+            continue
+        cls, slot, path, ln = f
+        bad = len(errs)
+        if cls not in ADD_CLASSES:
+            errs.append("%s: class %r rejected: only T or D rows can be added; S/E/C/N are fixed by tag or rewrite, not rows" % (where, cls))
+        if not SLOT.match(slot):
+            errs.append("%s: bad slot %r: T/D rows need a '#11-<kebab>' slot" % (where, slot))
+        if path not in texts:
+            errs.append("%s: %r is not a tracked scanned file (the allowlist and SELF_FILES are not scanned)" % (where, path))
+        elif not ln.isdigit():
+            errs.append("%s: line_no %r is not a number" % (where, ln))
+        else:
+            lines = texts[path].split("\n")
+            i = int(ln)
+            if not 1 <= i <= len(lines):
+                errs.append("%s: line_no %d out of range (1..%d) in %s" % (where, i, len(lines), path))
+            elif not denied(lines[i - 1]):
+                errs.append("%s: %s:%d is not denied by the classifier" % (where, path, i))
+            elif (path, i) in seen:
+                errs.append("%s: %s:%d is named twice" % (where, path, i))
+            else:
+                seen.add((path, i))
+                text = normalise(lines[i - 1])
+                key = (path, text)
+                occ = sum(1 for l in lines if denied(l) and normalise(l) == text)
+                if not occ > al[key] + used[key]:
+                    errs.append("%s: %s:%d is not a new hit (%d occurrence(s), %d allowlist row(s) already cover it)"
+                                % (where, path, i, occ, al[key] + used[key]))
+                elif len(errs) == bad:
+                    used[key] += 1
+                    new_rows.append((path, text, "%s\t%s\t%s\t%s" % (cls, slot, path, text)))
+    if errs:
+        return errs, []
+    with open(allowlist_path, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    for path, text, row in new_rows:  # insert in (path, text) order so the sorted-rows rule keeps holding
+        at = len(lines) - 1 if lines[-1] == "" else len(lines)
+        for j, l in enumerate(lines):
+            f = l.split("\t")
+            if not l.startswith("#") and len(f) == 4 and (f[2], f[3]) > (path, text):
+                at = j
+                break
+        lines.insert(at, row)
+    with open(allowlist_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+    return [], [r for _, _, r in new_rows]
+
+
 def repo_root_of(path):
     return _git(["rev-parse", "--show-toplevel"], path).decode("utf-8", "surrogateescape").strip()
 
 
 def main(argv):
-    if argv not in ([], ["--prune"]):
-        print("usage: ecs_mission_ratchet.py [--prune]", file=sys.stderr)
+    if not (argv in ([], ["--prune"]) or (len(argv) == 2 and argv[0] == "--add-new")):
+        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv>]", file=sys.stderr)
         return 2
     do_prune = argv == ["--prune"]
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
-    if do_prune:
+    if argv[:1] == ["--add-new"]:
+        with open(argv[1], encoding="utf-8") as f:
+            errs, added = add_new(root, DEFAULT_ALLOWLIST, parse_spec(f.read()))
+        if errs:
+            print("\n".join(errs))
+            print("ecs-mission-ratchet: --add-new rejected; nothing written")
+            return 1
+        for r in added:
+            print("added: " + r)
+        diff = _diff(root, DEFAULT_ALLOWLIST)
+    elif do_prune:
         n, diff = prune(root, DEFAULT_ALLOWLIST)
         print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
     else:

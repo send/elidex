@@ -198,8 +198,8 @@ pub(super) fn native_set_interval(
 fn cancel_timer(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<JsValue, VmError> {
     // WHATWG `clearTimeout(handle)` declares `handle` as WebIDL `long`, so
     // the ECMAScript → IDL conversion runs `ToNumber` on the argument
-    // before mapping to the u32 id.  That preserves browser behaviour
-    // such as `clearTimeout('1')` cancelling timer 1, while still
+    // before mapping to the u32 id.  So
+    // `clearTimeout('1')` cancels timer 1, while still
     // propagating the TypeError from `clearTimeout(Symbol())`.  NaN /
     // non-finite / out-of-range values end up as ids we don't own and
     // fall through the `active_timer_ids` check below — no-op.

@@ -367,7 +367,7 @@ fn item_out_of_range_returns_null() {
 // WebIDL declares `item(unsigned long index)` and
 // `namedItem(DOMString name)` with REQUIRED arguments, so a zero-arg
 // call throws `TypeError` (not null) — matching the VM-wide canonical
-// arity message and real browsers.
+// arity message.
 
 #[test]
 fn html_collection_item_without_argument_throws_type_error() {

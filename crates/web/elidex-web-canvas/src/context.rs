@@ -242,7 +242,7 @@ impl Canvas2dContext {
     /// Set the fill color from a CSS color string.
     ///
     /// If the string is not a valid CSS color, the current fill color is unchanged
-    /// (matching browser behavior).
+    /// (the fillStyle setter returns on parse failure).
     pub fn set_fill_style(&mut self, color_str: &str) {
         if let Some(c) = parse_color_string(color_str) {
             self.current.fill_color = c;
