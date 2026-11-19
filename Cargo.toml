@@ -253,9 +253,8 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# `"50.0.2"` means >=50.0.2, <51: a real floor that keeps the lock off 50.0.0
-# (RUSTSEC-2026-0422 … 0424) and 50.0.1 (RUSTSEC-2026-0566 … 0573), so do not
-# shorten it to a bare `"50"`. The
+# `"50.0.2"` means >=50.0.2, <51: a real security floor (the line's latest
+# patched release per `cargo deny`), so do not shorten it to a bare `"50"`. The
 # wasmtime RUSTSECs are fixed per release line: when `cargo deny` reports one on
 # 50.x, raise this floor to the line's patched release. wasmtime 50 needs rustc
 # 1.97 (`rust-toolchain.toml`).
