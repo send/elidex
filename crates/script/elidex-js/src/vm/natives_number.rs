@@ -116,7 +116,7 @@ pub(super) fn native_number_to_string(
     Ok(JsValue::String(id))
 }
 
-/// Format a finite number in `radix` (2..=36).  Mirrors V8's behavior: [evidence]
+/// Format a finite number in `radix` (2..=36).  Mirrors V8's behavior: `[evidence]`
 /// integer part via standard digit conversion; fractional part via iterated
 /// multiplication until precision runs out (capped at ~52 digits).
 fn format_number_radix(n: f64, radix: u32) -> String {

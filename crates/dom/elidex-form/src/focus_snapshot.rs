@@ -68,7 +68,7 @@ pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
 ///
 /// The **first** mark sets the baseline to `before`. While unmarked, the
 /// value has changed only through non-user writes (a user change would have
-/// marked), and each of those re-baselines (the Chromium-measured model, plan [evidence]
+/// marked), and each of those re-baselines (the Chromium-measured model, plan `[evidence]`
 /// §4.3), so the baseline at the first user change is the value just before
 /// it. Taking it here means no non-user writer has to call anything. Later
 /// changes, user or not, leave the baseline.

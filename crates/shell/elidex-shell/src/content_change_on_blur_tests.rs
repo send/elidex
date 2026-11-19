@@ -321,7 +321,7 @@ fn cursor(state: &ContentState, id: &str) -> usize {
 
 /// A script `value = "ab"` before focus leaves the caret at the end (the
 /// setter's cursor move), so ArrowLeft has somewhere to go — the setup of the
-/// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)` [evidence]
+/// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)` `[evidence]`
 /// does not move elidex's caret, `cursor_pos`, so it cannot set this up:
 /// `#11-text-control-set-selection-range-caret`.)
 fn focus_with_caret_at_end(state: &mut ContentState) {
@@ -645,7 +645,7 @@ fn c23_type_change_sanitize_rebaselines() {
     );
 }
 
-/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307). [evidence]
+/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307). `[evidence]`
 #[test]
 fn c24_email_multiple_toggle_rebaselines() {
     writer_rebaselines(

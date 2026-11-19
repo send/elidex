@@ -27,7 +27,7 @@
 //! `getOwnPropertyNames(uaEvent)` (sorted) matches
 //! `getOwnPropertyNames(ctorEvent)` (sorted) per family.  Name equality
 //! only — value semantics differ deliberately (UA defaults
-//! `view = window` per Chrome parity; ctor defaults `view = null` per [evidence]
+//! `view = window` per Chrome parity; ctor defaults `view = null` per `[evidence]`
 //! WebIDL §3.2 `attribute Window? view = null`).
 
 #![cfg(feature = "engine")]

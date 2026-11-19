@@ -692,7 +692,7 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// `error_prefix` is the spec-conformant call-site identifier
 /// (`"Failed to execute 'decode' on 'TextDecoder'"`, `"Failed to
 /// execute 'digest' on 'SubtleCrypto'"`, …) used as the TypeError
-/// message prefix so JS-visible errors match Chrome's wording. [evidence]
+/// message prefix so JS-visible errors match Chrome's wording. `[evidence]`
 /// Shared with [`super::subtle_crypto`] so the `digest` native
 /// reuses the same per-BufferSource-kind match arms.
 ///
@@ -706,7 +706,7 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// TypeError path per WebIDL §3.10.18.
 ///
 /// `param_index` is the 1-based WebIDL parameter index used to
-/// render Chrome-parity `parameter N` text in the rejection [evidence]
+/// render Chrome-parity `parameter N` text in the rejection `[evidence]`
 /// message (TextDecoder.decode → 1, SubtleCrypto.digest → 2).
 pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,

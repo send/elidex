@@ -303,7 +303,7 @@ mod engine_feature {
         /// calls [`Self::install_web_storage`] — the JS-visible
         /// `localStorage` natives operate on a private stub when no
         /// backend is installed (no panic, but the data is per-VM
-        /// in-memory and lost on `Vm::unbind`, matching Chrome's [evidence]
+        /// in-memory and lost on `Vm::unbind`, matching Chrome's `[evidence]`
         /// "cookie-averse" fallback for `document.cookie`).
         /// A2: `Legacy` Web Storage backend — absent in `App` builds.
         #[cfg(feature = "compat-webapi")]

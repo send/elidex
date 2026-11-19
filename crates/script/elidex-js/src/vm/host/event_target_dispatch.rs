@@ -658,7 +658,7 @@ pub(super) fn dispatch_simple_event(
 ///
 /// Parameter order is `(old_state, new_state)` to read naturally at
 /// call sites ("closed → open" / "open → closed").  The internal slot
-/// order is `(newState, oldState)` per Chrome DevTools enumeration [evidence]
+/// order is `(newState, oldState)` per Chrome DevTools enumeration `[evidence]`
 /// and the `toggle_event` shape transition.  Bindings below mirror
 /// the SIGNATURE order on the lines that ToString-intern the values
 /// so a reader following the parameter list down the function body

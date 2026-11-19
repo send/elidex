@@ -41,7 +41,7 @@ use elidex_ecs::{Entity, NodeKind};
 // ---------------------------------------------------------------------------
 
 /// TypeError thrown when the second argument of `insertAdjacentElement`
-/// is not an Element wrapper.  Matches the Blink / Gecko message form. [evidence]
+/// is not an Element wrapper.  Matches the Blink / Gecko message form. `[evidence]`
 fn adjacent_element_arg_error() -> VmError {
     VmError::type_error(
         "Failed to execute 'insertAdjacentElement' on 'Element': \

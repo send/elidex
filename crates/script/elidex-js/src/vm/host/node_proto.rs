@@ -287,7 +287,7 @@ pub(super) fn require_node_arg(
 /// (no post-hoc string rewriting): the typed [`NodeArgFail`] from
 /// [`extract_node_entity`] is mapped per-variant into an error
 /// scoped to the caller interface (`ResizeObserver` /
-/// `IntersectionObserver` / `MutationObserver`).  Matches Chrome's [evidence]
+/// `IntersectionObserver` / `MutationObserver`).  Matches Chrome's `[evidence]`
 /// wording for e.g. `iObs.observe({})` →
 /// `"Failed to execute 'observe' on 'IntersectionObserver': …"`.
 pub(super) fn require_node_arg_required(

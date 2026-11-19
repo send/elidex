@@ -717,7 +717,7 @@ pub struct JsCalleeInfo {
 ///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
 ///   throws in *both* modes with the WebIDL "Illegal constructor"
 ///   message.  The thrown text is not spec-prescribed (§3.7.1 mandates
-///   only "throw a TypeError"); the wording matches Chrome's WebIDL [evidence]
+///   only "throw a TypeError"); the wording matches Chrome's WebIDL `[evidence]`
 ///   surface.
 ///
 /// Deliberately NOT `Default`-derived — every `NativeFunction` literal

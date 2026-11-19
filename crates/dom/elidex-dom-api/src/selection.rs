@@ -218,7 +218,7 @@ impl SelectionState {
     /// Per Selection API §3.1:
     /// - `Forward` direction: anchor = range start, focus = range end.
     /// - `Backward` direction: anchor = range end, focus = range start.
-    /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both [evidence]
+    /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both `[evidence]`
     ///   return range start for anchor in this case, so we follow suit.
     pub fn anchor(
         &self,
@@ -647,7 +647,7 @@ fn direction_between(
 ///
 /// A node with no parent has only one boundary point (the document root)
 /// — we treat it as contained iff the range covers the whole root,
-/// matching the conservative interpretation Chrome / Firefox use. [evidence]
+/// matching the conservative interpretation Chrome / Firefox use. `[evidence]`
 fn node_fully_contained(range: &Range, node: Entity, dom: &EcsDom) -> bool {
     let Some(parent) = dom.get_parent(node) else {
         // Detached node: contained only if it IS the range's
