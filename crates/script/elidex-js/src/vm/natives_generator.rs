@@ -92,6 +92,13 @@ impl VmInner {
     /// locals off the VM stack.  The one creation path for generator and
     /// async calls: `call_internal` and `push_js_call_frame` both end here.
     ///
+    /// Spec counterparts (ECMA-262): the generator object and its
+    /// suspended-start state of EvaluateGeneratorBody (§15.5.2) /
+    /// EvaluateAsyncGeneratorBody (§15.6.2) with GeneratorStart (§27.8.3.1),
+    /// and the promise capability of EvaluateAsyncFunctionBody (§15.8.4);
+    /// the first drive is [`make_async_coroutine_and_drive`]
+    /// (AsyncFunctionStart, §27.10.5.1).
+    ///
     /// `frame.base..` is the locals region (including the rest array) and
     /// `frame.cleanup_base` the stack height to restore (callee and
     /// receiver below `base`; equal to `base` when there is nothing to
@@ -641,8 +648,9 @@ fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId
 }
 
 /// Drive the first step of a coroutine freshly made by
-/// [`VmInner::create_coroutine`] for an async call.  Returns the wrapper
-/// Promise (the async function's return value).
+/// [`VmInner::create_coroutine`] for an async call (ECMA-262
+/// AsyncFunctionStart, §27.10.5.1).  Returns the wrapper Promise (the async
+/// function's return value).
 ///
 /// The coroutine is rooted on the VM stack for the whole initial drive —
 /// once the body suspends its frame has left `frames`, and
