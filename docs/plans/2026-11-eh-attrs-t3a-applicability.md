@@ -54,7 +54,16 @@ reflecting six and an SVG `body` keep HEAD's target here, §1.2); the attribute 
 completeness of the name table against `GlobalEventHandlers` and its partial extensions (a pre-existing table defect,
 §7).
 
-**Changelog.** *Clerical (PM 783): slot registered* (2026-11-18; no rev bump): `#11-event-handler-content-attribute-applicability` is registered, open; T3-a's landing updates its status (§8.3 item 1).
+**Changelog.** *Landed-record corrections and erratum pointer (PM decisions 782, 786, 823)* (2026-11-18; no rev bump; no decision
+of this memo is rewritten). T3-a landed by #639 (`1146380f`); this memo is its record. **Factual corrections (PM 786),
+each checked against the landed code with `git show "fecfc646:<path>"`:** §6.1's T-21 row is the landed cell
+(it dispatches at `window`; base `false,false`); §6.3 notes what that changes for the three mutants T-21 kills
+(the killers themselves are unchanged); §8.3 item 3's last sentence ("takes its script form") is corrected; §4.2's
+snippet shows the landed SVG arm, which names its four scopes (the memo had `(Namespace::Svg, _)`, against its own
+"No wildcard"); §7's "Own deferrals: 0" is 1. **Erratum pointer (PM 782):** the predicate's `-> bool` shape is
+superseded by the umbrella's §4.1, which T3 implements (T3 memo rev 6.5); notes at D-T8, §4.2, R-A2 and §8.4 point
+there. D-T8's table (which names are an element's) is not changed by it.
+*Clerical (PM 783): slot registered* (2026-11-18; no rev bump): `#11-event-handler-content-attribute-applicability` is registered, open; T3-a's landing updates its status (§8.3 item 1).
 *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): H-A9's tree-model citation is an
 unratified reading, re-pinned at L3's ratification (umbrella §8.5).
 *Clerical, with T3 memo rev 6.4* (2026-11-18; no revision bump, no design change): the ledger search
@@ -203,6 +212,16 @@ whether the local name is `body` or `frameset`.
   way). A lookup that takes the element and replaces `event_handler_attr_lookup`: `is_window_delegating_pair` and the
   VM's install loop ask about the name alone, so the name-only lookup stays, and one function answering both
   questions would hide which is asked.
+  **Erratum (PM decision 782; added after landing, the text above is as ratified and landed).** The predicate's
+  `-> bool` shape, and the last rejection above, are superseded: the umbrella's §4.1 states one lookup that takes the
+  element and returns the row, in place of this predicate and of `event_handler_attr_lookup`, and T3 implements it
+  (T3 memo rev 6.5). The defect that led there is slot `#11-event-handler-attr-lookup-element-blind`, registered at
+  this PR's landing: with the name-only lookup still callable beside the predicate, readers (a) and (c) scan the table
+  twice and a later reader can take a row without asking about the element. Of the rejection's two grounds, the VM's
+  install loop does not call `event_handler_attr_lookup` (it iterates the table and calls
+  `event_handler_attr_event_type`; `git grep -n 'event_handler_attr_lookup(' fecfc646 -- crates` has no `elidex-js`
+  line), and `is_window_delegating_pair` is answered in the umbrella's §4.1. This decision's content, the table above
+  and "every reader applies it", stands and is what the lookup carries.
 
 ## §1. Shape and verdict
 
@@ -395,12 +414,14 @@ Their final shape (signature and branch structure, with the owner of each part) 
 pub(crate) fn is_event_handler_content_attribute_of(dom: &EcsDom, element: Entity, name: &str) -> bool {
     let Some((_, scope)) = event_handler_attr_lookup(name) else { return false };
     match (dom.namespace_of(element), scope) {
-        (Namespace::Svg, _) => true,                                                    // SVG2 §15.8
-        (Namespace::Html | Namespace::MathMl,
+        (Namespace::Svg,
+            HandlerScope::Global | HandlerScope::DocumentElement
+            | HandlerScope::Window | HandlerScope::DocumentOnly)                        // SVG2 §15.8
+        | (Namespace::Html | Namespace::MathMl,
             HandlerScope::Global | HandlerScope::DocumentElement) => true,              // G
         (Namespace::Html, HandlerScope::Window) => is_body_or_frameset(dom, element),   // W
-        (Namespace::MathMl, HandlerScope::Window) => false,
-        (Namespace::Html | Namespace::MathMl, HandlerScope::DocumentOnly) => false,     // D
+        (Namespace::MathMl, HandlerScope::Window)
+        | (Namespace::Html | Namespace::MathMl, HandlerScope::DocumentOnly) => false,   // W on MathML; D
     }
 }
 
@@ -417,6 +438,16 @@ is_event_handler_content_attribute_of(dom, element, n)      // replaces `event_h
 //     `let … else { return }`
 if !is_event_handler_content_attribute_of(dom, node, name) { return; }                 // (NEW), before the policy filter
 ```
+
+**Correction (PM 786): the snippet above is the landed `match`** (`git show
+"fecfc646:crates/script/elidex-script-session/src/event_handler_processing/mod.rs" | sed -n 227,246p`). As ratified
+it had `(Namespace::Svg, _) => true` for the SVG row, a wildcard on the scope axis, against the comment above it; the
+landed arm names the four scopes, so a fifth `HandlerScope` does not compile until it is placed for SVG too. The
+landed arms are otherwise the ratified ones, merged by outcome.
+
+**Erratum (PM decision 782).** The predicate's signature in this section is the landed state, not the final one: the
+umbrella's §4.1 replaces it and `event_handler_attr_lookup` with one lookup that takes the element, written by T3 at
+the three reader places (a), (b), (c) below, which do not move. The `match` is carried into it unchanged.
 
 Re-runnable after T3-a: `git grep -n 'is_event_handler_content_attribute_of(' -- crates ':!*tests*'` → the
 definition and three calls ((a), (b), (c)); `git grep -n 'event_handler_attr_lookup(' -- crates ':!*tests*'` → the
@@ -515,6 +546,9 @@ namespace readers exist); any production file of `crates/script/elidex-js` (`vm/
   T3-a's three lines and does not move them. **Stop condition (PM decision 741 (3)):** if T3's implementation finds
   it must move, re-order or re-write one of T3-a's three reader sites, or change the predicate's signature, it stops
   for the PM (a mis-drawn slice).
+  **Erratum (PM decision 782).** One rewrite is sanctioned and is not a trip of this condition: T3 writes the
+  umbrella §4.1's lookup at the three reader sites in place of the predicate call, and deletes the predicate. The
+  sites still do not move or change order. The condition as amended is stated once, in the umbrella's §4.1.
 - **R-A3 — a test or page that relied on a non-applicable name.** In-tree: three tests (§5.2). For content: a handler
   on such an attribute never ran on a spec-conforming engine, so no page can depend on it by the spec; no browser
   measurement is taken or needed (§10).
@@ -537,7 +571,7 @@ support only; this is not an edge, since either PR can write it).
 
 | Cell | Kind | Script | Base | T3-a (= spec) |
 |---|---|---|---|---|
-| T-21 | **red (R-D2; FN-4; D-T8)** | `mathBody.setAttribute('onhashchange','window.hit = 1'); mathBody.dispatchEvent(new Event('hashchange')); r.push(window.hit === undefined, window.onhashchange === null)` | `true,false` (on the Window) | `true,true` |
+| T-21 | **red (R-D2; FN-4; D-T8)** | `mathBody.setAttribute('onhashchange', 'window.hit = 1'); window.dispatchEvent(new Event('hashchange')); r.push(window.hit === undefined, window.onhashchange === null);` | `false,false` (on the Window, and it runs) | `true,true` |
 | T-A1 | red (AP-3, AP-4; script-reachable) | `var d = document.createElement('div'); d.setAttribute('onhashchange','window.h = 1'); d.setAttribute('onreadystatechange','window.s = 1'); d.setAttribute('onclick','window.c = 1'); for (const t of ['hashchange','readystatechange','click']) d.dispatchEvent(new Event(t)); r.push(window.h === undefined, window.s === undefined, window.c === 1)` | `false,false,true` | `true,true,true` |
 | T-A2 | red (AP-6, AP-10; a parser-built MathML element; static; confirmed red-first at implementation) | `el.innerHTML = '<math><mi onhashchange="window.h = 1" onclick="window.c = 1"></mi></math>'; var mi = el.firstChild.firstChild; mi.dispatchEvent(new Event('hashchange')); mi.dispatchEvent(new Event('click')); r.push(window.h === undefined, window.c === 1)` | `false,true` | `true,true` |
 | T-A3 | guard (AP-5; a parser-built SVG element keeps every name; static; confirmed at implementation) | `el.innerHTML = '<svg><rect onhashchange="window.h = 1" onreadystatechange="window.s = 1"></rect></svg>'; var rc = el.firstChild.firstChild; rc.dispatchEvent(new Event('hashchange')); rc.dispatchEvent(new Event('readystatechange')); r.push(window.h === 1, window.s === 1)` | `true,true` | `true,true` (SVG treated as HTML or MathML: `false,false`) |
@@ -545,6 +579,14 @@ support only; this is not an edge, since either PR can write it).
 
 T-21's outcome does not depend on T3-b: the script writes a content attribute and reads the Window, and touches no
 accessor of `mathBody`.
+
+**Correction (PM 786): T-21's row is the landed cell** (`t21_mathml_body_window_handler_attribute_installs_nothing`,
+`git show "fecfc646:crates/script/elidex-js/src/vm/tests/tests_event_handler_applicability.rs" | sed -n 14,31p`). As
+ratified the script dispatched at the element (`mathBody.dispatchEvent(new Event('hashchange'))`) and the base column
+read "`true,false` (on the Window)": the event does not bubble and the base's handler is on the Window, so it never
+ran and the first value was `true` at the base and at the head alike. The landed cell dispatches at `window` (its
+comment: "Deviation from memo §6.1: dispatch at window so the first value discriminates"), so the base's handler
+runs. Measured on the red commit (PM 786): base `false,false`, head `true,true`.
 
 ### §6.2 Unit (session, `tests_applicability.rs`, NEW)
 
@@ -574,6 +616,11 @@ The D-8 entry and the mark are also run through the rewritten U3 (i) cells (§5.
 | reader (b) without the predicate | T-A4, U-A1 |
 | the predicate applied after the mark's count at (a) (a `continue` beside the policy filter instead of the snapshot's filter) | U-A3, U-A2 |
 
+**Correction (PM 786), for the three rows that name T-21** (the predicate always true; MathML treated as SVG; reader
+(c) without the predicate). Their killers are as listed. Under each of the three a MathML `body`'s `onhashchange`
+is installed on the Window, and the landed T-21 dispatches at `window` (§6.1), so the mutant's result is
+`false,false`: both values turn. With the script as ratified only the second value turned (`true,false`).
+
 ## §7. Out of scope and slots
 
 | Item | Why not T3-a | Home |
@@ -587,7 +634,11 @@ The D-8 entry and the mark are also run through the rewritten U3 (i) cells (§5.
 | an element outside the three namespaces | no representation (P-A3) | recorded in §8.3 item 1's text; arises with a fourth `Namespace` variant |
 | `HandlerScope::DocumentElement`'s doc; `window.oncopy` / `oncut` / `onpaste` | not applicability | `#11-clipboard-handlers-missing-on-window` (owner L3, Re-eval 2026-12-31; PM decision 764; §10 Q-A4) |
 
-Own deferrals: **0**. Residuals: **0**.
+Own deferrals: **1**. Residuals: **0**. **Correction (PM 786):** as ratified this line read "Own deferrals: **0**",
+which was false at landing. T3-a left the name-only lookup callable beside its predicate, so readers (a) and (c) scan
+the table twice and a later reader can take a row without asking about the element; that became slot
+`#11-event-handler-attr-lookup-element-blind`, registered at T3-a's landing (PM 782; owner Layout; trigger: T3's
+implementation starts). Its remedy's shape is the umbrella's §4.1, and T3 closes it (T3 memo §8.3 item 13).
 
 ## §8. Edges, hand-offs, records
 
@@ -686,6 +737,12 @@ None. (The foreign-interface defect text is the T3-b memo §8.2 item 1.)
    installs nothing (T3-a memo cell T-21). When `createElementNS` is wired that cell takes its script form."
    **Trigger unchanged** (PM decision 756); the reason is stated once, in the T3-b memo §8.3 item 1, and holds for
    this sentence as for T3-b's.
+   **Correction (PM 786), to the record's last sentence.** "Takes its script form" says the cell is not a script
+   today. It is: T-21 runs a script through `run` (§6.1), and only its element is harness-built (the global
+   `mathBody`, from `with_page_and_foreign_bodies`). The sentence should read: "When `createElementNS` is wired the
+   cell's script can create the MathML `body` itself instead of taking the harness's `mathBody`; the rest of the
+   script (the `setAttribute`, the dispatch at `window`, the two reads) does not change." The ledger row carries the
+   sentence as first written (applied at #639's landing); the PM replaces it with this one.
 
 ### §8.4 Hand-offs
 
@@ -705,6 +762,9 @@ None. (The foreign-interface defect text is the T3-b memo §8.2 item 1.)
   for T3-a's base and hold there; T3's memo owns their T3-head form.
 - **Facet (2)'s closer** (`#11-attribute-namespace-model`, owner L3; PM decision 770; §8.3 item 1): extends the
   predicate's callers with the attribute's namespace once attributes carry one.
+- **Erratum (PM decision 782), for the two entries above that name the predicate.** After T3 the predicate does not
+  exist: T3 relies on, and facet (2)'s closer extends the callers of, the umbrella §4.1's lookup at the same three
+  reader sites. Which cells of this memo T3 rewrites for it is the T3 memo §5.2's list.
 - **L3's `#11-vm-create-element-ns-missing`**: §8.3 item 3.
 - **T3-b**: none in production code; the test helper of §6.1.
 

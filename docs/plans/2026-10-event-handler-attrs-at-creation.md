@@ -30,7 +30,11 @@ umbrella only when it changes a decision. Otherwise it is recorded in the owning
 slice a's implementation PR (the #541 precedent). "At umbrella approval" means "when the approval PR lands". Slice a's
 implementation is cut from main after that.
 
-**Changelog.** *Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): new §8.5, the one re-pin item for L3's unratified plans; x12 and x13 point to it.
+**Changelog.** *Erratum: one element-aware lookup (PM decisions 782, 786, 823)* (2026-11-18; no rev bump; carried by the erratum PR, branch `layout-eh-attrs-lookup-erratum`, cut from `fecfc646` with T3-a (#639 `1146380f`) and T3-b (#642 `fecfc646`) landed; with the T3 memo rev 6.5 and the T3-a memo's record corrections, PM 786). Slot `#11-event-handler-attr-lookup-element-blind` (registered at T3-a's landing, PM 782): T3-a's `is_event_handler_content_attribute_of(dom, element, name) -> bool` wraps the name-only `event_handler_attr_lookup(name)`, which stays callable, so readers (a) and (c) scan the table twice and a later reader can take a row without asking about the element. **§4.1 now states one lookup**, `event_handler_content_attribute_row(dom, element, name) -> Option<(&'static str, HandlerScope)>`, which T3 writes in place of both (both deleted); the three readers, `is_window_delegating_pair` and `is_x_w_pair` call it; §4.1's code block, its *What is fixed here* (i), (ii) and (iv), the new (v) and (vi) and the stop condition follow, each with its earlier wording kept. Also edited in place: §4.1's heading and first paragraph (the census at `fecfc646`); §1.2's T3-a and T3 rows; x15. The final shape is still decided only in §4.1 (PM decision 741 (3)); the T3 memo implements it and the T3-a memo, a landed record, points to it. *Focused review of the erratum* (PM
+decision 825; no design change): (vi)'s residual points at the new slot drafted at T3 memo §8.1 item 6; *Home and
+visibility* states once what the lookup reads; *Why this mechanism*'s install-loop cite is corrected (`:222-289`,
+iterating at `:229`, calling at `:253`; `:154` is the worker-list path); with the T3 memo rev 6.5.1.
+*Clerical before plan PR, PM 778/779* (2026-11-18; no rev bump): new §8.5, the one re-pin item for L3's unratified plans; x12 and x13 point to it.
 *Rev 8.<t>* (carried by T3's plan PR, branch `layout-eh-target-determination-plan`, with the T3 memo
 `docs/plans/2026-10-eh-attrs-t3-target-determination.md` rev 6.3, the T3-pre memo
 `docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md` rev 2.4, the T3-a memo
@@ -509,9 +513,9 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | **C1-pre** `layout-c1-pre-document-wrapper` (owner: Layout lane; PM 328 / 335 / 339; memo `docs/plans/2026-11-eh-attrs-c1-pre-document-wrapper.md`) | slot `#11-bridge-document-post-install`: every Document wrapper is a Document (one `Document.prototype`, chosen at first allocation) | C0 D-14 (b) and RC-2a landed |
 | **C1** `EH-attrs-at-creation-C1` (owner: Layout lane, this program; PM decision 123) | slot `#11-template-contents-owner-document`: the inert template contents owner document (HTML §4.12.3; branch A, §1.6); closes T3's residual R-A | IBP-sandbox N1's implementation and C0 landed; L3 RC-2a landed; C1-pre landed |
 | **T3-pre** `EH-attrs-at-creation-T3-pre` (owner: Layout lane, this program; PM decision 722; memo `docs/plans/2026-11-eh-attrs-t3-pre-subtree-created-event.md`) | the creation event T3 consumes: RC-2a's `MutationEvent::CloneCreated` generalised to `SubtreeCreated { root, cause }` with every consumer migrated, the `FragmentParse` fire in the fragment parse's one return point, and the queue of a dispatcher-take window, flushed at the outermost close of L3's guard (the T3-pre memo §4.2–§4.6); behaviour-neutral at its landing (its §1.1); on L3's surface, so its plan-review takes L3's confirmation through the PM. Rev 8.<t> (PM decision 722: split out of T3, plan-review R1 F1 on T3 memo rev 4.8.2) | L3's PR (is) and PR (ig) landed (x13); RC-2a landed (x11); not ordered against L3's PR (io) |
-| **T3-a** `EH-attrs-at-creation-T3-a` (owner: Layout lane, this program; PM decisions 741 (3), 767; memo `docs/plans/2026-11-eh-attrs-t3a-applicability.md`) | facets (1) and (3) of `#11-event-handler-content-attribute-applicability`: one predicate for "an event handler content attribute of this element" (the local-name half of the attribute change steps' step 1), applied by every reader of an element's handler content attributes (the T3-a memo D-T8). Target determination is untouched. Rev 8.<t> (PM decision 741 (3): carved out of T3, plan-review R2 T1 on T3 memo rev 5; PM decision 767: split from T3-ab, plan-review R3 wave 1 W1-1) | C1 landed (so every prerequisite is on main); no edge with T3-b, L3's PRs (is), (ig), (io), L3's tree-model program or T3-pre (the T3-a memo §8.1) |
+| **T3-a** `EH-attrs-at-creation-T3-a` (owner: Layout lane, this program; PM decisions 741 (3), 767; memo `docs/plans/2026-11-eh-attrs-t3a-applicability.md`) | facets (1) and (3) of `#11-event-handler-content-attribute-applicability`: one predicate for "an event handler content attribute of this element" (the local-name half of the attribute change steps' step 1), applied by every reader of an element's handler content attributes (the T3-a memo D-T8). Target determination is untouched. Landed by #639 (`1146380f`). (Erratum, PM decision 782: the predicate's `-> bool` form is the landed state; T3 replaces it and the name-only lookup beside it with §4.1's one lookup. What T3-a decided, which names are an element's, is unchanged.) Rev 8.<t> (PM decision 741 (3): carved out of T3, plan-review R2 T1 on T3 memo rev 5; PM decision 767: split from T3-ab, plan-review R3 wave 1 W1-1) | C1 landed (so every prerequisite is on main); no edge with T3-b, L3's PRs (is), (ig), (io), L3's tree-model program or T3-pre (the T3-a memo §8.1) |
 | **T3-b** `EH-attrs-at-creation-T3-b` (owner: Layout lane, this program; PM decisions 741 (3), 767; memo `docs/plans/2026-11-eh-attrs-t3b-body-prototype.md`) | `HTMLBodyElement.prototype` and its receiver check for an HTML-namespace `<body>` only, both reading one statement of that fact (the T3-b memo D-T11). Target determination and the two processing functions of §4.1 are untouched. Rev 8.<t> (PM decisions 741 (3), 767, as the row above) | C1 landed (so every prerequisite is on main); no edge with T3-a, L3's PRs (is), (ig), (io), L3's tree-model program or T3-pre (the T3-b memo §8.1) |
-| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) (until T3 memo rev 6: "and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11)", now **T3-b**'s, PM decisions 741 (3), 767). (Until T3 memo rev 6, by PM decision 168: "also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8)", now **T3-a**'s, the rows above.) **Rev 8.<t> (PM decisions 699, 705, 711):** also S-1's fragment path, whole: every node a fragment parse creates (declarative shadow content and template contents included) processed at its creation, every pair class (T3 memo D-T7, D-T12), and the DOMParser build (queued in its window, dispatched at its close), through `SubtreeCreated`, RC-2a's `CloneCreated` generalised (from T3 memo rev 5 by **T3-pre**, the row above, PM decision 722; T3 keeps the event-handler consumer's arm, T3 memo §4.5); T3 lands after T3-pre and L3's ecs-entity-lifetime PR (io) (x14, x12; until T3 memo rev 4.8: "every element of a fragment's insertion-time walk set"; until rev 5 the generalisation and the queue were T3's) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed"); T3-pre and L3's PR (io) landed (x14, x12; PM decisions 714, 722); T3-a and T3-b landed (x15, x16; PM decisions 741 (3), 767) |
+| **T3** `EH-attrs-at-creation-T3` (owner: Layout lane, this program; PM decision 25) | slot `#11-event-handler-target-determination` facet (1), step 3 of *determining the target of an event handler*, with facets (3) (`<frameset>`) and (4) (the reflecting set): slice b needs all three (x3, S-5; rev 8). Facet (2) rides with it unless its plan splits it off (the T3 memo carries it). **Rev 8.<t> (PM decision 129):** also the part of S-5 that ends X-W for the pairs HEAD targeted at the element (a `<body>`'s six reflecting names, every name on a `<frameset>`). Its own plan, plan-review and PR. **Rev 8.<t> (PM decision 153):** also S-1's clone path (T3 memo D-T10) (until T3 memo rev 6: "and the HTML-interface choice for a foreign-namespace `<body>` (T3 memo D-T11)", now **T3-b**'s, PM decisions 741 (3), 767). (Until T3 memo rev 6, by PM decision 168: "also facets (1) and (3) of `#11-event-handler-content-attribute-applicability` (T3 memo D-T8)", now **T3-a**'s, the rows above.) **Erratum (PM decision 782; T3 memo rev 6.5):** also slot `#11-event-handler-attr-lookup-element-blind`: §4.1's one element-aware lookup, written in place of T3-a's predicate and the name-only lookup at the three reader sites, without moving them. **Rev 8.<t> (PM decisions 699, 705, 711):** also S-1's fragment path, whole: every node a fragment parse creates (declarative shadow content and template contents included) processed at its creation, every pair class (T3 memo D-T7, D-T12), and the DOMParser build (queued in its window, dispatched at its close), through `SubtreeCreated`, RC-2a's `CloneCreated` generalised (from T3 memo rev 5 by **T3-pre**, the row above, PM decision 722; T3 keeps the event-handler consumer's arm, T3 memo §4.5); T3 lands after T3-pre and L3's ecs-entity-lifetime PR (io) (x14, x12; until T3 memo rev 4.8: "every element of a fragment's insertion-time walk set"; until rev 5 the generalisation and the queue were T3's) | C1 landed (PM decision 153; slice a, N1's implementation and C0 precede it in the order line; until rev 8.4: "slice a landed"); T3-pre and L3's PR (io) landed (x14, x12; PM decisions 714, 722); T3-a and T3-b landed (x15, x16; PM decisions 741 (3), 767) |
 | **slice b** `EH-attrs-at-creation-b` | S-1 to S-7, S-5 without T3's part (rev 8.<t>), S-1 without the clone path (rev 8.<t>) and without the fragment path and the DOMParser build (rev 8.<t>, PM decisions 699, 705, 711; until T3 memo rev 4.8: "without the fragment path except the declarative shadow content and template contents it creates"); G2 rest, G5's non-clone half, K2's X-W half (§1.5). (Until T3 memo rev 6.2 this row also held slot `#11-event-handler-content-attribute-applicability` facet (2); rev 8.<t>, PM decision 770: it is not slice b's. It has no case at the base and is `#11-attribute-namespace-model`'s, owner L3; its prerequisites and the ledger's old → new are the T3-a memo §8.3 item 1. Facets (1) and (3) are T3-a's, the T3-a memo D-T8, PM decisions 741 (3), 767; until T3 memo rev 6: T3's, PM decision 168.) | T3, N1, C0 and C1 landed (PM decisions 123, 153; until rev 8.4: "T3, N1, C1's handling decided") |
 
 **Order (PM decisions 21, 23, 25, 123, 153, 244, 714, 722, 741, 767; §L):** approval PR → slice a → IBP-sandbox N1 → **C0** (program: C0a → C0b → C0c) → **C1-pre** → C1 → { **T3-a** ∥ **T3-b** ∥ ((L3's PR (is) → PR (ig)) → **T3-pre** ∥ (L3's tree-model program → PR (io))) } → T3 → slice b (PM 153, user decision: N1 implementation → C0 → C1 → T3 → slice b; PM 244: C0 is a program of three PRs; rev 8.<t>, PM decisions 714, 722: T3-pre after ig, in either order with io; T3 after both; until rev 8.<t>: "C1 → T3 → slice b"; PM 730 placed L3's tree-model program between ig and io, and PM decisions 740 (1) and 741 (1) keep T3-pre's place: after ig, parallel with that program and io; PM decisions 741 (3), 767: T3-a and T3-b after C1, each ordered against nothing but T3, which both precede, x15 and x16; their condition on the no-op window is the T3-pre memo DoD item 7's, and when it is raised is the T3-pre memo §8.3 item 3's; neither is restated here (until the T3-pre memo rev 2.4 both were attributed to DoD item 7)).
@@ -535,7 +539,7 @@ per-PR slice of this approved umbrella (base case (c)), and its own plan-review 
 | x13 | L3 ecs-entity-lifetime PR (ig) (external) → T3-pre (rev 8.<t>) | code predecessor (PM decisions 713, 714, 722) | T3-pre's creation-event queue is flushed at the outermost close of ig's dispatcher-take guard, a change T3-pre makes to `DispatcherTake::close` (NEW: ig), relying on ig's guarantees (a) and (b) (the PR (ig) plan `docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md` §8 *T3 intersection*; the T3-pre memo §4.4, H-P5, cited at its snapshot, an unratified reading re-pinned at L3's ratification, §8.5) and, from the T3-pre memo rev 2, on ig's private restore function writing the slot directly and on `set_mutation_dispatcher`'s assertion while `Taken`, both ig's by PM decision 740 (2) (the T3-pre memo §4.4 (c) to (f)); T3-pre also changes that restore function (it gains the queue as its return value). No edge between T3-pre and L3's PR (io): T3-pre does not use `WalkScope` |
 | x11 | L3 RC-2a (external) → T3-pre (rev 8.<t>; until T3 memo rev 5: → T3) | semantic precondition (PM decisions 359, 722) | T3-pre generalises RC-2a's `MutationEvent::CloneCreated` (landed by #596) to `SubtreeCreated`, keeping its `Clone` cause as RC-2a's (the T3-pre memo I-RC1 to I-RC3); T3's clone arm (T3 memo D-T10) consumes it and walks RC-2a's uncapped `for_each_clone_created` (PM 367), so RC-2a precedes T3 through x11 and x14 |
 | x14 | T3-pre → T3 (rev 8.<t>) | code predecessor + semantic precondition (PM decision 722) | T3's consumer arm matches T3-pre's `SubtreeCreated` (T3 memo §4.5), and DOMParser's build reaches it only through T3-pre's queue (T3 memo D-T13); T3's landing ends the no-op window of T3-pre's `FragmentParse` arms unless the custom-element or form slot's fix has ended it first (the T3-pre memo DoD item 7: the window's ends, its sequence ig → T3-pre → tree-model program → io → T3, and its bound; its escalation: the T3-pre memo §8.3 item 3) (PM decisions 740 (1), 741 (1); until the T3-pre memo rev 2.4: "T3's landing ends the no-op window …, whose sequence …, bound and escalation are the T3-pre memo DoD item 7"; until the T3-pre memo rev 2: "T3 is Layout's next unit after T3-pre") |
-| x15 | T3-a → T3 (rev 8.<t>; until PM decision 767: T3-ab → T3) | code predecessor + decision precondition (PM decisions 153, 741 (3), 767) | T3 rewrites the two functions T3-a edits (§4.1: T3-a's parts are in their final place, T3 adds around them), and T3's no-worse analysis is made on a base that has T3-a (T3 memo §2.1); PM decision 153's strict reading closes R-D2 before or in T3, and T3-a closes it before. T3-a has no other edge: it reads no creation event, dispatcher window, walker or tree link (the T3-a memo §8.1, H-A9), so it is unordered against T3-b, is, ig, T3-pre, the tree-model program and io. Its bearing on the no-op window is stated only in the T3-pre memo DoD item 7 (PM decisions 756, 767) |
+| x15 | T3-a → T3 (rev 8.<t>; until PM decision 767: T3-ab → T3) | code predecessor + decision precondition (PM decisions 153, 741 (3), 767) | T3 rewrites the two functions T3-a edits (§4.1: T3-a's parts are in their final place, T3 adds around them; erratum, PM decision 782: in their final place, not their final form, since T3 writes §4.1's lookup at those three places), and T3's no-worse analysis is made on a base that has T3-a (T3 memo §2.1); PM decision 153's strict reading closes R-D2 before or in T3, and T3-a closes it before. T3-a has no other edge: it reads no creation event, dispatcher window, walker or tree link (the T3-a memo §8.1, H-A9), so it is unordered against T3-b, is, ig, T3-pre, the tree-model program and io. Its bearing on the no-op window is stated only in the T3-pre memo DoD item 7 (PM decisions 756, 767) |
 | x16 | T3-b → T3 (rev 8.<t>; PM decision 767) | decision precondition (PM decisions 153, 741 (3), 767) | PM decision 153's strict reading closes R-D1 before or in T3, and T3-b closes it before; T3's no-worse analysis is made on a base that has T3-b (T3 memo §2.1, row FN-3; §1.3 seam S1). No code contact: T3 edits neither of T3-b's two sites, and T3-b touches neither function of §4.1. T3-b has no other edge (the T3-b memo §8.1), so it is unordered against T3-a, is, ig, T3-pre, the tree-model program and io. Its bearing on the no-op window is stated only in the T3-pre memo DoD item 7 (PM decisions 756, 767) |
 
 Acyclic. The order satisfies x4 transitively. It is listed so that a re-ordering cannot drop it. x7 (C0 → C1) and x8 (C1 → T3) are added by the PR at each edge's head (C0 program memo D-9).
@@ -759,7 +763,7 @@ engine-independent function. There is no registry, no new dispatcher variant and
 calls into `elidex_script_session` (marshalling). Inside `dispatch` the consumer writes only `EventListeners` and the
 element marker. The document marker is written before install.
 
-### §4.1 The two processing functions: their final shape, decided once (rev 8.<t>; PM decisions 741 (3), 756, 767; decided, not input)
+### §4.1 The two processing functions and the one lookup they read: their final shape, decided once (rev 8.<t>; PM decisions 741 (3), 756, 767; erratum, PM decision 782; decided, not input)
 
 Two functions are edited by both T3-a and T3 (T3-b edits neither; until PM decision 767 T3-a and T3-b were one PR, T3-ab): `process_handler_content_attributes`
 (`crates/script/elidex-script-session/src/event_handler_processing/mod.rs:76` at `cee74989`) and
@@ -768,20 +772,68 @@ Two functions are edited by both T3-a and T3 (T3-b edits neither; until PM decis
 `mod.rs:97`, `mod.rs:206`, `event_handler_consumer.rs:405`); T3-b's are the `body` test and its two readers in `vm/host/` (the T3-b memo §4.2); T3's are the list
 of T3 memo §4.2. The intersection of T3-a's and T3's is these two functions; T3-b's meets neither. `is_only_deliverable_ordinary_name` (`mod.rs:196`), the
 `body` arm of `tag_specific_t2b_prototype` and `require_body_receiver` are edited by T3-a (the first) and T3-b (the other two) only; every other function
-of T3 memo §4.2 by T3 only.
+of T3 memo §4.2 by T3 only. (Erratum, PM decision 782: that paragraph is the 2026-11-15 measurement. With the lookup
+below T3 also edits `is_only_deliverable_ordinary_name`, its first conjunct, and replaces the predicate itself, so
+T3-a's and T3's sites meet in three functions and the predicate, not two functions.)
 
-This is their shape when both have landed. The tag on each part names the PR that writes it; an untagged part is
-slice a's, on main.
+**The landed state, and what the erratum changes (PM decision 782; measured 2026-11-18 at `fecfc646`, T3-a and T3-b
+landed).** T3-a's predicate is `-> bool` and wraps a name-only lookup of the same table that is still callable:
+
+```
+$ git grep -n 'event_handler_attr_lookup(' fecfc646 -- crates ':!*tests*'
+…/event_handler_consumer.rs:407:    let Some((event_type, scope)) = event_handler_attr_lookup(name) else {       reader (c), the first lookup
+…/event_handler_processing/mod.rs:101:                event_handler_attr_lookup(name).map(|(event_type, scope)| {     reader (a), the second lookup
+…/event_handler_processing/mod.rs:224:    let Some((_, scope)) = event_handler_attr_lookup(name) else {              inside the predicate
+…/event_handler_processing/mod.rs:276:            event_handler_attr_lookup(name),                                     is_window_delegating_pair
+…/event_handler_processing/mod.rs:294:pub(crate) fn event_handler_attr_lookup(name: &str) -> Option<(&str, HandlerScope)> {   the definition
+$ git grep -n 'is_event_handler_content_attribute_of(' fecfc646 -- crates ':!*tests*'
+…/event_handler_consumer.rs:415          reader (c)          …/event_handler_processing/mod.rs:99    reader (a)
+…/event_handler_processing/mod.rs:219    the definition      …/event_handler_processing/mod.rs:263   reader (b)
+```
+
+(`…` = `crates/script/elidex-script-session/src`. Controls: `git grep -n -w 'event_handler_attr_lookup' fecfc646 --
+crates | wc -l` → 6, the five above and the `use` at `event_handler_consumer.rs:52`; no test names it. `git grep -n -w
+'is_event_handler_content_attribute_of' fecfc646 -- crates | wc -l` → 11: the four above, the `use` at
+`event_handler_consumer.rs:52`, four doc mentions (`event_handler_consumer.rs:223`, `mod.rs:22`, `:63`, `:250`) and
+two lines of `tests_applicability.rs` (`:17`, `:124`). No crate other than `elidex-script-session` names either.)
+
+So reader (a) filters with the predicate (one scan) and then looks the row up (a second scan); reader (c) looks the row
+up and then asks the predicate (a second scan); reader (b) asks the predicate only. The name-only lookup returns a row
+for any element, so a reader written later can take the row and skip the attribute change steps' step 1 (WHATWG HTML
+§8.1.8.1 Event handlers: "localName is not the name of an event handler content attribute on element, then return"),
+the class of defect T3-a closed (slot `#11-event-handler-attr-lookup-element-blind`). The erratum replaces the pair
+with one lookup that takes the element (below); T3 writes it. T3-a's memo is a landed record and is not rewritten: it
+carries a pointer to this section.
+
+This is their shape when T3-a and T3 have both landed. The tag on each part names the PR that writes it; an untagged
+part is slice a's, on main. (Until the erratum: "when both have landed", with step 2 of each function tagged `[T3-a]`
+in the predicate's form; that form is quoted under the block.)
 
 ```rust
+/// The row of `EVENT_HANDLER_ATTRS` for `name`, as (event type, scope), iff `name` is an event handler content
+/// attribute of `element`; `None` for a name that is not in the table, for a row that is not `element`'s, and for
+/// an entity that is not an element.                                              // [T3] (PM decision 782)
+pub(crate) fn event_handler_content_attribute_row(
+    dom: &EcsDom, element: Entity, name: &str,
+) -> Option<(&'static str, HandlerScope)> {
+    // 1. `dom.is_element(element)`, else `None`
+    // 2. one scan of `EVENT_HANDLER_ATTRS` for `name`; not found → `None`
+    // 3. `match (dom.namespace_of(element), scope)`: the arms T3-a landed (`mod.rs:227-246` at `fecfc646`),
+    //    carried over unchanged, every `Namespace` and every `HandlerScope` variant named, no `_` arm and no
+    //    catch-all binding on either axis; an arm that is false → `None`, an arm that is true → the row
+}
+// deleted at T3: `is_event_handler_content_attribute_of` (T3-a's `-> bool` predicate) and
+// `event_handler_attr_lookup` (the name-only lookup). No function returns a row from a name alone.
+
 pub(crate) fn process_handler_content_attributes(
     dom: &mut EcsDom, element: Entity, policy: SpecLevelPolicy, timing: ProcessingTiming,
     active: ActiveDocument,                                                 // [T3] the signature's one change
 ) {
     // 1. the marked shortcut; its clause `timing != ProcessingTiming::Creation`            [T3]
-    // 2. the snapshot: the element's attributes that are its event handler content attributes
-    //        .filter(|(name, _)| is_event_handler_content_attribute_of(dom, element, name)) [T3-a]
-    //        .filter_map(/* event_handler_attr_lookup: event type, value */)
+    // 2. the snapshot: (name, event type, value) of the element's attributes that are its event handler
+    //    content attributes, one lookup per attribute:
+    //        .filter_map(|(name, value)| event_handler_content_attribute_row(dom, element, name).map(/* … */))
+    //    [T3, in the place of T3-a's `.filter(…)` and the `.filter_map(…)` after it]
     // 3. per snapshot entry, in this order: window_delegating; the mark's count (carries_ordinary);
     //    the policy filter; `deliver = match (window_delegating, timing)`, whose arms
     //    `(_, Creation) => true` and `(true, Insertion) => is_x_w_pair(…)` are                [T3]
@@ -790,29 +842,127 @@ pub(crate) fn process_handler_content_attributes(
     // 5. the mark
 }
 
+fn is_only_deliverable_ordinary_name(/* unchanged */) -> bool {
+    // the filter's first conjunct: `event_handler_content_attribute_row(dom, element, n).is_some()`
+    // [T3, in the place of T3-a's predicate call]; the other two conjuncts unchanged
+}
+
 fn handle_attribute_change(
     policy: SpecLevelPolicy, node: Entity, name: &str, old_value: Option<&str>, new_value: Option<&str>,
     dom: &mut EcsDom, active: ActiveDocument,                               // [T3] the signature's one change
 ) {
-    // 1. `event_handler_attr_lookup(name)`; an unknown name → return
-    // 2. `!is_event_handler_content_attribute_of(dom, node, name)` → return                 [T3-a]
+    // 1–2. `let Some((event_type, _)) = event_handler_content_attribute_row(dom, node, name) else { return }`:
+    //    a name that is not in the table, or not `node`'s, returns here, with no set and no clear
+    //    [T3, in the place of the name-only lookup (1) and T3-a's guard (2)]
     // 3. the policy filter → return
     // 4. `determine_event_handler_target(dom, node, name, active)`; `None` → return         [T3]
     //    (it replaces `resolve_handler_target` and precedes step 5, the order T3 memo D-T6 gives the IDL setter)
     // 5. `process_before_handler_write` (slice a's D-8 entry; it passes `active` on)          [T3: the argument]
     // 6. set, or clear on a genuine removal
 }
+
+// steps 1–2 of *determine the target of an event handler*: signature kept (T3 memo D-T2)
+pub(crate) fn is_window_delegating_pair(dom: &EcsDom, element: Entity, name: &str) -> bool {
+    // `is_body_or_frameset(dom, element)` (HTML-namespaced at T3, T3 memo D-T5), and then only:
+    // `matches!(event_handler_content_attribute_row(dom, element, name), Some((_, HandlerScope::Window)))`
+    // or the reflecting set contains `name`                              [T3: the lookup it reads its scope from]
+}
+// `is_x_w_pair` (T3 memo D-T7; NEW at T3) reads its scope the same way, after its HTML `body` test.
 ```
 
-**What is fixed here.** (i) T3-a writes its parts, step 2 of each, at these positions and in this form, on the
-signatures main has; it changes no signature and adds no branch to the processing function's loop (its part is a
-filter of the snapshot). (ii) T3 adds its tagged parts and does not move, re-order or rewrite T3-a's. (iii) Each
+(Until the erratum the block had no lookup, `is_only_deliverable_ordinary_name` or `is_window_delegating_pair`, and
+the two functions read: processing function step 2, "`.filter(|(name, _)| is_event_handler_content_attribute_of(dom,
+element, name))` [T3-a]" then "`.filter_map(/* event_handler_attr_lookup: event type, value */)`";
+`handle_attribute_change` step 1, "`event_handler_attr_lookup(name)`; an unknown name → return", and step 2,
+"`!is_event_handler_content_attribute_of(dom, node, name)` → return [T3-a]". That is the state #639 landed. The step
+numbers of `handle_attribute_change` are kept, 1 and 2 becoming one statement, so "§4.1 step 4" still names the
+target call.)
+
+**Why this mechanism (PM decision 782 gives the direction; the choices below are this section's).**
+- *One function, and the other two deleted (One issue, one way; "後方互換性は維持しない").* The spec asks one question
+  at step 1, about the pair (element, local name); a reader that needs the row needs it only when the answer is yes.
+  So the answer and the row are one return value, `Option<row>`. Keeping the predicate as a wrapper would keep two
+  ways to ask the same question at three sites, and keeping the name-only lookup would keep the way to skip it.
+- *The name-only lookup is deleted, not hidden.* The boundary that makes an unknown later reader fall on the safe
+  side is that no function returns a row from a name alone: such a reader has only the element-aware lookup to call.
+  A private name-only helper was considered (in a submodule of its own, with the lookup as its only caller) and
+  rejected: it has one caller, so it is the lookup's own table scan, and it would have to be shared with
+  `is_window_delegating_pair`, which does not need it (next item).
+- *`is_window_delegating_pair` and `is_x_w_pair` read their scope from the same lookup.* Step 2 of *determine the
+  target of an event handler* (HTML §8.1.8.1) is a test on the name ("the name of an attribute member of the
+  `WindowEventHandlers` interface mixin"), reached only when step 1 found a `body` or `frameset` element. On such an
+  element every `WindowEventHandlers` member is one of the element's event handler content attributes (HTML §8.1.8.2:
+  "with corresponding event handler content attributes and event handler IDL attributes exposed on all body and
+  frameset elements"; the lookup's `(Html, Window)` arm, T3-a's D-T8 table), so for every name the
+  lookup's scope is `Window` exactly when the name-only lookup's was: the classifier's answers do not change (cell
+  P2 of slice a, `tests_insertion_and_write.rs`, stays green as written; T3 memo U-T1). This rests on T3's D-T5,
+  which T3 lands in the same PR: under the landed tag-only class test a MathML `body` would pass step 1 and the
+  lookup would answer `None` for a `WindowEventHandlers` name. The classifier calls the lookup only after its class
+  test, so the lookup is never reached with a non-element from there. T3-a's ground for keeping a name-only lookup
+  (the T3-a memo D-T8, *Rejected*: "`is_window_delegating_pair` and the VM's install loop ask about the name alone")
+  does not hold for the second: the VM's install loop, `install_handler_attr_family`
+  (`vm/host/event_handler_attrs.rs:222-289` at `fecfc646`), iterates `EVENT_HANDLER_ATTRS` (`:229`) and calls
+  `event_handler_attr_event_type` (`:253`), never this lookup (the census above); so does the worker-list installer,
+  `install_handler_attrs_from_list` (`:154`), over its own list. (Until the focused review of the erratum: "the VM's
+  install loop … (`vm/host/event_handler_attrs.rs:154`, `:229`, `:253` at `fecfc646`)", `:154` being the
+  worker-list path.)
+- *Scans.* An attribute of an element that is not an HTML `body` / `frameset` costs one table scan at each reader
+  (two at readers (a) and (c) until T3). On an HTML `body` / `frameset` the two classifiers scan again for the entries
+  they classify; that is bounded by the number of such elements, and passing them the row would add a second form of
+  steps 1–2 beside the name form the IDL accessors call (T3 memo D-T1, D-T2).
+- *The exhaustive match moves, unchanged.* T3-a's `match (Namespace, HandlerScope)` becomes the lookup's step 3 with
+  the same arms; "no wildcard: a new `Namespace` or `HandlerScope` does not compile until it is placed" stays true of
+  one function instead of being a property of a function the row can be obtained without.
+- *A non-element → `None`.* T3-a's predicate did not test for an element and no reader reached it with a
+  non-element (`EcsDom::namespace_of` answers `Html` for one, by absence; the T3-a memo §4.2). The lookup is the only
+  way to a row, so it gives the safe answer itself: an entity that is not an element has no event handler content
+  attribute. No outcome changes (the three readers and both classifiers are reached with elements only).
+- *Home and visibility.* `event_handler_processing/mod.rs`, `pub(crate)`, where the predicate and the name-only
+  lookup are: reader (c) is in the sibling module `event_handler_consumer.rs`, and nothing outside the crate reads an
+  element's handler content attributes. **What it reads** (stated here only; the T3 memo §4.1 points here): the
+  element's `NodeKind` (step 1, `EcsDom::is_element`, which falls back to the presence of `TagType` while
+  `#11-nodekind-inference-shim` is open), `Namespace` (step 3's `match`) and `TagType` (the `(Html, Window)` arm's
+  `is_body_or_frameset`), and the static table: a pure read of one entity's components, with no component, store or
+  cache of its own. The T3-a memo §4.3's "two components" describes the landed predicate, which has no non-element
+  test; its other checks (a query with no state, not cached, Layering) hold for the lookup. (Until the focused review
+  of the erratum: "A pure read of two components of one entity and a static table (the T3-a memo §4.3 holds as
+  written)".)
+- *Return type.* `(&'static str, HandlerScope)`, the event type and the scope of the row, the name-only lookup's
+  tuple. The event type borrows the table, so it is `'static` and the readers need no borrow of `name` to keep it.
+
+**What is fixed here.** (i) T3-a wrote its parts, step 2 of each, at these positions, on the signatures main has; it
+changed no signature and added no branch to the processing function's loop (its part is a filter of the snapshot).
+Landed by #639. (Until the erratum: "at these positions and in this form".) (ii) T3 adds its tagged parts. Of T3-a's
+parts it rewrites exactly the three reader lines, to the lookup call, and **does not move or re-order them**: (a)
+stays the snapshot's filter, before the mark's count and the policy filter (the T3-a memo's cells U-A2 and U-A3 pin
+that order); (b) stays the first conjunct of the D-8 count; (c) stays at the head of the arm, before the policy
+filter. It deletes the predicate and carries its `match` into the lookup unchanged. This rewrite is the one PM
+decision 782 sanctions; it is not a trip of the stop condition below. (Until the erratum: "T3 adds its tagged parts
+and does not move, re-order or rewrite T3-a's".) (iii) Each
 signature changes once, at T3: the `active` parameter, whose type `ActiveDocument`, constructor and two marshalling
-points are T3's (T3 memo D-T3), so it cannot be written earlier without them. (iv) The predicate's own signature,
-`is_event_handler_content_attribute_of(dom, element, name) -> bool`, is final at T3-a (`pub(crate)`); facet (2)'s closer (the T3-a memo §8.3 item 1) extends
-its callers with the attribute's namespace, not T3. **Stop condition (PM decision 741 (3)):** if T3's implementation
-finds that it must change this shape (move or rewrite a T3-a part, or change the predicate), the slice is mis-drawn
-and T3 stops for the PM. **(iii) meets the PM's condition (answered, PM decision 756):** PM decision 741 (3) asks that the final shape be decided once, here, not that T3-a write the final
+points are T3's (T3 memo D-T3), so it cannot be written earlier without them. (iv) The lookup's signature,
+`event_handler_content_attribute_row(dom, element, name) -> Option<(&'static str, HandlerScope)>` (`pub(crate)`), is
+final at T3; facet (2)'s closer (the T3-a memo §8.3 item 1) extends its callers with the attribute's namespace, not
+T3. (Until the erratum: "The predicate's own signature, `is_event_handler_content_attribute_of(dom, element, name) ->
+bool`, is final at T3-a (`pub(crate)`); facet (2)'s closer … extends its callers with the attribute's namespace, not
+T3". PM decision 782 supersedes it: the `-> bool` form is the landed state, not the final one.) (v) **After T3 no
+function returns a row of `EVENT_HANDLER_ATTRS` from a name alone**, and the lookup has exactly five callers: readers
+(a), (b), (c), `is_window_delegating_pair` and `is_x_w_pair` (T3 memo DoD item 4 has the greps and their controls).
+(vi) **Out of scope, by name:** `event_handler_attr_event_type(name)` (`event_handler_consumer.rs:228`, `pub`,
+re-exported) and `event_handler_attr_spec_level(name)` (`:326`, `pub`) stay name-only. The first is the IDL install
+surface's (its two callers are in `vm/host/event_handler_attrs.rs`, which installs accessors per interface and reads
+no element's content attributes) and returns an event type, not a row. The second is total over names (a name that
+is no handler gets `Modern`), so it cannot answer whether a name is a handler at all; the three readers call it for
+the policy filter after the lookup (`mod.rs:121`, `:264`, `event_handler_consumer.rs:423` at `fecfc646`), and the VM's
+install loop calls it per table row. `EVENT_HANDLER_ATTRS` itself stays `pub`: the VM's install loop iterates it.
+What that leaves open, a content-attribute reader that scans the table or calls `event_handler_attr_event_type` in place of the
+lookup, with nothing structural to stop it, is a new slot (PM decision 825; proposed
+`#11-event-handler-attrs-table-reader-visibility`), whose text is T3 memo §8.1 item 6, not here. (Until the focused
+review of the erratum: "stated as a defect in T3 memo §8.3 item 13".) **Stop condition (PM decision 741
+(3), as PM decision 782 amends it):** if T3's implementation finds that it must change this shape (move or re-order
+a reader site, change the lookup's signature, keep or add a function that returns a row from a name alone, or add a
+`_` arm to the match), the slice is mis-drawn and T3 stops for the PM. (Until the erratum: "(move or rewrite a T3-a
+part, or change the predicate)".) **(iii) meets the PM's condition (answered, PM decision 756):** PM decision 741 (3) asks that the final shape be decided once, here, not that T3-a write the final
 signature; R3 wave 1's Axis 3 confirmed that this section states T3's added `active` parameter as the final shape (the T3-a memo §10 Q-A1; until the T3-ab memo rev 1.1 the question was put to the PM). The condition holds for T3-a and T3-b alike (PM decision 767): neither memo, nor the T3 memo, restates this shape.
 
 ## §5. Populations and named risks (input)
