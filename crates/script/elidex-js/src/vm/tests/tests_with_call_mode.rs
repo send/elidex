@@ -322,3 +322,101 @@ fn with_call_mode_panic_preserves_original_payload() {
         "original panic must survive; got {msg:?}"
     );
 }
+
+/// A stack guard (`VmStackScope` / `VmTempRoot`) whose region spans JS
+/// frames, unwound by a panic inside `with_call_mode`
+/// (`#11-vm-stack-guard-panic-unwind-order`).  The guard drops first
+/// (it is inside the closure); if it truncates the VM stack while the
+/// frames above it are still pushed, `with_call_mode`'s close loop reads
+/// `stack[frame_base + slot]` out of bounds — the original payload is
+/// replaced and the upvalue stays `Open`.  The frame's upvalue must be
+/// closed before any truncate, whichever drops first.
+fn assert_guard_unwind_closes_upvalues(
+    open_guard: impl FnOnce(&mut super::super::VmInner, &mut dyn FnMut(&mut super::super::VmInner)),
+) {
+    use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
+    use super::super::value::{FuncId, UpvalueId};
+    use std::sync::Arc;
+
+    let mut vm = Vm::new();
+    let entry_frames = vm.inner.frames.len();
+    let entry_stack_depth = vm.inner.stack.len();
+    // The guard roots one value at `entry_stack_depth`; the frame's slot 0
+    // is the next stack index.
+    let uv = UpvalueId(vm.inner.upvalues.len() as u32);
+    vm.inner.upvalues.push(Upvalue {
+        state: UpvalueState::Open {
+            frame_base: entry_stack_depth + 1,
+            slot: 0,
+        },
+    });
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+            open_guard(vm, &mut |vm| {
+                vm.stack.push(JsValue::Number(123.0));
+                vm.frames.push(CallFrame {
+                    func_id: FuncId(0),
+                    ip: 0,
+                    base: entry_stack_depth + 1,
+                    upvalue_ids: Arc::from([] as [UpvalueId; 0]),
+                    local_upvalue_ids: vec![uv],
+                    this_value: JsValue::Undefined,
+                    exception_handlers: Vec::new(),
+                    tdz_bits: 0,
+                    tdz_overflow: Box::default(),
+                    actual_args: None,
+                    cleanup_base: entry_stack_depth + 1,
+                    new_instance: None,
+                    mode: CallMode::Call,
+                    home_class: None,
+                    kind: FrameKind::Function,
+                    generator: None,
+                    pending_completion: None,
+                });
+                panic!("GUARD_UNWIND_ORIGINAL");
+            });
+            Ok(JsValue::Undefined)
+        });
+    }));
+    std::panic::set_hook(prev_hook);
+
+    let payload = result.expect_err("the closure panicked");
+    let msg = payload
+        .downcast_ref::<&'static str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("<non-string payload>");
+    assert_eq!(
+        msg, "GUARD_UNWIND_ORIGINAL",
+        "the original panic must surface"
+    );
+    assert_eq!(vm.inner.frames.len(), entry_frames, "frames truncated");
+    assert_eq!(vm.inner.stack.len(), entry_stack_depth, "stack truncated");
+    match vm.inner.upvalues[uv.0 as usize].state {
+        UpvalueState::Closed(v) => assert_eq!(v, JsValue::Number(123.0)),
+        UpvalueState::Open { frame_base, slot } => {
+            panic!("upvalue still Open after unwind: frame_base={frame_base}, slot={slot}")
+        }
+    }
+}
+
+#[test]
+fn stack_scope_spanning_frames_unwinds_without_losing_upvalues() {
+    assert_guard_unwind_closes_upvalues(|vm, body| {
+        let mut scope = vm.push_stack_scope();
+        scope.stack.push(JsValue::Undefined);
+        body(&mut scope);
+    });
+}
+
+#[cfg(feature = "engine")]
+#[test]
+fn temp_root_spanning_frames_unwinds_without_losing_upvalues() {
+    assert_guard_unwind_closes_upvalues(|vm, body| {
+        let mut guard = vm.push_temp_root(JsValue::Undefined);
+        body(&mut guard);
+    });
+}
