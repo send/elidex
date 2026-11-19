@@ -1,4 +1,4 @@
-# ECS-mission ratchet allowlist: one row per occurrence of a line the classifier denies. Edited by hand only to DELETE rows. The one exception (rows appended by `--add-new`) is defined in ecs_mission_ratchet.py's docstring.
+# ECS-mission ratchet allowlist: one row per occurrence of a line the classifier denies. Edited by hand only to DELETE rows. The exceptions (rows appended by `--add-new`, classes raised by `--relabel`) are defined in ecs_mission_ratchet.py's docstring.
 # Columns (TAB-separated): class, slot, path, normalised_text. Text = the line with whitespace runs collapsed to one space.
 # class: S spec consequence, E spec-silent evidence, C compat layer, T core target violation, D structural borrowing, N neutral.
 # slot: '-' or a '#11-<kebab>' slot id. T and D rows must carry a slot.

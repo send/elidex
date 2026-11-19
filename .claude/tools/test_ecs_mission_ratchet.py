@@ -99,7 +99,7 @@ class AddNewHarness:
 
     def base_src(self, src):
         """Commit `src` as the classifier module together with every file put so far; HEAD is the base
-        the scenarios pass as --base (a file put afterwards is a line added after the base)."""
+        the scenarios pass as the base (a file put afterwards is a line added after the base)."""
         self.put(".claude/tools/ecs_mission_ratchet.py", src)
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"],
                        cwd=self.root, check=True, env=self.env)
@@ -537,12 +537,23 @@ def sc_rl_consumed(m):  # two spec rows for one allowlist row: the second finds 
     return _relabel_rejected(m, ["T\t#11-x\ta.md\t1", "D\t#11-x\ta.md\t1"])
 
 
+def sc_base_used(m):  # base has the line once, the PR has it on 2 lines, no rows yet: the 2nd spec row exceeds the base count
+    h = AddNewHarness(m, {"a.md": LINE + "\n"})
+    try:
+        h.put("a.md", LINE + "\n" + LINE + "\n")
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1", "T\t#11-x\ta.md\t2")
+        return len(errs) == 1 and "spec line 2" in errs[0] and "not present at base" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
 def sc_atomic(m):
     return _rejected(m, {"a.md": LINE + "\n", "b.md": "plain\n"},
                      ["T\t#11-x\ta.md\t1", "T\t#11-y\tb.md\t1"])
 
 
-def sc_count(m):  # a batch consumes the new-hit occurrences in turn
+def sc_count(m):  # a batch naming the one new hit twice is rejected (named twice); the existing row covers the other occurrence
     return _rejected(m, {"a.md": LINE + "\n" + LINE + "\n"}, ["T\t#11-x\ta.md\t2", "T\t#11-x\ta.md\t2"],
                      ["N\t-\ta.md\t" + LINE])
 
@@ -552,7 +563,7 @@ SCENARIOS = {
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
     "base_denies": sc_base_denies, "base_unreadable": sc_base_unreadable,
     "base_raw_line": sc_base_raw_line, "base_real_ff": sc_base_real_ff, "norm_not_denied": sc_norm_not_denied,
-    "not_at_base": sc_not_at_base, "new_file": sc_new_file, "base_count": sc_base_count,
+    "not_at_base": sc_not_at_base, "new_file": sc_new_file, "base_count": sc_base_count, "base_used": sc_base_used,
     "ln_garbage": sc_ln_garbage, "ln_zero": sc_ln_zero, "dup_named": sc_dup_named,
     "shape_add": sc_shape_add, "shape_prune": sc_shape_prune, "shape_relabel": sc_shape_relabel,
     "rl_t_to_d": sc_rl_t_to_d, "rl_line0": sc_rl_line0, "rl_ln_garbage": sc_rl_ln_garbage,
@@ -583,6 +594,7 @@ MUTANTS = [
     ("base scope: normalised text judged, not the raw line", (("was_denied(_line_of(repo_root, path, ln))", "was_denied(key[1])"),), ["base_raw_line"]),
     ("normalised text need not be denied now", (("if not denied(key[1]):", "if False:"),), ["norm_not_denied"]),
     ("base presence not required", (("if at_base[path] is None or not at_base[path][key[1]] - existing[key] - used[key] > 0:", "if False:"),), ["not_at_base", "new_file", "base_count"]),
+    ("base presence: earlier rows of the batch not subtracted", (("- existing[key] - used[key] > 0", "- existing[key] > 0"),), ["base_used"]),
     ("base presence: not count-based", (("- existing[key] - used[key] > 0", "> 0"),), ["base_count"]),
     ("line_no parsed by isdigit", (("    try:\n        n = int(s)\n    except ValueError:\n        return None\n    return n if n >= 1 else None",
                                     "    n = int(s) if s.isdigit() else None\n    return n if n is None or n >= 1 else None"),), ["ln_garbage", "rl_ln_garbage"]),
@@ -636,7 +648,7 @@ class AddNew(unittest.TestCase):
         self.assertEqual(mod.main(["--add-new"]), 2)
         self.assertEqual(mod.main(["--add-new", "x", "--prune"]), 2)
         self.assertEqual(mod.main(["--prune", "--add-new", "x"]), 2)
-        self.assertEqual(mod.main(["--add-new", "x", "--base"]), 2)
+        self.assertEqual(mod.main(["--add-new", "x", "--base", "HEAD"]), 2)  # the base is not choosable from the CLI
         self.assertEqual(mod.main(["--prune", "--base", "HEAD"]), 2)
         self.assertEqual(mod.main(["--relabel"]), 2)
         self.assertEqual(mod.main(["--relabel", "x", "--prune"]), 2)

@@ -28,8 +28,8 @@ axes.md Axis 2 sub-check 2d (authority source) grades them.
 Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
 checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
-Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>] | --relabel <spec.tsv>]
---base defaults to origin/main.
+Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> | --relabel <spec.tsv>]
+The base of --add-new is always origin/main (not choosable from the command line); its sha is printed.
 """
 import collections
 import os
@@ -416,21 +416,20 @@ def repo_root_of(path):
 
 def main(argv):
     mode = argv[0] if argv else None
-    base = "origin/main"
-    if len(argv) == 4 and mode == "--add-new" and argv[2] == "--base":
-        base, argv = argv[3], argv[:2]
     if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode in ("--add-new", "--relabel"))):
-        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>] | --relabel <spec.tsv>]", file=sys.stderr)
+        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> | --relabel <spec.tsv>]", file=sys.stderr)
         return 2
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
     if mode in ("--add-new", "--relabel"):
         with open(argv[1], encoding="utf-8") as f:
             spec = parse_tsv(f.read())
-        errs, done = add_new(root, DEFAULT_ALLOWLIST, spec, base) if mode == "--add-new" else relabel(root, DEFAULT_ALLOWLIST, spec)
+        errs, done = add_new(root, DEFAULT_ALLOWLIST, spec) if mode == "--add-new" else relabel(root, DEFAULT_ALLOWLIST, spec)
         if errs:
             print("\n".join(errs))
             print("ecs-mission-ratchet: %s rejected; nothing written" % mode)
             return 1
+        if mode == "--add-new":
+            print("base: origin/main = %s" % _git(["rev-parse", "origin/main"], root).decode().strip())
         for r in done:
             print(("added: " if mode == "--add-new" else "relabelled: ") + r)
         diff = _diff(root, DEFAULT_ALLOWLIST)
