@@ -129,3 +129,35 @@ fn getter_generator_holder_upvalue_and_receiver_survive_generator_allocation() {
         "getter upvalue + receiver",
     );
 }
+
+/// (e) Accessor setter: `SetProp` hands the receiver to the setter call as
+/// a Rust value, so a setter reachable only through that receiver (and the
+/// setter's captured `c`) is at risk while `call_internal` allocates its
+/// rest array.
+#[test]
+fn setter_holder_upvalue_survive_rest_array_allocation() {
+    let setup = format!(
+        "{POOL} globalThis.out = 0; var o = {{}}; Object.defineProperty(o, 'x', {{ set: \
+         (function () {{ var c = {{tag: 7}}; return function (...r) {{ globalThis.out = c.tag + r.length }} }})() }}); \
+         pool.push(o); o = undefined;"
+    );
+    assert_survives(
+        &setup,
+        "mk().x = 1; out",
+        8.0,
+        "setter upvalue + rest length",
+    );
+}
+
+/// (f) `ToPrimitive`: the operand of `+` is held as a Rust value while its
+/// `valueOf` (reachable only through it, with a captured `c`) runs and
+/// allocates its rest array.
+#[test]
+fn value_of_holder_upvalue_survive_rest_array_allocation() {
+    let setup = format!(
+        "{POOL} var o = {{}}; o.valueOf = \
+         (function () {{ var c = {{tag: 7}}; return function (...r) {{ return c.tag + r.length }} }})(); \
+         pool.push(o); o = undefined;"
+    );
+    assert_survives(&setup, "mk() + 0", 7.0, "valueOf upvalue + rest length");
+}

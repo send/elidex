@@ -417,10 +417,12 @@ impl VmInner {
         };
 
         // Async / generator: the coroutine owns the frame (see
-        // `VmInner::create_coroutine`).  `this`, the callee (hence its
-        // upvalues) and `args` are below `base` in `call_dispatch`'s
-        // rooting scope (the `run_function` entry has no callee object, an
-        // `undefined` `this` and no arguments).  `actual_args` is a copy of
+        // `VmInner::create_coroutine`).  `call_dispatch`'s rooting scope,
+        // below `base`, holds the callee object as called, the caller's
+        // `this` and `args`; the frame's own `this` and closure are those
+        // or reachable from them (a bound function's target and bound
+        // `this`, an arrow's captured `this`).  The `run_function` entry has
+        // no callee object, an `undefined` `this` and no arguments.  `actual_args` is a copy of
         // `args`; `create_coroutine` roots it across its own allocations.
         // A coroutine frame is always `FrameKind::Function` (the
         // `debug_assert!` above), whatever `kind` was passed.
