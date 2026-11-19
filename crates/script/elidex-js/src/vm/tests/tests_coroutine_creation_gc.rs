@@ -86,6 +86,39 @@ fn call_with_gc_at(setup: &str, name: &str, k: usize) -> (Vm, Result<JsValue, Vm
     (vm, result)
 }
 
+/// Like `call_with_gc_at`, but `args_setup` is evaluated (after `setup`)
+/// to the call's argument list, an array whose elements are passed as
+/// `args` and then reachable from nothing else.
+fn call_with_args_gc_at(
+    setup: &str,
+    name: &str,
+    args_setup: &str,
+    k: usize,
+) -> (Vm, Result<JsValue, VmError>) {
+    let mut vm = Vm::new();
+    vm.eval(setup).expect("probe setup must succeed");
+    let Some(JsValue::Object(f)) = vm.get_global(name) else {
+        panic!("`{name}` must be a function object");
+    };
+    let mut args = Vec::new();
+    for i in 0.. {
+        match vm
+            .eval(&format!("({args_setup})[{i}]"))
+            .expect("args setup")
+        {
+            JsValue::Undefined => break,
+            v => args.push(v),
+        }
+    }
+    arm_gc_at_alloc(&mut vm, k);
+    let result = vm.call(f, JsValue::Undefined, &args);
+    assert!(
+        armed_gc_fired(&vm, k),
+        "no collection was placed — calling `{name}` never reached allocation {k}"
+    );
+    (vm, result)
+}
+
 /// Assert `result` is `Number(expected)`.
 fn assert_number(result: Result<JsValue, VmError>, expected: f64, what: &str) {
     match result {
@@ -134,9 +167,10 @@ fn generator_closure_upvalue_survives_generator_allocation() {
 }
 
 /// `push_js_call_frame` generator branch: the rest-param array is a fresh
-/// object held only by its stack slot, which `stack.drain(base..)` moves into
-/// the initial frame's `stack_slice` before the Generator is allocated
-/// (allocation 1 = the rest array, allocation 2 = the Generator).
+/// object held only by its stack slot (allocation 1 = the rest array,
+/// allocation 2 = the Generator).  Were the slots drained into the initial
+/// frame's `stack_slice` before the Generator's allocation (the defect this
+/// cell pins), a Rust `Vec` would be its only holder.
 #[test]
 fn generator_rest_array_survives_generator_allocation() {
     let setup = format!(
@@ -165,16 +199,33 @@ fn generator_excess_argument_survives_generator_allocation() {
 }
 
 /// `call_internal` generator branch (host entry, `Vm::call`): the rest-param
-/// array is the one value whose rooting is `call_internal`'s own business
-/// (`this` / `args` / the callee are the caller's) — it is held only by its
-/// stack slot, which is drained into the initial frame before the Generator is
-/// allocated (allocation 1 = the rest array, allocation 2 = the Generator).
+/// array is held only by its stack slot (allocation 1 = the rest array,
+/// allocation 2 = the Generator); draining the slots before the Generator's
+/// allocation (the defect) would leave a Rust `Vec` its only holder.  The
+/// callee / `this` / `args` on this entry are
+/// `#11-vm-call-internal-callee-this-rooting`'s.
 #[test]
 fn host_call_generator_rest_array_survives_generator_allocation() {
     let setup = "globalThis.g = function* (...r) { yield r.length };";
     let (mut vm, r) = call_with_gc_at(setup, "g", 2);
     vm.set_global("G", r.expect("generator call"));
     assert_number(vm.eval("G.next().value"), 0.0, "rest array length");
+}
+
+/// `call_internal` generator branch (host entry, `Vm::call`): an excess
+/// argument (no rest parameter) is held only by the host's `args` slice and
+/// the initial frame's `actual_args` while the Generator (allocation 1) is
+/// allocated; `create_coroutine` must root `actual_args` on this entry too.
+#[test]
+fn host_call_generator_excess_argument_survives_generator_allocation() {
+    let setup = "globalThis.g = function* () { yield arguments[0].x };";
+    let (mut vm, r) = call_with_args_gc_at(setup, "g", "[{x: 7}]", 1);
+    vm.set_global("G", r.expect("generator call"));
+    assert_number(
+        vm.eval("G.next().value"),
+        7.0,
+        "excess argument read through `arguments` after the first resume",
+    );
 }
 
 /// `push_js_call_frame` async branch → `make_async_coroutine_and_drive`: the

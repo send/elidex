@@ -95,10 +95,12 @@ impl VmInner {
     /// `frame.base..` is the locals region (including the rest array) and
     /// `frame.cleanup_base` the stack height to restore (callee and
     /// receiver below `base`; equal to `base` when there is nothing to
-    /// drop).  The frame's values are rooted on the VM stack (the locals at
-    /// `base..`, the callee and receiver below `base`) or by the caller's
-    /// contract (`call_internal`'s `this`, `args` and callee) — except
-    /// `actual_args`, which `create_coroutine` roots itself:
+    /// drop).  The locals at `base..` and, on the `push_js_call_frame`
+    /// entry, the callee and receiver below `base` are on the VM stack.
+    /// On the `call_internal` entry, `this`, `args` and the callee are not,
+    /// and no caller contract roots them
+    /// (`#11-vm-call-internal-callee-this-rooting`).  `actual_args`
+    /// `create_coroutine` roots itself:
     /// `push_js_call_frame` clears an excess argument (no rest parameter)
     /// from its stack slot, so the `Vec` can be its only holder.
     ///
