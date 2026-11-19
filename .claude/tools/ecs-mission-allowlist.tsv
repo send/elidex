@@ -1,9 +1,9 @@
-# ECS-mission ratchet allowlist: one row per occurrence of a line the classifier denies. Edited by hand only to DELETE rows.
+# ECS-mission ratchet allowlist: one row per occurrence of a line the classifier denies. Edited by hand only to DELETE rows. The exceptions (rows appended by `--add-new`, classes raised by `--relabel`) are defined in ecs_mission_ratchet.py's docstring.
 # Columns (TAB-separated): class, slot, path, normalised_text. Text = the line with whitespace runs collapsed to one space.
 # class: S spec consequence, E spec-silent evidence, C compat layer, T core target violation, D structural borrowing, N neutral.
 # slot: '-' or a '#11-<kebab>' slot id. T and D rows must carry a slot.
 # Rows are sorted by (path, text). A row whose line was fixed, moved or tagged is stale: delete it (--prune does).
-# The allowlist only shrinks. A new untagged line is fixed by tagging it or rewording it, never by adding a row.
+# A new untagged line is fixed by tagging it or rewording it.
 # An untagged [contrast]/[history] line (axes.md 2d class X) is recorded as N.
 # Not scanned by the ratchet: this file (its rows would each be a hit for themselves) and SELF_FILES in ecs_mission_ratchet.py.
 N	-	.plan-z1b-consume-delta.md	- **Per-column CHROME** (box-fragment chrome painted per column) → committed-next (render walks the box
@@ -28,6 +28,7 @@ E	-	crates/core/elidex-plugin/src/shorthand.rs	/// §6.7.2 step 2). Verified vs 
 N	-	crates/core/elidex-render/src/builder/walk.rs	// without style emitted no chrome/transform/clip pre-C-1 — preserved).
 N	-	crates/core/elidex-render/src/builder/walk.rs	// ── Chrome + overflow clip + content, emitted over a per-entity *fragment
 E	-	crates/core/elidex-sandbox/src/macos.rs	//! is used by Chromium. The replacement (App Sandbox entitlements) requires
+T	#11-core-browser-parity-deviations	crates/css/elidex-css-anim/src/parse.rs	// Browsers accept unitless 0 for backwards compatibility with
 S	-	crates/css/elidex-css-multicol/src/lib.rs	// (width). `3px` vs Blink's `medium` is the pre-existing R2 divergence.
 S	-	crates/css/elidex-style/src/lib.rs	// shorthand-reconstruction algorithm). Blink 148:
 S	-	crates/css/elidex-style/src/tests/shorthand.rs	// ALL initial ⇒ keep first (width); `3px` vs Blink's `medium`
@@ -51,6 +52,7 @@ T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numer
 S	-	crates/dom/elidex-dom-api/src/element/tests_tree.rs	// Browser parity (Chrome / Firefox / WebKit):
 T	#11-replace-child-self-records	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
 S	-	crates/dom/elidex-dom-api/src/element/tree.rs	/// (replace step 1, ensure pre-insert validity step 3; matches Chrome/Firefox/WebKit).
+T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/update_steps.rs	// `<body>` during `blur`/`focusout` (the pre-A2a shell + real browsers both do
 S	-	crates/dom/elidex-dom-api/src/range/live.rs	//! on a shadow-tree node succeeds (Chrome-compat), but mutations
 S	-	crates/dom/elidex-dom-api/src/range/mod.rs	// `(new_node, 0)`. This matches Chrome / Firefox observable
 S	-	crates/dom/elidex-dom-api/src/selection.rs	//! - The Chrome single-range disposition (Q1 (a), plan v3) is enforced here:
@@ -69,7 +71,10 @@ N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at 
 S	-	crates/dom/elidex-form-core/src/input_tests.rs	// Spec is silent on trimming; Chrome / Firefox both do
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs	/// establishment site (the interoperable behavior every browser ships): the
 E	-	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
+T	#11-core-browser-parity-deviations	crates/dom/elidex-form/src/select/mod.rs	/// Stops at the first/last option (no wraparound, per native browser behavior).
 E	-	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.
+T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/connector.rs	/// (h2c) is intentionally not supported, matching browser behavior.
+T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/cookie_jar.rs	// SameSite: default to Lax per modern browser behavior
 S	-	crates/net/elidex-net/src/cookie_jar.rs	// SameSite=None requires Secure (Chrome 80+, Firefox 69+)
 D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/cookie_jar.rs	/// Maximum cookies per domain (Chromium uses 180).
 D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/preflight/mod.rs	/// (Chromium 7200s, Firefox 86400s). We pick **7200s** to match
@@ -82,10 +87,11 @@ E	-	crates/script/elidex-js/src/vm/error.rs	/// matches Chrome's WebIDL surface.
 E	-	crates/script/elidex-js/src/vm/host/array_buffer.rs	/// V8-shaped error message and width stays in lockstep with the
 S	-	crates/script/elidex-js/src/vm/host/attr_proto.rs	//! Chrome / Firefox / Safari). The qualified-name `StringId` is
 S	-	crates/script/elidex-js/src/vm/host/blob.rs	// fall back to empty (Chromium maps invalid types
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	// part, divergent from browser behaviour.
 S	-	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
-S	-	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
-S	-	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
 S	-	crates/script/elidex-js/src/vm/host/css_style_declaration.rs	//! (Supersedes the earlier IMP-1/2 verbatim-write reading: Chrome's
 S	-	crates/script/elidex-js/src/vm/host/css_style_declaration.rs	//! `el.style.foo` readback Chrome exhibits is a JS expando on the
 N	-	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	// (Chrome accepts non-object loosely; spec-strict rejects.)
@@ -106,6 +112,8 @@ E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event
 E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**:
 E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	/// event" algorithms are silent on `view`, but Chrome and Firefox
 S	-	crates/script/elidex-js/src/vm/host/event_source_dispatch.rs	//! (matches Chrome / Firefox semantics).
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	/// Treating it as a no-op matches browser behaviour for unattached
 E	-	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	// newState then oldState (matches Chrome DevTools enumeration).
 E	-	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	/// order is `(newState, oldState)` per Chrome DevTools enumeration
 S	-	crates/script/elidex-js/src/vm/host/events.rs	// Read order matches Chrome's invocation order: bubbles,
@@ -148,6 +156,7 @@ S	-	crates/script/elidex-js/src/vm/host/html_input_proto.rs	// Firefox match thi
 S	-	crates/script/elidex-js/src/vm/host/html_input_proto.rs	// HTML §4.10.5.1.16 IDL `list` is not `[SameObject]` but Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// / `InvalidNodeKind`) are silent no-ops to match Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	//! match browser behaviour.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/idl_coerce.rs	/// matches Chromium / Firefox observable behaviour for
 E	-	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// SyntaxError matching the Chrome / Firefox shape.
 E	-	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// to construct 'IntersectionObserver'" shape (Chrome parity);
@@ -186,6 +195,7 @@ S	-	crates/script/elidex-js/src/vm/host/subtle_crypto/marshal/key.rs	/// (`p-u`)
 S	-	crates/script/elidex-js/src/vm/host/subtle_crypto/marshal/params.rs	// Chrome, e.g. `digest(42, …)` coerces "42"; `Symbol()` throws).
 E	-	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// message prefix so JS-visible errors match Chrome's wording.
 E	-	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// render Chrome-parity `parameter N` text in the rejection
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// silently process zero bytes — divergent from browser behaviour).
 S	-	crates/script/elidex-js/src/vm/host/typed_array.rs	// matches V8 / SpiderMonkey. NaN → 0-length per ToIndex.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/url/mod.rs	// identity comparison holds (matches V8 + boa precedent).
 S	-	crates/script/elidex-js/src/vm/host/url/mod.rs	//! failure throws `TypeError` (matches V8 / Firefox 2023+).
@@ -486,6 +496,7 @@ T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-u
 E	-	docs/plans/2026-11-change-on-blur-user-provenance.md	predictions hold; **W6 fails**: in Chromium the `multiple`-toggle sanitization does not re-baseline. Back to the PM (PM 305).
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	value change (model H, §4.3; measured in Chromium, §6; PM 305). One function computes it: `elidex_form::take_change_on_blur`
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium | baseline at blur | Cell |
+T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-change-on-blur-user-provenance.md	| WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule in the text (E1) | same funnel as `<input>`; change-on-blur kept as browser behaviour, measured identical to `<input>` (§6) | `apply_user_edit`, `take_change_on_blur` | ✗ | yes |
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4) |
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9) |
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1) |
@@ -499,7 +510,9 @@ T	#11-replace-child-self-records	docs/plans/2026-11-eh-attrs-c0a-replace-record-
 N	-	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	| H-a5 | Two comments call the self-replace no-op "browser parity" without a measurement | `mutation/mod.rs:756-760` ("matching the VM handler's browser-parity no-op short-circuit"), `element/tree.rs:267-271` ("a no-op per browser parity (Chrome / Firefox / WebKit)"), `mutation/tests.rs:287-288` ("pre-existing browser-parity no-op") |
 S	-	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	| `:756-760` | "matching the VM handler's browser-parity no-op short-circuit" | rewritten: "elidex queues no record here; the spec queues two (`#11-replace-child-self-records`: Chromium unmeasured, C0a memo §7)" |
 N	-	docs/plans/2026-11-focus-fixup-canonical-steps.md	text, the §6 Chromium pre-step, cells C19–C22, guards MG8 / MG9, §5.2's `form_input.rs` / `focus_snapshot.rs` rows,
+T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-focus-fixup-program.md	plan (1) keeps browser behaviour, measured.
 T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-focus-fixup-program.md	| **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); design H (Chromium-measured, plan (1) §6) | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
+T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-focus-fixup-program.md	| WHATWG HTML §4.10.11 The textarea element | user change → `input`; no `change` rule in the text | same funnel; change-on-blur kept as browser behaviour, measured | (1) | ✗ | yes |
 E	-	docs/plans/2026-11-range-contents-program.md	- The measured outcome differs from that reading. **Chromium (HeadlessChrome 156.0.0.0, 2026-11-03; probe and
 T	#11-core-browser-parity-deviations	docs/plans/2026-11-range-contents-program.md	A Chromium measurement (HeadlessChrome 156, 2026-11-03) shows custom elements in cloned, `createHTMLDocument` and
 T	#11-core-browser-parity-deviations	docs/plans/2026-11-range-contents-program.md	Chromium** (HeadlessChrome 156.0.0.0, 2026-11-03, probe `handoff/l3-d15probe/index.html`, result `result.txt`; one

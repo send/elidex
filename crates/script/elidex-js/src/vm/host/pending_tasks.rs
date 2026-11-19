@@ -427,7 +427,7 @@ fn dispatch_post_message(
     // window (WHATWG HTML §9.3.3 step 8).  `ports` is a fresh empty
     // Array until MessagePort lands (plan §Deferred #16);
     // allocating per dispatch keeps identity fresh per event,
-    // matching browser behaviour.  Allocate the Array BEFORE
+    // since each MessageEvent has its own ports FrozenArray.  Allocate the Array BEFORE
     // `define_with_precomputed_shape` so the slot vec already has
     // its `ObjectId`; the outer `g` GC root keeps the event alive,
     // and the slot install will write `ports_arr` into the event

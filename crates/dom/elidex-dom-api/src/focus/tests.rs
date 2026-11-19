@@ -547,7 +547,7 @@ fn move_clears_focus() {
     // A re-parent is a classic remove+insert (no `moveBefore` in elidex):
     // `append_child` of a focused element fires the implicit remove
     // (`detach_with_hook` → `fire_after_remove`), so focus is lost on a
-    // move — matching browser behaviour (WHATWG HTML §2.1.4 runs on the
+    // move (WHATWG HTML §2.1.4 runs on the
     // implicit remove).
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
