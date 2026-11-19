@@ -385,8 +385,9 @@ impl VmInner {
         };
 
         // Async / generator: the coroutine owns the frame (see
-        // `VmInner::create_coroutine`).  `this`, `args` and the callee
-        // (hence its upvalues) are not on the VM stack on this entry path,
+        // `VmInner::create_coroutine`).  `this`, the callee (hence its
+        // upvalues) and `args` past `param_count` are not on the VM stack on
+        // this entry path,
         // and not every caller roots them (e.g. microtask jobs do, via
         // `current_microtask`; the bound-call fallback and `GetProp`'s
         // getter call do not) — open as

@@ -78,11 +78,6 @@ impl VmInner {
         id
     }
 
-    /// Allocate an object, returning its `ObjectId`.
-    ///
-    /// May trigger a GC cycle if the allocation pressure threshold is exceeded.
-    /// GC runs **before** the new object is placed in the heap, so the new
-    /// object cannot be prematurely collected.
     /// Estimated byte cost per object allocation (struct size + inline overhead).
     const OBJECT_ALLOC_ESTIMATE: usize = std::mem::size_of::<Object>() + 64;
 
@@ -93,6 +88,11 @@ impl VmInner {
         Self::OBJECT_ALLOC_ESTIMATE
     }
 
+    /// Allocate an object, returning its `ObjectId`.
+    ///
+    /// May trigger a GC cycle if the allocation pressure threshold is exceeded.
+    /// GC runs **before** the new object is placed in the heap, so the new
+    /// object cannot be prematurely collected.
     pub(crate) fn alloc_object(&mut self, obj: Object) -> ObjectId {
         // GC trigger BEFORE insertion.  Callers must ensure that any
         // ObjectIds reachable only through `obj`'s fields (prototype,

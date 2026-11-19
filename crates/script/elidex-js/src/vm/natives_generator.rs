@@ -93,11 +93,12 @@ impl VmInner {
     /// async calls: `call_internal` and `push_js_call_frame` both end here.
     ///
     /// Spec counterparts (ECMA-262): the generator object and its
-    /// suspended-start state of EvaluateGeneratorBody (§15.5.2) /
-    /// EvaluateAsyncGeneratorBody (§15.6.2) with GeneratorStart (§27.8.3.1),
-    /// and the promise capability of EvaluateAsyncFunctionBody (§15.8.4);
-    /// the first drive is [`make_async_coroutine_and_drive`]
-    /// (AsyncFunctionStart, §27.10.5.1).
+    /// suspended-start state of EvaluateGeneratorBody (§15.5.2) with
+    /// GeneratorStart (§27.8.3.1), and the promise capability of
+    /// EvaluateAsyncFunctionBody (§15.8.4); the first drive is
+    /// [`make_async_coroutine_and_drive`] (AsyncFunctionStart, §27.10.5.1).
+    /// Async generators are not implemented (`#11-vm-async-generators`):
+    /// an `async function*` call takes the async-function path here.
     ///
     /// `frame.base..` is the locals region (including the rest array) and
     /// `frame.cleanup_base` the stack height to restore (callee and
