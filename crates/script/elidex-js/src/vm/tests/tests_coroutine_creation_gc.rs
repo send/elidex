@@ -283,9 +283,14 @@ fn async_initial_drive_coroutine_survives_await_promise_allocation() {
 /// Rust local while the Promise that wraps it is allocated.  Placed in a
 /// continuation drive (the second `await`), where the coroutine is rooted
 /// through the `AsyncDriverStep` in `current_microtask`, so the awaited
-/// object is the only unrooted value: allocations 1–2 = wrapper Promise and
-/// coroutine, 3 = the Promise wrapping `0` (initial drive), 4 = the Promise
-/// wrapping `mk()`'s result (continuation drive).
+/// object is the only unrooted value.  `alloc_object` advances the counter
+/// even while GC is off, so the allocations are numbered: 1–2 = wrapper
+/// Promise and coroutine, 3 = the Promise wrapping `0` (initial drive,
+/// GC on), 4–5 = the initial drive's two `alloc_async_step` (GC off: they
+/// count but cannot collect).  The armed k = 4 is therefore reached by the
+/// first allocation made with GC on afterwards: the Promise wrapping
+/// `mk()`'s result in the continuation drive (allocation 6, or whichever
+/// GC-on allocation first follows 5), which is the window under test.
 #[test]
 fn async_awaited_object_survives_await_promise_allocation() {
     let setup = format!(
@@ -299,5 +304,55 @@ fn async_awaited_object_survives_await_promise_allocation() {
         "out",
         7.0,
         "awaited object read after the second await",
+    );
+}
+
+/// Edges 27/28's two vectors in one cell, plus the receiver.  Reading
+/// `arguments` makes `push_js_call_frame` copy **every** argument into
+/// `actual_args`, so a named parameter's object is held by both
+/// `actual_args` and the frame's `stack_slice` and a drain-before-alloc order
+/// is hidden behind the `actual_args` push (and vice versa).  The receiver
+/// is the value that is held only by the VM stack below `base` (it leaves
+/// the stack at `truncate(cleanup_base)` and then sits in `this_value`), so
+/// it is what makes the cell sensitive to the drain order.  Each object is
+/// reachable only through the call (`mk()` for all three).
+///
+/// Generator via `push_js_call_frame`; the collection is placed at the
+/// Generator shell allocation (allocation 1).
+#[test]
+fn generator_receiver_param_and_excess_argument_survive_generator_allocation() {
+    let setup = format!(
+        "{POOL} pool.push({{v: 2}}); pool.push({{v: 1}}); \
+         pool.push({{tag: 3, *m(p) {{ return this.tag * 100 + p.v + arguments[1].v * 10 }} }});"
+    );
+    let (_vm, r) = eval_with_gc_at(&setup, 1, "mk().m(mk(), mk()).next().value");
+    assert_number(
+        r,
+        321.0,
+        "receiver, named parameter and excess argument read after the first resume",
+    );
+}
+
+/// As above for an async call.  Allocation 1 = wrapper Promise, 2 = the
+/// coroutine shell.  The collection is placed at 2: the `actual_args` scope
+/// must still hold the excess argument after the wrapper exists (a missing
+/// push loses it at either allocation), and only the shell allocation sits
+/// between the stack drain and the install in a drain-before-alloc order
+/// (the wrapper precedes the drain in both orders), so it is the window that
+/// loses the receiver / `stack_slice` values.
+#[test]
+fn async_receiver_param_and_excess_argument_survive_coroutine_allocation() {
+    let setup = format!(
+        "{POOL} globalThis.out = 0; pool.push({{v: 2}}); pool.push({{v: 1}}); \
+         pool.push({{tag: 3, async m(p) {{ await 0; \
+             globalThis.out = this.tag * 100 + p.v + arguments[1].v * 10 }} }});"
+    );
+    let (vm, r) = eval_with_gc_at(&setup, 2, "mk().m(mk(), mk()); 0");
+    r.expect("call");
+    assert_global_number(
+        &vm,
+        "out",
+        321.0,
+        "receiver, named parameter and excess argument read after the first await",
     );
 }
