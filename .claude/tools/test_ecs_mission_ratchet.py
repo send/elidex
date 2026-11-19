@@ -84,9 +84,9 @@ class AddNewHarness:
         os.makedirs(self.root)
         self.env = m.git_env()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
-        self.base_src("def denied(line):\n    return False\n")  # the default base classifier denies nothing
         for name, data in (files or {}).items():
             self.put(name, data)
+        self.base_src("def denied(line):\n    return False\n")  # the default base classifier denies nothing
         self.al = os.path.join(self.td.name, "allow.tsv")
         self.allow(*rows)
 
@@ -98,7 +98,8 @@ class AddNewHarness:
         subprocess.run(["git", "add", name], cwd=self.root, check=True, env=self.env)
 
     def base_src(self, src):
-        """Commit `src` as the classifier module; HEAD is the base the scenarios pass as --base."""
+        """Commit `src` as the classifier module together with every file put so far; HEAD is the base
+        the scenarios pass as --base (a file put afterwards is a line added after the base)."""
         self.put(".claude/tools/ecs_mission_ratchet.py", src)
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"],
                        cwd=self.root, check=True, env=self.env)
@@ -356,6 +357,107 @@ def sc_base_denies(m):  # base scope: the base classifier already denies the lin
         h.close()
 
 
+def sc_base_raw_line(m):  # the base judges the raw line: \x0c is collapsed by normalise() but splits segments
+    h = AddNewHarness(m, {"a.md": "matches Chrome\x0chere\n"})
+    try:
+        h.base_src("def denied(line):\n    return '\\x0c' in line\n")
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and "not newly denied" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_base_real_ff(m):  # real classifier at base: `Chrome is fast\x0c[spec]` is denied at base, tagged once normalised
+    h = AddNewHarness(m, {"a.md": "Chrome is fast\x0c[spec]\n"})
+    try:
+        with open(SRC, encoding="utf-8") as f:
+            h.base_src(f.read())
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_norm_not_denied(m):  # normalised text not denied now: the row would be malformed (base denies nothing)
+    h = AddNewHarness(m, {"a.md": "Chrome is fast\x0c[spec]\n"})
+    try:
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and "not itself denied" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_not_at_base(m):  # a line added after the base commit is never allowlisted, even if base does not deny it
+    h = AddNewHarness(m, {"a.md": "ok\n"})
+    try:
+        h.put("a.md", "ok\n" + LINE + "\n")
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t2")
+        return bool(errs) and "not present at base" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_new_file(m):  # a file that is not at base at all
+    h = AddNewHarness(m, {"b.md": "ok\n"})
+    try:
+        h.put("a.md", LINE + "\n")
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and "not present at base" in errs[0] and added == []
+    finally:
+        h.close()
+
+
+def sc_base_count(m):  # count-based: base has one occurrence, the PR added a second; one row exists already
+    h = AddNewHarness(m, {"a.md": LINE + "\n"}, ["N\t-\ta.md\t" + LINE])
+    try:
+        h.put("a.md", LINE + "\n" + LINE + "\n")
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t2")
+        return bool(errs) and "not present at base" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_ln_garbage(m):  # '\u00b2' passes isdigit() but not int(): an error item, no traceback
+    return _rejected(m, {"a.md": LINE + "\n"}, ["T\t#11-x\ta.md\t\u00b2"])
+
+
+def sc_ln_zero(m):
+    return _rejected(m, {"a.md": LINE + "\n"}, ["T\t#11-x\ta.md\t0"])
+
+
+def sc_dup_named(m):  # line 1 named twice must not cover the un-named identical line 2
+    return _rejected(m, {"a.md": LINE + "\n" + LINE + "\n"}, ["T\t#11-x\ta.md\t1", "T\t#11-x\ta.md\t1"])
+
+
+def sc_shape_add(m):  # a 5-column row blocks the write; the file is untouched, rows are not dropped
+    h = AddNewHarness(m, {"a.md": LINE + "\n"}, ["N\t-\tb.md\tx\textra"])
+    try:
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_shape_prune(m):  # a 3-column row beside a stale row: no traceback, file unchanged
+    h = AddNewHarness(m, {"a.md": "plain\n"}, ["N\t-\tb.md", "S\t-\ta.md\t" + LINE])
+    try:
+        before = h.slurp()
+        n, diff = h.m.prune(h.root, h.al)
+        return n == 0 and h.slurp() == before and bool(h.m.errors(*diff))
+    finally:
+        h.close()
+
+
+def sc_shape_relabel(m):
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1"], [ROW_S, "N\t-\tb.md"])
+
+
 def sc_base_unreadable(m):  # a base that cannot be read accepts nothing
     h = AddNewHarness(m, {"a.md": LINE + "\n"})
     try:
@@ -392,6 +494,18 @@ def sc_rl_control(m):  # S -> T with a slot: row count unchanged, check passes
 
 def sc_rl_class_s(m):  # relabel moves only toward T / D
     return _relabel_rejected(m, ["S\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE])
+
+
+def sc_rl_t_to_d(m):  # a T row is never moved (T <-> D would swap the slot)
+    return _relabel_rejected(m, ["D\t#11-y\ta.md\t1"], ["T\t#11-x\ta.md\t" + LINE])
+
+
+def sc_rl_line0(m):
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t0"], files={"a.md": LINE})  # line 0 must not wrap to the last line
+
+
+def sc_rl_ln_garbage(m):
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t\u00b2"])
 
 
 def sc_rl_slot_dash(m):
@@ -437,32 +551,44 @@ SCENARIOS = {
     "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
     "base_denies": sc_base_denies, "base_unreadable": sc_base_unreadable,
+    "base_raw_line": sc_base_raw_line, "base_real_ff": sc_base_real_ff, "norm_not_denied": sc_norm_not_denied,
+    "not_at_base": sc_not_at_base, "new_file": sc_new_file, "base_count": sc_base_count,
+    "ln_garbage": sc_ln_garbage, "ln_zero": sc_ln_zero, "dup_named": sc_dup_named,
+    "shape_add": sc_shape_add, "shape_prune": sc_shape_prune, "shape_relabel": sc_shape_relabel,
+    "rl_t_to_d": sc_rl_t_to_d, "rl_line0": sc_rl_line0, "rl_ln_garbage": sc_rl_ln_garbage,
     "rl_control": sc_rl_control, "rl_class_s": sc_rl_class_s, "rl_slot_dash": sc_rl_slot_dash,
     "rl_slot_empty": sc_rl_slot_empty, "rl_no_row": sc_rl_no_row, "rl_already": sc_rl_already,
     "rl_not_denied": sc_rl_not_denied, "rl_atomic": sc_rl_atomic, "rl_consumed": sc_rl_consumed,
 }
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
-NEWHIT = "(path, int(ln)) not in text_at"
+NEWHIT = "(path, ln) not in text_at"
 MUTANTS = [
     ("class: any class", (('ADD_CLASSES = "TD"', 'ADD_CLASSES = "TDSECN"'),), ["class_s"]),
     ("slot: any slot", (("if not SLOT.match(slot):", "if False:"),), ["slot_dash"]),
     # the new-hit position check is the only gate for denied / in-range; the lookup that follows needs a
     # default, else the mutant dies by KeyError instead of by the scenario
-    ("new-hit position not required", ((NEWHIT, "False"), ("text_at[(path, int(ln))]", "text_at.get((path, int(ln)), LINE_)")),
+    ("new-hit position not required", ((NEWHIT, "False"), ("text_at[(path, ln)]", "text_at.get((path, ln), LINE_)")),
      ["not_denied", "range"]),
-    ("availability: batch consumption ignored", (("if not avail[key] > used[key]:", "if False:"),), ["count"]),
-    ("atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if",
-                                         "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if"),), ["atomic"]),
+    ("duplicate named line ignored", (("if (path, ln) in named:", "if False:"),), ["dup_named"]),
+    ("atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows] + added)",
+                                         "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows] + added)"),), ["atomic"]),
     ("relabel class: any class", (("or f[0] not in ADD_CLASSES ", ""),), ["rl_class_s"]),
     ("relabel slot: any slot", (("or not SLOT.match(f[1]) ", ""),), ["rl_slot_dash", "rl_slot_empty"]),
     ("relabel row match: text ignored", (("r[3] == normalise(text) and ", ""),), ["rl_no_row"]),
-    ("relabel row match: class ignored", ((" and r[0] != cls", ""),), ["rl_already"]),
-    ("relabel row match: consumption ignored", (("i not in done and ", ""),), ["rl_consumed"]),
+    ("relabel row match: class ignored", ((" and r[0] in LIGHT", ""),), ["rl_already", "rl_t_to_d"]),
     ("relabel denied-now not required", (("if text is None or not denied(text):", "if text is None:"),), ["rl_not_denied"]),
     ("relabel atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])",
                                                 "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])"),), ["rl_atomic"]),
-    ("base scope: base-denied lines accepted", (("if was_denied(key[1]):", "if False:"),), ["base_denies"]),
-    ("base unreadable: accepted as 'denies nothing'", (("was_denied = base_denied(repo_root, base)", "was_denied = lambda t: False"),), ["base_unreadable"]),
+    ("base scope: base-denied lines accepted", (("if was_denied(_line_of(repo_root, path, ln)):", "if False:"),), ["base_denies", "base_raw_line"]),
+    ("base scope: normalised text judged, not the raw line", (("was_denied(_line_of(repo_root, path, ln))", "was_denied(key[1])"),), ["base_raw_line"]),
+    ("normalised text need not be denied now", (("if not denied(key[1]):", "if False:"),), ["norm_not_denied"]),
+    ("base presence not required", (("if at_base[path] is None or not at_base[path][key[1]] - existing[key] - used[key] > 0:", "if False:"),), ["not_at_base", "new_file", "base_count"]),
+    ("base presence: not count-based", (("- existing[key] - used[key] > 0", "> 0"),), ["base_count"]),
+    ("line_no parsed by isdigit", (("    try:\n        n = int(s)\n    except ValueError:\n        return None\n    return n if n >= 1 else None",
+                                    "    n = int(s) if s.isdigit() else None\n    return n if n is None or n >= 1 else None"),), ["ln_garbage", "rl_ln_garbage"]),
+    ("line_no >= 1 not required", (("return n if n >= 1 else None", "return n"), ("    if ln < 1:\n        return None\n", "")), ["rl_line0"]),
+    ("base unreadable: accepted as 'denies nothing'", (("was_denied = base_denied(repo_root, base)", "was_denied = lambda t: False"),
+                                                      ("at_base[path] = _base_texts(repo_root, base, path)", "at_base[path] = collections.Counter({key[1]: 9})")), ["base_unreadable"]),
 ]
 
 

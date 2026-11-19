@@ -57,6 +57,7 @@ UA_STRIP = (
 )
 
 CLASSES = "SECTDN"
+LIGHT = "SECN"  # the classes --relabel may move to T/D
 ADD_CLASSES = "TD"  # the only classes --add-new may append
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecs-mission-allowlist.tsv")
@@ -200,12 +201,17 @@ def _comments(path):
         return [l for l in f.read().split("\n") if l.startswith("#")]
 
 
+def _shape_errs(rows):
+    """The column-count errors of `malformed`: a writer refuses to rewrite an allowlist that has any."""
+    return ["allowlist line %d: malformed row (need 4 TAB-separated columns, got %d)" % (n, len(f))
+            for n, f in rows if len(f) != 4]
+
+
 def malformed(rows):
-    errs = []
+    errs = _shape_errs(rows)
     prev = None
     for n, f in rows:
         if len(f) != 4:
-            errs.append("allowlist line %d: malformed row (need 4 TAB-separated columns, got %d)" % (n, len(f)))
             continue
         cls, slot, path, text = f
         if cls not in list(CLASSES):
@@ -268,7 +274,7 @@ def prune(repo_root, allowlist_path):
     """Rewrite the allowlist dropping only stale rows. Never adds. -> (dropped, post-prune diff)."""
     rows, new, stale = _diff(repo_root, allowlist_path)
     drop = {n for n, _ in stale}
-    if not drop:
+    if not drop or _shape_errs(rows):  # a malformed row blocks the write; `errors` reports it
         return 0, (rows, new, stale)
     write_allowlist(allowlist_path, _comments(allowlist_path), [f for n, f in rows if n not in drop])
     return len(drop), (read_allowlist(allowlist_path), new, [])
@@ -290,9 +296,14 @@ def add_new(repo_root, allowlist_path, spec_rows, base="origin/main"):
     except Exception as e:
         return ["base %s unreadable (%s); nothing accepted" % (base, type(e).__name__)], []
     rows, new, _ = _diff(repo_root, allowlist_path)
-    avail = collections.Counter((p, t) for p, _, t in new)
+    shape = _shape_errs(rows)
+    if shape:
+        return shape + ["allowlist has malformed rows; nothing written"], []
     text_at = {(p, ln): t for p, ln, t in new}
+    existing = collections.Counter((f[2], f[3]) for _, f in rows)
+    at_base = {}
     used = collections.Counter()
+    named = set()
     errs = []
     added = []
     for n, f in spec_rows:
@@ -300,28 +311,41 @@ def add_new(repo_root, allowlist_path, spec_rows, base="origin/main"):
         if len(f) != 4:
             errs.append("%s: need 4 TAB-separated columns (class, slot, path, line_no), got %d" % (where, len(f)))
             continue
-        cls, slot, path, ln = f
+        cls, slot, path, ln_s = f
         if cls not in ADD_CLASSES:
             errs.append("%s: class %r rejected: only T or D rows can be added; S/E/C/N are fixed by tag or rewrite, not rows" % (where, cls))
             continue
         if not SLOT.match(slot):
             errs.append("%s: bad slot %r: T/D rows need a '#11-<kebab>' slot" % (where, slot))
             continue
-        if not ln.isdigit() or (path, int(ln)) not in text_at:
+        ln = _parse_ln(ln_s)
+        if ln is None:
+            errs.append("%s: bad line_no %r (need an integer >= 1)" % (where, ln_s))
+            continue
+        if (path, ln) not in text_at:
             errs.append("%s: %s:%s is not a new hit (not denied, not scanned, out of range, or already covered)" % (where, path, ln))
             continue
-        key = (path, text_at[(path, int(ln))])
-        if was_denied(key[1]):
+        if (path, ln) in named:
+            errs.append("%s: %s:%s is named twice" % (where, path, ln))
+            continue
+        named.add((path, ln))
+        key = (path, text_at[(path, ln)])
+        if not denied(key[1]):
+            errs.append("%s: %s:%s: normalised text is not itself denied by the classifier (the row would be malformed)" % (where, path, ln))
+            continue
+        if was_denied(_line_of(repo_root, path, ln)):
             errs.append("%s: not newly denied by this classifier change (base %s already denies it, or it is not denied now)" % (where, base))
             continue
-        if not avail[key] > used[key]:
-            errs.append("%s: %s:%s is named twice" % (where, path, ln))
+        if path not in at_base:
+            at_base[path] = _base_texts(repo_root, base, path)
+        if at_base[path] is None or not at_base[path][key[1]] - existing[key] - used[key] > 0:
+            errs.append("%s: line not present at base %s: new text must be tagged or rewritten, not allowlisted" % (where, base))
             continue
         used[key] += 1
         added.append([cls, slot, path, key[1]])
     if errs:
         return errs, []
-    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if len(f) == 4] + added)
+    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows] + added)
     return [], ["\t".join(r) for r in sorted(added, key=lambda r: (r[2], r[3]))]
 
 
@@ -329,23 +353,25 @@ def relabel(repo_root, allowlist_path, spec_rows):
     """Move existing rows to class T or D with a slot; never changes the row count. All-or-nothing.
     Spec rows: class, slot, path, line_no. -> (errs, ["old -> new", ...])."""
     rows, _, _ = _diff(repo_root, allowlist_path)
-    rows = [(n, list(f)) for n, f in rows if len(f) == 4]
-    done, errs, moved = set(), [], []
+    shape = _shape_errs(rows)
+    if shape:
+        return shape + ["allowlist has malformed rows; nothing written"], []
+    rows = [(n, list(f)) for n, f in rows]
+    errs, moved = [], []
     for n, f in spec_rows:
         where = "spec line %d" % n
-        if len(f) != 4 or f[0] not in ADD_CLASSES or not SLOT.match(f[1]) or not f[3].isdigit():
+        if len(f) != 4 or f[0] not in ADD_CLASSES or not SLOT.match(f[1]) or _parse_ln(f[3]) is None:
             errs.append("%s: need class T or D, a '#11-<kebab>' slot, path, line_no" % where)
             continue
         cls, slot, path, ln = f
-        text = _line_of(repo_root, path, int(ln))
+        text = _line_of(repo_root, path, _parse_ln(ln))
         if text is None or not denied(text):
             errs.append("%s: %s:%s is not a denied line now" % (where, path, ln))
             continue
-        hit = next((i for i, (_, r) in enumerate(rows) if i not in done and r[2] == path and r[3] == normalise(text) and r[0] != cls), None)
+        hit = next((i for i, (_, r) in enumerate(rows) if r[2] == path and r[3] == normalise(text) and r[0] in LIGHT), None)
         if hit is None:
-            errs.append("%s: no allowlist row for %s:%s that is not already class %s" % (where, path, ln, cls))
+            errs.append("%s: no allowlist row of class S/E/C/N for %s:%s (T/D rows are never moved)" % (where, path, ln))
             continue
-        done.add(hit)
         old = "\t".join(rows[hit][1])
         rows[hit][1][:2] = [cls, slot]
         moved.append("%s -> %s" % (old, "\t".join(rows[hit][1])))
@@ -355,12 +381,33 @@ def relabel(repo_root, allowlist_path, spec_rows):
     return [], moved
 
 
-def _line_of(repo_root, path, ln):
+def _parse_ln(s):
+    """A 1-based line number from spec text, or None (int() rejects what isdigit() accepts, e.g. '\u00b2')."""
     try:
-        with open(os.path.join(repo_root, path), encoding="utf-8", errors="replace") as f:
-            return f.read().split("\n")[ln - 1]
+        n = int(s)
+    except ValueError:
+        return None
+    return n if n >= 1 else None
+
+
+def _line_of(repo_root, path, ln):
+    """The raw '\n'-line `ln` (1-based) of the file as `scan` reads it (bytes, no newline translation)."""
+    if ln < 1:
+        return None
+    try:
+        with open(os.path.join(repo_root, path), "rb") as f:
+            return f.read().decode("utf-8", "replace").split("\n")[ln - 1]
     except (OSError, IndexError):
         return None
+
+
+def _base_texts(repo_root, rev, path):
+    """Counter of normalised line texts of `path` as committed at `rev`, or None if it is not there."""
+    try:
+        blob = _git(["show", "%s:%s" % (rev, path)], repo_root)
+    except Exception:
+        return None
+    return collections.Counter(normalise(l) for l in blob.decode("utf-8", "replace").split("\n"))
 
 
 def repo_root_of(path):
@@ -389,7 +436,8 @@ def main(argv):
         diff = _diff(root, DEFAULT_ALLOWLIST)
     elif mode == "--prune":
         n, diff = prune(root, DEFAULT_ALLOWLIST)
-        print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
+        if not _shape_errs(diff[0]):
+            print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
     else:
         diff = _diff(root, DEFAULT_ALLOWLIST)
     errs = errors(*diff)

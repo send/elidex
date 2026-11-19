@@ -422,8 +422,8 @@ fn alloc_form_collection_wrapper(
 ///
 /// Returns a TypeError for non-collection receivers or mismatched
 /// collection kinds so `.call({})` and cross-interface
-/// `.call(otherKind)` both throw "Illegal invocation" (WebIDL brand
-/// check).
+/// `.call(otherKind)` both throw a `TypeError` (WebIDL brand check; the
+/// "Illegal invocation" message text is elidex's own).
 fn require_collection_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

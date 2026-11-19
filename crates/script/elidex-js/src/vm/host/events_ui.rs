@@ -825,8 +825,8 @@ fn native_input_event_constructor(
 /// `ObjectKind::Event` whose prototype chain includes
 /// `InputEvent.prototype`.  Calling `InputEvent.prototype.
 /// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore
-/// throws `TypeError("Illegal invocation")`, as
-/// IDL operations do.
+/// throws a `TypeError` (WebIDL brand check; the "Illegal
+/// invocation" message text is elidex's own).
 fn native_input_event_get_target_ranges(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
