@@ -3,6 +3,7 @@
 mod helpers;
 
 mod tests_abort;
+mod tests_abort_dependent;
 mod tests_abort_signal_option;
 mod tests_abort_statics;
 mod tests_add_event_listener;

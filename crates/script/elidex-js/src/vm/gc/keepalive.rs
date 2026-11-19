@@ -80,11 +80,18 @@ use super::super::VmInner;
 /// `#11-eventtarget-keepalive-registrant-coverage` is retired — every non-Node
 /// EventTarget keepalive is now on this seam, so no divergent construct-time /
 /// force-close root remains for the S5-6 flip.
-/// A future `AbortSignalDependent` arm would root an `AbortSignal.any()`
-/// composite under the DOM §3.2.1 dependent-signal predicate (non-aborted ∧
-/// source-signals-non-empty ∧ listenered) — but that is a **behavior change**
-/// (`any_composite_map` is a deliberate non-root today, `mark_roots` note (k)),
-/// so it is NOT part of behavior-neutral S5-3a.  Likewise the
+/// A future `AbortSignalDependent` arm (slot
+/// `#11-abort-signal-dependent-keepalive`) would root an `AbortSignal.any()`
+/// result under the full DOM §3.2.1 predicate — "A non-aborted dependent
+/// AbortSignal object must not be garbage collected while its source signals
+/// is non-empty and it has registered event listeners for its abort event or
+/// its abort algorithms is non-empty": non-aborted ∧ dependent ∧
+/// source-signals-non-empty ∧ (an `abort` listener registered ∨ abort
+/// algorithms non-empty).  The fields it reads are `AbortSignalState::links`
+/// (`is_dependent()` / `source_signals()`), the `abort` listener home, and the
+/// two abort-algorithm stores.  That is a **behavior change** (the dependent
+/// sets are deliberate non-roots today, `mark_roots` note (k)), so it is NOT
+/// part of behavior-neutral S5-3a.  Likewise the
 /// `AbortController`-internal signal stays a **trace** edge (`gc/trace.rs`,
 /// reachable-from-the-controller), not a keepalive root — a root pass would
 /// over-root a signal whose controller is already dead.  Adding a client is a

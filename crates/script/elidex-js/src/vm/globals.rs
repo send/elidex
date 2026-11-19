@@ -725,7 +725,8 @@ impl VmInner {
         self.register_dom_rect_globals();
 
         // `AbortController` constructor + `AbortSignal` global +
-        // `AbortSignal.prototype` (WHATWG DOM §3.1).  Must run after
+        // `AbortSignal.prototype` (WHATWG DOM §3.1 Interface AbortController /
+        // §3.2 Interface AbortSignal).  Must run after
         // `register_event_target_prototype` (the prototype chains
         // there) and after `register_error_constructors` (the default
         // abort reason allocates against `error_prototype`).

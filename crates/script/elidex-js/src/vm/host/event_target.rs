@@ -38,6 +38,8 @@ use super::dispatch_target::{target_from_this, DispatchTarget};
 use super::event_target_dispatch::dispatch_script_event;
 #[cfg(feature = "engine")]
 use super::event_target_dispatch_vm::dispatch_vm_event;
+#[cfg(feature = "engine")]
+use elidex_dom_api::abort::AbortSignalGraph;
 
 impl VmInner {
     /// Populate `self.event_target_prototype` with the `EventTarget`
@@ -107,7 +109,7 @@ pub(super) fn native_event_target_add_event_listener(
 ///      `signal` means no AbortSignal is bound.  A non-AbortSignal
 ///      `signal` value throws `TypeError` (WebIDL `AbortSignal?`).
 ///    - undefined / missing → all flags `false`, no signal.
-/// 5. WHATWG §2.6.3 step 3: an already-aborted `signal` short-circuits
+/// 5. DOM §2.7 "add an event listener" step 2: an already-aborted `signal` short-circuits
 ///    registration entirely — no ECS write, no listener_store entry,
 ///    no back-ref.
 /// 6. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
@@ -165,18 +167,14 @@ pub(super) fn native_event_target_add_event_listener(
     // Argument 2: options — boolean (capture only) or object form.
     let options = parse_listener_options(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
 
-    // WHATWG §2.6.3 step 3: an already-aborted signal short-circuits
-    // registration entirely — listener is never added.  Subsequent
-    // `controller.abort()` is a no-op for one-shot semantics, so the
-    // listener would have nothing to detach anyway.  Read-only borrow
-    // keeps this off the hot path for the common `signal === None` case.
+    // DOM §2.7 "add an event listener" step 2: "If listener's signal is
+    // non-null and is aborted, then return." — registration is skipped
+    // entirely, the listener is never added.  A second abort of the
+    // signal is a no-op ("signal abort" step 1), so the listener would
+    // have nothing to detach anyway.  Read-only borrow keeps this off the
+    // hot path for the common `signal === None` case.
     if let Some(signal_id) = options.signal {
-        if ctx
-            .vm
-            .abort_signal_states
-            .get(&signal_id)
-            .is_some_and(|s| s.aborted)
-        {
+        if ctx.vm.abort_reason(signal_id).is_some() {
             return Ok(JsValue::Undefined);
         }
     }

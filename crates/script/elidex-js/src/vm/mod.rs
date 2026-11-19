@@ -281,6 +281,17 @@ pub(crate) struct VmInner {
     /// so it adds no production field.
     #[cfg(test)]
     pub(crate) force_gc_before_next_alloc: bool,
+    /// Test-only one-shot: when `true`, the next "run the abort steps"
+    /// (`host::abort::run_abort_steps`, step 3) returns an `Err` in place of
+    /// firing the `abort` event, and clears the flag.  The only way to make
+    /// the abort loop's `Err` path reachable while the dispatch core never
+    /// returns `Err` (cell `abort_err_does_not_skip_dependents`, DOM §3.2
+    /// "signal abort" steps 5-6 are unconditional).  Removed when the
+    /// resource-limit slice P0a-1 replaces it with `InjectAt::SimpleEventDispatch(n)`
+    /// (`docs/plans/2026-11-vm-stack-safety-guard-p0a1.md`, paragraph "One
+    /// test-failure seam"; slot `#11-vm-call-depth-guard`).
+    #[cfg(all(test, feature = "engine"))]
+    pub(crate) fail_next_abort_dispatch: bool,
     /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated
     /// by `register_html_element_constructor` (D-17b §4.1) at globals init,
     /// `None` until registered. Read by `native_html_element_ctor`
@@ -1253,8 +1264,8 @@ pub(crate) struct VmInner {
     pub(crate) worker_prototype: Option<ObjectId>,
     /// `AbortSignal.prototype` — chained directly to
     /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
-    /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a
-    /// Node, mirroring the Window arrangement).  Holds the signal's
+    /// DOM §3.2 (`interface AbortSignal : EventTarget`) — AbortSignal is an
+    /// EventTarget but not a Node, mirroring the Window arrangement).  Holds the signal's
     /// own-property suite (`aborted`, `reason`, `onabort` accessors;
     /// `throwIfAborted` method) plus listener overrides that route
     /// through `abort_signal_states` instead of an ECS entity.
@@ -1283,12 +1294,14 @@ pub(crate) struct VmInner {
     /// payload-free and per-variant size discipline is preserved.
     ///
     /// GC contract:
-    /// - Trace step (`trace_work_list`) marks every `abort_listeners`
-    ///   callback ObjectId and the `reason` JsValue when the
-    ///   AbortSignal object is reachable.
+    /// - Trace step (`trace_work_list`) marks the `reason` JsValue (when
+    ///   aborted) of a reachable AbortSignal object.  The DOM §3.2
+    ///   source / dependent signal sets (`AbortSignalState::links`) are
+    ///   weak and not traced.
     /// - Sweep tail (`collect_garbage`) prunes entries whose key
     ///   ObjectId was collected, so a recycled slot never inherits
-    ///   stale state.
+    ///   stale state, and prunes dead members from the surviving rows'
+    ///   source / dependent signal sets.
     #[cfg(feature = "engine")]
     pub(crate) abort_signal_states: HashMap<ObjectId, host::abort::AbortSignalState>,
     /// Live `MediaQueryList` registry (CSSOM-View §4.2), keyed by the
@@ -1369,30 +1382,6 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
-    /// `AbortSignal.any(inputs)` fan-out — input `ObjectId` →
-    /// composite signal `ObjectId`s that observe it (WHATWG DOM
-    /// §3.1.3.3).  On input abort, [`host::abort::abort_signal`]
-    /// removes the entry and fires each composite with the
-    /// input's reason; composites' own `aborted` latch makes
-    /// duplicate inputs (`any([a, a])`) safe.
-    ///
-    /// GC contract: **weak bookkeeping only** — composite
-    /// ObjectIds stored in the values are NOT GC roots.  The mark
-    /// phase deliberately skips this map so a `AbortSignal.any([a,
-    /// b])` result that the user discards (without installing a
-    /// listener or binding it to a long-lived slot) stays
-    /// collectable even while `a` / `b` remain alive; otherwise
-    /// tight loops that build composites and drop them would
-    /// accumulate unreachable signals.  Composites survive when
-    /// held via JS stack / global / upvalue paths in the normal
-    /// way; the fan-out loop tolerates dead ObjectIds (the
-    /// nested `abort_signal` call silently early-returns on a
-    /// missing state entry).  Sweep prunes entries whose input
-    /// key was collected, and filters each value list by composite
-    /// liveness — see [`Self::abort_signal_states`] for the shared
-    /// prune pattern.
-    #[cfg(feature = "engine")]
-    pub(crate) any_composite_map: HashMap<ObjectId, Vec<ObjectId>>,
     /// In-flight dispatch flag side table — WHATWG DOM §2.9 step 3
     /// rejects re-entrant `dispatchEvent()` on an event that is
     /// already propagating.  Kept out-of-band so `ObjectKind::Event`
@@ -2564,8 +2553,7 @@ pub(crate) struct VmInner {
     /// [`Self::pending_fetches`].
     ///
     /// GC contract: sweep prunes entries whose key (signal) was
-    /// collected, matching [`Self::abort_signal_states`] /
-    /// [`Self::any_composite_map`].  Entries with live signal keys
+    /// collected, matching [`Self::abort_signal_states`].  Entries with live signal keys
     /// are retained as-is; the `FetchId`s inside are plain `u64`s
     /// that carry no GC obligations.
     #[cfg(feature = "engine")]

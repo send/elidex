@@ -354,8 +354,8 @@ fn mouse_event_related_target_rejects_non_event_target() {
 
 #[test]
 fn mouse_event_related_target_accepts_abort_signal() {
-    // WHATWG DOM §3.1: AbortSignal is an EventTarget (not a Node),
-    // so WebIDL `EventTarget? relatedTarget` must accept it.
+    // WHATWG DOM §3.2 (`interface AbortSignal : EventTarget`): AbortSignal is
+    // an EventTarget (not a Node), so WebIDL `EventTarget? relatedTarget` must accept it.
     // Regression defence against over-tightening the brand check
     // to DOM `HostObject` wrappers only.
     assert!(matches!(

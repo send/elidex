@@ -24,6 +24,15 @@
 //! is preserved.  GC traces the state via the HashMap (see `gc.rs`)
 //! and prunes dead entries after sweep.
 //!
+//! The row also carries the DOM §3.2 dependent-signal record
+//! ([`DependentLinks`]: the **dependent** flag, **source signals**,
+//! **dependent signals**).  The graph algorithms — "create a dependent
+//! abort signal" and "signal abort" steps 1-4 — live in the
+//! engine-independent [`elidex_dom_api::abort`] module, which reads and
+//! writes the row through the [`AbortSignalGraph`] impl below; this
+//! module keeps what only the engine can do (the `DOMException`
+//! materialisation, the abort algorithms, the `'abort'` fire).
+//!
 //! ## Listener model (`#11-eventtarget-dispatch-core`)
 //!
 //! `AbortSignal` is a full member of the **unified EventTarget dispatch
@@ -38,10 +47,10 @@
 //! a real `Event('abort')` through the shared UA-fire
 //! ([`dispatch_vm_simple_event`]); `AbortSignal` is a flat target
 //! (get-the-parent → null, so at-target only) and `'abort'` fires exactly
-//! once (the `aborted` latch makes a second `abort()` a no-op).
+//! once ("signal abort" step 1 makes a second `abort()` a no-op).
 //!
-//! [`AbortSignalState`] keeps only the non-listener state (`aborted` /
-//! `reason` + the `{signal}` back-ref bookkeeping).
+//! [`AbortSignalState`] keeps only the non-listener state (`reason` /
+//! the dependent-signal links + the `{signal}` back-ref bookkeeping).
 //!
 //! ## Implemented
 //!
@@ -49,8 +58,10 @@
 //! - `signal.aborted` / `signal.reason` / `signal.onabort`.
 //! - `signal.throwIfAborted()`; `signal.addEventListener` /
 //!   `removeEventListener` / `dispatchEvent` (inherited, unified).
-//! - `controller.abort(reason?)` — synchronously sets state and fires
-//!   `'abort'` (onabort + every `addEventListener('abort', …)` callback in
+//! - `controller.abort(reason?)` — "signal abort": synchronously sets the
+//!   reason of the signal and of every dependent, then runs the abort steps
+//!   for the signal and for each dependent (`'abort'` fires at each:
+//!   onabort + every `addEventListener('abort', …)` callback in
 //!   registration order).  Idempotent; second call is a no-op.
 //! - `AbortSignal.abort` / `.timeout` / `.any` static factories (in
 //!   `abort_statics`).
@@ -59,14 +70,16 @@
 //!   [`AbortSignalState::bound_listener_removals`] and a reverse
 //!   `listener_id → signal_id` index on
 //!   [`super::super::VmInner::abort_listener_back_refs`].
-//!   `removeEventListener` prunes the entry in O(1); `abort()` drains the
-//!   map and detaches each listener from its home (ECS component for a
+//!   `removeEventListener` prunes the entry in O(1); the abort steps drain
+//!   the map and detach each listener from its home (ECS component for a
 //!   `Node`, `vm_event_listeners` for a `VmObject`) via the listener-home
 //!   adapter.
 
 #![cfg(feature = "engine")]
 
 use std::collections::HashMap;
+
+use elidex_dom_api::abort::{signal_abort, AbortSignalGraph, DependentLinks};
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
@@ -83,13 +96,21 @@ use elidex_script_session::ListenerId;
 /// and looked up via the signal's `ObjectId`.
 #[derive(Debug)]
 pub(crate) struct AbortSignalState {
-    /// `true` once `controller.abort()` has fired.  Latches — flipping
-    /// back to `false` is not a spec-defined operation.
-    pub(crate) aborted: bool,
-    /// Reason supplied to `abort(reason)`, or the default
-    /// `AbortError`-tagged Error created when the call omitted one.
-    /// Reads `undefined` while `aborted == false`.
-    pub(crate) reason: JsValue,
+    /// The signal's abort reason; `None` ⇔ not aborted (DOM §3.2: "An
+    /// AbortSignal object is aborted when its abort reason is not
+    /// undefined").  The reason is the value supplied to `abort(reason)`
+    /// or the default "AbortError" `DOMException` materialised when the
+    /// call omitted one, so an aborted signal's reason is never
+    /// `undefined` — one fact, one field.  Set once, by "signal abort"
+    /// step 2 / 4.1.1 or by the static `abort(reason)` / `any(signals)`
+    /// reason-only paths; never cleared.
+    pub(crate) reason: Option<JsValue>,
+    /// DOM §3.2 dependent-signal record: the **dependent** flag and the
+    /// **source signals** / **dependent signals** weak sets.  Private to
+    /// [`elidex_dom_api::abort`]; this module reads it through the
+    /// accessors and the sweep prunes it with
+    /// [`DependentLinks::retain_live`].  Not traced (the sets are weak).
+    pub(crate) links: DependentLinks<ObjectId>,
     /// Back-references for `addEventListener(type, cb, {signal})` on
     /// other EventTargets — when this signal aborts, the runtime removes
     /// each `(listener_id → target)` from that target's listener home (the
@@ -113,17 +134,39 @@ pub(crate) struct AbortSignalState {
 }
 
 impl AbortSignalState {
-    /// Fresh, never-aborted state with `reason === undefined` and
-    /// no listeners.  Hand-rolled instead of `derive(Default)`
-    /// because [`JsValue`] does not implement `Default` (no canonical
-    /// "empty" value — `Undefined` is the right one in this context
-    /// but the trait would force a project-wide policy decision).
+    /// Fresh, never-aborted, non-dependent state with no listeners.
     fn new() -> Self {
         Self {
-            aborted: false,
-            reason: JsValue::Undefined,
+            reason: None,
+            links: DependentLinks::default(),
             bound_listener_removals: HashMap::new(),
         }
+    }
+}
+
+/// The engine-independent algorithms of [`elidex_dom_api::abort`] read and
+/// write the signal rows through this impl — one row per signal, where the
+/// row already is.
+impl AbortSignalGraph for VmInner {
+    type Handle = ObjectId;
+    type Reason = JsValue;
+
+    fn abort_reason(&self, h: ObjectId) -> Option<JsValue> {
+        self.abort_signal_states.get(&h).and_then(|s| s.reason)
+    }
+
+    fn set_abort_reason(&mut self, h: ObjectId, reason: JsValue) {
+        if let Some(state) = self.abort_signal_states.get_mut(&h) {
+            state.reason = Some(reason);
+        }
+    }
+
+    fn links(&self, h: ObjectId) -> Option<&DependentLinks<ObjectId>> {
+        self.abort_signal_states.get(&h).map(|s| &s.links)
+    }
+
+    fn links_mut(&mut self, h: ObjectId) -> Option<&mut DependentLinks<ObjectId>> {
+        self.abort_signal_states.get_mut(&h).map(|s| &mut s.links)
     }
 }
 
@@ -198,7 +241,7 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         // Install `AbortSignal.abort` / `.timeout` / `.any` static
-        // factories (WHATWG §3.1.3).  They live as own methods on
+        // factories (DOM §3.2 — the three static method steps).  They live as own methods on
         // the constructor function object itself, not on the
         // prototype — `AbortSignal.abort()` reads a
         // constructor-static method just like `Array.from`.
@@ -436,12 +479,7 @@ fn native_abort_signal_get_aborted(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_abort_signal_this(ctx, this, "aborted")?;
-    let aborted = ctx
-        .vm
-        .abort_signal_states
-        .get(&id)
-        .is_some_and(|s| s.aborted);
-    Ok(JsValue::Boolean(aborted))
+    Ok(JsValue::Boolean(ctx.vm.abort_reason(id).is_some()))
 }
 
 fn native_abort_signal_get_reason(
@@ -450,31 +488,23 @@ fn native_abort_signal_get_reason(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_abort_signal_this(ctx, this, "reason")?;
-    let reason = ctx
-        .vm
-        .abort_signal_states
-        .get(&id)
-        .map_or(JsValue::Undefined, |s| s.reason);
-    Ok(reason)
+    Ok(ctx.vm.abort_reason(id).unwrap_or(JsValue::Undefined))
 }
 
 // ---------------------------------------------------------------------------
 // AbortSignal methods
 // ---------------------------------------------------------------------------
 
-/// `signal.throwIfAborted()` — WHATWG §3.1: if aborted, throw the
-/// stored reason; otherwise no-op.
+/// `signal.throwIfAborted()` — DOM §3.2 "The throwIfAborted() method steps
+/// are to throw this's abort reason, if this is aborted."; otherwise no-op.
 fn native_abort_signal_throw_if_aborted(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_abort_signal_this(ctx, this, "throwIfAborted")?;
-    let state = ctx.vm.abort_signal_states.get(&id);
-    if let Some(s) = state {
-        if s.aborted {
-            return Err(VmError::throw(s.reason));
-        }
+    if let Some(reason) = ctx.vm.abort_reason(id) {
+        return Err(VmError::throw(reason));
     }
     Ok(JsValue::Undefined)
 }
@@ -490,75 +520,122 @@ fn native_abort_signal_throw_if_aborted(
 // Internal abort dispatch
 // ---------------------------------------------------------------------------
 
-/// Fire `'abort'` on `signal_id`: latch state, detach `{signal}`-bound
-/// listeners on other targets, then dispatch a proper `Event('abort')`
-/// through the shared EventTarget core on this signal's
-/// `vm_event_listeners` home (idempotent if already aborted).
+/// DOM §3.2 "signal abort" for `signal_id`: set the reasons (steps 1-4,
+/// in [`elidex_dom_api::abort::signal_abort`]), then run the abort steps
+/// for the signal and for each planned dependent (steps 5-6,
+/// [`run_abort_steps`]).  Idempotent: an already-aborted signal is a no-op
+/// (step 1).
 ///
-/// The `onabort` handler + every `addEventListener('abort', …)` callback
-/// run in registration order (WHATWG §8.1.8.1), each receiving the
-/// `Event('abort')` whose `target` is the signal — the spec-correct
-/// payload that the old bespoke `(undefined)`-arg fire lacked.
+/// Step 2's "otherwise" branch — `reason === undefined` becomes a new
+/// "AbortError" `DOMException` — is engine-bound: the module calls the
+/// `materialise_abort_reason` closure once, only after step 1 has passed
+/// (`create_default_abort_error` routes through
+/// `VmInner::build_dom_exception` for the real instance).
+///
+/// **Depth 1, no recursion.**  A dependent's source signals are never
+/// dependent (create a dependent abort signal step 4.2), so the plan holds
+/// every transitive dependent of `signal_id` and the abort steps run in one
+/// loop.  Every reason is set before any JS runs, so a dependent reads as
+/// aborted inside the source's `'abort'` listeners.
 ///
 /// # GC safety
 ///
-/// The listener callbacks live in `HostData::listener_store` (a GC root
-/// via `gc_root_object_ids`) and the event object is rooted via
-/// `dispatched_events` for the dispatch window, so the shared UA-fire
-/// ([`dispatch_vm_simple_event`]) resolves every callback live without
-/// any clone-for-reachability dance.  The `aborted` latch is set up front
-/// so a re-entrant `abort()` short-circuits (one-shot); the listeners are
-/// left in the home (a second dispatch can't happen) and `onabort` stays
-/// observable from script post-abort, matching browsers.
+/// The plan's handles are rooted on the VM stack for the rest of the call
+/// (one [`VmInner::push_stack_scope`] frame).  `controller.abort()` is the
+/// native entry: it runs through the native-call gate (`gc_enabled =
+/// false`), where the root is inert (the static `AbortSignal.abort()` and
+/// `AbortSignal.any()` never reach this function — their reason-only steps
+/// are set without running abort steps, D-5);
+/// `AbortSignal.timeout(ms)` fires from the timer drain with
+/// `gc_enabled = true`, where a listener's allocation can run a collection
+/// between two plan entries — an unrooted, unreferenced planned dependent
+/// would be swept and its `ObjectId` recycled, and its abort steps would
+/// run against the new occupant.  The listener callbacks themselves live in
+/// `HostData::listener_store` (a GC root via `gc_root_object_ids`) and the
+/// event object is rooted via `dispatched_events` for the dispatch window.
 ///
-/// Entry point used by both the public `AbortController.abort()`
-/// dispatch and the `AbortSignal.timeout` internal fire — see
-/// module doc for the contract.  Exposed to `natives_timer`
-/// via [`internal_abort_signal`] so the drain path can route
-/// a fired timeout through the same state-update + listener
-/// dispatch as a user-visible abort.  Also `pub(super)` so the
-/// static factories in [`super::abort_statics`] can compose it
-/// with fresh signal allocation.
+/// # Errors
+///
+/// Every plan entry runs its abort steps regardless of earlier results; the
+/// first `Err` is kept and returned after the loop (no `?` inside it).  The
+/// spec has no failure path in steps 5-6, and step 4 has already committed
+/// every dependent's reason, so skipping a dependent's abort steps would
+/// leave it aborted for ever with its algorithms never run and its event
+/// never fired.
+///
+/// Entry point used by `AbortController.abort()` and, through
+/// [`internal_abort_signal`], by the `AbortSignal.timeout` timer drain.
 pub(super) fn abort_signal(
     ctx: &mut NativeContext<'_>,
     signal_id: ObjectId,
     reason: JsValue,
 ) -> Result<(), VmError> {
-    // Already-aborted signals are a spec no-op (idempotent).
-    let already = ctx
+    // Steps 1-4: reasons set, plan fixed, before any JS runs.  Step 1's
+    // no-op (no such signal, or already aborted) is the module's `None`,
+    // taken before the closure materialises the default reason.
+    // `signal_id` is rooted across the closure: materialising the default
+    // reason (`undefined` passed) allocates, and with GC enabled — e.g. an
+    // `internal_abort_signal` caller outside a native — that could sweep a
+    // signal nothing else references.  (Natives run with GC disabled; the
+    // timer path passes a pre-built `TimeoutError`, so nothing is allocated.)
+    let mut signal_root = ctx.vm.push_temp_root(JsValue::Object(signal_id));
+    let plan = signal_abort(&mut *signal_root, signal_id, |vm| {
+        materialise_abort_reason(vm, reason)
+    });
+    drop(signal_root);
+    let Some(plan) = plan else {
+        return Ok(());
+    };
+
+    // Root the plan for the rest of the call (see "GC safety").
+    let mut frame = ctx.vm.push_stack_scope();
+    frame.stack.push(JsValue::Object(plan.signal));
+    for &dependent in &plan.dependents {
+        frame.stack.push(JsValue::Object(dependent));
+    }
+    let mut rooted = NativeContext::new_call(&mut frame);
+
+    // Steps 5-6.
+    let mut first_err = run_abort_steps(&mut rooted, plan.signal).err();
+    for &dependent in &plan.dependents {
+        if let Err(e) = run_abort_steps(&mut rooted, dependent) {
+            first_err.get_or_insert(e);
+        }
+    }
+    first_err.map_or(Ok(()), Err)
+}
+
+/// DOM §3.2 "run the abort steps" for `signal_id`: (1) run the signal's
+/// abort algorithms, (2) empty them, (3) fire an event named `abort` at it.
+///
+/// The abort algorithms are two stores today
+/// (`#11-abort-algorithms-single-set`): the per-row
+/// `bound_listener_removals` (`addEventListener({signal})`, "add an event
+/// listener" step 6) and the per-VM `fetch_abort_observers` (`fetch()`
+/// method steps step 11).  Both are drained here, before the fire.
+///
+/// The `onabort` handler + every `addEventListener('abort', …)` callback
+/// run in registration order (HTML §8.1.8.1 Event handlers), each
+/// receiving a proper `Event('abort')` whose `target` is the signal.  The
+/// listeners persist in the home — a second fire cannot happen because
+/// "signal abort" step 1 returns for an aborted signal.
+fn run_abort_steps(ctx: &mut NativeContext<'_>, signal_id: ObjectId) -> Result<(), VmError> {
+    // A row missing for the handle is a no-op (unreachable once the plan
+    // is rooted).
+    let Some(reason) = ctx.vm.abort_reason(signal_id) else {
+        return Ok(());
+    };
+
+    // Step 1 (listener removals): `bound_listener_removals` is drained
+    // because its content is `(ListenerId → DispatchTarget)` pairs (no
+    // `ObjectId`s the GC must keep), so moving them out is free.  Step 2
+    // (empty the algorithms) is the drain itself.
+    let removals = ctx
         .vm
         .abort_signal_states
-        .get(&signal_id)
-        .is_some_and(|s| s.aborted);
-    if already {
-        return Ok(());
-    }
-
-    // Materialise the abort reason: `undefined` becomes a fresh
-    // `DOMException("AbortError")` (WHATWG DOM §3.1.2 step 1) —
-    // `create_default_abort_error` routes through
-    // `VmInner::build_dom_exception` for the real instance.
-    let materialised_reason = if matches!(reason, JsValue::Undefined) {
-        create_default_abort_error(ctx)
-    } else {
-        reason
-    };
-
-    // Latch state.  The signal's own `'abort'` listeners + `onabort`
-    // handler live in the unified `vm_event_listeners` home (with their
-    // callbacks rooted via `listener_store`), so there is nothing to
-    // clone for GC reachability — the shared UA-fire below resolves them
-    // live.  `bound_listener_removals` is drained because its content is
-    // `(ListenerId → DispatchTarget)` pairs (no `ObjectId`s the GC must
-    // keep), so moving them out is free.
-    let removals = {
-        let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) else {
-            return Ok(());
-        };
-        state.aborted = true;
-        state.reason = materialised_reason;
-        std::mem::take(&mut state.bound_listener_removals)
-    };
+        .get_mut(&signal_id)
+        .map(|state| std::mem::take(&mut state.bound_listener_removals))
+        .unwrap_or_default();
 
     // The reverse-index entries for these listener IDs are no longer
     // load-bearing (the back-refs themselves are about to be drained),
@@ -579,51 +656,20 @@ pub(super) fn abort_signal(
     // already gone.
     detach_bound_listeners(ctx, &removals);
 
-    // Fire `'abort'` (bubbles=false, cancelable=false) through the shared
-    // EventTarget core on this signal's `vm_event_listeners` home: the
-    // `onabort` handler + every `addEventListener('abort', …)` callback
-    // run in registration order (WHATWG §8.1.8.1 — the event handler is
-    // "in addition to others registered", at its registration position),
-    // each receiving a proper `Event('abort')` whose `target` is the
-    // signal.  One-shot is preserved by the `aborted` latch above (a
-    // second `abort()` returns early), so the listeners persist in the
-    // home without re-firing.
-    let abort_sid = ctx.vm.well_known.abort;
-    let _ = dispatch_vm_simple_event(ctx, signal_id, abort_sid, false, false)?;
-
-    // `AbortSignal.any(inputs)` fan-out (WHATWG §3.1.3.3) — if
-    // this signal appears as an input in any composite built
-    // above, propagate the abort to each composite using *this*
-    // signal's materialised reason.  Entries are removed as we
-    // visit them: once the input has aborted, future aborts on
-    // it are no-ops (the latch above returns early), so the
-    // fan-out need not run twice.  The composite's own `aborted`
-    // latch inside a recursive `abort_signal` call guards
-    // against duplicate fires if multiple inputs share a
-    // composite in the same call stack.
-    // Reason was just latched into `state.reason` above; hoist the
-    // read outside the loop so composites receive the exact
-    // propagated value and we skip N-1 HashMap lookups.
-    if let Some(composites) = ctx.vm.any_composite_map.remove(&signal_id) {
-        let reason = materialised_reason;
-        for composite_id in composites {
-            abort_signal(ctx, composite_id, reason)?;
-        }
-    }
-
-    // Fan out to every in-flight `fetch()` that registered this
-    // signal in `VmInner::fetch_abort_observers` (WHATWG Fetch §5.1
-    // step 13: if abort signal is aborted, set request's done flag).
+    // Step 1 (fetch): every in-flight `fetch()` that registered this
+    // signal in `VmInner::fetch_abort_observers` — Fetch §5.6 Fetch methods,
+    // `fetch(input, init)` method steps step 11 "Add the following abort
+    // steps to requestObject's signal: … 4. Abort the fetch() call with p,
+    // request, responseObject, and requestObject's signal's abort reason."
     //
-    // For each fetch_id we (a) reject its pending Promise
-    // synchronously with the signal's materialised reason — this is
-    // the user-visible "Promise rejected at the abort moment", not
-    // queued behind the broker round-trip — and (b) send
-    // `CancelFetch` so the broker can stop waiting on the network
-    // and post an early aborted-reply.  The eventual broker reply
-    // for this fetch is silently dropped because
-    // `pending_fetches.remove` returned `Some` here, so the
-    // `tick_network` settle-step's lookup will return `None`.
+    // For each fetch_id we (a) reject its pending Promise synchronously
+    // with the signal's abort reason — this is the user-visible "Promise
+    // rejected at the abort moment", not queued behind the broker
+    // round-trip — and (b) send `CancelFetch` so the broker can stop
+    // waiting on the network and post an early aborted-reply.  The
+    // eventual broker reply for this fetch is silently dropped because
+    // `pending_fetches.remove` returned `Some` here, so the `tick_network`
+    // settle-step's lookup will return `None`.
     if let Some(fetch_ids) = ctx.vm.fetch_abort_observers.remove(&signal_id) {
         let handle = ctx.vm.network_handle.as_ref().map(std::rc::Rc::clone);
         for fetch_id in fetch_ids {
@@ -645,7 +691,7 @@ pub(super) fn abort_signal(
             if let Some(promise) = ctx.vm.pending_fetches.remove(&fetch_id) {
                 ctx.vm.pending_fetch_cors.remove(&fetch_id);
                 let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-                super::blob::reject_promise_sync(&mut g, promise, materialised_reason);
+                super::blob::reject_promise_sync(&mut g, promise, reason);
                 drop(g);
             }
             if let Some(ref h) = handle {
@@ -654,21 +700,40 @@ pub(super) fn abort_signal(
         }
     }
 
-    Ok(())
+    // Step 3: fire `'abort'` (bubbles=false, cancelable=false) through the
+    // shared EventTarget core on this signal's `vm_event_listeners` home.
+    #[cfg(test)]
+    if std::mem::take(&mut ctx.vm.fail_next_abort_dispatch) {
+        return Err(VmError::range_error("injected abort-dispatch failure"));
+    }
+    let abort_sid = ctx.vm.well_known.abort;
+    dispatch_vm_simple_event(ctx, signal_id, abort_sid, false, false).map(|_| ())
 }
 
 /// Construct the default abort reason — a `DOMException` instance
-/// with `name === "AbortError"` (WHATWG DOM §3.1.2 step 1: "set
-/// reason to a new 'AbortError' DOMException").  Routed through
+/// with `name === "AbortError"` (DOM §3.2 "signal abort" step 2 and the
+/// static `abort(reason)` method steps step 2: "Set signal's abort reason
+/// to reason if it is given; otherwise to a new "AbortError"
+/// DOMException.").  Routed through
 /// [`VmInner::build_dom_exception`] so the instance has
 /// `DOMException.prototype` in its chain and the side-table entry
 /// populated — `reason.code === 20`,
 /// `reason instanceof DOMException`, `reason instanceof Error` all
 /// hold as a result.
-fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
-    let name = ctx.vm.well_known.abort_error;
-    ctx.vm
-        .build_dom_exception(name, "signal is aborted without reason")
+fn create_default_abort_error(vm: &mut VmInner) -> JsValue {
+    let name = vm.well_known.abort_error;
+    vm.build_dom_exception(name, "signal is aborted without reason")
+}
+
+/// An abort reason as the spec sets it: `reason` if given, otherwise a new
+/// `"AbortError"` `DOMException` ("signal abort" step 2 / the static
+/// `abort(reason)` method steps step 2).
+pub(super) fn materialise_abort_reason(vm: &mut VmInner, reason: JsValue) -> JsValue {
+    if matches!(reason, JsValue::Undefined) {
+        create_default_abort_error(vm)
+    } else {
+        reason
+    }
 }
 
 /// Entry point for the timer drain path — synthesises a
@@ -678,6 +743,11 @@ fn create_default_abort_error(ctx: &mut NativeContext<'_>) -> JsValue {
 /// (`natives_timer::drain_timers`) only routes through here when
 /// the `pending_timeout_signals` map has an entry, which is itself
 /// engine-feature-gated.
+///
+/// GC: [`abort_signal`] roots `signal_id` itself across the `reason` closure
+/// (plan §4.1, "The `reason` closure's contract"), so a caller may pass
+/// `undefined` — allocating the default `DOMException` inside the abort —
+/// with GC enabled without rooting the signal.
 pub(in crate::vm) fn internal_abort_signal(
     vm: &mut super::super::VmInner,
     signal_id: ObjectId,

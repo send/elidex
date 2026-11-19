@@ -20,7 +20,7 @@ use std::rc::Rc;
 use elidex_net::broker::NetworkHandle;
 use elidex_net::{HttpVersion, Response as NetResponse};
 
-use super::super::value::JsValue;
+use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::Vm;
 
 fn mock_vm(responses: Vec<(url::Url, Result<NetResponse, String>)>) -> Vm {
@@ -426,9 +426,10 @@ fn fetch_signal_non_abort_signal_object_rejects_type_error() {
 #[test]
 fn fetch_composite_signal_any_pre_abort_rejects() {
     // `AbortSignal.any([alreadyAborted])` returns a synchronously-
-    // aborted composite (WHATWG §3.1.3.3 step 3: "if any input is
-    // already aborted, return a newly-created signal aborted with
-    // its reason").  Passing the composite into fetch must
+    // aborted composite (DOM §3.2 create a dependent abort signal step 2:
+    // "For each signal of signals: if signal is aborted, then set
+    // resultSignal's abort reason to signal's abort reason and return
+    // resultSignal.").  Passing the composite into fetch must
     // pre-flight reject the same way a direct aborted signal does.
     let url = url::Url::parse("http://example.com/composite").expect("valid");
     let mut vm = mock_vm(vec![(
@@ -567,4 +568,61 @@ fn fetch_signal_aborted_mid_flight_rejects_with_abort_reason() {
         Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "AbortError"),
         other => panic!("expected r to be 'AbortError', got {other:?}"),
     }
+}
+
+/// Test native: `true` iff the signal argument has no entry in
+/// `VmInner::fetch_abort_observers` (the fetch abort algorithm has run).
+fn native_fetch_algorithm_ran(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let JsValue::Object(signal) = args.first().copied().unwrap_or(JsValue::Undefined) else {
+        return Err(VmError::type_error("expected an AbortSignal"));
+    };
+    Ok(JsValue::Boolean(
+        !ctx.vm.fetch_abort_observers.contains_key(&signal),
+    ))
+}
+
+#[test]
+fn fetch_rejection_runs_as_abort_step() {
+    // DOM §3.2 "run the abort steps": step 1 runs the abort algorithms
+    // (here Fetch §5.6 fetch() method steps step 11's abort steps, which
+    // reject the promise and cancel the fetch) and only then step 3 fires
+    // `abort`.  The order is internal — promise reactions are microtasks and
+    // `cancel_fetch` is a broker message — so it is observed natively: when
+    // the signal's own `'abort'` listener runs, the fetch observer entry is
+    // already gone.
+    let url = url::Url::parse("http://example.com/abort-step").expect("valid");
+    let mut vm = mock_vm(vec![(
+        url,
+        Ok(ok_response("http://example.com/abort-step", 200, "never")),
+    )]);
+    vm.install_host_data(super::super::host_data::HostData::new());
+    let probe = vm
+        .inner
+        .create_native_function("__fetchAlgorithmRan", native_fetch_algorithm_ran);
+    vm.set_global("__fetchAlgorithmRan", JsValue::Object(probe));
+    vm.eval(
+        "globalThis.r = ''; globalThis.ranBeforeFire = null; \
+         var c = new AbortController(); \
+         c.signal.addEventListener('abort', function () { \
+             globalThis.ranBeforeFire = __fetchAlgorithmRan(c.signal); \
+         }); \
+         fetch('http://example.com/abort-step', {signal: c.signal}) \
+             .catch(e => { globalThis.r = e instanceof DOMException && e.name; }); \
+         c.abort();",
+    )
+    .unwrap();
+    drain_fetch_replies(&mut vm);
+    match vm.get_global("r") {
+        Some(JsValue::String(id)) => assert_eq!(vm.get_string(id), "AbortError"),
+        other => panic!("expected r to be 'AbortError', got {other:?}"),
+    }
+    assert_eq!(
+        vm.get_global("ranBeforeFire"),
+        Some(JsValue::Boolean(true)),
+        "the fetch abort algorithm must have run before the abort event fired"
+    );
 }

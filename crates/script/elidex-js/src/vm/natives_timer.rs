@@ -352,7 +352,10 @@ impl VmInner {
                 continue;
             }
             // AbortSignal.timeout(ms) timer fired — route through the
-            // internal abort path (WHATWG §3.1.3.2) instead of
+            // internal abort path (DOM §3.2 static timeout(milliseconds)
+            // method steps step 3.1: "Queue a global task on the timer task
+            // source given global to signal abort given signal and a new
+            // "TimeoutError" DOMException.") instead of
             // dispatching the placeholder callback.  The signal's
             // `reason` becomes `DOMException("TimeoutError")`.  We
             // install the entry as current_timer first so the GC root

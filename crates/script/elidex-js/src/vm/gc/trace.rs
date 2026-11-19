@@ -385,7 +385,16 @@ pub(super) fn trace_work_list(
             #[cfg(feature = "engine")]
             ObjectKind::AbortSignal => {
                 if let Some(state) = abort_signal_states.get(&ObjectId(obj_idx)) {
-                    mark_value(state.reason, obj_marks, work);
+                    if let Some(reason) = state.reason {
+                        mark_value(reason, obj_marks, work);
+                    }
+                    // `state.links` (the DOM §3.2 source signals / dependent
+                    // signals weak sets) is NOT traced: the sets are weak by
+                    // spec, so a member reachable only through them is
+                    // collectable and the sweep tail prunes it
+                    // (`DependentLinks::retain_live`).  The §3.2.1 root for a
+                    // listenered dependent is the keepalive arm slot
+                    // `#11-abort-signal-dependent-keepalive`, not a trace edge.
                     // The signal's own `'abort'` listeners + `onabort`
                     // handler now live in the unified `vm_event_listeners`
                     // home; their callback `ObjectId`s are rooted via

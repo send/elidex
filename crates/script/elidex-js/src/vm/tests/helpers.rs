@@ -236,3 +236,13 @@ pub(crate) fn click_source(vm: &mut Vm, entity: Entity) -> Option<String> {
         .expect("a click handler entry exists");
     listeners.uncompiled_source(id).map(str::to_owned)
 }
+
+/// The `ObjectId` of the object a JS expression evaluates to (e.g. an
+/// `AbortSignal`, for tests that read the VM's side rows directly).
+#[cfg(feature = "engine")]
+pub(crate) fn signal_id(vm: &mut Vm, expr: &str) -> super::super::value::ObjectId {
+    match vm.eval(expr).unwrap() {
+        JsValue::Object(id) => id,
+        other => panic!("`{expr}` is not an object: {other:?}"),
+    }
+}

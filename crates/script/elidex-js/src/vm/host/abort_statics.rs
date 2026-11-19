@@ -1,5 +1,7 @@
 //! `AbortSignal` static factories — `abort(reason?)` /
-//! `timeout(ms)` / `any(signals)` (WHATWG DOM §3.1.3).
+//! `timeout(ms)` / `any(signals)` (DOM §3.2 Interface AbortSignal: the
+//! static `abort(reason)` / `timeout(milliseconds)` / `any(signals)`
+//! method steps).
 //!
 //! Split out of [`super::abort`] to keep that module under the
 //! project's 1000-line convention.  The functions live as own
@@ -8,17 +10,22 @@
 //! [`VmInner::register_abort_signal_global`](crate::vm::VmInner::register_abort_signal_global).
 //!
 //! The core signal state machine ([`super::abort::abort_signal`])
-//! remains in `abort.rs`; these factories only compose it with
-//! fresh signal allocation / timer scheduling.
+//! remains in `abort.rs`; these factories compose fresh signal
+//! allocation / timer scheduling with the engine-independent
+//! "create a dependent abort signal" algorithm in
+//! [`elidex_dom_api::abort`].
 
 #![cfg(feature = "engine")]
 
+use elidex_dom_api::abort::{create_dependent_abort_signal, AbortSignalGraph};
+
 use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 
-use super::abort::abort_signal;
+use super::abort::materialise_abort_reason;
 
 /// `AbortSignal.abort(reason?)` — returns an already-aborted signal
-/// (WHATWG §3.1.3.1).  Equivalent to:
+/// (DOM §3.2 "The static abort(reason) method steps").  Observably
+/// equivalent to:
 ///
 /// ```js
 /// const c = new AbortController();
@@ -26,23 +33,25 @@ use super::abort::abort_signal;
 /// c.signal;
 /// ```
 ///
-/// …but without allocating the controller.
+/// …but without allocating the controller.  The steps only *set* the
+/// new signal's abort reason (step 2) and return it — no abort steps run
+/// (a fresh signal has no listeners or algorithms).
 pub(super) fn native_abort_signal_static_abort(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let signal_id = ctx.vm.create_abort_signal();
-    let reason = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `abort_signal` materialises the default AbortError reason
-    // when `reason === undefined`, matching WHATWG §3.1.3.1 step 2.
-    abort_signal(ctx, signal_id, reason)?;
+    // Static abort(reason) method steps step 2.
+    let reason =
+        materialise_abort_reason(ctx.vm, args.first().copied().unwrap_or(JsValue::Undefined));
+    ctx.vm.set_abort_reason(signal_id, reason);
     Ok(JsValue::Object(signal_id))
 }
 
 /// `AbortSignal.timeout(ms)` — returns a signal that aborts with a
 /// `DOMException("TimeoutError")` reason after `ms` milliseconds
-/// (WHATWG §3.1.3.2).  The timer is managed via
+/// (DOM §3.2 "The static timeout(milliseconds) method steps").  The timer is managed via
 /// [`VmInner::pending_timeout_signals`](super::super::VmInner);
 /// on fire, the VM synthesises an internal abort *without*
 /// invoking any JS callback.
@@ -79,32 +88,28 @@ pub(super) fn native_abort_signal_static_timeout(
     Ok(JsValue::Object(signal_id))
 }
 
-/// `AbortSignal.any(signals)` — returns a signal that aborts as
-/// soon as any input signal aborts (WHATWG §3.1.3.3).  If any
-/// input is already aborted at call time, the returned signal is
-/// aborted synchronously with the first-aborted signal's reason;
-/// otherwise the composite is non-aborted and propagation happens
-/// via [`super::super::VmInner::any_composite_map`] — every abort
-/// on an input consults the map and fires on each observing
-/// composite before returning to the user.  Chained composites
-/// (`any([any([a, b]), c])`) propagate through the map's
-/// recursive `abort_signal` call.
+/// `AbortSignal.any(signals)` — DOM §3.2 "The static any(signals) method
+/// steps are to return the result of creating a dependent abort signal from
+/// signals using AbortSignal and the current realm."
 ///
-/// The fan-out runs inside [`super::abort::abort_signal`]
-/// directly rather than via `addEventListener('abort', …)` so
-/// the composite does not incur per-input native-fn allocations.
+/// The algorithm itself is [`create_dependent_abort_signal`] in
+/// [`elidex_dom_api::abort`]; this native keeps what is engine-bound: the
+/// argument read, the brand checks and the allocation of the result.  The
+/// result records the **non-dependent** sources of its inputs (a dependent
+/// input contributes its own source signals), so no dependent signal has
+/// dependent signals of its own and a source's abort reaches every
+/// transitive dependent in one step.
+///
+/// The argument is read as an `Array` only (no `Symbol.iterator`): the
+/// WebIDL `sequence<AbortSignal>` conversion is the concern of
+/// `#11-webidl-sequence-dense-array-fast-path` and
+/// `#11-vm-webidl-sequence-early-exit-drain`.
 pub(super) fn native_abort_signal_static_any(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let iterable = args.first().copied().unwrap_or(JsValue::Undefined);
-    // Array-shaped input only for PR5a — the full iterable
-    // protocol (Symbol.iterator / for-of hardening) lands in
-    // PR5a2.  Read elements directly from `ObjectKind::Array` so
-    // we don't route through the `coerce::get_property` path
-    // (which doesn't handle numeric-index array reads — that
-    // logic lives in the bytecode dispatch opcode).
     let JsValue::Object(arr_id) = iterable else {
         return Err(VmError::type_error(
             "AbortSignal.any: expected an iterable of AbortSignals",
@@ -121,13 +126,9 @@ pub(super) fn native_abort_signal_static_any(
 
     // Pre-validation pass — side-effect-free.  We validate every
     // element (brand check + AbortSignal kind) *before* allocating
-    // the composite signal so a throw on a bogus element does not
-    // strand an unreferenced entry in `abort_signal_states`.  Also
-    // capture the first already-aborted signal's reason so we can
-    // propagate it when (and only when) the allocation succeeds
-    // (WHATWG §3.1.3.3 step 2).
+    // the result signal so a throw on a bogus element does not
+    // strand an unreferenced entry in `abort_signal_states`.
     let mut inputs: Vec<ObjectId> = Vec::with_capacity(elements.len());
-    let mut first_aborted_reason: Option<JsValue> = None;
     for v in elements {
         let JsValue::Object(sig_id) = v else {
             return Err(VmError::type_error(
@@ -139,43 +140,16 @@ pub(super) fn native_abort_signal_static_any(
                 "AbortSignal.any: iterable element is not an AbortSignal",
             ));
         }
-        if first_aborted_reason.is_none() {
-            if let Some(state) = ctx.vm.abort_signal_states.get(&sig_id) {
-                if state.aborted {
-                    first_aborted_reason = Some(state.reason);
-                }
-            }
-        }
         inputs.push(sig_id);
     }
 
-    // Validation succeeded — allocate the composite exactly once.
-    let composite = ctx.vm.create_abort_signal();
-    if let Some(reason) = first_aborted_reason {
-        // Already-aborted fast path: composite is sync-aborted with
-        // the first input's reason; fan-out registration is
-        // redundant (any subsequent input abort would target an
-        // already-aborted composite).
-        abort_signal(ctx, composite, reason)?;
-    } else {
-        // Multi-input propagation (WHATWG §3.1.3.3) — register the
-        // composite against every still-active input so each
-        // input's `abort_signal` fire path fans out to it.  Skip
-        // the composite itself (self-referential entries cannot
-        // arise from the input list — `create_abort_signal`
-        // allocates a fresh id — but this is the cheapest guard
-        // against a future refactor that swaps the order of
-        // allocate-after-validate).
-        for input_sid in inputs {
-            if input_sid == composite {
-                continue;
-            }
-            ctx.vm
-                .any_composite_map
-                .entry(input_sid)
-                .or_default()
-                .push(composite);
-        }
-    }
-    Ok(JsValue::Object(composite))
+    // Validation succeeded — allocate the result exactly once (create a
+    // dependent abort signal step 1), then run steps 2-5.
+    let result = ctx.vm.create_abort_signal();
+    // Steps 2-5 are the module's: an aborted input makes the result take
+    // its reason (not dependent; no abort steps run — a fresh signal has no
+    // listeners or algorithms), otherwise the result is linked.  The
+    // outcome is on the result's row.
+    create_dependent_abort_signal(&mut *ctx.vm, result, &inputs);
+    Ok(JsValue::Object(result))
 }
