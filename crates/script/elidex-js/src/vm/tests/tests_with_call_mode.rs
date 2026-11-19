@@ -320,7 +320,7 @@ fn with_call_mode_panic_preserves_original_payload() {
 /// frames, unwound by a panic inside `with_call_mode`
 /// (`#11-vm-stack-guard-panic-unwind-order`).  The guard drops first
 /// (it is inside the closure); if it truncates the VM stack while the
-/// frames above it are still pushed, `with_call_mode`'s close loop reads
+/// frames above it are still pushed, `with_call_mode`'s upvalue close reads
 /// `stack[frame_base + slot]` out of bounds — the original payload is
 /// replaced and the upvalue stays `Open`.  The frame's upvalue must be
 /// closed before any truncate, whichever drops first.
@@ -390,4 +390,43 @@ fn temp_root_spanning_frames_unwinds_without_losing_upvalues() {
         let mut guard = vm.push_temp_root(JsValue::Undefined);
         body(&mut guard);
     });
+}
+
+/// A guard unwinding a frame whose open upvalue points past the stack end
+/// (a corrupted frame) must not panic again inside `Drop` — a second panic
+/// while unwinding aborts the process.  The original payload surfaces and
+/// the upvalue is closed (`undefined`) rather than left `Open`.
+#[test]
+fn stack_scope_unwind_survives_upvalue_past_stack_end() {
+    use super::super::frame::{Upvalue, UpvalueState};
+    use super::super::value::UpvalueId;
+
+    let mut vm = Vm::new();
+    let entry_stack_depth = vm.inner.stack.len();
+    let uv = UpvalueId(vm.inner.upvalues.len() as u32);
+    vm.inner.upvalues.push(Upvalue {
+        state: UpvalueState::Open {
+            frame_base: entry_stack_depth + 100,
+            slot: 0,
+        },
+    });
+
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+            let mut scope = vm.push_stack_scope();
+            let base = scope.stack.len();
+            scope.frames.push(forged_frame(base, vec![uv]));
+            panic!("CORRUPT_FRAME_ORIGINAL");
+        });
+    }));
+    std::panic::set_hook(prev_hook);
+
+    let payload = result.expect_err("the closure panicked");
+    assert_eq!(panic_message(&payload), "CORRUPT_FRAME_ORIGINAL");
+    assert!(matches!(
+        vm.inner.upvalues[uv.0 as usize].state,
+        UpvalueState::Closed(JsValue::Undefined)
+    ));
 }
