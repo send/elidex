@@ -21,10 +21,10 @@ compares the current value with the focus-time snapshot and nothing else, so it 
 | user presses ArrowLeft; script `b.value = "x"`; user focuses `c` | `input` (wrong), `change` (wrong) | no `input`, no `change` |
 | paste (Cmd+V) into a `readonly` control | `input` (wrong), value unchanged | nothing |
 | IME commit into a control whose `maxlength` is full | `compositionend`, `input` (wrong) | `compositionend` only |
-| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1) |
+| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]) |
 | user types `a`; script `b.value = ""` (restores the focus-time value); user focuses `c` | no `change` | no `change` |
-| script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4) |
-| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9) |
+| script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4 [history]; differs from the spec text, erratum under D-1: DF-1 (a)) |
+| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; differs from the spec text, erratum under D-1: DF-1 (b)) |
 | script `b.focus()`; user types `a`; user focuses `c` | `input`, `change` | same |
 
 ## §0. Frame, premises, decisions
@@ -53,8 +53,12 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
 - **E1 (brief)** — "the input element's change event rules" are the right source for `<input>`, but the focus update
   steps' step 2.1 begins "If entry is an **input** element"; §4.10.11 The textarea element defines the textarea's `input`
   event and dirty flag and no `change` event (`.claude/tools/webref body html the-textarea-element | /usr/bin/grep -c 'named change'` → 0).
-  elidex fires change-on-blur for `<textarea>` too (P2), as browsers do. So for textarea the rule is browser behaviour,
+  elidex fires change-on-blur for `<textarea>` too (P2), as browsers do [history]. So for textarea the rule is browser behaviour,
   not spec text: the §6 pre-step measured textarea separately (identical to `<input>` in every case), and §3 marks the row.
+  **Correction (PM 432, 2026-11-20; added after landing):** the ground is not browser behaviour. The spec is silent
+  on a textarea's `change`, and elidex's own principle decides: one text-control class, whose behaviour follows the
+  components it carries and not its tag (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-13, §4.2).
+  The measurement is `[history]`.
 - **E2 (brief, Q7 list)** — "spin/step for number": `<input type=number>` has **no user edit path** in the shell. It is not a
   text control (P2), so `handle_key` sends it to `handle_key_widget` (`event_handlers.rs:337-340`), which has no Number arm
   (`:587-645`, `_ => {}`), and `is_editable_text` (`ime.rs:13-20`) rejects it. Typing into a number field does nothing.
@@ -74,12 +78,24 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
 
 - **D-1 The predicate.** Step 2.1 fires `change` iff the snapshot records a user value change since focus **and** the
   value differs from the baseline: the focus-time value, re-baselined by a non-user write made before the user's first
-  value change (model H, §4.3; measured in Chromium, §6; PM 305). One function computes it: `elidex_form::take_change_on_blur`
+  value change (model H, §4.3; measured in Chromium, §6 [history]; PM 305). One function computes it: `elidex_form::take_change_on_blur`
   (NEW, `focus_snapshot.rs`) consumes the snapshot and returns whether the substep fires; every sink only dispatches
   `change` (umbrella X1, record PR-1). **Representation (changed, PM 393):** `FocusValueSnapshot(Option<String>)`, `None`
   at seed and `Some(before)` from the first user value change (the H baseline); the verdict is
   `matches!(snap, Some(b) if value != b)`. It replaces rev 3.1's `{ initial, user_changed }` because the focus-time
   `initial` was dead state: it was read only when `user_changed`, and the first mark always overwrote it. Commit (4).
+  **Erratum (PM 432, PM 842; 2026-11-20; added after landing — the text above is as ratified and landed).** The
+  ground of this predicate is re-derived in `docs/plans/2026-11-change-on-blur-spec-rederivation.md`:
+  - *Ground of what holds.* "A user value change since focus" and "script changes alone fire nothing" are spec text
+    (HTML §6.6.4 focus update steps step 2.1; §4.10.5.5), as are the funnel, `input`, the commit point and the event
+    order (its §4, E-1 to E-4, E-6 to E-12). They do not rest on the measurement.
+  - *What differs from the spec.* The baseline. Step 2.1 compares with the value "when the control was first
+    focused"; this predicate compares with the value before the first user value change. The re-baseline by a
+    non-user write has no ground in spec text or in an elidex principle; its only source is the §6 measurement,
+    which is `[history]` and not a ground. Recorded as defect DF-1 (cells DC-1 to DC-12 there); the fix is a separate
+    code PR. Until then C6, C7 (l) and C20–C26 pin the landed behaviour, not a spec requirement.
+  - *PM 393's representation* (`Option<String>`, "the focus-time `initial` was dead state") follows from H's
+    baseline; DF-1's code PR re-decides it.
 - **D-2 One user-edit funnel, at the value change** (E3). `elidex_form::apply_user_edit` (NEW), in
   `crates/dom/elidex-form/src/user_edit.rs` (NEW), runs a user edit closure on the control's `FormControlState`, compares the value
   before and after, and if it changed (a) marks the snapshot (if one exists) and (b) returns `changed = true`. The shell
@@ -196,7 +212,7 @@ Pairs:
 | WHATWG HTML §4.10.5.5 Common event behaviors | "not fired in response to changes made to the values of form controls by scripts" | no §5.2 writer marks (I4) | §5.2 writers (unchanged) | ✓ | yes |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "change an input element's value on behalf of the user" (prefill) → `input` then `change` directly | no such path in elidex (Q7 table row 10); a future autofill fires both itself, not via blur | — | ✗ | no |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "not fired when the browser changes the values … as part of state restoration" | no form state restoration in elidex; nothing to route | — | ✗ | no |
-| WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule in the text (E1) | same funnel as `<input>`; change-on-blur kept as browser behaviour, measured identical to `<input>` (§6) | `apply_user_edit`, `take_change_on_blur` | ✗ | yes |
+| WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule in the text (E1) | same funnel as `<input>`; change-on-blur under the `<input>` predicate, by elidex's one text-control class [corrected 2026-11-20, PM 432: E1's correction; as landed: "kept as browser behaviour, measured identical to `<input>` (§6)" [history]] | `apply_user_edit`, `take_change_on_blur` | ✗ | yes |
 | WHATWG HTML §4.10.5 The input element / §4.10.11 The textarea element | dirty value flag set rules (dfn §4.10.18.1) | not changed (D-5); cursor moves set it (`input.rs:88-90`), CP-2 | — | ✗ | yes |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 6.6.4 html 4.10.5.5 html 4.10.11` (§6.6.4 Processing model
@@ -280,10 +296,16 @@ Rows 8–12 have no path today. Row 13 is a non-user writer. Row 14 is outside t
 ### §4.3 The mixed case — model H (measured, PM 305)
 
 The spec text gives two conditions: the user changed the value while focused, and the value differs from the
-focus-time value. It does not say what a script write does to either. Chromium 156 (§6 runs 1–2; `<input>` and
+focus-time value. It does not say what a script write does to either. Chromium 156 [history] (§6 runs 1–2; `<input>` and
 `<textarea>` identical in every case) follows **H**: the baseline is the value at focus; a script value write
 re-baselines it only while the user has not changed the value since focus (the mark); after the mark, `change` fires
 iff the value ≠ baseline. In rev 2's terms: B1 before the mark, A after it.
+
+**Erratum (PM 432, 2026-11-20; added after landing).** "It does not say what a script write does to either" is wrong
+for the second condition: the sentence names its reference point, the value "when the control was first focused",
+and nothing in it lets a later write move that point. So the spec decides the mixed case and the measurement was
+never needed as a ground. H agrees with the spec text on M0–M3 and M5–M8 and differs on M4 and M9 (and on C21–C26):
+D-1's erratum, DF-1. This section and its tables describe the landed behaviour.
 
 | Event | Snapshot (D-1) |
 |---|---|
@@ -301,7 +323,7 @@ any writer. An unlisted or future non-user writer cannot skip the re-baseline, b
 that does not go through `apply_user_edit` is non-user, the fail-safe direction. While unmarked there is no baseline, so
 `take_change_on_blur` returns `false`.
 
-| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium | baseline at blur | Cell |
+| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium [history] | baseline at blur | Cell |
 |---|---|---|---|---|
 | M0 | script `x` | none | unmarked | C1, C3, C14 |
 | M1 | type `a`; script `third` | `change` | `""` | C4 |
@@ -320,6 +342,11 @@ Measured (run 1, both kinds): N1–N4 fire no `input` and leave the value unchan
 `Input.insertText`, not a clipboard paste), so I2 stands as designed; C8, C11, C12, C27 and C28 assert it. N5 (an IME commit with nothing to insert) was not measured:
 the driver had only a synthetic composition, so C11 rests on the spec text. Replacing a selection with identical text
 was not measured either; I2 follows elidex's own value comparison there (no change, no `input`). Probe: §6 N6.
+
+**Correction (PM 432, 2026-11-20; added after landing).** I2's ground is spec text, not these runs: §4.10.5.5 fires
+`input` "any time the user causes the element's value to change" and names "replacing some text in the control with
+text from the clipboard that happens to be exactly the same text" as a non-change. N1–N4 are `[history]`; N5 and N6
+need no probe as a ground.
 
 ## §5. Populations and named risks
 
@@ -373,7 +400,8 @@ clone, a new unfocused entity); `fieldset.rs:62` (disabled); `radio.rs:80/89` (c
 `:166` host W4–W6; their other arms write no live value (the dirty `value` branch only re-corrects Range).
 
 Under H every family re-baselines before the mark and none marks (I4); no family calls anything new (D-4). Only W1 /
-W2 were measured in Chromium; W3–W8 follow elidex's rule that every non-user change is alike (Q-1, §10).
+W2 were measured in Chromium [history]; W3–W8 follow elidex's rule that every non-user change is alike (Q-1, §10).
+(2026-11-20: "re-baselines before the mark" is the landed behaviour and differs from the spec text; D-1's erratum.)
 
 ### §5.3 Named risks
 
@@ -382,13 +410,13 @@ W2 were measured in Chromium; W3–W8 follow elidex's rule that every non-user c
   empty control and an identical paste. No elidex test asserts them (C8 is red-first on HEAD).
 - **R2 Fail direction of the funnel.** A future user edit path that skips `apply_user_edit` fires neither `input` nor
   `change`. Both omissions are visible, so the miss is not silent. `apply_user_edit`'s doc comment names the paths (§8).
-- **R3 One engine, one writer measured** — H is measured on the `value` setter in Chromium 156 only; W3–W8 follow from
+- **R3 One engine, one writer measured** — H is measured on the `value` setter in Chromium 156 only [history]; W3–W8 follow from
   treating every non-user change alike (§5.2). The PR body says so.
 - **R4 Cost** — one value clone per user edit, O(len), the same order as the edit (§4.1).
 
 ## §6. Test and coverage plan
 
-**Pre-step: Chromium measurement** (done: runs 1–2 below; the procedure is kept for reproducibility). In the built-in
+**Pre-step: Chromium measurement [history]** (done: runs 1–2 below; the procedure is kept for reproducibility). In the built-in
 browser of the Claude desktop app (load the `anthropic-skills:built-in-browser` skill first). Serve a probe page from the
 scratchpad through a temporary `.claude/launch.json` (`python3 -m http.server <port> --directory <scratchpad>`) +
 `preview_start`, because `file://` pages cannot run page tools. Delete the launch.json and `preview_stop` afterwards.
@@ -464,7 +492,13 @@ fires none (C24), because every non-user write before the first user edit is abs
 (1) the spec defines no baseline ("the user has changed the element's value"), so which setter re-baselines is one engine's
 internals; (2) the case is narrow (toggle `multiple` while focused before the first edit, then edit back to the sanitized value);
 (3) matching it would reintroduce per-writer calls and an exception list. Reopen if another engine is measured and agrees with
-Chromium.
+Chromium. [history]
+
+**Erratum (PM 432, 2026-11-20; added after landing).** This record is withdrawn as a statement of a ground. Whether
+an engine agrees is not a criterion for a core requirement, so the "reopen if" clause no longer applies. C24's
+expected outcome is decided by the spec text: the value differs from its value at first focus and the user changed
+the value while focused, so `change` fires (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6, cell DC-9).
+The landed C24 asserts the opposite; it is one of DF-1's cells.
 
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
@@ -546,7 +580,7 @@ the WPT runner does not drive.
 
 ## §8. Edges, hand-offs and records
 
-- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot.
+- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [history] (2026-11-20: withdrawn, §6's erratum; C24 is a cell of DF-1.)
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
 - **L3 P1 `#11-element-lifecycle-hooks`** (file overlap, no order): the same files — `content/event_handlers.rs`
@@ -628,7 +662,7 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
 
 ## §10. Open items
 
-- **Q-1 (PM)** — measure W3–W8 (§5.2) in Chromium before commit (3)? Only the `value` setter was measured; C21–C26
+- **Q-1 (PM)** — measure W3–W8 (§5.2) in Chromium before commit (3)? [history] Only the `value` setter was measured; C21–C26
   assert elidex's rule that every non-user change re-baselines before the mark. The run-2 driver can run C21–C26's
   sequences unchanged. The designer recommends it: a family that diverges would change a cell's expected outcome, not
   the mechanism.
@@ -637,6 +671,10 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
 
 ## Changelog
 
+- *Erratum* (2026-11-20; no rev bump; added after landing; PM 432, PM 842): the grounds of model H re-derived in
+  `docs/plans/2026-11-change-on-blur-spec-rederivation.md`. Errata under D-1, §4.3 and §6 (W6); corrections
+  under E1 and §4.4 and in §3's textarea row; `[history]` tags on the lines that name the measurement. The baseline
+  differs from the spec text (DF-1 there); no behaviour and no cell changes in this memo.
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.
@@ -644,7 +682,7 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
   writing-direction `input` stated apart (row 12; IME commit on blur added to the §8 list of user edit paths); dirty-flag and reset cites; R1
   example; `FocusValueSnapshot` fields private + DoD 3 field-write grep; I4 × I5 pointer by construction; MG name note;
   R-1 reversal of A2a; R-3, R-4, DoD 8; L3 P1 edge; `elidex-js` in header; clipboard observation → slot pointer (PM 312).
-- **Rev 3 (2026-11-03)** — single design H (Chromium-measured, PM 305). Deleted: branches A-only / B1 / B2, their
+- **Rev 3 (2026-11-03)** — single design H (Chromium-measured [history], PM 305). Deleted: branches A-only / B1 / B2, their
   representations, the per-branch cell outcomes (C4, C6), the STOP rows, the per-kind branch paragraph, §4.4's
   unmeasured rows (incl. the conditional proposed L3 defect), the pre-step's branch-selection sentences and the B1 file
   note. H's re-baseline is taken at the first mark inside `apply_user_edit`, so no writer calls anything (§4.3, D-4,
