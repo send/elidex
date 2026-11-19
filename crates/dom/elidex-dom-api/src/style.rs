@@ -120,7 +120,7 @@ fn remove_declarations(style: &mut InlineStyle, property: &str) -> bool {
 /// (Phase 2.5).
 ///
 /// Empty inline-style produces an empty attribute (preserves `style=""`
-/// rather than removing it) — matches Chrome's behaviour for an
+/// rather than removing it) — likewise for an
 /// inline-style block emptied via `removeProperty`.
 fn sync_to_attribute(entity: Entity, dom: &mut EcsDom, session: &mut SessionCore) {
     // Clone the component before the write: `apply_set_attribute` calls
@@ -495,7 +495,7 @@ impl DomApiHandler for StyleCssTextGet {
 /// expansion).  All-or-nothing replacement: it returns an empty
 /// `InlineStyle` for empty / unparseable input, which clears the
 /// inline-style block.  This matches the spec "parse a CSS declaration
-/// block" algorithm and Chrome's behaviour for whole-block-invalid input
+/// block" algorithm for whole-block-invalid input
 /// (accepted divergence: Firefox preserves existing declarations on
 /// whole-block parse failure).
 pub struct StyleCssTextSet;

@@ -602,7 +602,7 @@ pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
 /// our `[[ByteLength]]` slot is `u32`, so the upper bound has to
 /// drop from `2^53 − 1` down to `u32::MAX`.
 ///
-/// Error messages mirror V8's
+/// Error messages mirror V8's [evidence]
 /// `"Failed to construct '{ctor_name}': {what} ..."` shape so
 /// browser-compat tests do not regress.  The returned value
 /// satisfies `0 <= result <= u32::MAX`, so the `truncated as u32`
@@ -640,7 +640,7 @@ pub(crate) fn to_index_u32(
 /// safety check on 32-bit hosts in the `ArrayBuffer` path).
 ///
 /// Error messages share the
-/// `"{error_prefix}: {what} ..."` shape so callers can mirror V8's
+/// `"{error_prefix}: {what} ..."` shape so callers can mirror V8's [evidence]
 /// per-API formatting (`"Failed to construct 'ArrayBuffer'"`,
 /// `"BigInt"`, etc.).  The returned value satisfies
 /// `0 <= result < 2^53`, so the `truncated as u64` cast at the

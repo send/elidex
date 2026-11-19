@@ -446,7 +446,7 @@ impl Parser<'_> {
             let found = self.labels.iter().find(|(l, _)| l == lbl);
             if let Some((_, is_iteration)) = found {
                 if !is_break && !is_iteration {
-                    // V8: resolve Atom to string for user-facing error message
+                    // V8: resolve Atom to string for user-facing error message [evidence]
                     let name = self.resolve(*lbl);
                     self.error(
                         JsParseErrorKind::IllegalBreak,

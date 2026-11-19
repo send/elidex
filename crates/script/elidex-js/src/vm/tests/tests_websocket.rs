@@ -603,7 +603,7 @@ fn close_is_idempotent_when_already_closing() {
 #[test]
 fn close_arg_validation_runs_before_state_idempotency() {
     // Even on a CLOSED socket, an invalid code arg surfaces an
-    // InvalidAccessError.  Matches Chrome / Firefox semantics — the
+    // InvalidAccessError.  The
     // WebIDL coercion happens before the §9.3.4 state check.
     with_ws_vm(false, |vm| {
         vm.eval("globalThis.s = new WebSocket('ws://example.com/socket');")

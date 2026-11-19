@@ -303,7 +303,7 @@ mod engine_feature {
         /// calls [`Self::install_web_storage`] — the JS-visible
         /// `localStorage` natives operate on a private stub when no
         /// backend is installed (no panic, but the data is per-VM
-        /// in-memory and lost on `Vm::unbind`, matching Chrome's
+        /// in-memory and lost on `Vm::unbind`, matching Chrome's [evidence]
         /// "cookie-averse" fallback for `document.cookie`).
         /// A2: `Legacy` Web Storage backend — absent in `App` builds.
         #[cfg(feature = "compat-webapi")]
@@ -426,7 +426,7 @@ mod engine_feature {
         /// Canonical `[SameObject]` wrapper for the per-document
         /// Selection.  `window.getSelection()` and
         /// `document.getSelection()` both return THIS `ObjectId` —
-        /// identity is preserved per spec §2 / Chrome behaviour.
+        /// identity is preserved per spec §2.
         /// GC sweep tail clears this slot when the wrapper becomes
         /// unreachable; the next `getSelection()` call materialises a
         /// fresh wrapper backed by the same `selection_state`.

@@ -16,7 +16,7 @@
 //! this makes `event.view` / `event.detail` resolve via the own-property
 //! fast path instead of a prototype-accessor + side-table lookup.
 //!
-//! Init-dict coercion follows Chrome's invocation order verified via a
+//! Init-dict coercion follows an invocation order verified via a
 //! userland getter probe (matches the pattern established in
 //! [`super::events::parse_event_init`]).  Numeric fields use
 //! [`coerce::to_number`](crate::vm::coerce::to_number); boolean modifier flags use
@@ -474,7 +474,7 @@ impl VmInner {
         // path with the value the constructor seeded (default `null`,
         // or any-pass-through from the init dict).  Reading
         // `InputEvent.prototype.dataTransfer` therefore yields
-        // `undefined` — matching Chrome / Firefox where the IDL
+        // `undefined` — the IDL
         // `attribute` getter is also a prototype-side accessor whose
         // direct prototype read returns `undefined`.
         let proto_id = self
@@ -816,7 +816,7 @@ fn native_input_event_constructor(
 }
 
 /// `InputEvent.prototype.getTargetRanges()` — D-10 stub.  Returns a
-/// freshly-allocated empty Array per call (matches Chrome behaviour
+/// freshly-allocated empty Array per call
 /// for InputEvent instances constructed without a `targetRanges`
 /// init member; real implementation comes with D-8 `#11-traversal-
 /// and-range` paired with `#11-event-modern-extras`).
@@ -825,8 +825,8 @@ fn native_input_event_constructor(
 /// `ObjectKind::Event` whose prototype chain includes
 /// `InputEvent.prototype`.  Calling `InputEvent.prototype.
 /// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore
-/// throws `TypeError("Illegal invocation")`, matching Chrome's
-/// behaviour for IDL operations.
+/// throws `TypeError("Illegal invocation")`, as
+/// IDL operations do.
 fn native_input_event_get_target_ranges(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

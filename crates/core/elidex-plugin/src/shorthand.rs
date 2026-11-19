@@ -68,7 +68,7 @@ pub fn serialize_axis_pair(longhands: &[(&str, &str)]) -> Option<String> {
 /// Omit each component equal to its initial; join survivors with " " in the
 /// given (canonical) order. When ALL are initial, keep the FIRST component —
 /// omitting all would yield "" (invalid / "less backwards-compatible",
-/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor`
+/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor` [evidence]
 /// ⇒ first = width; `columns: auto auto` ⇒ first = width.
 #[must_use]
 pub fn serialize_omit_initial(components: &[(&str, &str)]) -> Option<String> {

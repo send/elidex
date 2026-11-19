@@ -76,7 +76,7 @@ use super::super::VmInner;
 /// `"Failed to execute '<method>' on '<interface>': Illegal invocation"`,
 /// with `<interface>` taken from the *expected* kind (so calling
 /// `mo.observe.call(intersectionObserverInstance, …)` reports the receiver
-/// failed the `MutationObserver` brand check — matches Chrome).
+/// failed the `MutationObserver` brand check — matches Chrome). [evidence]
 pub(crate) fn require_observer_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -322,8 +322,8 @@ pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
 /// rather than each inlining the same `get_property_value + matches!`
 /// check.  Object-only API surface — primitives that should
 /// ToObject-coerce per spec §3.10.7 are handled by the caller (most
-/// callers reject primitives with a TypeError matching the Chrome /
-/// Firefox shape, Phase 2 simplification tracked at
+/// callers reject primitives with a TypeError matching the Chrome / [evidence]
+/// Firefox shape, Phase 2 simplification tracked at [evidence]
 /// `#11-mutation-observer-extras`).
 pub(crate) fn read_dict_field(
     ctx: &mut NativeContext<'_>,

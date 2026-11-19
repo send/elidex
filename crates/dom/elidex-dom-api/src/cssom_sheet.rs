@@ -506,7 +506,7 @@ fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
 /// CSSOM §6.6.1 supported-property-name list: one [`Declaration`](elidex_css::Declaration) per
 /// distinct property name, ordered by first-occurrence index, with the
 /// value taken from the last occurrence (cascade-wins semantics —
-/// matches Chrome's `style.cssText` for `div{a:1; a:2}` returning
+/// as for `style.cssText` for `div{a:1; a:2}` returning
 /// `a: 2;` and `style.length === 1`).  Backs `length` / `item` /
 /// `cssText` for both Inline and Rule sources.
 ///

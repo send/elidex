@@ -29,8 +29,8 @@ pub(in super::super) fn convert_algorithm_identifier(
 ) -> Result<JsValue, VmError> {
     match value {
         JsValue::Object(_) | JsValue::String(_) => Ok(value),
-        // Not an object → the `DOMString` arm: ToString-coerce (matches
-        // Chrome, e.g. `digest(42, …)` coerces "42"; `Symbol()` throws).
+        // Not an object → the `DOMString` arm: ToString-coerce
+        // (e.g. `digest(42, …)` coerces "42"; `Symbol()` throws).
         other => Ok(JsValue::String(coerce::to_string(ctx.vm, other)?)),
     }
 }

@@ -348,7 +348,7 @@ WPT: `cssom/getComputedStyle-*` color subset is the supported surface this guard
 
 - **Blast radius**: getComputedStyle color output changes `#rrggbb`→`rgb()` — a
   **web-observable** behavior change (scripts reading computed color). This is the
-  *correct* spec form and what every browser returns, so it's a fidelity fix, but it's
+  *correct* spec form so it's a fidelity fix, but it's
   high-visibility → **`/external-converge`** (not single-pass) per the high-blast policy,
   with Step-4 attestation + fix-delta `/elidex-review`.
 - **Non-regression**: declared-value path (`to_css_string`/`Display`), inline-style

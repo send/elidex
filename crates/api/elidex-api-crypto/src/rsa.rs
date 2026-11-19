@@ -14,8 +14,8 @@
 //! storage.  Import re-encodes to canonical DER (so a single storage form
 //! backs every format), which also gates multi-prime keys: the rsa crate's
 //! `to_pkcs8_der` rejects >2 primes, so a multi-prime `pkcs8` / JWK `oth`
-//! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox
-//! read only two primes; Safari rejects it explicitly), so the key shape is
+//! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox [evidence]
+//! read only two primes; Safari rejects it explicitly), so the key shape is [evidence]
 //! rejected as malformed-for-this-implementation per WebCrypto §20.9.4 jwk
 //! step 10 (not a valid two-prime key per §6.3.2 / RFC3447).
 

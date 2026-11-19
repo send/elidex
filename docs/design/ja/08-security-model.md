@@ -9,7 +9,7 @@ Renderer Processは最小限のシステムアクセスでサンドボックス�
 
 | プラットフォーム | サンドボックス機構 | 備考 |
 | --- | --- | --- |
-| Linux | seccomp-bpf + namespaces | Chromium実証済みアプローチ |
+| Linux | seccomp-bpf + namespaces | Chromium実証済みアプローチ [evidence] |
 | macOS | App Sandbox (sandbox-exec) | ファイルシステム、ネットワークを制限 |
 | Windows | Restricted tokens + job objects | Win32 APIサンドボックス |
 

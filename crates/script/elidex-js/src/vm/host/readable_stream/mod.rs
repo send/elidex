@@ -246,8 +246,8 @@ pub(super) fn stream_state_mut(vm: &mut VmInner, stream_id: ObjectId) -> &mut Re
 /// from the *positional argument* path in
 /// `native_readable_stream_constructor`, which treats both
 /// `undefined` and `null` as "no init object supplied" per
-/// WebIDL dict-from-null semantics (matches Chromium's
-/// `new ReadableStream(null)` acceptance).
+/// WebIDL dict-from-null semantics —
+/// `new ReadableStream(null)` acceptance.
 fn normalize_high_water_mark(hwm: JsValue) -> Result<f64, VmError> {
     let n = match hwm {
         JsValue::Number(n) => n,
@@ -312,7 +312,7 @@ pub(super) fn native_readable_stream_constructor(
 
     // Underlying-source callbacks.  All three are optional.
     // `null` is treated as `undefined` per WebIDL dict-from-null
-    // semantics (matches Chromium / Firefox `new
+    // semantics (`new
     // ReadableStream(null)`).
     let (source_start, source_pull, source_cancel) = match source_arg {
         JsValue::Undefined | JsValue::Null => (None, None, None),

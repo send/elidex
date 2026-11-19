@@ -574,7 +574,7 @@ fn build_entry(
         }
         _ => {
             // Per spec, filename is silently dropped for non-Blob
-            // values — matches Chromium / Firefox.
+            // values.
             let sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
             (FormDataValue::String(sid), None)
         }

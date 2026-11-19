@@ -969,7 +969,7 @@ impl VmInner {
                             // throws TypeError when protoParent,
                             // `Get(superclass, "prototype")`, is neither an
                             // Object nor null). Mirrors
-                            // V8 / SpiderMonkey error text for
+                            // V8 / SpiderMonkey error text for [evidence]
                             // `class A extends 1 {}`.
                             let e = VmError::type_error(
                                 "Class extends value is not a constructor or null",

@@ -93,7 +93,7 @@ impl VmInner {
     ///
     /// The `FileList` global identifier is bound to a non-constructable
     /// native function whose `[[Construct]]` slot throws TypeError —
-    /// matches Chrome / Firefox behaviour for the FileAPI §5 interface
+    /// matches the FileAPI §5 interface
     /// (no public ctor per IDL).
     pub(in crate::vm) fn register_file_list_global(&mut self) {
         let object_proto = self
@@ -192,8 +192,8 @@ fn native_file_list_item(
     let id = require_file_list_this(ctx, this, "item")?;
     let index_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     // WebIDL `unsigned long` ToUint32 per §3.10.10 — NaN / ±∞ → 0,
-    // negatives wrap mod 2^32 (so `-1` → 0xFFFFFFFF).  Matches Chrome
-    // / Firefox `fileList.item(NaN)` returning the index-0 entry on
+    // negatives wrap mod 2^32 (so `-1` → 0xFFFFFFFF).
+    // So `fileList.item(NaN)` returns the index-0 entry on
     // non-empty lists rather than null.
     let n = super::super::coerce::to_number(ctx.vm, index_arg)?;
     let index = super::super::coerce::f64_to_uint32(n) as usize;

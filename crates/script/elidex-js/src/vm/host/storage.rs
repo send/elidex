@@ -440,7 +440,7 @@ fn map_storage_error(vm: &VmInner, err: StorageError) -> VmError {
         StorageErrorKind::QuotaExceeded => quota_exceeded(vm, err.message),
         // `InvalidStateError` is the spec catch-all for "the operation
         // couldn't complete because of the implementation state" —
-        // matches Chrome / Firefox when an underlying I/O fault
+        // matches Chrome / Firefox when an underlying I/O fault [evidence]
         // surfaces (e.g. private-mode storage, disk full on
         // disk-backed engines).
         StorageErrorKind::Io

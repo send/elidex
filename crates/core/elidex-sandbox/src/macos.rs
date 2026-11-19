@@ -6,7 +6,7 @@
 //! Design reference: docs/design/en/08-security-model.md §8.1 (macOS row).
 //!
 //! Note: `sandbox_init()` is deprecated by Apple but remains functional and
-//! is used by Chromium. The replacement (App Sandbox entitlements) requires
+//! is used by Chromium. The replacement (App Sandbox entitlements) requires [evidence]
 //! code signing and cannot be applied at runtime.
 
 use std::ffi::CString;

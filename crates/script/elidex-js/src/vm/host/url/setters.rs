@@ -22,9 +22,8 @@ use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::{rebuild_linked_search_params, require_url_state_mut, require_url_this};
 
 /// `url.href = …` — full re-parse.  Throws `TypeError` when the
-/// new value does not parse as an absolute URL (matches V8 / Firefox
-/// 2023+; the WHATWG spec is to silently ignore but every browser
-/// throws here, and boa-side throws too).  Re-parse refreshes the
+/// new value does not parse as an absolute URL.
+/// Re-parse refreshes the
 /// linked `URLSearchParams` entry list (Phase 4 of slot #9.5).
 pub(super) fn native_url_set_href(
     ctx: &mut NativeContext<'_>,

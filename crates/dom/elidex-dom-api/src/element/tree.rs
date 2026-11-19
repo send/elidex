@@ -214,7 +214,7 @@ impl DomApiHandler for RemoveChild {
 ///
 /// Error mapping (steps of the §4.2.3 "replace" algorithm):
 /// - `oldChild` is not a child of `parent` → `NotFoundError`
-///   (replace step 1, ensure pre-insert validity step 3; matches Chrome/Firefox/WebKit).
+///   (replace step 1, ensure pre-insert validity step 3).
 /// - `newChild` is `parent` itself, an ancestor of `parent`, or any other
 ///   pre-insertion validity violation → `HierarchyRequestError`
 ///   (ensure pre-insert validity steps 1–2, 4–9, 11; step 10 is an Assert). Cross-document violations also map here per

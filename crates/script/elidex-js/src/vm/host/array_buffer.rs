@@ -457,7 +457,7 @@ pub(crate) fn create_typed_array_from_bytes(
 /// ECMA-262 §7.1.23 `ToIndex` narrowed to `usize` for the `ArrayBuffer`
 /// `[[ArrayBufferByteLength]]` slot.  Routes the spec-wide
 /// `[0, 2^53)` arithmetic through [`coerce::to_index_u64`] so the
-/// V8-shaped error message and width stays in lockstep with the
+/// V8-shaped error message and width stays in lockstep with the [evidence]
 /// other `ToIndex` callers, then layers a 32-bit-host safety check
 /// on top: the constructor's backing-store allocation
 /// (`vec![0_u8; length]`) needs the length to fit in `usize`, so

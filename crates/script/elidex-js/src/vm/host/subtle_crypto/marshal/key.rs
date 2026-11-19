@@ -103,7 +103,7 @@ pub(in super::super) fn marshal_format(
 /// object like the exported JWK object, not a `CryptoKey`.  Web IDL converts
 /// a dictionary to an ECMAScript value member-by-member in **lexicographic**
 /// order (Web IDL §3.2.17), so `privateKey` (`p-r`) precedes `publicKey`
-/// (`p-u`) — matching `Object.keys(keyPair)` in other engines.
+/// (`p-u`) — the order `Object.keys(keyPair)` observes.
 ///
 /// GC is disabled for the whole `NativeFunction` call (see
 /// `build_jwk_object`), so the two `alloc_crypto_key` calls in the caller

@@ -281,7 +281,7 @@ dimensions (300×150 fallback), not `IframeData`'s `width`/`height` — those ar
 presentational hints, which elidex generates only on the compat path, so the move exposes core-mode attribute
 sizing; `IBP-layout` places it by the cell test (repair: core-path dimension hints). (2) IBP-observer: *calculate box
 size* answers 0×0 for every observed box of an inline box (F1), not only the §3.3.1 content rect — §1's "do not fire
-for non-replaced inline Elements", confirmed against Chromium in its plan.
+for non-replaced inline Elements".
 
 Revision 37 (2026-09-28) — folds Codex R7 on #526 (`a42ca1fe`; IMP 3). (1) F1 encodes §0.6 item 3's conclusion:
 it answers false for a button-layout element (F7's class) whatever its computed `display` — §15.5.3 coerces an
@@ -1564,7 +1564,7 @@ fixed-descendant scan); any `content-visibility` cell it fires is pinned (§0.6 
 `#11-transform-family-3d-and-containing-block`. Input lines: G10 the double-layout test's expected value and what
 happens if it reproduces; `elidex-plugin/src/computed_style/tests.rs` (947 lines) placement.
 
-**IBP-observer** (appendix F): §3.3.1 empty content rect for an inline box; an observation whose target is an inline box (F1) is **never active** — activation is suppressed, not fed a 0×0 size (`gather_observations` treats a first observation's `last_size: None` as changed, and a block restyled inline changes size, so a substituted 0×0 would still fire) — and its last-reported sizes stay as they were, so it resumes comparing when the target stops being an inline box; §1 states "Observations do not fire for non-replaced inline Elements" and §3.4.8's "border area"/"content area" is undefined for a fragmented non-replaced inline, so the outcome is spec-silent in its letter and IBP-observer's plan confirms it against Chromium; cells: initial observation of an inline box, block → inline restyle, `border-box` on a padded inline; isActive compares each observation's
+**IBP-observer** (appendix F): §3.3.1 empty content rect for an inline box; an observation whose target is an inline box (F1) is **never active** — activation is suppressed, not fed a 0×0 size (`gather_observations` treats a first observation's `last_size: None` as changed, and a block restyled inline changes size, so a substituted 0×0 would still fire) — and its last-reported sizes stay as they were, so it resumes comparing when the target stops being an inline box; §1 states "Observations do not fire for non-replaced inline Elements" and §3.4.8's "border area"/"content area" is undefined for a fragmented non-replaced inline, so the outcome is spec-silent in its letter and IBP-observer's plan confirms it against Chromium; cells: initial observation of an inline box, block → inline restyle, `border-box` on a padded inline; isActive compares each observation's [evidence]
 **observed** box; the observed box's writer transition — `observe()` on an already-observed target replaces its
 observation (Resize Observer `observe()` steps 1–4: `unobserve()`, then a new `ResizeObservation` with the new box
 and fresh last-reported sizes), where `ResizeObserverRegistry::observe` today keeps the old one

@@ -34,8 +34,7 @@
 //! / `transition_to(Connecting)`) and `last_event_id` / `origin_sid`
 //! updates run BEFORE the event-fire so handlers observing
 //! `es.readyState === EventSource.OPEN` / reading `e.lastEventId` from
-//! inside the `open` / `message` callback see the post-mutation values
-//! (matches Chrome / Firefox semantics).
+//! inside the `open` / `message` callback see the post-mutation values.
 
 #![cfg(feature = "engine")]
 

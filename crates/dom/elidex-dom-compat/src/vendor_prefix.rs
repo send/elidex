@@ -320,7 +320,7 @@ fn map_webkit_box(property: &str, value: &str) -> Option<(&'static str, String)>
             // `normal` is default (no-op), `reverse` maps to row-reverse/column-reverse.
             // Since we don't know orient here, emit flex-direction with the reverse value.
             // In practice, orient+direction combos are rare — sites typically use just orient.
-            // Chrome also treats direction:reverse alone as row-reverse.
+            // Chrome also treats direction:reverse alone as row-reverse. [compat]
             let new_val = match value {
                 "normal" => "row",
                 "reverse" => "row-reverse",

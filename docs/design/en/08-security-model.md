@@ -9,7 +9,7 @@ Renderer Processes are sandboxed with minimal system access:
 
 | Platform | Sandbox Mechanism | Notes |
 | --- | --- | --- |
-| Linux | seccomp-bpf + namespaces | Chromium-proven approach |
+| Linux | seccomp-bpf + namespaces | Chromium-proven approach [evidence] |
 | macOS | App Sandbox (sandbox-exec) | Restricts file system, network |
 | Windows | Restricted tokens + job objects | Win32 API sandboxing |
 

@@ -284,7 +284,7 @@ fn reentrant_dispatch_throws_invalid_state_error() {
 #[test]
 fn sequential_dispatch_of_same_event_succeeds() {
     // `dispatched_events` is in-flight only — a completed dispatch
-    // clears membership.  Matches Firefox / Chrome behaviour.
+    // clears membership.
     let out = eval_tree_number(
         "var evt = new Event('c');\
          var n = 0;\
@@ -560,8 +560,7 @@ fn dispatch_after_user_delete_core_slot_does_not_panic() {
     // and then dispatched the same event.  The Dictionary
     // fallback path preserves the semantic contract (dispatch
     // re-installs the attribute, user's delete is transparently
-    // overwritten — matching Chrome's accessor-on-prototype
-    // behaviour).
+    // overwritten).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

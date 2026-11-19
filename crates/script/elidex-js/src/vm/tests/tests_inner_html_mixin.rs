@@ -378,7 +378,7 @@ fn element_get_html_shadow_roots_rejects_string_primitive() {
     // Reverses PR201 Copilot R12, which dropped the step-1 Object guard so a
     // string iterated and failed later with "'shadowRoots[0]' is not a
     // ShadowRoot"; the up-front step-1 rejection is the spec-correct
-    // behaviour (matches `new Blob('abc')` / Chrome).
+    // behaviour (matches `new Blob('abc')`).
     // Asserts the step-1 rejection behaviourally (TypeError, and crucially
     // NO per-element `shadowRoots[0]` message — proving the string was not
     // iterated), without pinning the exact `not_iterable` wording (which a

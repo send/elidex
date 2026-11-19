@@ -28,7 +28,7 @@
 //!
 //! - MIME type validation — Phase 2 accepts any ASCII string and
 //!   ASCII-lowercases it when stored in [`BlobData::type_sid`]
-//!   (matching Chromium / Firefox; the spec's full media-type
+//!   (the spec's full media-type
 //!   parse lands with a later tranche).  Non-ASCII rejects with
 //!   the empty type.
 //!
@@ -574,7 +574,7 @@ pub(crate) fn parse_blob_options_type(
                     let sid = super::super::coerce::to_string(ctx.vm, other)?;
                     let raw = ctx.vm.strings.get_utf8(sid);
                     // ASCII-only validation — if any non-ASCII byte,
-                    // fall back to empty (Chromium maps invalid types
+                    // fall back to empty (invalid types map
                     // to empty string per spec §3.2 step 4.1).
                     let type_sid = if raw.bytes().all(|b| b.is_ascii()) {
                         let lower = raw.to_ascii_lowercase();

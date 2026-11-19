@@ -57,8 +57,8 @@
 //!   `Set-Cookie`, the `Sec-` / `Proxy-` prefixes, …); mutations
 //!   on non-forbidden names succeed normally.  Installed on the
 //!   `Request` ctor's companion Headers.  Spec semantics are
-//!   "ignore", not "throw" — verified against Chrome / Firefox /
-//!   Safari and asserted in `tests_forbidden_headers.rs`.
+//!   "ignore", not "throw" — asserted in
+//!   `tests_forbidden_headers.rs`.
 //!
 //! `response` / `request-no-cors` are not yet implemented; they
 //! arrive with PR5-cors (full mode/credentials/redirect
@@ -356,7 +356,7 @@ pub(super) fn is_blocked_by_guard(
 
 /// Extract `(name, value)` args from a 2-argument method call,
 /// coercing each via `ToString`.  Missing args → `TypeError`
-/// matching Chromium's wording.
+/// matching Chromium's wording. [evidence]
 pub(super) fn take_name_value_args(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],

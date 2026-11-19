@@ -538,8 +538,7 @@ impl VmInner {
 ///   canonical methods (`GET` / `HEAD` / `POST` / `PUT` /
 ///   `DELETE` / `OPTIONS` / `PATCH`),
 /// - the original case otherwise (unknown extensions like
-///   `CustomOperation` or `MKCOL` pass through verbatim —
-///   matches Chromium / Firefox).
+///   `CustomOperation` or `MKCOL` pass through verbatim).
 ///
 /// The forbidden-method check runs on the uppercased token so
 /// `connect` / `Trace` / `track` all reject case-insensitively.

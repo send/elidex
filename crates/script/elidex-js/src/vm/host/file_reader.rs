@@ -732,8 +732,7 @@ fn sniff_bom(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
 
 /// `readAsDataURL` encoder — `data:<type>;base64,<base64>` per
 /// FileAPI §6.3 "package data" algorithm.  Empty `type` retains the
-/// semicolon (`data:;base64,...`) per RFC 2397 + Chrome/Firefox
-/// parity.
+/// semicolon (`data:;base64,...`) per RFC 2397.
 fn encode_data_url(vm: &VmInner, bytes: &Arc<[u8]>, type_sid: StringId) -> String {
     let mime = vm.strings.get_utf8(type_sid);
     let prefix_len = "data:".len() + mime.len() + ";base64,".len();

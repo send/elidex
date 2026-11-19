@@ -131,7 +131,7 @@ pub(super) fn build_exports_namespace(
 /// `vm/interpreter_call.rs::call_dispatch`) to route through
 /// [`call_wasm_exported_function`] — no NativeFunction trampoline
 /// indirection.  Wasm exports cannot be `new`-called (per WASM JS
-/// API §5.6 + Chrome/Firefox behaviour); `new` on a
+/// API §5.6); `new` on a
 /// `WasmExportedFunction` classifies as the `NotConstructor` result
 /// of `classify_construct_target`, which `admit_construct` refuses
 /// ("not a constructor"), so the spec contract is structurally
