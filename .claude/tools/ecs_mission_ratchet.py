@@ -8,8 +8,8 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
-(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855): a PR that widens the classifier may append rows for the lines the widening newly denies, only through `--add-new`, only of class T or D, each with a slot; the PR body lists the added rows and the command. Every other row change is a deletion.
-The lexical classifier is a floor, not the population: a sentence that grounds a claim in existing-browser behaviour without these words (a paraphrase, or a phrase split across lines) is not caught. The population is defined by that property and covered by a periodic concept sweep (owner CI/tools; monthly and at each milestone exit; PM 499).
+(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies, only of class T or D, each with a slot; the PR body lists the added rows and the command. Every other row change is a deletion.
+The lexical classifier is a floor, not the population (a paraphrase, or a phrase split across lines, is not caught); the population is covered by the recurring ledger slot `#11-ecs-mission-concept-sweep`.
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
 construction (class N); scanning them would make every fixture edit an allowlist addition.
@@ -28,7 +28,8 @@ axes.md Axis 2 sub-check 2d (authority source) grades them.
 Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
 checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
-Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv>]
+Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>]]
+--base defaults to origin/main.
 """
 import collections
 import os
@@ -273,9 +274,21 @@ def prune(repo_root, allowlist_path):
     return len(drop), (read_allowlist(allowlist_path), new, [])
 
 
-def add_new(repo_root, allowlist_path, spec_rows):
-    """Append rows for lines that are new hits now. All-or-nothing. -> (errs, added rows).
+def base_denied(repo_root, rev):
+    """`denied` of the classifier committed at `rev`; raises if unreadable (an unknown base accepts nothing)."""
+    ns = {"__name__": "ecs_ratchet_base", "__file__": rev}
+    exec(compile(_git(["show", rev + ":.claude/tools/ecs_mission_ratchet.py"], repo_root).decode("utf-8"), rev, "exec"), ns)
+    return ns["denied"]
+
+
+def add_new(repo_root, allowlist_path, spec_rows, base="origin/main"):
+    """Append rows for lines that are new hits now and that the classifier at `base` did not deny.
+    All-or-nothing. -> (errs, added rows).
     Each spec row is class, slot, path, line_no (1-based, '\\n'-numbered). "New hit" is _diff's `new`."""
+    try:
+        was_denied = base_denied(repo_root, base)
+    except Exception as e:
+        return ["base %s unreadable (%s); nothing accepted" % (base, type(e).__name__)], []
     rows, new, _ = _diff(repo_root, allowlist_path)
     avail = collections.Counter((p, t) for p, _, t in new)
     text_at = {(p, ln): t for p, ln, t in new}
@@ -298,6 +311,9 @@ def add_new(repo_root, allowlist_path, spec_rows):
             errs.append("%s: %s:%s is not a new hit (not denied, not scanned, out of range, or already covered)" % (where, path, ln))
             continue
         key = (path, text_at[(path, int(ln))])
+        if was_denied(key[1]):
+            errs.append("%s: not newly denied by this classifier change (base %s already denies it, or it is not denied now)" % (where, base))
+            continue
         if not avail[key] > used[key]:
             errs.append("%s: %s:%s is named twice" % (where, path, ln))
             continue
@@ -315,13 +331,17 @@ def repo_root_of(path):
 
 def main(argv):
     mode = argv[0] if argv else None
+    base = "origin/main"
+    if len(argv) == 4 and mode == "--add-new" and argv[2] == "--base":
+        base, argv = argv[3], argv[:2]
     if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode == "--add-new")):
-        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv>]", file=sys.stderr)
+        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>]]", file=sys.stderr)
         return 2
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
     if mode == "--add-new":
         with open(argv[1], encoding="utf-8") as f:
-            errs, added = add_new(root, DEFAULT_ALLOWLIST, parse_tsv(f.read()))
+            spec = parse_tsv(f.read())
+        errs, added = add_new(root, DEFAULT_ALLOWLIST, spec, base)
         if errs:
             print("\n".join(errs))
             print("ecs-mission-ratchet: --add-new rejected; nothing written")

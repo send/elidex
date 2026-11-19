@@ -84,6 +84,7 @@ class AddNewHarness:
         os.makedirs(self.root)
         self.env = m.git_env()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
+        self.base_src("def denied(line):\n    return False\n")  # the default base classifier denies nothing
         for name, data in (files or {}).items():
             self.put(name, data)
         self.al = os.path.join(self.td.name, "allow.tsv")
@@ -96,6 +97,12 @@ class AddNewHarness:
             f.write(data if isinstance(data, bytes) else data.encode("utf-8"))
         subprocess.run(["git", "add", name], cwd=self.root, check=True, env=self.env)
 
+    def base_src(self, src):
+        """Commit `src` as the classifier module; HEAD is the base the scenarios pass as --base."""
+        self.put(".claude/tools/ecs_mission_ratchet.py", src)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"],
+                       cwd=self.root, check=True, env=self.env)
+
     def allow(self, *rows, header="# header\n"):
         with open(self.al, "w", encoding="utf-8") as f:
             f.write(header + "".join(r + "\n" for r in rows))
@@ -104,8 +111,8 @@ class AddNewHarness:
         with open(self.al, "rb") as f:
             return f.read()
 
-    def add(self, *spec):
-        return self.m.add_new(self.root, self.al, self.m.parse_tsv("\n".join(spec) + "\n"))
+    def add(self, *spec, base="HEAD"):
+        return self.m.add_new(self.root, self.al, self.m.parse_tsv("\n".join(spec) + "\n"), base)
 
     def close(self):
         self.td.cleanup()
@@ -334,6 +341,28 @@ def sc_self_file(m):  # (c) SELF_FILES
     return _rejected(m, {rel: LINE + "\n"}, ["T\t#11-x\t%s\t1" % rel])
 
 
+def sc_base_denies(m):  # base scope: the base classifier already denies the line
+    h = AddNewHarness(m, {"a.md": LINE + "\n"})
+    try:
+        with open(SRC, encoding="utf-8") as f:
+            h.base_src(f.read())
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1")
+        return bool(errs) and "not newly denied" in errs[0] and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_base_unreadable(m):  # a base that cannot be read accepts nothing
+    h = AddNewHarness(m, {"a.md": LINE + "\n"})
+    try:
+        before = h.slurp()
+        errs, added = h.add("T\t#11-x\ta.md\t1", base="no-such-rev")
+        return bool(errs) and added == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
 def sc_atomic(m):
     return _rejected(m, {"a.md": LINE + "\n", "b.md": "plain\n"},
                      ["T\t#11-x\ta.md\t1", "T\t#11-y\tb.md\t1"])
@@ -347,6 +376,7 @@ def sc_count(m):  # a batch consumes the new-hit occurrences in turn
 SCENARIOS = {
     "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
+    "base_denies": sc_base_denies, "base_unreadable": sc_base_unreadable,
 }
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
 NEWHIT = "(path, int(ln)) not in text_at"
@@ -358,7 +388,10 @@ MUTANTS = [
     ("new-hit position not required", ((NEWHIT, "False"), ("text_at[(path, int(ln))]", "text_at.get((path, int(ln)), LINE_)")),
      ["not_denied", "range"]),
     ("availability: batch consumption ignored", (("if not avail[key] > used[key]:", "if False:"),), ["count"]),
-    ("atomic: writes despite errors", (("    if errs:\n        return errs, []", "    if False:\n        return errs, []"),), ["atomic"]),
+    ("atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if",
+                                         "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if"),), ["atomic"]),
+    ("base scope: base-denied lines accepted", (("if was_denied(key[1]):", "if False:"),), ["base_denies"]),
+    ("base unreadable: accepted as 'denies nothing'", (("was_denied = base_denied(repo_root, base)", "was_denied = lambda t: False"),), ["base_unreadable"]),
 ]
 
 
@@ -406,6 +439,8 @@ class AddNew(unittest.TestCase):
         self.assertEqual(mod.main(["--add-new"]), 2)
         self.assertEqual(mod.main(["--add-new", "x", "--prune"]), 2)
         self.assertEqual(mod.main(["--prune", "--add-new", "x"]), 2)
+        self.assertEqual(mod.main(["--add-new", "x", "--base"]), 2)
+        self.assertEqual(mod.main(["--prune", "--base", "HEAD"]), 2)
 
 
 if __name__ == "__main__":
