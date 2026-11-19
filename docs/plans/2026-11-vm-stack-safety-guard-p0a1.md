@@ -294,7 +294,7 @@ stand-in if unhandled. The inline dispatch path (`interpreter_call.rs:631`) has 
 .unwrap_or(JsValue::Undefined)` in `push_js_call_frame` (`git grep -n 'unwrap_or(JsValue::Undefined)$' --
 crates/script/elidex-js/src/vm/interpreter_call.rs`), with the same fallback; the `Err` it absorbs is still
 unreachable for the same reason (the wrapper now comes from `VmInner::create_coroutine`, which that path
-calls first, so the coroutine always has one).
+calls first, so the coroutine always has one). The line cites in the paragraph above (`interpreter_call.rs:367-397`, `:631`) are those of this memo's head; `call_internal`'s async branch now builds the frame through `VmInner::create_coroutine` (`git grep -n 'fn create_coroutine' -- crates/script/elidex-js/src/vm`).
 
 **Cost (I-5).** One call per entry, no field, no store, no rewrite. PR-1 §10's I-5 bench covers
 `with_call_mode` and the call path; no separate measurement.

@@ -273,7 +273,7 @@ could omit both and still pass. Edges **21**, **27/28** and **32** are therefore
 specific children §5's 1a row names, edge 21 on the child of umbrella 1a that removes `op_array_spread`'s `return()`, edges 27/28 on the child of umbrella 1a that roots the four call-entry argument windows, edge 32 on
 the child of umbrella 1a that owns the argument-layout and inline-cache contract. The edges umbrella 1b's derivation must place on the children it mints are §6.4's.
 
-⚠ **Pointer (erratum 2026-11-18, PM 829): the generator/async creation window is not the 1a child's to root — it is resolved by `#11-vm-coroutine-creation-frame-rooting` (§9 dec. 10's erratum), and edges 27/28 are that slot's (§6.4's erratum); a derivation of umbrella 1a that places them, or dec. 10's window, on the child that roots the four call-entry argument windows is reading text this erratum supersedes.**
+⚠ **Pointer (erratum 2026-11-18, PM 829; 2026-11-20, PM 846):** ⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).
 
 **Compiler** — one helper (I-3), replacing `compile_arguments`:
 
@@ -440,7 +440,7 @@ omitted, even under forced collection. The generator case likewise never resumes
 observes its saved arguments. **Both edges must retain object-valued arguments in both vectors and
 verify them after `.next()` or after the Promise settles**; a rooting edge that cannot fail is not a
 guard, and the acceptance of the child of umbrella 1a that roots the four call-entry argument windows leans on exactly these.
-The same shape exists at `call_internal` (`:629-659`, `:664-700`) — **4 windows, one unit**.
+The same shape exists at `call_internal` (`:629-659`, `:664-700`) — **4 windows, one unit**. ⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).
 
 **Unwind** (A×F): `Op::Call`/`CallMethod`/`New` hand-roll `vm_error_to_thrown` +
 `handle_exception(…, entry_frame_depth)` (`dispatch.rs:716-750`); `op_super_call_spread` routes
@@ -497,7 +497,7 @@ at `expr_member.rs:186` (`658cc302`) and still passes `undefined` as the receive
 (GC window) and **32** fall inside the **1a** half — and ⚠ **1a is an umbrella from this revision, which
 carries no acceptance condition (§5), so these three are stated here as what its derivation must place
 and on which child**: edge **21** on the child of umbrella 1a that removes `op_array_spread`'s `return()`, edges
-**27/28** on the child of umbrella 1a that roots the four call-entry argument windows, edge **32** on
+**27/28** on the child of umbrella 1a that roots the four call-entry argument windows (⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).), edge **32** on
 the child of umbrella 1a that owns the argument-layout and inline-cache contract. That mapping is not a
 convenience: it is the same independence its cell measures, one edge per mechanism.
 Edge **35** belongs to **0bb**, not inside 1a or to 1b: it has no
@@ -511,7 +511,7 @@ carrying their own edge rows** — and that restatement is what the terminality 
 as three independently-failing mechanisms rather than one PR.
 
 ⚠ **Erratum 2026-11-18 (PM 829): edges 27/28's window is now `#11-vm-coroutine-creation-frame-rooting`'s
-(owner VM P4), not the 1a child's.** The text above — edges 27/28 in the matrix, the slice allocation
+(owner VM P4).** ⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845). The text above — edges 27/28 in the matrix, the slice allocation
 just above, §6.3's acceptance paragraph and its "4 windows, one unit", and the 1a-half description's
 mechanism **(c)** — stands as written and is read with this. §9 dec. 10's erratum records the fix
 (remedy (b): one creation helper, `VmInner::create_coroutine`, allocates before the drain and roots
@@ -519,7 +519,7 @@ mechanism **(c)** — stands as written and is read with this. §9 dec. 10's err
 precedes an allocation, so the "drain into the Rust-local vector, then allocate" window the edges were
 stated over is gone; what the slot's cells place a collection in is each creation-time `alloc_object`
 while a value is held only by a stack slot or a Rust-local `Vec`, armed from Rust at the k-th allocation
-through `gc_threshold` (`tests_coroutine_creation_gc.rs`'s header), not through
+(`force_gc_before_next_alloc` for k = 1, `gc_threshold` for k ≥ 2; `tests_coroutine_creation_gc.rs`'s header), not through
 `#11-vm-operand-rooting-by-construction`'s hook. Each cell reads the value after `.next()` or after the
 first `await`, as edges 27/28 require. Cells (`git grep -n '^fn ' --
 crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge and vector:
@@ -538,9 +538,8 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
   `#11-vm-call-internal-callee-this-rooting`, not to this slot.
 - **Edge 28 (async), `actual_args` vector**: `async_excess_argument_survives_wrapper_promise_allocation`
   and `async_excess_argument_survives_coroutine_allocation` (`push_js_call_frame`, the collection at
-  the wrapper Promise and at the coroutine). On `call_internal`'s entry this vector has no cell of its
-  own. It rests on the code argument that both entries reach the same `create_coroutine`, plus the
-  edge-27 host-call cell above.
+  the wrapper Promise and at the coroutine), `host_call_async_excess_argument_survives_coroutine_allocation`
+  (`call_internal`).
 - **Edges 27/28, both vectors in one cell** (receiver, a parameter and an excess argument):
   `generator_receiver_param_and_excess_argument_survive_generator_allocation`,
   `async_receiver_param_and_excess_argument_survive_coroutine_allocation` (`push_js_call_frame`).

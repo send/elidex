@@ -228,6 +228,25 @@ fn host_call_generator_excess_argument_survives_generator_allocation() {
     );
 }
 
+/// `call_internal` async branch (host entry, `Vm::call`): an excess
+/// argument (no rest parameter) is held only by the host's `args` slice and
+/// the initial frame's `actual_args` across the wrapper Promise (allocation
+/// 1) and the coroutine (allocation 2); the collection is at the coroutine.
+#[test]
+fn host_call_async_excess_argument_survives_coroutine_allocation() {
+    let setup = "globalThis.out = 0; \
+         globalThis.f = async function () { await 0; globalThis.out = arguments[0].x };";
+    let (mut vm, r) = call_with_args_gc_at(setup, "f", "[{x: 7}]", 2);
+    r.expect("async call");
+    vm.eval("0").expect("microtask checkpoint");
+    assert_global_number(
+        &vm,
+        "out",
+        7.0,
+        "excess argument read through `arguments` after the first await",
+    );
+}
+
 /// `push_js_call_frame` async branch → `make_async_coroutine_and_drive`: the
 /// receiver of an async method call is dropped from the stack before the
 /// wrapper Promise (allocation 1) and the coroutine (allocation 2) are
