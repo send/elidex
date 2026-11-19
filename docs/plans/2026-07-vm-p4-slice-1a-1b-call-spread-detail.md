@@ -519,7 +519,7 @@ mechanism **(c)** — stands as written and is read with this. §9 dec. 10's err
 precedes an allocation, so the "drain into the Rust-local vector, then allocate" window the edges were
 stated over is gone; what the slot's cells place a collection in is each creation-time `alloc_object`
 while a value is held only by a stack slot or a Rust-local `Vec`, armed from Rust at the k-th allocation
-(`force_gc_before_next_alloc` for k = 1, `gc_threshold` for k ≥ 2; `tests_coroutine_creation_gc.rs`'s header), not through
+by `arm_gc_at_alloc` (`tests_coroutine_creation_gc.rs`'s header), not through
 `#11-vm-operand-rooting-by-construction`'s hook. Each cell reads the value after `.next()` or after the
 first `await`, as edges 27/28 require. Cells (`git grep -n '^fn ' --
 crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge and vector:
@@ -530,8 +530,8 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
 - **Edge 27, `actual_args` vector**: `generator_excess_argument_survives_generator_allocation`
   (`push_js_call_frame`), `host_call_generator_excess_argument_survives_generator_allocation`
   (`call_internal`). On `call_internal`'s entry, `actual_args` is a copy of `args`, which
-  `create_coroutine` roots across its own allocations. Measured on 2026-11-20 with rustc 1.99.1:
-  removing that rooting turns both cells red, together with every other excess-argument cell. ⚠ Erratum (2026-11-20, PM 837/838): this text
+  `create_coroutine` roots across its own allocations. Measured at `f1a5f886` with rustc 1.99.1
+  (mutant: `create_coroutine` no longer pushes `actual_args` into its scope): removing that rooting turns both cells red, together with every other excess-argument cell. ⚠ Erratum (2026-11-20, PM 837/838): this text
   first called `args` "caller-rooted", but no caller contract to root them exists. Before
   `create_coroutine`, `args` past `param_count` and the callee / `this` are unrooted for some callers
   (the bound-call fallback, `GetProp`'s getter call). That window belongs to
@@ -546,7 +546,7 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
 - **Edge 28, stack-slot vector**: `host_call_async_rest_array_survives_coroutine_allocation`
   (`call_internal`) and `async_rest_array_survives_coroutine_allocation` (`push_js_call_frame`, a JS
   call), so each entry has its own cell rather than an inference from the shared `create_coroutine`.
-  Measured on 2026-11-20 with rustc 1.99.1: mutating `create_coroutine` to drain the stack slots
+  Measured at `8c2089eb` with rustc 1.99.1: mutating `create_coroutine` to drain the stack slots
   before its allocations turns both cells red, together with the two generator rest-array cells.
 - Beyond the two vectors, the slot's other cells pin values edges 27/28 did not name: the receiver
   (`generator_method_receiver_…`, `async_method_receiver_…`), a captured upvalue

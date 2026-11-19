@@ -100,8 +100,8 @@ impl VmInner {
     /// On the `call_internal` entry, `this`, the callee and `args` past
     /// `param_count` are not,
     /// and no caller contract roots them
-    /// (`#11-vm-call-internal-callee-this-rooting`).  `actual_args`
-    /// `create_coroutine` roots itself:
+    /// (`#11-vm-call-internal-callee-this-rooting`).  `create_coroutine`
+    /// roots `actual_args` itself:
     /// `push_js_call_frame` clears an excess argument (no rest parameter)
     /// from its stack slot, so the `Vec` can be its only holder.
     ///
