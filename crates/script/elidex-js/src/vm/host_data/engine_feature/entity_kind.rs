@@ -137,10 +137,8 @@ impl HostData {
     /// prototype.  Probes a small set of ECS components
     /// (`TagType` → `Element` fast path for the ~99% case, then
     /// `ShadowRoot` to disambiguate shadow-root DF entities, then
-    /// `node_kind` for the remaining non-Element node families)
-    /// with a legacy-payload fallback (`TextContent` / `CommentData`
-    /// / `DocTypeData`) for entities lacking an explicit `NodeKind`
-    /// component.  Must be called bound; there is no
+    /// `node_kind` for the remaining non-Element node families;
+    /// an entity without `NodeKind` is `OtherNode`).  Must be called bound; there is no
     /// unbound fallback (`create_element_wrapper` asserts first).
     ///
     /// Aliasing contract mirrors [`Self::is_element_entity`] — the
@@ -186,22 +184,6 @@ impl HostData {
             Some(NodeKind::DocumentType) => PrototypeKind::DocumentType,
             Some(NodeKind::DocumentFragment) => PrototypeKind::DocumentFragment,
             Some(NodeKind::Document) => PrototypeKind::Document,
-            None => {
-                // Defensive inference for legacy entities that
-                // carry CharacterData payload without an explicit
-                // `NodeKind` component.
-                if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
-                    PrototypeKind::Element
-                } else if dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok() {
-                    PrototypeKind::Text
-                } else if dom.world().get::<&elidex_ecs::CommentData>(entity).is_ok() {
-                    PrototypeKind::OtherCharacterData
-                } else if dom.world().get::<&elidex_ecs::DocTypeData>(entity).is_ok() {
-                    PrototypeKind::DocumentType
-                } else {
-                    PrototypeKind::OtherNode
-                }
-            }
             _ => PrototypeKind::OtherNode,
         }
     }

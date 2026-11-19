@@ -19,11 +19,10 @@ pub enum RangePointError {
 }
 
 /// `true` when `node` is a `DocumentType` per WHATWG §5.5 step 2.
-/// Probes the `NodeKind` and the `DocTypeData` component.
+/// Reads the entity's `NodeKind`.
 fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
-    use elidex_ecs::{DocTypeData, NodeKind};
+    use elidex_ecs::NodeKind;
     matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(node).is_ok()
 }
 
 impl Range {

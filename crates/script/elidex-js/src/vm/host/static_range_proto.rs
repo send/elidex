@@ -29,7 +29,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_dom_api::range::Range;
-use elidex_ecs::{Attributes, DocTypeData, Entity, NodeKind};
+use elidex_ecs::{Attributes, Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{
@@ -265,8 +265,7 @@ fn require_dict_member(
 /// Spec §5.4 step 1 — reject `DocumentType` / `Attr` container.
 fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> Result<(), VmError> {
     let dom = ctx.host().dom();
-    let is_doctype = matches!(dom.node_kind(container), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(container).is_ok();
+    let is_doctype = matches!(dom.node_kind(container), Some(NodeKind::DocumentType));
     // `Attr` nodes are stored via the `Attributes` component on their
     // owner element + tracked as a separate Entity for the Attr
     // wrapper.  Detect by presence of a parent-less node whose role

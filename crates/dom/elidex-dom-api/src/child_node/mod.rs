@@ -15,7 +15,7 @@ pub use mutations::{
 };
 pub use selectors::{Closest, Matches};
 
-use elidex_ecs::{EcsDom, Entity, NodeKind, TagType, TextContent};
+use elidex_ecs::{EcsDom, Entity, NodeKind, TagType};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     convert_arg_source_records, DomApiError, DomApiErrorKind, JsObjectRef, SessionCore,
@@ -64,13 +64,6 @@ fn validate_node_type(node: Entity, dom: &EcsDom) -> Result<Option<NodeKind>, Do
             | NodeKind::Comment
             | NodeKind::CdataSection,
         ) => {}
-        None => {
-            if dom.world().get::<&TagType>(node).is_err()
-                && dom.world().get::<&TextContent>(node).is_err()
-            {
-                return Err(hierarchy_error("node type not allowed for insertion"));
-            }
-        }
         _ => return Err(hierarchy_error("node type not allowed for insertion")),
     }
     Ok(node_kind)
@@ -80,8 +73,6 @@ fn validate_node_type(node: Entity, dom: &EcsDom) -> Result<Option<NodeKind>, Do
 fn validate_doctype_and_text(
     parent_kind: Option<NodeKind>,
     node_kind: Option<NodeKind>,
-    node: Entity,
-    dom: &EcsDom,
 ) -> Result<(), DomApiError> {
     if matches!(node_kind, Some(NodeKind::DocumentType))
         && !matches!(parent_kind, Some(NodeKind::Document))
@@ -90,12 +81,9 @@ fn validate_doctype_and_text(
             "DocumentType can only be a child of a Document",
         ));
     }
-    if matches!(parent_kind, Some(NodeKind::Document)) {
-        let is_text = matches!(node_kind, Some(NodeKind::Text))
-            || dom.world().get::<&TextContent>(node).is_ok();
-        if is_text {
-            return Err(hierarchy_error("cannot insert Text node under Document"));
-        }
+    if matches!(parent_kind, Some(NodeKind::Document)) && matches!(node_kind, Some(NodeKind::Text))
+    {
+        return Err(hierarchy_error("cannot insert Text node under Document"));
     }
     Ok(())
 }
@@ -271,7 +259,7 @@ pub(crate) fn ensure_pre_insertion_validity(
     }
 
     let node_kind = validate_node_type(node, dom)?;
-    validate_doctype_and_text(parent_kind, node_kind, node, dom)?;
+    validate_doctype_and_text(parent_kind, node_kind)?;
 
     // Step 6: Document parent element constraints.
     if matches!(parent_kind, Some(NodeKind::Document)) {
@@ -453,7 +441,7 @@ pub(crate) fn ensure_replace_validity(
     }
 
     let node_kind = validate_node_type(node, dom)?;
-    validate_doctype_and_text(parent_kind, node_kind, node, dom)?;
+    validate_doctype_and_text(parent_kind, node_kind)?;
 
     // Ensure pre-insert validity steps 9.1 and 11: Document parent constraints
     // (excluding `child` from counts, `childrenToExclude` = « child »).

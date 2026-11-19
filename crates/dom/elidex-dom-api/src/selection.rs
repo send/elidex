@@ -40,7 +40,7 @@
 //! has been materialised yet, `getRangeAt(0)` builds one on demand —
 //! `RangeId` is the source of truth.
 
-use elidex_ecs::{DocTypeData, EcsDom, Entity, NodeKind};
+use elidex_ecs::{EcsDom, Entity, NodeKind};
 use elidex_script_session::MutationRecord;
 
 use crate::range::{
@@ -597,7 +597,6 @@ impl SelectionState {
 /// file-scoped (lesson #228 — write primitives self-contained).
 fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
     matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(node).is_ok()
 }
 
 /// `true` when `node`'s owner document is `owner_document`. Used by

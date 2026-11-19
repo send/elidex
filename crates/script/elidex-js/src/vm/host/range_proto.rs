@@ -790,14 +790,13 @@ fn reject_doctype(
     node: Entity,
     method: &'static str,
 ) -> Result<(), VmError> {
-    use elidex_ecs::{DocTypeData, NodeKind};
+    use elidex_ecs::NodeKind;
     // Copilot R11: ctx.host().dom() panics post-unbind.  Gate first.
     if ctx.host_if_bound().is_none() {
         return Err(detached_range_error(ctx, method));
     }
     let dom = ctx.host().dom();
-    let is_doctype = matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(node).is_ok();
+    let is_doctype = matches!(dom.node_kind(node), Some(NodeKind::DocumentType));
     if is_doctype {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,
