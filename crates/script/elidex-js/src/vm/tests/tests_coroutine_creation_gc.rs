@@ -86,9 +86,12 @@ fn call_with_gc_at(setup: &str, name: &str, k: usize) -> (Vm, Result<JsValue, Vm
     (vm, result)
 }
 
-/// Like `call_with_gc_at`, but `args_setup` is evaluated (after `setup`)
-/// to the call's argument list, an array whose elements are passed as
-/// `args` and then reachable from nothing else.
+/// Like `call_with_gc_at`, but `args_setup` is evaluated once (after
+/// `setup`) to the call's argument list, an array held by a global while
+/// its elements are read into `args`; the global is cleared before the
+/// collection is armed, so the elements are then reachable from nothing
+/// else.  Reading `__args[i]` allocates nothing, so no collection can run
+/// while `args` holds unrooted values.
 fn call_with_args_gc_at(
     setup: &str,
     name: &str,
@@ -100,16 +103,19 @@ fn call_with_args_gc_at(
     let Some(JsValue::Object(f)) = vm.get_global(name) else {
         panic!("`{name}` must be a function object");
     };
+    vm.eval(&format!("globalThis.__args = {args_setup};"))
+        .expect("args setup");
+    let Ok(JsValue::Number(len)) = vm.eval("__args.length") else {
+        panic!("`{args_setup}` must evaluate to an array");
+    };
     let mut args = Vec::new();
-    for i in 0.. {
-        match vm
-            .eval(&format!("({args_setup})[{i}]"))
-            .expect("args setup")
-        {
-            JsValue::Undefined => break,
-            v => args.push(v),
-        }
+    let mut i = 0_u32;
+    while f64::from(i) < len {
+        args.push(vm.eval(&format!("__args[{i}]")).expect("args read"));
+        i += 1;
     }
+    vm.eval("globalThis.__args = undefined;")
+        .expect("args clear");
     arm_gc_at_alloc(&mut vm, k);
     let result = vm.call(f, JsValue::Undefined, &args);
     assert!(

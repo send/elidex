@@ -97,7 +97,8 @@ impl VmInner {
     /// receiver below `base`; equal to `base` when there is nothing to
     /// drop).  The locals at `base..` and, on the `push_js_call_frame`
     /// entry, the callee and receiver below `base` are on the VM stack.
-    /// On the `call_internal` entry, `this`, `args` and the callee are not,
+    /// On the `call_internal` entry, `this`, the callee and `args` past
+    /// `param_count` are not,
     /// and no caller contract roots them
     /// (`#11-vm-call-internal-callee-this-rooting`).  `actual_args`
     /// `create_coroutine` roots itself:
