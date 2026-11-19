@@ -208,8 +208,8 @@ fn generator_excess_argument_survives_generator_allocation() {
 /// array is held only by its stack slot (allocation 1 = the rest array,
 /// allocation 2 = the Generator); draining the slots before the Generator's
 /// allocation (the defect) would leave a Rust `Vec` its only holder.  The
-/// callee / `this` / `args` on this entry are
-/// `#11-vm-call-internal-callee-this-rooting`'s.
+/// callee / `this` / `args` on this entry are rooted by `call_dispatch`
+/// (`#11-vm-call-internal-callee-this-rooting`).
 #[test]
 fn host_call_generator_rest_array_survives_generator_allocation() {
     let setup = "globalThis.g = function* (...r) { yield r.length };";

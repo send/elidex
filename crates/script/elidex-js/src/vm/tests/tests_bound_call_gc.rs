@@ -1,5 +1,6 @@
-//! GC-window pins for `call_internal`'s unrooted callee / `this` / args
-//! (`#11-vm-call-internal-callee-this-rooting`).
+//! GC-window pins for the callee / `this` / args of a Rust-side call
+//! (`#11-vm-call-internal-callee-this-rooting`), rooted by
+//! `call_dispatch`'s entry scope.
 //!
 //! `ic_call` / `ic_call_method` (`vm/dispatch_ic.rs`) inline only
 //! `ObjectKind::Function` callees.  Any other callee — a BoundFunction
@@ -8,10 +9,11 @@
 //! the VM stack, and `self.call(..)` runs `call_dispatch`.  Its
 //! BoundFunction arm unwraps to the target's Function arm, which enters
 //! `call_internal` with the bound `this`, the target closure's
-//! `upvalue_ids` and the combined args held only in Rust locals.
-//! Nothing roots them: that callers root the callee, `this` and args was
-//! an implicit premise, written nowhere, so a collection at an allocation inside `call_internal`
-//! before the frame (or coroutine) holds them frees them:
+//! `upvalue_ids` and the combined args as Rust values.  `GetProp` pops the
+//! receiver before calling a getter, so the getter and its holder are in
+//! the same position.  Unless `call_dispatch` roots the callee, `this` and
+//! `args`, a collection at an allocation inside `call_internal` before the
+//! frame (or coroutine) holds them frees them:
 //! - the rest-parameter array (`create_array_object`), for any target with
 //!   a rest parameter;
 //! - the Generator object, for a generator target.
@@ -80,8 +82,8 @@ fn bound_rest_target_upvalue_and_this_survive_rest_array_allocation() {
 /// parameters and no object-valued locals at creation, so the initial
 /// frame's drained `stack_slice` (the coroutine-creation defect,
 /// `#11-vm-coroutine-creation-frame-rooting`) holds nothing this cell
-/// reads: the loss is the callee / `this`, which that fix does not root
-/// (it roots `actual_args` and the async wrapper only).
+/// reads: what is at risk is the callee / `this`, which that fix does not
+/// root (it roots `actual_args` and the async wrapper only).
 #[test]
 fn bound_generator_target_upvalue_and_this_survive_generator_allocation() {
     let setup = format!(
