@@ -530,8 +530,9 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
 - **Edge 27, `actual_args` vector**: `generator_excess_argument_survives_generator_allocation`
   (`push_js_call_frame`), `host_call_generator_excess_argument_survives_generator_allocation`
   (`call_internal`). On `call_internal`'s entry, `actual_args` is a copy of `args`, which
-  `create_coroutine` roots across its own allocations. Measured at `f1a5f886` with rustc 1.99.1
-  (mutant: `create_coroutine` no longer pushes `actual_args` into its scope): removing that rooting turns both cells red, together with every other excess-argument cell. ⚠ Erratum (2026-11-20, PM 837/838): this text
+  `create_coroutine` roots across its own allocations. Measured with rustc 1.99.1
+  (mutant: `create_coroutine` no longer pushes `actual_args` into its scope): it turns both cells red
+  at `f1a5f886`, and every excess-argument cell red at `73ffe11c`. ⚠ Erratum (2026-11-20, PM 837/838): this text
   first called `args` "caller-rooted", but no caller contract to root them exists. Before
   `create_coroutine`, `args` past `param_count` and the callee / `this` are unrooted for some callers
   (the bound-call fallback, `GetProp`'s getter call). That window belongs to
