@@ -253,11 +253,12 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# `"50.0.2"` means >=50.0.2, <51: a real security floor (the line's latest
-# patched release per `cargo deny`), so do not shorten it to a bare `"50"`. The
-# wasmtime RUSTSECs are fixed per release line: when `cargo deny` reports one on
-# 50.x, raise this floor to the line's patched release. wasmtime 50 needs rustc
-# 1.97 (`rust-toolchain.toml`).
+# `"50.0.2"` means >=50.0.2, <51: a security floor, so do not shorten it to a
+# bare `"50"`. The rule: the floor is the lowest 50.x release that fixes every
+# wasmtime RUSTSEC on the line. When `cargo deny check advisories` reports one,
+# raise the floor to the version its "Solution" names (e.g. `>=50.0.2`); to see
+# which advisories a floor covers, run that command with the lock at the
+# previous release. wasmtime 50 needs rustc 1.97 (`rust-toolchain.toml`).
 #
 # Default features are off: each feature below is one elidex-wasm-runtime uses,
 # and anything wasmtime adds to its defaults stays out until something here
