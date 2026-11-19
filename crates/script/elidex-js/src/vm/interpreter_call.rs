@@ -391,7 +391,8 @@ impl VmInner {
         // `current_microtask`; the bound-call fallback and `GetProp`'s
         // getter call do not) — open as
         // `#11-vm-call-internal-callee-this-rooting`.
-        // `actual_args` is a copy of the caller-rooted `args`.  A
+        // `actual_args` is a copy of `args`; `create_coroutine` roots it
+        // across its own allocations.  A
         // coroutine frame is always `FrameKind::Function` (the
         // `debug_assert!` above), whatever `kind` was passed.
         if is_async || is_generator {

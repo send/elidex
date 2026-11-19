@@ -528,15 +528,20 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
   by its stack slot, where the edge used a named parameter): `generator_rest_array_survives_generator_allocation`
   (`push_js_call_frame`), `host_call_generator_rest_array_survives_generator_allocation` (`call_internal`).
 - **Edge 27, `actual_args` vector**: `generator_excess_argument_survives_generator_allocation`
-  (`push_js_call_frame`). `call_internal` has no window on this vector: its `actual_args` is a copy of
-  the caller-rooted `args`.
+  (`push_js_call_frame`). On `call_internal`'s entry, `actual_args` is a copy of `args`, which
+  `create_coroutine` roots across its own allocations. ⚠ Erratum (2026-11-20, PM 837/838): this text
+  first called `args` "caller-rooted", but no caller contract to root them exists. Before
+  `create_coroutine`, `args` past `param_count` and the callee / `this` are unrooted for some callers
+  (the bound-call fallback, `GetProp`'s getter call). That window belongs to
+  `#11-vm-call-internal-callee-this-rooting`, not to this slot.
 - **Edge 28 (async), `actual_args` vector**: `async_excess_argument_survives_wrapper_promise_allocation`
   and `async_excess_argument_survives_coroutine_allocation` (`push_js_call_frame`, the collection at
   the wrapper Promise and at the coroutine).
 - **Edge 28, stack-slot vector**: `host_call_async_rest_array_survives_coroutine_allocation`
-  (`call_internal`). `push_js_call_frame`'s async branch has no cell of its own on this vector; it
-  reaches the same `create_coroutine` async path. TODO-verify: whether that shared path suffices is the
-  driver's coverage measurement.
+  (`call_internal`) and `async_rest_array_survives_coroutine_allocation` (`push_js_call_frame`, a JS
+  call), so each entry has its own cell rather than an inference from the shared `create_coroutine`.
+  Measured on 2026-11-20 with rustc 1.99.1: mutating `create_coroutine` to drain the stack slots
+  before its allocations turns both cells red, together with the two generator rest-array cells.
 - Beyond the two vectors, the slot's other cells pin values edges 27/28 did not name: the receiver
   (`generator_method_receiver_…`, `async_method_receiver_…`), a captured upvalue
   (`generator_closure_upvalue_…`), the wrapper Promise (`async_wrapper_promise_…`), and the drive's

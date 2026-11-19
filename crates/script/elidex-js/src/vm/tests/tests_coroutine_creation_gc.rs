@@ -261,6 +261,26 @@ fn host_call_async_rest_array_survives_coroutine_allocation() {
     assert_global_number(&vm, "out", 0.0, "rest array length after the first await");
 }
 
+/// `push_js_call_frame` async branch (a JS call): rest array (allocation
+/// 1), wrapper Promise (allocation 2), coroutine (allocation 3).  The rest
+/// array sits in the frame's stack slots, which reach the same
+/// `create_coroutine` as the host entry above; this cell measures that
+/// path on its own entry instead of inferring it.
+#[test]
+fn async_rest_array_survives_coroutine_allocation() {
+    let setup = "globalThis.out = -1; globalThis.pool = [{v: 7}]; \
+         globalThis.mk = function () { return pool.pop() }; \
+         globalThis.f = async function (...r) { await 0; globalThis.out = r[0].v + r.length };";
+    let (vm, r) = eval_with_gc_at(setup, 3, "f(mk()); 0");
+    r.expect("call");
+    assert_global_number(
+        &vm,
+        "out",
+        8.0,
+        "rest array and its element after the first await",
+    );
+}
+
 /// Initial drive inside `make_async_coroutine_and_drive`: after the body
 /// suspends at its first `await` of a non-Promise, `drive_async_coroutine`
 /// allocates the awaited Promise (allocation 3) while the coroutine and its
