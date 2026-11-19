@@ -577,6 +577,32 @@ impl VmInner {
         }
     }
 
+    /// Unwind the VM to `frames_len` frames and `stack_len` stack slots:
+    /// pop every frame above `frames_len`, top down, closing its upvalues
+    /// while the stack slots they read still exist, then truncate the
+    /// stack.  Closing after the truncate would read past the end (an
+    /// `Open { frame_base, slot }` indexes the stack absolutely).  The one
+    /// unwind procedure: `with_call_mode`'s exit and the stack guards'
+    /// panic path both use it (`#11-vm-stack-guard-panic-unwind-order`).
+    pub(crate) fn unwind_to(&mut self, frames_len: usize, stack_len: usize) {
+        while self.frames.len() > frames_len {
+            let frame = self
+                .frames
+                .pop()
+                .expect("frames.len() > frames_len per loop guard");
+            self.close_upvalues(&frame.local_upvalue_ids);
+        }
+        self.stack.truncate(stack_len);
+    }
+
+    /// [`Self::unwind_to`] for a stack guard restoring `stack_len`: the
+    /// frames to pop are those whose base is at or above `stack_len`
+    /// (pushed after the guard; frame bases ascend).
+    pub(crate) fn unwind_stack_to(&mut self, stack_len: usize) {
+        let frames_len = self.frames.partition_point(|f| f.base < stack_len);
+        self.unwind_to(frames_len, stack_len);
+    }
+
     pub(crate) fn close_upvalues(&mut self, upvalue_ids: &[super::value::UpvalueId]) {
         for &uv_id in upvalue_ids {
             if let UpvalueState::Open { frame_base, slot } = self.upvalues[uv_id.0 as usize].state {

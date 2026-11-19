@@ -99,14 +99,16 @@ impl std::ops::DerefMut for VmTempRoot<'_> {
 #[cfg(feature = "engine")]
 impl Drop for VmTempRoot<'_> {
     fn drop(&mut self) {
-        let stack = &mut self.vm.stack;
         if std::thread::panicking() {
             // Avoid double-panic; just restore.  An assertion failure
             // here while unwinding would abort the process and lose the
-            // original panic's diagnostic.
-            stack.truncate(self.saved_len);
+            // original panic's diagnostic.  Frames pushed inside the
+            // rooted region are popped (their upvalues closed) before
+            // the truncate — see `VmInner::unwind_stack_to`.
+            self.vm.unwind_stack_to(self.saved_len);
             return;
         }
+        let stack = &mut self.vm.stack;
         assert_eq!(
             stack.len(),
             self.saved_len + 1,
@@ -202,15 +204,18 @@ impl std::ops::DerefMut for VmStackScope<'_> {
 
 impl Drop for VmStackScope<'_> {
     fn drop(&mut self) {
-        let stack = &mut self.vm.stack;
         if std::thread::panicking() {
             // Avoid double-panic during unwinding; just restore
             // unconditionally so any `catch_unwind` upstream sees a
             // clean stack.  An assertion failure here would abort
             // the process and lose the original panic's diagnostic.
-            stack.truncate(self.saved_len);
+            // Frames pushed inside the scope are popped (their
+            // upvalues closed) before the truncate — see
+            // `VmInner::unwind_stack_to`.
+            self.vm.unwind_stack_to(self.saved_len);
             return;
         }
+        let stack = &mut self.vm.stack;
         // On clean drop, catch under-pops: scoped code that pops
         // below `saved_len` would make a bare `truncate` silently
         // no-op and hide the corruption.  Match `VmTempRoot`'s
