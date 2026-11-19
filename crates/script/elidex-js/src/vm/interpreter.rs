@@ -236,11 +236,8 @@ impl VmInner {
             self.stack.len(),
             entry_stack_depth,
         );
-        // Pop the frames above the entry depth, closing their upvalues
-        // top down, then truncate (`unwind_to`) — closing after the
-        // truncate would read past the end of the stack.  On the
-        // `Ok(Ok(_))` arm this is a no-op (asserted above); it does real
-        // work on the Err and panic paths.
+        // No-op on the `Ok(Ok(_))` arm (asserted above); real work on the
+        // Err and panic paths.
         self.unwind_to(entry_frames, entry_stack_depth);
         // Outer restore (Ok/Err/panic equally). `gc_enabled` /
         // `active_bound_key` wrap the NativeFunction arm's

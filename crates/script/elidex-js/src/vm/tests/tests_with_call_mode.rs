@@ -5,6 +5,42 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use super::super::value::{CallMode, JsValue};
 use super::super::Vm;
 
+/// A frame with no locals of interest, `base` / `cleanup_base` at `base`,
+/// owning `local_upvalue_ids` — the shape the panic-path tests push.
+fn forged_frame(
+    base: usize,
+    local_upvalue_ids: Vec<super::super::value::UpvalueId>,
+) -> super::super::frame::CallFrame {
+    super::super::frame::CallFrame {
+        func_id: super::super::value::FuncId(0),
+        ip: 0,
+        base,
+        upvalue_ids: std::sync::Arc::from([] as [super::super::value::UpvalueId; 0]),
+        local_upvalue_ids,
+        this_value: JsValue::Undefined,
+        exception_handlers: Vec::new(),
+        tdz_bits: 0,
+        tdz_overflow: Box::default(),
+        actual_args: None,
+        cleanup_base: base,
+        new_instance: None,
+        mode: CallMode::Call,
+        home_class: None,
+        kind: super::super::frame::FrameKind::Function,
+        generator: None,
+        pending_completion: None,
+    }
+}
+
+/// The message of a `panic!` payload (`&'static str` or `String`).
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> &str {
+    payload
+        .downcast_ref::<&'static str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("<non-string payload>")
+}
+
 /// D-17b-r1 Phase 0b/Phase 7 positive assertion: a panic inside
 /// `with_call_mode`'s closure must leave `VmInner.frames` /
 /// `VmInner.stack` at exactly the entry depth before the panic
@@ -30,28 +66,7 @@ fn with_call_mode_truncates_frame_stack_on_panic() {
             // Forge a pushed frame, then panic — the helper
             // must truncate the frames Vec back to
             // `entry_frames` before resume_unwind.
-            use super::super::frame::{CallFrame, FrameKind};
-            use super::super::value::FuncId;
-            use std::sync::Arc;
-            vm.frames.push(CallFrame {
-                func_id: FuncId(0),
-                ip: 0,
-                base: vm.stack.len(),
-                upvalue_ids: Arc::from([] as [super::super::value::UpvalueId; 0]),
-                local_upvalue_ids: Vec::new(),
-                this_value: JsValue::Undefined,
-                exception_handlers: Vec::new(),
-                tdz_bits: 0,
-                tdz_overflow: Box::default(),
-                actual_args: None,
-                cleanup_base: vm.stack.len(),
-                new_instance: None,
-                mode: CallMode::Call,
-                home_class: None,
-                kind: FrameKind::Function,
-                generator: None,
-                pending_completion: None,
-            });
+            vm.frames.push(forged_frame(vm.stack.len(), Vec::new()));
             panic!("intentional panic for with_call_mode frame-truncate regression")
         });
     }));
@@ -113,9 +128,8 @@ fn with_call_mode_truncates_value_stack_on_panic() {
 /// D-17b-r1 code review.
 #[test]
 fn with_call_mode_closes_open_upvalues_on_panic() {
-    use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
-    use super::super::value::{FuncId, UpvalueId};
-    use std::sync::Arc;
+    use super::super::frame::{Upvalue, UpvalueState};
+    use super::super::value::UpvalueId;
 
     let mut vm = Vm::new();
     let entry_frames = vm.inner.frames.len();
@@ -147,25 +161,8 @@ fn with_call_mode_closes_open_upvalues_on_panic() {
             // the upvalue captured above; with_call_mode must
             // close it before stack.truncate drops slot at
             // `entry_stack_depth`.
-            vm.frames.push(CallFrame {
-                func_id: FuncId(0),
-                ip: 0,
-                base: entry_stack_depth + 1,
-                upvalue_ids: Arc::from([] as [UpvalueId; 0]),
-                local_upvalue_ids: vec![captured_uv_id],
-                this_value: JsValue::Undefined,
-                exception_handlers: Vec::new(),
-                tdz_bits: 0,
-                tdz_overflow: Box::default(),
-                actual_args: None,
-                cleanup_base: entry_stack_depth + 1,
-                new_instance: None,
-                mode: CallMode::Call,
-                home_class: None,
-                kind: FrameKind::Function,
-                generator: None,
-                pending_completion: None,
-            });
+            vm.frames
+                .push(forged_frame(entry_stack_depth + 1, vec![captured_uv_id]));
             panic!("intentional panic for close_upvalues regression")
         });
     }));
@@ -312,11 +309,7 @@ fn with_call_mode_panic_preserves_original_payload() {
     std::panic::set_hook(prev_hook);
 
     let payload = result.expect_err("closure panicked; helper must re-raise");
-    let msg = payload
-        .downcast_ref::<&'static str>()
-        .copied()
-        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-        .unwrap_or("<non-string payload>");
+    let msg = panic_message(&payload);
     assert_eq!(
         msg, "R19_original_marker",
         "original panic must survive; got {msg:?}"
@@ -334,9 +327,8 @@ fn with_call_mode_panic_preserves_original_payload() {
 fn assert_guard_unwind_closes_upvalues(
     open_guard: impl FnOnce(&mut super::super::VmInner, &mut dyn FnMut(&mut super::super::VmInner)),
 ) {
-    use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
-    use super::super::value::{FuncId, UpvalueId};
-    use std::sync::Arc;
+    use super::super::frame::{Upvalue, UpvalueState};
+    use super::super::value::UpvalueId;
 
     let mut vm = Vm::new();
     let entry_frames = vm.inner.frames.len();
@@ -357,25 +349,8 @@ fn assert_guard_unwind_closes_upvalues(
         let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
             open_guard(vm, &mut |vm| {
                 vm.stack.push(JsValue::Number(123.0));
-                vm.frames.push(CallFrame {
-                    func_id: FuncId(0),
-                    ip: 0,
-                    base: entry_stack_depth + 1,
-                    upvalue_ids: Arc::from([] as [UpvalueId; 0]),
-                    local_upvalue_ids: vec![uv],
-                    this_value: JsValue::Undefined,
-                    exception_handlers: Vec::new(),
-                    tdz_bits: 0,
-                    tdz_overflow: Box::default(),
-                    actual_args: None,
-                    cleanup_base: entry_stack_depth + 1,
-                    new_instance: None,
-                    mode: CallMode::Call,
-                    home_class: None,
-                    kind: FrameKind::Function,
-                    generator: None,
-                    pending_completion: None,
-                });
+                vm.frames
+                    .push(forged_frame(entry_stack_depth + 1, vec![uv]));
                 panic!("GUARD_UNWIND_ORIGINAL");
             });
             Ok(JsValue::Undefined)
@@ -384,11 +359,7 @@ fn assert_guard_unwind_closes_upvalues(
     std::panic::set_hook(prev_hook);
 
     let payload = result.expect_err("the closure panicked");
-    let msg = payload
-        .downcast_ref::<&'static str>()
-        .copied()
-        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-        .unwrap_or("<non-string payload>");
+    let msg = panic_message(&payload);
     assert_eq!(
         msg, "GUARD_UNWIND_ORIGINAL",
         "the original panic must surface"

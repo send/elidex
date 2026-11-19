@@ -40,10 +40,12 @@ impl VmInner {
     /// ```
     pub(crate) fn push_temp_root(&mut self, value: JsValue) -> VmTempRoot<'_> {
         let saved_len = self.stack.len();
+        let saved_frames = self.frames.len();
         self.stack.push(value);
         VmTempRoot {
             vm: self,
             saved_len,
+            saved_frames,
             expected: value,
         }
     }
@@ -76,6 +78,9 @@ impl VmInner {
 pub(crate) struct VmTempRoot<'a> {
     vm: &'a mut VmInner,
     saved_len: usize,
+    /// Frame depth at push: frames pushed inside the rooted region are
+    /// unwound on panic (`VmInner::unwind_to`).
+    saved_frames: usize,
     expected: JsValue,
 }
 
@@ -102,10 +107,8 @@ impl Drop for VmTempRoot<'_> {
         if std::thread::panicking() {
             // Avoid double-panic; just restore.  An assertion failure
             // here while unwinding would abort the process and lose the
-            // original panic's diagnostic.  Frames pushed inside the
-            // rooted region are popped (their upvalues closed) before
-            // the truncate — see `VmInner::unwind_stack_to`.
-            self.vm.unwind_stack_to(self.saved_len);
+            // original panic's diagnostic.
+            self.vm.unwind_to(self.saved_frames, self.saved_len);
             return;
         }
         let stack = &mut self.vm.stack;
@@ -156,9 +159,11 @@ impl VmInner {
     /// `Self::push_temp_root` for the stronger contract.
     pub(crate) fn push_stack_scope(&mut self) -> VmStackScope<'_> {
         let saved_len = self.stack.len();
+        let saved_frames = self.frames.len();
         VmStackScope {
             vm: self,
             saved_len,
+            saved_frames,
         }
     }
 }
@@ -175,6 +180,9 @@ impl VmInner {
 pub(crate) struct VmStackScope<'a> {
     vm: &'a mut VmInner,
     saved_len: usize,
+    /// Frame depth at scope entry: frames pushed inside the scope are
+    /// unwound on panic (`VmInner::unwind_to`).
+    saved_frames: usize,
 }
 
 impl VmStackScope<'_> {
@@ -209,10 +217,7 @@ impl Drop for VmStackScope<'_> {
             // unconditionally so any `catch_unwind` upstream sees a
             // clean stack.  An assertion failure here would abort
             // the process and lose the original panic's diagnostic.
-            // Frames pushed inside the scope are popped (their
-            // upvalues closed) before the truncate — see
-            // `VmInner::unwind_stack_to`.
-            self.vm.unwind_stack_to(self.saved_len);
+            self.vm.unwind_to(self.saved_frames, self.saved_len);
             return;
         }
         let stack = &mut self.vm.stack;
