@@ -39,7 +39,7 @@ BROWSER = re.compile(
     r"(?<![A-Za-z0-9_])(Chromium|Chrome|Blink|V8|Firefox|Gecko|SpiderMonkey|Safari|WebKit|JSC|JavaScriptCore|Servo|Ladybird)(?![A-Za-z0-9_])",
     re.I)
 GENERIC = re.compile(
-    r"(?<![A-Za-z0-9_])(?:all browsers|every browser|browsers do|major browsers|other engines|production[- ]engine|like browsers)(?![A-Za-z0-9_])",
+    r"(?<![A-Za-z0-9_])(?:all browsers|every browser|browsers do|major browsers|other engines|production[- ]engine|like browsers|browser behaviou?r|real browsers|browsers? (?:accept|reject)s?)(?![A-Za-z0-9_])",
     re.I)
 TAG = re.compile(r"\[(?:spec|evidence|compat|contrast|history)\]", re.I)
 TOOL_NAMES = ("mcp__claude-in-chrome", "claude-in-chrome", "Claude-in-Chrome", "ChromeDriver", "chromedriver")
