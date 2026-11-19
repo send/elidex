@@ -253,7 +253,8 @@ pollster = "0.4"
 tiny-skia = "0.12"
 accesskit = "0.24"
 accesskit_winit = "0.33"
-# `"50.0.2"` means >=50.0.2, <51: a security floor, so do not shorten it to a
+# `"50.0.2"` means >=50.0.2, <51: a security floor (set by RUSTSEC-2026-0566 …
+# 0573; replace, do not append, when it moves), so do not shorten it to a
 # bare `"50"`. The rule: the floor is the lowest 50.x release that fixes every
 # wasmtime RUSTSEC on the line. When `cargo deny check advisories` reports one,
 # raise the floor to the version its "Solution" names (e.g. `>=50.0.2`); to see
