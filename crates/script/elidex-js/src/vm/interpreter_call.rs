@@ -13,17 +13,15 @@ use super::VmInner;
 
 impl VmInner {
     /// Dispatch a `[[Call]]` (or a native `[[Construct]]`) from Rust: the
-    /// one entry for `Vm::call`, `VmInner::call`, the dispatcher's
-    /// non-`Function` fallback, accessor calls, `ToPrimitive` and native
-    /// construct.
+    /// one entry for every Rust-side call.
     ///
     /// The callee, `this` and `args` arrive as Rust values that may be
     /// reachable from nothing else (the dispatcher's fallback has already
     /// dropped the callee from the VM stack; `GetProp` has popped the
-    /// receiver that held a getter).  The callee is invoked only after
-    /// allocations (a rest-parameter array, a coroutine and its wrapper),
-    /// and `alloc_object` may collect before inserting, so all three are
-    /// rooted on the VM stack for the whole dispatch.  Rooting the callee
+    /// receiver that held a getter).  The callee's frame takes them only
+    /// after allocations (a rest-parameter array, a coroutine and its
+    /// wrapper), and `alloc_object` may collect before inserting, so all
+    /// three are rooted on the VM stack for the whole dispatch.  Rooting the callee
     /// object keeps what it reaches alive too: a closure's upvalues, a
     /// bound function's target, bound `this` and bound arguments
     /// (`#11-vm-call-internal-callee-this-rooting`).  One scope here, not
@@ -421,8 +419,7 @@ impl VmInner {
         // below `base`, holds the callee object as called, the caller's
         // `this` and `args`; the frame's own `this` and closure are those
         // or reachable from them (a bound function's target and bound
-        // `this`, an arrow's captured `this`).  The `run_function` entry has
-        // no callee object, an `undefined` `this` and no arguments.  `actual_args` is a copy of
+        // `this`, an arrow's captured `this`).  `actual_args` is a copy of
         // `args`; `create_coroutine` roots it across its own allocations.
         // A coroutine frame is always `FrameKind::Function` (the
         // `debug_assert!` above), whatever `kind` was passed.
