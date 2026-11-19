@@ -326,6 +326,10 @@ def sc_class_s(m):  # (a)
     return _rejected(m, {"a.md": LINE + "\n"}, ["S\t#11-x\ta.md\t1"])
 
 
+def sc_class_substr(m):  # (a) exact membership: "" and "TD" are not classes (Codex #652)
+    return _rejected(m, {"a.md": LINE + "\n"}, ["\t#11-x\ta.md\t1"]) and _rejected(m, {"a.md": LINE + "\n"}, ["TD\t#11-x\ta.md\t1"])
+
+
 def sc_slot_dash(m):  # (b)
     return _rejected(m, {"a.md": LINE + "\n"}, ["T\t-\ta.md\t1"])
 
@@ -498,6 +502,11 @@ def sc_rl_class_s(m):  # relabel moves only toward T / D
     return _relabel_rejected(m, ["S\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE])
 
 
+def sc_rl_class_substr(m):  # exact membership on the target class (Codex #652)
+    return (_relabel_rejected(m, ["\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE])
+            and _relabel_rejected(m, ["TD\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE]))
+
+
 def sc_rl_t_to_d(m):  # a T row is never moved (T <-> D would swap the slot)
     return _relabel_rejected(m, ["D\t#11-y\ta.md\t1"], ["T\t#11-x\ta.md\t" + LINE])
 
@@ -581,7 +590,7 @@ def sc_cli_default_base(m):  # main(["--add-new", spec]) succeeds against refs/r
 
 
 SCENARIOS = {
-    "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
+    "control": sc_control, "class_s": sc_class_s, "class_substr": sc_class_substr, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
     "base_denies": sc_base_denies, "base_unreadable": sc_base_unreadable,
     "base_raw_line": sc_base_raw_line, "base_real_ff": sc_base_real_ff, "norm_not_denied": sc_norm_not_denied,
@@ -589,7 +598,7 @@ SCENARIOS = {
     "ln_garbage": sc_ln_garbage, "ln_zero": sc_ln_zero, "dup_named": sc_dup_named,
     "shape_add": sc_shape_add, "shape_prune": sc_shape_prune, "shape_relabel": sc_shape_relabel,
     "rl_t_to_d": sc_rl_t_to_d, "rl_line0": sc_rl_line0, "rl_ln_garbage": sc_rl_ln_garbage,
-    "rl_control": sc_rl_control, "rl_class_s": sc_rl_class_s, "rl_slot_dash": sc_rl_slot_dash,
+    "rl_control": sc_rl_control, "rl_class_s": sc_rl_class_s, "rl_class_substr": sc_rl_class_substr, "rl_slot_dash": sc_rl_slot_dash,
     "rl_slot_empty": sc_rl_slot_empty, "rl_no_row": sc_rl_no_row, "rl_already": sc_rl_already,
     "rl_not_denied": sc_rl_not_denied, "rl_atomic": sc_rl_atomic, "rl_consumed": sc_rl_consumed,
     "cli_default_base": sc_cli_default_base,
@@ -597,7 +606,8 @@ SCENARIOS = {
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
 NEWHIT = "(path, ln) not in text_at"
 MUTANTS = [
-    ("class: any class", (('ADD_CLASSES = "TD"', 'ADD_CLASSES = "TDSECN"'),), ["class_s"]),
+    ("class: any class", (('ADD_CLASSES = ("T", "D")', 'ADD_CLASSES = ("T", "D", "S", "E", "C", "N")'),), ["class_s"]),
+    ("class: substring membership", (('ADD_CLASSES = ("T", "D")', 'ADD_CLASSES = "TD"'),), ["class_substr", "rl_class_substr"]),
     ("slot: any slot", (("if not SLOT.match(slot):", "if False:"),), ["slot_dash"]),
     # the new-hit position check is the only gate for denied / in-range; the lookup that follows needs a
     # default, else the mutant dies by KeyError instead of by the scenario

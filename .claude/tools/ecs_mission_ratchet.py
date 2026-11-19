@@ -57,8 +57,8 @@ UA_STRIP = (
 )
 
 CLASSES = "SECTDN"
-LIGHT = "SECN"  # the classes --relabel may move to T/D
-ADD_CLASSES = "TD"  # the only classes --add-new may append
+LIGHT = ("S", "E", "C", "N")  # the classes --relabel may move to T/D (a tuple: exact membership, not substring)
+ADD_CLASSES = ("T", "D")  # the only classes --add-new may append (a tuple: "" or "TD" is not a member)
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecs-mission-allowlist.tsv")
 SELF_FILES = tuple(".claude/tools/" + n for n in (
