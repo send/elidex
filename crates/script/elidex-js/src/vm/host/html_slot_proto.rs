@@ -218,16 +218,13 @@ fn coerce_element_or_text(ctx: &NativeContext<'_>, value: JsValue) -> Result<Ent
         "coerce_element_or_text invoked after entity_from_this returned Some, \
          which requires host_data to be bound",
     );
-    let kind = host
-        .dom_shared()
-        .node_kind_inferred(entity)
-        .ok_or_else(|| {
-            VmError::type_error(
-                "Failed to execute 'assign' on 'HTMLSlotElement': \
+    let kind = host.dom_shared().node_kind(entity).ok_or_else(|| {
+        VmError::type_error(
+            "Failed to execute 'assign' on 'HTMLSlotElement': \
              argument is not of type (Element or Text)"
-                    .to_string(),
-            )
-        })?;
+                .to_string(),
+        )
+    })?;
     if !matches!(kind, NodeKind::Element | NodeKind::Text) {
         return Err(VmError::type_error(
             "Failed to execute 'assign' on 'HTMLSlotElement': \
@@ -349,7 +346,7 @@ fn slot_assigned_elements(
     let dom = ctx.host().dom();
     let elements: Vec<Entity> = raw
         .into_iter()
-        .filter(|&e| matches!(dom.node_kind_inferred(e), Some(NodeKind::Element)))
+        .filter(|&e| matches!(dom.node_kind(e), Some(NodeKind::Element)))
         .collect();
     Ok(wrap_entities_as_array(ctx.vm, &elements))
 }

@@ -182,7 +182,7 @@ pub fn serialize_outer_html(entity: Entity, dom: &EcsDom) -> String {
 #[must_use]
 pub fn serialize_node_to_string(entity: Entity, dom: &EcsDom) -> String {
     use elidex_ecs::NodeKind;
-    match dom.node_kind_inferred(entity) {
+    match dom.node_kind(entity) {
         // No tag of their own → serialize the markup of their children.
         Some(NodeKind::Document | NodeKind::DocumentFragment) => serialize_inner_html(entity, dom),
         // Element, character data, comment, doctype, or a payload-less entity:

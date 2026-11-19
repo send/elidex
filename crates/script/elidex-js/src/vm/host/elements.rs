@@ -13,7 +13,7 @@
 //!    four prototype chains:
 //!    - Element (`TagType` present) →
 //!      `Element.prototype → Node.prototype → EventTarget.prototype`
-//!    - Text (`NodeKind::Text` or legacy `TextContent`) →
+//!    - Text (`NodeKind::Text`) →
 //!      `Text.prototype → CharacterData.prototype → Node.prototype`
 //!    - Other CharacterData (Comment / CDATA / PI) →
 //!      `CharacterData.prototype → Node.prototype`

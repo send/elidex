@@ -84,10 +84,9 @@ fn normalize_mixin_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsVa
                          the node is detached (invalid entity).",
                     ));
                 }
-                // Accept any DOM node (incl. legacy entities missing `NodeKind` but
-                // carrying DOM payload). Window is an `EventTarget` but not a Node, so
+                // Accept any DOM node. Window is an `EventTarget` but not a Node, so
                 // it falls through to text coercion.
-                let inferred = ctx.host().dom().node_kind_inferred(entity);
+                let inferred = ctx.host().dom().node_kind(entity);
                 if matches!(inferred, Some(k) if k.is_node()) {
                     return Ok(val);
                 }

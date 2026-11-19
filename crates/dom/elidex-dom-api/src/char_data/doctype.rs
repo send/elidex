@@ -12,14 +12,10 @@ use crate::util::not_found_error;
 
 /// Walk document children to find the first DocumentType entity.
 ///
-/// Uses [`EcsDom::node_kind_inferred`] (not the strict `NodeKind`
-/// component check) so legacy html5ever-era fixtures that carry a
-/// `DocTypeData` payload without an explicit `NodeKind` component
-/// still resolve.  Matches the fallback applied by
-/// `HostData::prototype_kind_for` and `require_node_arg`.
+/// Matches on the entity's [`EcsDom::node_kind`].
 fn find_doctype(dom: &EcsDom, doc: Entity) -> Option<Entity> {
     for child in dom.children_iter(doc) {
-        if matches!(dom.node_kind_inferred(child), Some(NodeKind::DocumentType)) {
+        if matches!(dom.node_kind(child), Some(NodeKind::DocumentType)) {
             return Some(child);
         }
     }

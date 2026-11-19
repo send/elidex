@@ -317,9 +317,7 @@ pub(super) fn is_shadow_root_entity(
 /// ("Failed to execute `<method>` on `<interface>`: Illegal
 /// invocation"), mirroring browser DOMException text.
 ///
-/// Uses `node_kind_inferred`, so legacy entities that carry DOM
-/// payload without an explicit `NodeKind` are accepted when their
-/// payload-derived kind matches.
+/// Matches on the entity's `node_kind`.
 #[cfg(feature = "engine")]
 pub(super) fn require_receiver(
     ctx: &mut NativeContext<'_>,
@@ -342,7 +340,7 @@ pub(super) fn require_receiver(
              the node is detached (invalid entity)."
         )));
     }
-    let Some(kind) = dom.node_kind_inferred(entity) else {
+    let Some(kind) = dom.node_kind(entity) else {
         return Err(super::super::value::VmError::type_error(format!(
             "Failed to execute '{method}' on '{interface}': Illegal invocation"
         )));

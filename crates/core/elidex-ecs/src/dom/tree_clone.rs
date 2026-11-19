@@ -319,28 +319,13 @@ impl EcsDom {
         } else {
             (None, None, None)
         };
-        // Determine the destination `NodeKind`: prefer the source
-        // component if present, otherwise infer from the payload
-        // (defensive for entities that predate the `NodeKind`
-        // component — e.g. anywhere `is_element` would fall back to
-        // `TagType`).  Falling back to `Element` unconditionally
-        // misclassifies Text/Comment entities that lack `NodeKind`
-        // but carry a `TextContent` / `CommentData` payload.
-        let kind = self.node_kind(src).unwrap_or_else(|| {
-            if tag.is_some() {
-                NodeKind::Element
-            } else if text.is_some() {
-                NodeKind::Text
-            } else if comment.is_some() {
-                NodeKind::Comment
-            } else if doc_type.is_some() {
-                NodeKind::DocumentType
-            } else {
-                NodeKind::Element
-            }
-        });
-
-        builder.add(TreeRelation::default()).add(kind);
+        // The clone copies the facts the source has and invents none:
+        // `NodeKind` is copied when present (every production node
+        // carries one; no kind is inferred from payload components).
+        builder.add(TreeRelation::default());
+        if let Some(kind) = self.node_kind(src) {
+            builder.add(kind);
+        }
         if let Some(tag) = tag {
             builder.add(tag);
         }

@@ -327,9 +327,9 @@ impl DomApiHandler for SplitText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // Verify this is a text node (mirrors the legacy NodeKind brand
+        // Verify this is a text node (mirrors the NodeKind brand
         // check; engine-indep `split_text_at_offset` does its own check
-        // via `node_kind_inferred`, but matching this error variant
+        // via `node_kind`, but matching this error variant
         // keeps the DomApiHandler error shape stable for boa).
         let nk = dom
             .world()

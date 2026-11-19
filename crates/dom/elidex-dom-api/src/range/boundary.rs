@@ -19,11 +19,10 @@ pub enum RangePointError {
 }
 
 /// `true` when `node` is a `DocumentType` per WHATWG §5.5 step 2.
-/// Probes both the inferred kind (modern path) and the legacy
-/// `DocTypeData` component (back-compat for legacy entity layouts).
+/// Probes the `NodeKind` and the `DocTypeData` component.
 fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
     use elidex_ecs::{DocTypeData, NodeKind};
-    matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
+    matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
         || dom.world().get::<&DocTypeData>(node).is_ok()
 }
 

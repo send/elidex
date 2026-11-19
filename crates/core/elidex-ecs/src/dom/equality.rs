@@ -48,13 +48,9 @@ impl EcsDom {
     /// `clone_children_recursive`, so a malicious deep DOM cannot
     /// overflow the Rust call stack.
     ///
-    /// Uses [`Self::node_kind_inferred`] so legacy entities (payload
-    /// component but no explicit `NodeKind`) still discriminate
-    /// correctly — comparing two legacy entities of different
-    /// payload kinds (e.g. legacy Text vs legacy Comment, both
-    /// reporting `node_kind == None`) would otherwise treat them as
-    /// equal because the per-kind match arms below would both be
-    /// skipped.
+    /// Entities without a `NodeKind` are not DOM nodes and compare
+    /// unequal (the per-kind match arms below would otherwise be
+    /// skipped and vacuously report equal).
     ///
     /// Element comparison: tag name match (case-sensitive — the
     /// parser canonicalises HTML tags to lowercase before they reach
@@ -67,8 +63,8 @@ impl EcsDom {
     pub fn nodes_equal(&self, a: Entity, b: Entity) -> bool {
         let mut stack: Vec<(Entity, Entity)> = vec![(a, b)];
         while let Some((a, b)) = stack.pop() {
-            let kind = self.node_kind_inferred(a);
-            if kind != self.node_kind_inferred(b) {
+            let kind = self.node_kind(a);
+            if kind != self.node_kind(b) {
                 return false;
             }
             // Two non-DOM entities (no payload, no NodeKind component)

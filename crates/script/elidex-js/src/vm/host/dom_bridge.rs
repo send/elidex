@@ -191,7 +191,7 @@ impl PreVal {
     ///
     /// In practice every current call site routes Node-typed
     /// arguments through `require_node_arg` (`node_proto.rs`), which
-    /// already runs `node_kind_inferred` and rejects both bare
+    /// already reads `node_kind` and rejects both bare
     /// entities and Window before dispatch.  The rejection here is
     /// therefore **defense-in-depth**: a future native that hands
     /// the bridge a HostObject without a brand check still fails
@@ -205,7 +205,7 @@ impl PreVal {
         match self {
             PreVal::Primitive(v) => Ok(v),
             PreVal::Entity(entity) => {
-                let kind = arg_component_kind(dom.node_kind_inferred(entity))?;
+                let kind = arg_component_kind(dom.node_kind(entity))?;
                 let obj_ref = session.get_or_create_wrapper(entity, kind);
                 Ok(elidex_plugin::JsValue::ObjectRef(obj_ref.to_raw()))
             }
@@ -213,14 +213,11 @@ impl PreVal {
     }
 }
 
-/// Classify an entity's inferred [`NodeKind`] into the
+/// Classify an entity's [`NodeKind`] into the
 /// [`ComponentKind`] that the bridge passes to handlers.
 ///
 /// Two failure modes both surface as a `TypeError`:
-/// - `None` — the entity has no `NodeKind` component and no
-///   payload (`TagType` / `TextContent` / `CommentData` /
-///   `DocTypeData`) for [`EcsDom::node_kind_inferred`] to recover
-///   from.  Reaching this arm means a HostObject wrapper points at
+/// - `None` — the entity has no `NodeKind` component.  Reaching this arm means a HostObject wrapper points at
 ///   a bare entity, which should never escape a brand-checked call
 ///   path.
 /// - `Some(NodeKind::Window)` / `Some(NodeKind::Worker)` — both are

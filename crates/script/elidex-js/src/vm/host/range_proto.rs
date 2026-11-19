@@ -796,7 +796,7 @@ fn reject_doctype(
         return Err(detached_range_error(ctx, method));
     }
     let dom = ctx.host().dom();
-    let is_doctype = matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
+    let is_doctype = matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
         || dom.world().get::<&DocTypeData>(node).is_ok();
     if is_doctype {
         return Err(VmError::dom_exception(

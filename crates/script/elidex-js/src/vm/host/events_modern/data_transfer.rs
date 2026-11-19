@@ -761,7 +761,7 @@ fn require_element_arg_bits(ctx: &mut NativeContext<'_>, value: JsValue) -> Resu
              parameter 1 is detached (invalid entity).",
         ));
     }
-    match dom.node_kind_inferred(entity) {
+    match dom.node_kind(entity) {
         Some(elidex_ecs::NodeKind::Element) => Ok(entity_bits),
         _ => Err(VmError::type_error(
             "Failed to execute 'setDragImage' on 'DataTransfer': \

@@ -260,7 +260,7 @@ fn get_elements_by_name_filters_non_element_nodes() {
     //
     // Without R5 #1's filter, `traverse_descendants` + attribute
     // check would leak the Document into the result.  With the
-    // filter (`node_kind_inferred == Element` + `e != doc`), only
+    // filter (`node_kind == Element` + `e != doc`), only
     // the real `<input>` element is returned.
     let mut bogus_attrs = elidex_ecs::Attributes::default();
     bogus_attrs.set("name", "x");

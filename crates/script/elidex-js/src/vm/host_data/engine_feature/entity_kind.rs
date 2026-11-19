@@ -189,8 +189,7 @@ impl HostData {
             None => {
                 // Defensive inference for legacy entities that
                 // carry CharacterData payload without an explicit
-                // `NodeKind` component.  Mirrors the same
-                // fallback in `EcsDom::clone_node_shallow`.
+                // `NodeKind` component.
                 if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
                     PrototypeKind::Element
                 } else if dom.world().get::<&elidex_ecs::TextContent>(entity).is_ok() {
