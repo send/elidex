@@ -158,8 +158,10 @@ impl EcsDom {
     ///   step copies the listener list.
     ///
     /// Returns `None` when `src` does not exist, so a missing source
-    /// can never alias the original via the returned handle.  `pairs`
-    /// is untouched in that case.
+    /// can never alias the original via the returned handle, and when
+    /// `src` carries no [`NodeKind`] (not a DOM node).  `pairs` is
+    /// untouched in both cases. A descendant without a `NodeKind` is
+    /// not a DOM node and is skipped.
     ///
     /// # WHATWG DOM §4.4 "clone a node" — the clone's node document
     ///
@@ -186,7 +188,8 @@ impl EcsDom {
         if !self.contains(src) {
             return None;
         }
-        let is_document = matches!(self.node_kind(src), Some(NodeKind::Document));
+        let kind = self.node_kind(src)?;
+        let is_document = kind == NodeKind::Document;
         // One scratch builder is shared with the descendant walk so its
         // component buffer is allocated once per deep clone, not once per
         // node.
@@ -196,7 +199,7 @@ impl EcsDom {
         } else {
             document.document()
         };
-        let root = self.clone_node_shallow_unchecked(src, stamp, &mut builder);
+        let root = self.clone_node_shallow_unchecked(src, kind, stamp, &mut builder);
         pairs.push((src, root));
         // A Document copy is its own node document (`node_document` reads it
         // from the kind, no stamp); its descendants are stamped with it.
@@ -210,8 +213,9 @@ impl EcsDom {
     /// data for CharacterData, doctype fields for DocumentType) with
     /// no descendants and no parent/sibling links.
     ///
-    /// Returns `None` when `src` does not exist so a missing source
-    /// can never alias the original via the returned handle.  Tree
+    /// Returns `None` when `src` does not exist (so a missing source
+    /// can never alias the original via the returned handle) or has no
+    /// [`NodeKind`] (not a DOM node).  Tree
     /// relations on the clone are left at defaults — the caller
     /// threads the clone into place.  Does **not** copy `ShadowRoot`
     /// or `EventListeners` (see the module-level clone-policy table).
@@ -228,13 +232,15 @@ impl EcsDom {
         if !self.contains(src) {
             return None;
         }
+        // A source without a `NodeKind` is not a DOM node: no clone.
+        let kind = self.node_kind(src)?;
         // A Document copy is its own node document (read from its kind).
-        let stamp = if matches!(self.node_kind(src), Some(NodeKind::Document)) {
+        let stamp = if kind == NodeKind::Document {
             None
         } else {
             document.document()
         };
-        Some(self.clone_node_shallow_unchecked(src, stamp, &mut EntityBuilder::new()))
+        Some(self.clone_node_shallow_unchecked(src, kind, stamp, &mut EntityBuilder::new()))
     }
 
     /// Unchecked shallow-clone helper: spawns `dst` carrying `src`'s
@@ -254,6 +260,7 @@ impl EcsDom {
     fn clone_node_shallow_unchecked(
         &mut self,
         src: Entity,
+        kind: NodeKind,
         stamp: Option<Entity>,
         builder: &mut EntityBuilder,
     ) -> Entity {
@@ -320,12 +327,11 @@ impl EcsDom {
             (None, None, None)
         };
         // The clone copies the facts the source has and invents none:
-        // `NodeKind` is copied when present (every production node
-        // carries one; no kind is inferred from payload components).
+        // `kind` is the source's own `NodeKind`, read by the caller (a
+        // source without one is not cloned; no kind is inferred from
+        // payload components).
         builder.add(TreeRelation::default());
-        if let Some(kind) = self.node_kind(src) {
-            builder.add(kind);
-        }
+        builder.add(kind);
         if let Some(tag) = tag {
             builder.add(tag);
         }
@@ -388,9 +394,13 @@ impl EcsDom {
             for child_src in kids {
                 // `kids` was snapshotted from the live tree, so each
                 // entry is guaranteed to exist; the unchecked variant
-                // skips the redundant `contains` lookup.
+                // skips the redundant `contains` lookup. A child without a
+                // `NodeKind` is not a DOM node and is not cloned.
+                let Some(kind) = self.node_kind(child_src) else {
+                    continue;
+                };
                 let child_dst =
-                    self.clone_node_shallow_unchecked(child_src, propagate_doc, builder);
+                    self.clone_node_shallow_unchecked(child_src, kind, propagate_doc, builder);
                 let _ = self.append_child(dst_parent, child_dst);
                 pairs.push((child_src, child_dst));
             }

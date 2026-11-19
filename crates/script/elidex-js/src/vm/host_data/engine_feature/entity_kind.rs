@@ -16,7 +16,7 @@ use elidex_ecs::{Entity, NodeKind};
 /// `is_element_entity` / `is_character_data_entity` checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrototypeKind {
-    /// Entity carries a `TagType` — Element wrapper chain:
+    /// `NodeKind::Element` — Element wrapper chain:
     /// `Element.prototype → Node.prototype → …`.
     Element,
     /// `NodeKind::Text` — chains via `Text.prototype →
@@ -56,8 +56,8 @@ pub enum PrototypeKind {
 
 impl HostData {
     /// Return `true` if this `HostData` is bound AND `entity` is
-    /// an Element (has the `TagType` component) in the bound
-    /// world.  Returns `false` when unbound so pre-bind or
+    /// an Element (`NodeKind::Element`, i.e. [`elidex_ecs::EcsDom::is_element`])
+    /// in the bound world.  Returns `false` when unbound so pre-bind or
     /// post-unbind wrapper allocation can still decide a
     /// reasonable fallback prototype (`Node.prototype`).
     ///
@@ -92,7 +92,7 @@ impl HostData {
         // site, so creating a `&` here cannot violate Rust
         // aliasing rules.
         let dom = unsafe { &*self.dom_ptr };
-        dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
+        dom.is_element(entity)
     }
 
     /// Engine-component brand check: `entity` carries an
@@ -134,11 +134,10 @@ impl HostData {
 
     /// Classify `entity` into a [`PrototypeKind`] used by
     /// `create_element_wrapper` to pick the appropriate wrapper
-    /// prototype.  Probes a small set of ECS components
-    /// (`TagType` → `Element` fast path for the ~99% case, then
-    /// `ShadowRoot` to disambiguate shadow-root DF entities, then
-    /// `node_kind` for the remaining non-Element node families;
-    /// an entity without `NodeKind` is `OtherNode`).  Must be called bound; there is no
+    /// prototype.  Dispatches on `node_kind` (`Element` first, the
+    /// ~99% case); the `ShadowRoot` component is probed only for a
+    /// `DocumentFragment` to disambiguate shadow roots from plain
+    /// fragments.  An entity without `NodeKind` is `OtherNode`.  Must be called bound; there is no
     /// unbound fallback (`create_element_wrapper` asserts first).
     ///
     /// Aliasing contract mirrors [`Self::is_element_entity`] — the
@@ -152,26 +151,20 @@ impl HostData {
         );
         // SAFETY: see `is_element_entity` — same contract.
         let dom = unsafe { &*self.dom_ptr };
-        // Element has highest priority (matches the pre-PR4e
-        // behaviour of `is_element_entity` short-circuit).  Shadow
-        // root entities lack `TagType` so this probe naturally
-        // short-circuits to the non-shadow path for the ~99% case;
-        // the `ShadowRoot` probe below disambiguates SR-vs-plain-DF
-        // only for the DF-typed minority without paying for an
-        // extra lookup on every Element wrapper allocation.
-        if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
-            return PrototypeKind::Element;
-        }
-        // ShadowRoot entities carry `NodeKind::DocumentFragment`
-        // but must route through `ShadowRoot.prototype` (not
-        // `DocumentFragment.prototype`) for accurate brand checks
-        // (`shadowRoot instanceof ShadowRoot === true`).  Probe
-        // after the Element fast-path so non-shadow DF allocations
-        // also benefit from the early TagType short-circuit.
-        if dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok() {
-            return PrototypeKind::ShadowRoot;
-        }
         match dom.node_kind(entity) {
+            Some(NodeKind::Element) => PrototypeKind::Element,
+            // ShadowRoot entities carry `NodeKind::DocumentFragment`
+            // but must route through `ShadowRoot.prototype` (not
+            // `DocumentFragment.prototype`) for accurate brand checks
+            // (`shadowRoot instanceof ShadowRoot === true`); the probe
+            // runs only in this arm so Element allocations skip it.
+            Some(NodeKind::DocumentFragment) => {
+                if dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok() {
+                    PrototypeKind::ShadowRoot
+                } else {
+                    PrototypeKind::DocumentFragment
+                }
+            }
             Some(NodeKind::Text) => PrototypeKind::Text,
             Some(NodeKind::Comment) => PrototypeKind::OtherCharacterData,
             // CDATA / ProcessingInstruction would also be
@@ -182,7 +175,6 @@ impl HostData {
                 PrototypeKind::OtherCharacterData
             }
             Some(NodeKind::DocumentType) => PrototypeKind::DocumentType,
-            Some(NodeKind::DocumentFragment) => PrototypeKind::DocumentFragment,
             Some(NodeKind::Document) => PrototypeKind::Document,
             _ => PrototypeKind::OtherNode,
         }

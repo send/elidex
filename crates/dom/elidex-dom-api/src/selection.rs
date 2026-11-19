@@ -40,7 +40,7 @@
 //! has been materialised yet, `getRangeAt(0)` builds one on demand —
 //! `RangeId` is the source of truth.
 
-use elidex_ecs::{EcsDom, Entity, NodeKind};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::MutationRecord;
 
 use crate::range::{
@@ -265,7 +265,7 @@ impl SelectionState {
         node: Entity,
         offset: usize,
     ) -> Result<(), SelectionError> {
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(SelectionError::InvalidNodeType);
         }
         if !same_document(node, owner_document, dom) {
@@ -337,7 +337,7 @@ impl SelectionState {
         if self.active_range_id.is_none() {
             return Err(SelectionError::InvalidState);
         }
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(SelectionError::InvalidNodeType);
         }
         if !same_document(node, owner_document, dom) {
@@ -388,7 +388,7 @@ impl SelectionState {
         focus_node: Entity,
         focus_offset: usize,
     ) -> Result<(), SelectionError> {
-        if is_doctype(anchor_node, dom) || is_doctype(focus_node, dom) {
+        if dom.is_document_type(anchor_node) || dom.is_document_type(focus_node) {
             return Err(SelectionError::InvalidNodeType);
         }
         if !same_document(anchor_node, owner_document, dom)
@@ -428,7 +428,7 @@ impl SelectionState {
         owner_document: Entity,
         parent: Entity,
     ) -> Result<(), SelectionError> {
-        if is_doctype(parent, dom) {
+        if dom.is_document_type(parent) {
             return Err(SelectionError::InvalidNodeType);
         }
         if !same_document(parent, owner_document, dom) {
@@ -590,14 +590,6 @@ impl SelectionState {
 // ---------------------------------------------------------------------------
 // Helpers (engine-indep, not exposed)
 // ---------------------------------------------------------------------------
-
-/// `true` when `node` is a `DocumentType` per WHATWG DOM `length of a
-/// node` exception list. Mirrors the private helper in
-/// `range::boundary`; duplicated here to keep that one
-/// file-scoped (lesson #228 — write primitives self-contained).
-fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
-    matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
-}
 
 /// `true` when `node`'s owner document is `owner_document`. Used by
 /// Selection's cross-document gates (spec §3.2 collapse step 4 etc.).

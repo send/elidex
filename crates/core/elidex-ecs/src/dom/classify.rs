@@ -6,7 +6,7 @@
 //! classification question about a single entity:
 //!
 //! - kind: [`EcsDom::node_kind`], [`EcsDom::is_element`],
-//!   [`EcsDom::is_document_fragment`]
+//!   [`EcsDom::is_document_fragment`], [`EcsDom::is_document_type`]
 //! - namespace: [`EcsDom::namespace_of`], [`EcsDom::is_html_namespace`]
 //! - HTML tag-name predicates: [`EcsDom::is_base_element`],
 //!   [`EcsDom::is_template_element`]
@@ -110,6 +110,12 @@ impl EcsDom {
     pub fn is_document_fragment(&self, entity: Entity) -> bool {
         matches!(self.node_kind(entity), Some(NodeKind::DocumentFragment))
             && !self.is_shadow_root(entity)
+    }
+
+    /// Whether `entity` is a `DocumentType` node (reads its [`NodeKind`]).
+    #[must_use]
+    pub fn is_document_type(&self, entity: Entity) -> bool {
+        matches!(self.node_kind(entity), Some(NodeKind::DocumentType))
     }
 
     /// Whether `entity` is an element in the HTML namespace.

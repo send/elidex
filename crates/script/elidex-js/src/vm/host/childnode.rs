@@ -86,8 +86,8 @@ fn normalize_mixin_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsVa
                 }
                 // Accept any DOM node. Window is an `EventTarget` but not a Node, so
                 // it falls through to text coercion.
-                let inferred = ctx.host().dom().node_kind(entity);
-                if matches!(inferred, Some(k) if k.is_node()) {
+                let kind = ctx.host().dom().node_kind(entity);
+                if matches!(kind, Some(k) if k.is_node()) {
                     return Ok(val);
                 }
             }

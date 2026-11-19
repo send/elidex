@@ -89,9 +89,10 @@ fn require_element_arg(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<()
     if !ctx.host().dom().contains(entity) {
         return Err(adjacent_element_detached_error());
     }
-    match ctx.host().dom().node_kind(entity) {
-        Some(NodeKind::Element) => Ok(()),
-        _ => Err(adjacent_element_arg_error()),
+    if ctx.host().dom().is_element(entity) {
+        Ok(())
+    } else {
+        Err(adjacent_element_arg_error())
     }
 }
 

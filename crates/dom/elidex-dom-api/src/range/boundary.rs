@@ -18,13 +18,6 @@ pub enum RangePointError {
     IndexSize,
 }
 
-/// `true` when `node` is a `DocumentType` per WHATWG §5.5 step 2.
-/// Reads the entity's `NodeKind`.
-fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
-    use elidex_ecs::NodeKind;
-    matches!(dom.node_kind(node), Some(NodeKind::DocumentType))
-}
-
 impl Range {
     /// Set the start boundary WITHOUT spec collapse-on-cross-root /
     /// after-end logic.  Engine-indep primitive used by in-crate
@@ -165,7 +158,7 @@ impl Range {
             return Ok(false);
         }
         // Step 2: DocumentType rejection.
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(RangePointError::InvalidNodeType);
         }
         // Step 3: offset bounds.
@@ -205,7 +198,7 @@ impl Range {
         if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
             return Err(RangePointError::WrongDocument);
         }
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(RangePointError::InvalidNodeType);
         }
         if offset > node_length(node, dom) {

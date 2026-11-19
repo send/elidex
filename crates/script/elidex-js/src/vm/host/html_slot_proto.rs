@@ -344,10 +344,7 @@ fn slot_assigned_elements(
     // Filter to Element entities BEFORE wrapper allocation to avoid
     // allocating wrappers for nodes that won't be returned.
     let dom = ctx.host().dom();
-    let elements: Vec<Entity> = raw
-        .into_iter()
-        .filter(|&e| matches!(dom.node_kind(e), Some(NodeKind::Element)))
-        .collect();
+    let elements: Vec<Entity> = raw.into_iter().filter(|&e| dom.is_element(e)).collect();
     Ok(wrap_entities_as_array(ctx.vm, &elements))
 }
 

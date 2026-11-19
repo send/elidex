@@ -67,7 +67,7 @@ impl EcsDom {
             if kind != self.node_kind(b) {
                 return false;
             }
-            // Two non-DOM entities (no payload, no NodeKind component)
+            // Two non-DOM entities (no `NodeKind` component)
             // must not vacuously equal — the rest of this loop body
             // is structurally a no-op for them, which would otherwise
             // make `nodes_equal(non_node_a, non_node_b)` return true.

@@ -11,7 +11,7 @@
 //! 2. **Prototype chain dispatched by node kind** —
 //!    `HostData::prototype_kind_for` routes each entity to one of
 //!    four prototype chains:
-//!    - Element (`TagType` present) →
+//!    - Element (`NodeKind::Element`) →
 //!      `Element.prototype → Node.prototype → EventTarget.prototype`
 //!    - Text (`NodeKind::Text`) →
 //!      `Text.prototype → CharacterData.prototype → Node.prototype`

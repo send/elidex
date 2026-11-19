@@ -177,15 +177,18 @@ pub fn serialize_outer_html(entity: Entity, dom: &EcsDom) -> String {
 /// - **Text / `CDATASection` / Comment / `DocumentType`** → routed through
 ///   [`serialize_outer_html`] (whose internal node-kind dispatch emits escaped
 ///   text for character data, `<!--data-->` for a comment, and `<!DOCTYPE name>`
-///   for a doctype). A bare entity with no DOM payload serializes to the empty
-///   string.
+///   for a doctype). That inner dispatch reads the payload components
+///   (`TextContent` / `CommentData` / `DocTypeData` / `TagType`), not
+///   `NodeKind`; an entity with none of them (e.g. no `NodeKind` at all)
+///   serializes as the markup of its children — the empty string when it has
+///   none.
 #[must_use]
 pub fn serialize_node_to_string(entity: Entity, dom: &EcsDom) -> String {
     use elidex_ecs::NodeKind;
     match dom.node_kind(entity) {
         // No tag of their own → serialize the markup of their children.
         Some(NodeKind::Document | NodeKind::DocumentFragment) => serialize_inner_html(entity, dom),
-        // Element, character data, comment, doctype, or a payload-less entity:
+        // Element, character data, comment, doctype, or an entity with no `NodeKind`:
         // `serialize_node` (reached via `serialize_outer_html`) handles each
         // kind by component dispatch.
         _ => serialize_outer_html(entity, dom),
