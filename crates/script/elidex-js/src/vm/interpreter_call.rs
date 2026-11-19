@@ -386,9 +386,11 @@ impl VmInner {
 
         // Async / generator: the coroutine owns the frame (see
         // `VmInner::create_coroutine`).  `this`, `args` and the callee
-        // (hence its upvalues) are not on the VM stack on this entry path;
-        // rooting them across `call_internal` is the caller's contract
-        // (e.g. microtask jobs hold them in `current_microtask`).
+        // (hence its upvalues) are not on the VM stack on this entry path,
+        // and not every caller roots them (e.g. microtask jobs do, via
+        // `current_microtask`; the bound-call fallback and `GetProp`'s
+        // getter call do not) — open as
+        // `#11-vm-call-internal-callee-this-rooting`.
         // `actual_args` is a copy of the caller-rooted `args`.  A
         // coroutine frame is always `FrameKind::Function` (the
         // `debug_assert!` above), whatever `kind` was passed.
