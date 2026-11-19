@@ -162,9 +162,16 @@ impl DomApiHandler for CloneNode {
             });
         };
 
-        let kind = dom
-            .node_kind(cloned)
-            .map_or(ComponentKind::Element, ComponentKind::from_node_kind);
+        // A clone always copies its source's `NodeKind`, so a missing kind
+        // is unreachable; report it like the source check rather than
+        // guessing a kind.
+        let Some(cloned_kind) = dom.node_kind(cloned) else {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::NotFoundError,
+                message: "cloneNode: source is not a live node".into(),
+            });
+        };
+        let kind = ComponentKind::from_node_kind(cloned_kind);
         let obj_ref = session.get_or_create_wrapper(cloned, kind);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

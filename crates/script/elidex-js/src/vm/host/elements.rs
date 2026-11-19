@@ -22,8 +22,10 @@
 //!      (a ShadowRoot entity → `ShadowRoot.prototype →
 //!      DocumentFragment.prototype → Node.prototype`)
 //!    - Document → `Document.prototype → Node.prototype`
-//!    - Other Node (an entity without a recognised `NodeKind`) →
-//!      `Node.prototype` directly.
+//!    - Other Node (a `NodeKind` with no dedicated prototype, e.g.
+//!      Window / Worker / OffscreenCanvas) → `Node.prototype` directly.
+//!      An entity with no `NodeKind` at all is unreachable
+//!      (debug-asserted in `prototype_kind_for`).
 //!
 //!    All chains terminate at `Object.prototype` via `Node.prototype
 //!    → EventTarget.prototype`, so Node-level members (`parentNode`,

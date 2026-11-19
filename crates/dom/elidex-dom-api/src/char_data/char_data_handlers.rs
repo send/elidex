@@ -1,13 +1,13 @@
 //! `CharacterData` interface method handlers.
 
-use elidex_ecs::{CommentData, EcsDom, Entity, NodeKind, TextContent};
+use elidex_ecs::{CommentData, EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     apply_replace_data, ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
 use crate::char_data::split_text::{split_text_at_offset, SplitTextError};
-use crate::util::{not_found_error, require_string_arg};
+use crate::util::require_string_arg;
 
 // ===========================================================================
 // CharacterData helpers
@@ -327,22 +327,6 @@ impl DomApiHandler for SplitText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // Verify this is a text node (mirrors the NodeKind brand
-        // check; engine-indep `split_text_at_offset` does its own check
-        // via `node_kind`, but matching this error variant
-        // keeps the DomApiHandler error shape stable for boa).
-        let nk = dom
-            .world()
-            .get::<&NodeKind>(this)
-            .map_err(|_| not_found_error("entity not found"))?;
-        if !matches!(*nk, NodeKind::Text | NodeKind::CdataSection) {
-            return Err(DomApiError {
-                kind: DomApiErrorKind::InvalidStateError,
-                message: "splitText: not a Text node".into(),
-            });
-        }
-        drop(nk);
-
         let offset = require_usize_arg(args, 0)?;
         let (new_node, records) = split_text_at_offset(this, offset, dom).map_err(|e| match e {
             SplitTextError::NotTextNode => DomApiError {

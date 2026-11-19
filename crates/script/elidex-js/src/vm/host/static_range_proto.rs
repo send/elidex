@@ -1,24 +1,24 @@
-//! `StaticRange` interface (WHATWG DOM §5.4) — eager / immutable
+//! `StaticRange` interface (WHATWG DOM §5.5) — eager / immutable
 //! AbstractRange holder.
 //!
 //! ## Layering
 //!
 //! `StaticRange` is **not** registered in
-//! [`elidex_dom_api::LiveRangeRegistry`] (spec §5.4 deliberately
+//! [`elidex_dom_api::LiveRangeRegistry`] (spec §5.5 deliberately
 //! omits live-range tracking).  The four boundary fields are stored
 //! inline in [`super::super::value::ObjectKind::StaticRange`] as
 //! [`Entity`] bits + offsets; the wrapper has no other state.
 //!
 //! ## Constructor — eager validation
 //!
-//! `new StaticRange(init)` (spec §5.4 step 1) eagerly throws
+//! `new StaticRange(init)` (spec §5.5 step 1) eagerly throws
 //! `InvalidNodeTypeError` if either container is a `DocumentType` or
 //! `Attr`.  Offsets are coerced via WebIDL `unsigned long`
 //! (`coerce::to_uint32`) per the AbstractRange dictionary.
 //!
 //! ## `isValid()` — lazy validation
 //!
-//! `staticRange.isValid()` (spec §5.4 *is valid* criteria) returns true only if
+//! `staticRange.isValid()` (spec §5.5 *is valid* criteria) returns true only if
 //! all of:
 //! - both containers share a root,
 //! - `startOffset ≤ length(startContainer)`,
@@ -82,7 +82,7 @@ impl VmInner {
             self.install_accessor_pair(proto_id, name_sid, getter, None, attrs);
         }
 
-        // `isValid()` — spec §5.4 *is valid* criteria.  Method (data property)
+        // `isValid()` — spec §5.5 *is valid* criteria.  Method (data property)
         // rather than accessor per WebIDL signature.  No SID dedicated
         // — intern at install time.
         let is_valid_sid = self.strings.intern("isValid");
@@ -174,7 +174,7 @@ fn require_static_range_receiver(
 // Constructor — eager validation
 // ---------------------------------------------------------------------------
 
-/// `new StaticRange(init)` (WHATWG DOM §5.4).
+/// `new StaticRange(init)` (WHATWG DOM §5.5).
 ///
 /// Eager step 1: throw `InvalidNodeTypeError` if `init.startContainer`
 /// or `init.endContainer` is a `DocumentType` or `Attr`.  Spec
@@ -262,7 +262,7 @@ fn require_dict_member(
     }
 }
 
-/// Spec §5.4 step 1 — reject `DocumentType` / `Attr` container.
+/// Spec §5.5 step 1 — reject `DocumentType` / `Attr` container.
 fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> Result<(), VmError> {
     let dom = ctx.host().dom();
     let is_doctype = dom.is_document_type(container);

@@ -1,4 +1,4 @@
-//! Range boundary manipulation methods (WHATWG DOM §5.5).
+//! Range boundary manipulation methods (WHATWG DOM §5.6).
 
 use elidex_ecs::{EcsDom, Entity};
 
@@ -10,11 +10,11 @@ use super::{END_TO_END, END_TO_START, START_TO_END, START_TO_START};
 /// variant to the WebIDL DOMException with the matching name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RangePointError {
-    /// WHATWG DOM §5.5 step 1 — `node`'s root is not the range's root.
+    /// WHATWG DOM §5.6 step 1 — `node`'s root is not the range's root.
     WrongDocument,
-    /// WHATWG DOM §5.5 step 2 — `node` is a `DocumentType`.
+    /// WHATWG DOM §5.6 step 2 — `node` is a `DocumentType`.
     InvalidNodeType,
-    /// WHATWG DOM §5.5 step 3 — `offset` exceeds `node`'s length.
+    /// WHATWG DOM §5.6 step 3 — `offset` exceeds `node`'s length.
     IndexSize,
 }
 
@@ -35,7 +35,7 @@ impl Range {
         self.end_offset = offset;
     }
 
-    /// WHATWG §5.5 "set the start or end of a range to a boundary point"
+    /// WHATWG §5.6 "set the start or end of a range to a boundary point"
     /// (as "set the start") step 4 sub-steps 1-2: if the new start is
     /// after end OR in a different root, collapse end to (node, offset);
     /// then write start.  Assumes caller has run spec steps 1-2
@@ -52,7 +52,7 @@ impl Range {
         self.start_offset = offset;
     }
 
-    /// WHATWG §5.5 "set the start or end of a range to a boundary point"
+    /// WHATWG §5.6 "set the start or end of a range to a boundary point"
     /// (as "set the end") step 4 sub-steps 1-2: mirror of
     /// [`Self::set_start_to_boundary`].
     pub fn set_end_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
@@ -67,7 +67,7 @@ impl Range {
         self.end_offset = offset;
     }
 
-    /// Set start to just before `node`.  Per WHATWG §5.5
+    /// Set start to just before `node`.  Per WHATWG §5.6
     /// `setStartBefore`, runs the spec set-start algorithm including
     /// the collapse-on-cross-root branch.
     pub fn set_start_before(&mut self, node: Entity, dom: &EcsDom) {
@@ -132,7 +132,7 @@ impl Range {
         self.clone()
     }
 
-    /// WHATWG DOM §5.5 `isPointInRange(node, offset)` algorithm.
+    /// WHATWG DOM §5.6 `isPointInRange(node, offset)` algorithm.
     ///
     /// Returns:
     /// - `Ok(true)` if `(node, offset)` lies within `[start, end]` (inclusive).
@@ -175,7 +175,7 @@ impl Range {
         Ok(true)
     }
 
-    /// WHATWG DOM §5.5 `comparePoint(node, offset)` algorithm.
+    /// WHATWG DOM §5.6 `comparePoint(node, offset)` algorithm.
     ///
     /// Returns -1 / 0 / 1 when the point precedes / equals / follows
     /// this range's start (or follows its end).  Per spec:
@@ -213,7 +213,7 @@ impl Range {
         Ok(0)
     }
 
-    /// WHATWG DOM §5.5 `intersectsNode(node)` algorithm.
+    /// WHATWG DOM §5.6 `intersectsNode(node)` algorithm.
     ///
     /// Returns true when `node` overlaps any part of this range:
     /// - If `node`'s root differs from the range's root → false.

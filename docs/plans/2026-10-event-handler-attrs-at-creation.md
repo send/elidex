@@ -920,8 +920,8 @@ target call.)
 - *Home and visibility.* `event_handler_processing/mod.rs`, `pub(crate)`, where the predicate and the name-only
   lookup are: reader (c) is in the sibling module `event_handler_consumer.rs`, and nothing outside the crate reads an
   element's handler content attributes. **What it reads** (stated here only; the T3 memo §4.1 points here): the
-  element's `NodeKind` (step 1, `EcsDom::is_element`, which falls back to the presence of `TagType` while
-  `#11-nodekind-inference-shim` is open), `Namespace` (step 3's `match`) and `TagType` (the `(Html, Window)` arm's
+  element's `NodeKind` (step 1, `EcsDom::is_element`, which reads `NodeKind` only: the shim was removed by
+  `#11-nodekind-inference-shim`'s PR), `Namespace` (step 3's `match`) and `TagType` (the `(Html, Window)` arm's
   `is_body_or_frameset`), and the static table: a pure read of one entity's components, with no component, store or
   cache of its own. The T3-a memo §4.3's "two components" describes the landed predicate, which has no non-element
   test; its other checks (a query with no state, not cached, Layering) hold for the lookup. (Until the focused review

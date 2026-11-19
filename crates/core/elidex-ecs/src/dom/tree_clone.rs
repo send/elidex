@@ -398,8 +398,13 @@ impl EcsDom {
                 // skips the redundant `contains` lookup. A child without a
                 // `NodeKind` is not a DOM node and is not cloned; this is
                 // unreachable under the link-time invariant (`link_node`
-                // asserts every tree child carries a `NodeKind`).
+                // asserts every tree child carries a `NodeKind`), and
+                // debug-asserted here as loudly as there.
                 let Some(kind) = self.node_kind(child_src) else {
+                    debug_assert!(
+                        false,
+                        "link-time invariant violated: tree child {child_src:?} has no NodeKind"
+                    );
                     continue;
                 };
                 let child_dst =

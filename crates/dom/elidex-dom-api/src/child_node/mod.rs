@@ -63,7 +63,7 @@ fn validate_node_type(node: Entity, dom: &EcsDom) -> Result<NodeKind, DomApiErro
     }
 }
 
-/// Validate `DocumentType` and `Text` placement (step 5 shared).
+/// Validate `DocumentType` and `Text` placement (step 5.1 doctype, step 6 Text; shared).
 fn validate_doctype_and_text(
     parent_kind: NodeKind,
     node_kind: NodeKind,
@@ -73,7 +73,8 @@ fn validate_doctype_and_text(
             "DocumentType can only be a child of a Document",
         ));
     }
-    // CDATASection is a Text node (DOM: only the *exclusive* Text node excludes it).
+    // WHATWG DOM §4.2.3 ensure pre-insert validity step 6 (node is a Text node;
+    // CDATASection is a Text node — §4.11 #exclusive-text-node).
     if parent_kind == NodeKind::Document
         && matches!(node_kind, NodeKind::Text | NodeKind::CdataSection)
     {
@@ -113,7 +114,7 @@ fn has_element_preceding(parent: Entity, child: Option<Entity>, dom: &EcsDom) ->
     false
 }
 
-/// Enforce Document parent child constraints (step 6 of WHATWG DOM §4.2.3).
+/// Enforce Document parent child constraints (steps 7–11 of WHATWG DOM §4.2.3 ensure pre-insert validity).
 ///
 /// `child` is the reference child (for pre-insert) or the child being replaced.
 /// `exclude` is an additional entity to skip when counting existing children
@@ -254,7 +255,7 @@ pub(crate) fn ensure_pre_insertion_validity(
     let node_kind = validate_node_type(node, dom)?;
     validate_doctype_and_text(parent_kind, node_kind)?;
 
-    // Step 6: Document parent element constraints.
+    // Steps 7–11: Document parent element constraints.
     if parent_kind == NodeKind::Document {
         validate_document_element_constraint(parent, node, node_kind, child, &[], dom)?;
     }

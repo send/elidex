@@ -137,7 +137,10 @@ impl HostData {
     /// prototype.  Dispatches on `node_kind` (`Element` first, the
     /// ~99% case); the `ShadowRoot` component is probed only for a
     /// `DocumentFragment` to disambiguate shadow roots from plain
-    /// fragments.  An entity without `NodeKind` is `OtherNode`.  Must be called bound; there is no
+    /// fragments.  Every wrapped entity carries a `NodeKind` (a node created
+    /// through `spawn_node`, or Document / Window / Worker / OffscreenCanvas);
+    /// a missing kind is unreachable and debug-asserted (release builds
+    /// yield `OtherNode`).  Must be called bound; there is no
     /// unbound fallback (`create_element_wrapper` asserts first).
     ///
     /// Aliasing contract mirrors [`Self::is_element_entity`] — the
@@ -151,7 +154,12 @@ impl HostData {
         );
         // SAFETY: see `is_element_entity` — same contract.
         let dom = unsafe { &*self.dom_ptr };
-        match dom.node_kind(entity) {
+        let kind = dom.node_kind(entity);
+        debug_assert!(
+            kind.is_some(),
+            "every wrapped entity carries a NodeKind (spawn_node, or Document/Window/Worker/OffscreenCanvas): {entity:?}"
+        );
+        match kind {
             Some(NodeKind::Element) => PrototypeKind::Element,
             // ShadowRoot entities carry `NodeKind::DocumentFragment`
             // but must route through `ShadowRoot.prototype` (not
