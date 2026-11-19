@@ -15,6 +15,12 @@ Draft 3.4 (after the focused re-check of draft 3.3; PM 820; base `b46a030c`, who
 new slice `tq` before `ta` (C-13, C-14); of the three engine callers of C-9, `::before` generation keeps the stored
 first child until `ts` (umbrella §1.3), and the two `insertAdjacentHTML` callers pick tree children at `tc`.
 
+Draft 3.5 (base `2ac9fa44`; `git diff --name-only b46a030c..2ac9fa44 -- crates` lists 5 elidex-js files, none
+cited here, so every count and table below holds unchanged): `::before` generation's stored-order write moves into
+one elidex-ecs method, `EcsDom::insert_as_first_stored_child` (NEW: `tc`), a P-REL function (C-1 note under
+*Why P-REL is confined to one crate*, C-9); C-10's `insertAdjacentHTML` row counts the two engine callers `tc`
+changes.
+
 Draft 3 (after the R2 plan-review of draft 2; base moved from `c0578223` to `84fee8fa`): the VM-host lines and the
 handler pairs are derived by a script (C-10, C-12) and carry reachability; C-13 groups the raw child reads by
 function and marks the walks; C-2 separates a script-supplied node from a receiver (class "T2"); C-14 records the
@@ -58,6 +64,14 @@ relations by property, script in C-11); C-9 (writers) and C-10 (the VM native an
 (`crates/core/elidex-ecs/src/components.rs:151-155`), so the compiler already confines direct field access to
 elidex-ecs. The crate-wide form of the P-REL command (55 lines) only adds same-named fields of other types (a
 `MutationRecord`'s `next_sibling`, the VM's `well_known` atoms, compiler scopes); none of them is a `TreeRelation`.
+
+**P-REL gains one function in `tc`** (draft 3.5, umbrella §1.3): `EcsDom::insert_as_first_stored_child` (NEW:
+`tc`, `crates/core/elidex-ecs/src/dom/tree/mutation.rs`) reads the parent's stored first child (`read_rel`, which
+is `pub(super)`, `dom/tree/mod.rs:64`) and inserts before it or appends. It is the storage write that
+`::before` generation (`pseudo.rs:72-76`) calls in place of its raw first child, because outside elidex-ecs no
+raw child accessor exists after `tc` and `read_rel` is not reachable. It does not exist at `bfc63658`, so the
+count above is unchanged; `tc`'s plan re-measures P-REL at its head with it, and `ts` re-reads it and deletes it
+(after `ts` the first stored child is the first tree child, and `pseudo.rs` takes the ordinary insert).
 
 **Agreement with the independent verification** (`23aa745a`): P-UP 143 / 31, P-CH 108, P-MARK 63, P-HOST 41 and
 P-HOSTFN 2 are the same numbers at `c0578223`. P-REL, P-CHX, P-DER and P-WR were not measured there. The R1
@@ -421,7 +435,8 @@ three discard the result. The other callers pass an element found by a filtered 
 or a text child (a reading, not run). R2's fix decision assumed only scripts supply such a child; this list is why
 umbrella §1.6 leaves elidex-ecs unchanged in `ta` (Q-19 (b′), PM 800): the three callers keep base behaviour in
 `ta`; the two `insertAdjacentHTML` callers pick tree children at `tc`, and `::before` generation keeps the stored
-first child until `ts` (umbrella §1.3, draft 3.4).
+first child until `ts` (umbrella §1.3, draft 3.4), from `tc` through the one elidex-ecs write
+`EcsDom::insert_as_first_stored_child` (P-REL, draft 3.5), so it no longer passes a raw child.
 
 ## C-10. The VM natives and the dom-api handlers that answer the same question
 
@@ -451,7 +466,7 @@ Parent side and derived relations (`ta`):
 | `removeChild` | R (`node_proto.rs:712`, `native_node_remove_child` → `invoke_dom_api("removeChild")`) | `element/tree.rs:182` (the `impl`; `invoke` calls `apply_remove_child` at `:199`) | the native calls the handler | **new call in `ta`**: `ensure_pre_remove_validity` (NEW, `child_node/mod.rs`) before `:199`, pre-remove step 1 as the tree-parent question (umbrella §1.6). Not printed by the C-12 script, because at base the handler calls no P-UP, P-CH or P-DER member; added by hand (R3) |
 | `appendChild`, `append`, `prepend`, `before`, `after`, `remove`, `replaceChildren`, `insertAdjacentElement`, `insertAdjacentText` | R | `element/tree.rs:43`, `:352`, `:412`, `child_node/mutations.rs:77`, `:128`, `:166`, `:255`, `:291`, `:322` | the natives call the handlers | H; T1 for the receiver's parent |
 | `options.add`, `options.remove`, `options.length` | R | `element/select.rs:130`, `:222`, `:277` | the natives call the handlers | `add`'s two ancestor tests: pending, `Flip::Tf` ([H12]); the rest T1 |
-| `insertAdjacentHTML` | U | `element/markup.rs:70` | — | T1. Its apply function (`mutation/html_fragment.rs:193`) is one of `tc`'s three engine callers (umbrella §1.6); with no VM native, `tc`'s cells for it are session-level |
+| `insertAdjacentHTML` | U | `element/markup.rs:70` | — | T1. Its apply function (`mutation/html_fragment.rs:193`) is one of the two engine callers that `tc` changes (umbrella §1.6); with no VM native, `tc`'s cells for it are session-level |
 | `getBoundingClientRect`, `getClientRects`, `offsetParent`, `scrollIntoView` | U | `element/layout_query.rs:14`, `:203`, `:96`, `:259` | — | F: the flat-tree pending names (umbrella §1.5) |
 
 Child side (`tc`; not touched in `ta`, umbrella §2 CHILD × NAV):
