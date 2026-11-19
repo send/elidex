@@ -64,7 +64,9 @@ SELF_FILES = tuple(".claude/tools/" + n for n in (
 
 REMEDY = (
     "Tag the line per CLAUDE.md 至上命題 bullet 3 ([spec] / [evidence] / [compat] / [contrast] / [history]), "
-    "or rewrite it without the engine name. Adding an allowlist row is not a remedy: the allowlist only shrinks."
+    "or rewrite it without the engine name. Adding an allowlist row is not a remedy: the allowlist only shrinks. "
+    "Inside /// and //! doc comments write the tag as a code span (`[evidence]`): rustdoc reads a bare [evidence] "
+    "as an intra-doc link and -D warnings fails."
 )
 
 
@@ -171,19 +173,30 @@ def _rel(repo_root, p):
     return os.path.relpath(full, os.path.realpath(repo_root)).replace(os.sep, "/")
 
 
+def parse_tsv(text):
+    """-> list of (lineno, fields) for every non-comment non-blank line (1-based, '\n'-numbered)."""
+    return [(i, raw.split("\t")) for i, raw in enumerate(text.split("\n"), 1)
+            if not raw.startswith("#") and raw.strip()]
+
+
 def read_allowlist(path):
-    """-> list of (tsv_lineno, fields) for every non-comment non-blank line."""
-    rows = []
     try:
         with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
+            return parse_tsv(f.read())
     except FileNotFoundError:
-        return rows
-    for i, raw in enumerate(lines, 1):
-        if raw.startswith("#") or not raw.strip():
-            continue
-        rows.append((i, raw.split("\t")))
-    return rows
+        return []
+
+
+def write_allowlist(path, comment_lines, rows):
+    """The one allowlist writer: comment lines, then rows (field lists) stably sorted by (path, text)."""
+    body = ["\t".join(r) for r in sorted(rows, key=lambda r: (r[2], r[3]))]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(list(comment_lines) + body) + "\n")
+
+
+def _comments(path):
+    with open(path, encoding="utf-8") as f:
+        return [l for l in f.read().split("\n") if l.startswith("#")]
 
 
 def malformed(rows):
@@ -256,80 +269,44 @@ def prune(repo_root, allowlist_path):
     drop = {n for n, _ in stale}
     if not drop:
         return 0, (rows, new, stale)
-    with open(allowlist_path, encoding="utf-8") as f:
-        lines = f.read().split("\n")
-    kept = [l for i, l in enumerate(lines, 1) if i not in drop]
-    with open(allowlist_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(kept))
+    write_allowlist(allowlist_path, _comments(allowlist_path), [f for n, f in rows if n not in drop])
     return len(drop), (read_allowlist(allowlist_path), new, [])
-
-
-def parse_spec(text):
-    """-> list of (spec_lineno, fields) for every non-comment non-blank line."""
-    return [(i, raw.split("\t")) for i, raw in enumerate(text.split("\n"), 1)
-            if not raw.startswith("#") and raw.strip()]
 
 
 def add_new(repo_root, allowlist_path, spec_rows):
     """Append rows for lines that are new hits now. All-or-nothing. -> (errs, added rows).
-    Each spec row is class, slot, path, line_no (1-based, '\\n'-numbered)."""
-    errs = []
-    new_rows = []
-    excluded = SELF_FILES + (_rel(repo_root, allowlist_path),)
-    texts = dict(iter_texts(repo_root, excluded))
-    al = collections.Counter((f[2], f[3]) for _, f in read_allowlist(allowlist_path) if len(f) == 4)
+    Each spec row is class, slot, path, line_no (1-based, '\\n'-numbered). "New hit" is _diff's `new`."""
+    rows, new, _ = _diff(repo_root, allowlist_path)
+    avail = collections.Counter((p, t) for p, _, t in new)
+    text_at = {(p, ln): t for p, ln, t in new}
     used = collections.Counter()
-    seen = set()
+    errs = []
+    added = []
     for n, f in spec_rows:
         where = "spec line %d" % n
         if len(f) != 4:
             errs.append("%s: need 4 TAB-separated columns (class, slot, path, line_no), got %d" % (where, len(f)))
             continue
         cls, slot, path, ln = f
-        bad = len(errs)
         if cls not in ADD_CLASSES:
             errs.append("%s: class %r rejected: only T or D rows can be added; S/E/C/N are fixed by tag or rewrite, not rows" % (where, cls))
+            continue
         if not SLOT.match(slot):
             errs.append("%s: bad slot %r: T/D rows need a '#11-<kebab>' slot" % (where, slot))
-        if path not in texts:
-            errs.append("%s: %r is not a tracked scanned file (the allowlist and SELF_FILES are not scanned)" % (where, path))
-        elif not ln.isdigit():
-            errs.append("%s: line_no %r is not a number" % (where, ln))
-        else:
-            lines = texts[path].split("\n")
-            i = int(ln)
-            if not 1 <= i <= len(lines):
-                errs.append("%s: line_no %d out of range (1..%d) in %s" % (where, i, len(lines), path))
-            elif not denied(lines[i - 1]):
-                errs.append("%s: %s:%d is not denied by the classifier" % (where, path, i))
-            elif (path, i) in seen:
-                errs.append("%s: %s:%d is named twice" % (where, path, i))
-            else:
-                seen.add((path, i))
-                text = normalise(lines[i - 1])
-                key = (path, text)
-                occ = sum(1 for l in lines if denied(l) and normalise(l) == text)
-                if not occ > al[key] + used[key]:
-                    errs.append("%s: %s:%d is not a new hit (%d occurrence(s), %d allowlist row(s) already cover it)"
-                                % (where, path, i, occ, al[key] + used[key]))
-                elif len(errs) == bad:
-                    used[key] += 1
-                    new_rows.append((path, text, "%s\t%s\t%s\t%s" % (cls, slot, path, text)))
+            continue
+        if not ln.isdigit() or (path, int(ln)) not in text_at:
+            errs.append("%s: %s:%s is not a new hit (not denied, not scanned, out of range, or already covered)" % (where, path, ln))
+            continue
+        key = (path, text_at[(path, int(ln))])
+        if not avail[key] > used[key]:
+            errs.append("%s: %s:%s is named twice" % (where, path, ln))
+            continue
+        used[key] += 1
+        added.append([cls, slot, path, key[1]])
     if errs:
         return errs, []
-    with open(allowlist_path, encoding="utf-8") as fh:
-        lines = fh.read().split("\n")
-    for path, text, row in new_rows:  # insert in (path, text) order so the sorted-rows rule keeps holding
-        at = len(lines) - 1 if lines[-1] == "" else len(lines)
-        for j, l in enumerate(lines):
-            f = l.split("\t")
-            if not l.startswith("#") and len(f) == 4 and (f[2], f[3]) > (path, text):
-                at = j
-                break
-        lines.insert(at, row)
-    with open(allowlist_path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
-    return [], [r for _, _, r in new_rows]
+    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if len(f) == 4] + added)
+    return [], ["\t".join(r) for r in sorted(added, key=lambda r: (r[2], r[3]))]
 
 
 def repo_root_of(path):
@@ -337,14 +314,14 @@ def repo_root_of(path):
 
 
 def main(argv):
-    if not (argv in ([], ["--prune"]) or (len(argv) == 2 and argv[0] == "--add-new")):
+    mode = argv[0] if argv else None
+    if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode == "--add-new")):
         print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv>]", file=sys.stderr)
         return 2
-    do_prune = argv == ["--prune"]
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
-    if argv[:1] == ["--add-new"]:
+    if mode == "--add-new":
         with open(argv[1], encoding="utf-8") as f:
-            errs, added = add_new(root, DEFAULT_ALLOWLIST, parse_spec(f.read()))
+            errs, added = add_new(root, DEFAULT_ALLOWLIST, parse_tsv(f.read()))
         if errs:
             print("\n".join(errs))
             print("ecs-mission-ratchet: --add-new rejected; nothing written")
@@ -352,7 +329,7 @@ def main(argv):
         for r in added:
             print("added: " + r)
         diff = _diff(root, DEFAULT_ALLOWLIST)
-    elif do_prune:
+    elif mode == "--prune":
         n, diff = prune(root, DEFAULT_ALLOWLIST)
         print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
     else:

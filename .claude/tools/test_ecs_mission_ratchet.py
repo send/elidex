@@ -70,15 +70,24 @@ class WholeTree(unittest.TestCase):
         self.assertEqual(mod.check(REPO, ALLOWLIST), [])
 
 
-class Controls(unittest.TestCase):
-    def setUp(self):
-        td = tempfile.TemporaryDirectory()
-        self.addCleanup(td.cleanup)
-        self.root = os.path.join(td.name, "repo")
+SRC = os.path.join(HERE, "ecs_mission_ratchet.py")
+LINE = "matches Chrome here"
+
+
+class AddNewHarness:
+    """The one temp-repo fixture: builds a repo and runs the checker from module `m` (the real one, or a mutant copy)."""
+
+    def __init__(self, m, files=None, rows=()):
+        self.m = m
+        self.td = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.td.name, "repo")
         os.makedirs(self.root)
-        self.al = os.path.join(td.name, "allow.tsv")
-        self.env = mod.git_env()
+        self.env = m.git_env()
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
+        for name, data in (files or {}).items():
+            self.put(name, data)
+        self.al = os.path.join(self.td.name, "allow.tsv")
+        self.allow(*rows)
 
     def put(self, name, data):
         p = os.path.join(self.root, name)
@@ -90,6 +99,30 @@ class Controls(unittest.TestCase):
     def allow(self, *rows, header="# header\n"):
         with open(self.al, "w", encoding="utf-8") as f:
             f.write(header + "".join(r + "\n" for r in rows))
+
+    def slurp(self):
+        with open(self.al, "rb") as f:
+            return f.read()
+
+    def add(self, *spec):
+        return self.m.add_new(self.root, self.al, self.m.parse_tsv("\n".join(spec) + "\n"))
+
+    def close(self):
+        self.td.cleanup()
+
+
+class Controls(unittest.TestCase):
+    def setUp(self):
+        self.h = AddNewHarness(mod)
+        self.addCleanup(self.h.close)
+        self.root, self.al, self.env = self.h.root, self.h.al, self.h.env
+
+    def put(self, name, data):
+        self.h.put(name, data)
+
+    def allow(self, *rows, header="# header\n"):
+        self.h.al = self.al
+        self.h.allow(*rows, header=header)
 
     def slurp(self):
         with open(self.al, encoding="utf-8") as f:
@@ -255,41 +288,6 @@ class Controls(unittest.TestCase):
         self.assertEqual(self.check(), [])
 
 
-SRC = os.path.join(HERE, "ecs_mission_ratchet.py")
-LINE = "matches Chrome here"
-
-
-class AddNewHarness:
-    """Builds a temp repo and runs add_new from module `m` (the real one, or a mutant copy)."""
-
-    def __init__(self, m, files, rows=()):
-        self.m = m
-        self.td = tempfile.TemporaryDirectory()
-        self.root = os.path.join(self.td.name, "repo")
-        os.makedirs(self.root)
-        self.env = m.git_env()
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=self.env)
-        for name, data in files.items():
-            p = os.path.join(self.root, name)
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                f.write(data)
-            subprocess.run(["git", "add", name], cwd=self.root, check=True, env=self.env)
-        self.al = os.path.join(self.td.name, "allow.tsv")
-        with open(self.al, "w", encoding="utf-8") as f:
-            f.write("# header\n" + "".join(r + "\n" for r in rows))
-
-    def slurp(self):
-        with open(self.al, "rb") as f:
-            return f.read()
-
-    def add(self, *spec):
-        return self.m.add_new(self.root, self.al, self.m.parse_spec("\n".join(spec) + "\n"))
-
-    def close(self):
-        self.td.cleanup()
-
-
 def sc_control(m):
     h = AddNewHarness(m, {"a.md": "ok\n" + LINE + "\n"})
     try:
@@ -341,21 +339,9 @@ def sc_atomic(m):
                      ["T\t#11-x\ta.md\t1", "T\t#11-y\tb.md\t1"])
 
 
-def sc_count(m):
-    two = LINE + "\n" + LINE + "\n"
-    h = AddNewHarness(m, {"a.md": two}, ["N\t-\ta.md\t" + LINE])
-    try:
-        errs, added = h.add("T\t#11-x\ta.md\t1")
-        if errs or len(added) != 1:
-            return False
-        before = h.slurp()
-        errs, added = h.add("T\t#11-x\ta.md\t2")
-        if not errs or added or h.slurp() != before:
-            return False
-    finally:
-        h.close()
-    # within one batch the rows consume occurrences in turn
-    return _rejected(m, {"a.md": two}, ["T\t#11-x\ta.md\t1", "T\t#11-x\ta.md\t2"], ["N\t-\ta.md\t" + LINE])
+def sc_count(m):  # a batch consumes the new-hit occurrences in turn
+    return _rejected(m, {"a.md": LINE + "\n" + LINE + "\n"}, ["T\t#11-x\ta.md\t2", "T\t#11-x\ta.md\t2"],
+                     ["N\t-\ta.md\t" + LINE])
 
 
 SCENARIOS = {
@@ -363,23 +349,20 @@ SCENARIOS = {
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
 }
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
+NEWHIT = "(path, int(ln)) not in text_at"
 MUTANTS = [
-    ("a: any class", (('ADD_CLASSES = "TD"', 'ADD_CLASSES = "TDSECN"'),), ["class_s"]),
-    ("b: any slot", (("if not SLOT.match(slot):", "if False:"),), ["slot_dash"]),
-    ("c: SELF_FILES scanned", (("excluded = SELF_FILES + (", "excluded = ("),), ["self_file"]),
-    ("c: no range check", (("if not 1 <= i <= len(lines):", "if i < 1:"),), ["range"]),
-    # the explicit denied() test is subsumed by the occurrence count (occ counts denied lines only), so
-    # the mutant removes both; removing either alone leaves the other check rejecting the row.
-    ("d: denied not required", (("elif not denied(lines[i - 1]):", "elif False:"),
-                                ("if denied(l) and normalise(l) == text", "if normalise(l) == text")), ["not_denied"]),
-    ("d: coverage ignored", (("if not occ > al[key] + used[key]:", "if not occ > 0:"),), ["covered", "count"]),
-    ("d: batch consumption ignored", (("if not occ > al[key] + used[key]:", "if not occ > al[key]:"),), ["count"]),
+    ("class: any class", (('ADD_CLASSES = "TD"', 'ADD_CLASSES = "TDSECN"'),), ["class_s"]),
+    ("slot: any slot", (("if not SLOT.match(slot):", "if False:"),), ["slot_dash"]),
+    # the new-hit position check is the only gate for denied / in-range; the lookup that follows needs a
+    # default, else the mutant dies by KeyError instead of by the scenario
+    ("new-hit position not required", ((NEWHIT, "False"), ("text_at[(path, int(ln))]", "text_at.get((path, int(ln)), LINE_)")),
+     ["not_denied", "range"]),
+    ("availability: batch consumption ignored", (("if not avail[key] > used[key]:", "if False:"),), ["count"]),
     ("atomic: writes despite errors", (("    if errs:\n        return errs, []", "    if False:\n        return errs, []"),), ["atomic"]),
 ]
 
 
-def mutant_module(old, new):
-    pairs = old if isinstance(old, tuple) else ((old, new),)
+def mutant_module(pairs):
     with open(SRC, encoding="utf-8") as f:
         src = f.read()
     for o, n in pairs:
@@ -387,6 +370,7 @@ def mutant_module(old, new):
         src = src.replace(o, n)
     m = types.ModuleType("ecs_ratchet_mutant")
     m.__file__ = SRC
+    m.LINE_ = LINE
     exec(compile(src, SRC, "exec"), m.__dict__)
     return m
 
@@ -406,7 +390,7 @@ class AddNew(unittest.TestCase):
 
     def test_mutants_are_caught(self):
         for name, old, must_fail in MUTANTS:
-            m = mutant_module(old, None)
+            m = mutant_module(old)
             for sc in must_fail:
                 with self.subTest(mutant=name, scenario=sc):
                     self.assertFalse(passes(SCENARIOS[sc], m))
