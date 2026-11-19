@@ -112,6 +112,7 @@ E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event
 E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**:
 E	-	crates/script/elidex-js/src/vm/host/event_shapes.rs	/// event" algorithms are silent on `view`, but Chrome and Firefox
 S	-	crates/script/elidex-js/src/vm/host/event_source_dispatch.rs	//! (matches Chrome / Firefox semantics).
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	/// Treating it as a no-op matches browser behaviour for unattached
 E	-	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	// newState then oldState (matches Chrome DevTools enumeration).
 E	-	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	/// order is `(newState, oldState)` per Chrome DevTools enumeration

@@ -444,7 +444,7 @@ pub(super) fn parse_listener_options(
 /// narrower than addEventListener's: it only consults the `capture`
 /// property.  Reading `once` / `passive` (which `parse_listener_options`
 /// does for addEventListener) would be observable through user
-/// getters or Proxy traps, which DOM's flatten (it reads only `capture`) does not do.  This
+/// getters or Proxy traps, which WebIDL conversion to `EventListenerOptions` (it declares only `capture`) does not do.  This
 /// helper preserves that observability invariant by touching only
 /// the capture slot.
 #[cfg(feature = "engine")]
@@ -568,7 +568,7 @@ pub(super) fn native_event_target_remove_event_listener(
     // WebIDL `EventListener? callback`: null/undefined are explicitly
     // allowed and become a silent no-op (§2.7.7 step 2); any other
     // non-callable value is a conversion failure that throws
-    // `TypeError`, matching `addEventListener` (WebIDL callback interface conversion)
+    // `TypeError`, matching `addEventListener` and browser behaviour
     // (silently dropping `el.removeEventListener('click', 42)` would
     // mask user bugs).
     let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
