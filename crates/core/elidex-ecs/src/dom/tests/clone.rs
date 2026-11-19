@@ -212,3 +212,21 @@ fn clone_subtree_pairs_cover_every_node_root_first() {
         assert_ne!(s, d, "pair must map source to a fresh entity");
     }
 }
+
+#[test]
+fn clone_node_shallow_and_subtree_return_none_for_kindless_source() {
+    // A source without a `NodeKind` is not a DOM node: no clone is made and
+    // `pairs` is left untouched (no kind is inferred from `TagType`).
+    let mut dom = EcsDom::new();
+    let src = dom
+        .world_mut()
+        .spawn((TagType("div".to_string()), TreeRelation::default()));
+    assert_eq!(dom.node_kind(src), None);
+    let sentinel = elem(&mut dom, "p");
+    let mut pairs = vec![(sentinel, sentinel)];
+    let owner = dom.node_document_for_new_nodes(src);
+    assert_eq!(dom.clone_subtree(src, &mut pairs, owner), None);
+    assert_eq!(pairs, vec![(sentinel, sentinel)]);
+    let owner = dom.node_document_for_new_nodes(src);
+    assert_eq!(dom.clone_node_shallow(src, owner), None);
+}

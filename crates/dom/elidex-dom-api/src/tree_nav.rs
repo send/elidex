@@ -12,18 +12,18 @@ use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, SessionCo
 // ---------------------------------------------------------------------------
 
 /// Convert an optional entity to a `JsValue::ObjectRef` (wrapped via the
-/// identity map) or `JsValue::Null`.
+/// identity map) or `JsValue::Null`. An entity without a `NodeKind` is not a
+/// node (no `ComponentKind` describes it), so it maps to `Null` rather than
+/// being defaulted to an Element.
 fn entity_or_null(entity: Option<Entity>, session: &mut SessionCore, dom: &EcsDom) -> JsValue {
-    match entity {
-        Some(e) => {
-            let kind = dom
-                .node_kind(e)
-                .map_or(ComponentKind::Element, ComponentKind::from_node_kind);
-            let obj_ref = session.get_or_create_wrapper(e, kind);
-            JsValue::ObjectRef(obj_ref.to_raw())
-        }
-        None => JsValue::Null,
-    }
+    let Some(e) = entity else {
+        return JsValue::Null;
+    };
+    let Some(nk) = dom.node_kind(e) else {
+        return JsValue::Null;
+    };
+    let obj_ref = session.get_or_create_wrapper(e, ComponentKind::from_node_kind(nk));
+    JsValue::ObjectRef(obj_ref.to_raw())
 }
 
 /// Walk a chain of nodes using `step_fn`, returning the first element found.

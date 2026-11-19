@@ -210,10 +210,9 @@ fn coerce_element_or_text(ctx: &NativeContext<'_>, value: JsValue) -> Result<Ent
                 .to_string(),
         )
     })?;
-    // Use is_element_entity for the kind probe — `entity_from_this`
-    // only confirmed HostObject wrapping; we still need a Node-kind
-    // check.  Reuse the inferred-kind helper so payload-only entities
-    // are classified correctly (matches `require_receiver` policy).
+    // `entity_from_this` only confirmed HostObject wrapping; we still
+    // need a Node-kind check, read from the entity's `NodeKind` (an
+    // entity without one is not a Node).
     let host = ctx.vm.host_data.as_deref().expect(
         "coerce_element_or_text invoked after entity_from_this returned Some, \
          which requires host_data to be bound",

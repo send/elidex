@@ -9,10 +9,10 @@
 use super::HostData;
 use elidex_ecs::{Entity, NodeKind};
 
-/// Four-way partition of DOM wrapper prototype chains used by
+/// Partition of DOM wrapper prototype chains used by
 /// `VmInner::create_element_wrapper`.  The
-/// [`PrototypeKind`] is derived from the entity's ECS components
-/// so the caller does not need to run independent
+/// [`PrototypeKind`] is derived from the entity's `NodeKind` (plus the
+/// `ShadowRoot` component for fragments) so the caller does not need to run independent
 /// `is_element_entity` / `is_character_data_entity` checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrototypeKind {

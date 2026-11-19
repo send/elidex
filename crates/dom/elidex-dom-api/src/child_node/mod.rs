@@ -73,7 +73,10 @@ fn validate_doctype_and_text(
             "DocumentType can only be a child of a Document",
         ));
     }
-    if parent_kind == NodeKind::Document && node_kind == NodeKind::Text {
+    // CDATASection is a Text node (DOM: only the *exclusive* Text node excludes it).
+    if parent_kind == NodeKind::Document
+        && matches!(node_kind, NodeKind::Text | NodeKind::CdataSection)
+    {
         return Err(hierarchy_error("cannot insert Text node under Document"));
     }
     Ok(())
@@ -86,7 +89,7 @@ fn has_doctype_following(_parent: Entity, child: Option<Entity>, dom: &EcsDom) -
     };
     let mut cursor = dom.get_next_sibling(ref_child);
     while let Some(sib) = cursor {
-        if matches!(dom.node_kind(sib), Some(NodeKind::DocumentType)) {
+        if dom.is_document_type(sib) {
             return true;
         }
         cursor = dom.get_next_sibling(sib);
@@ -143,9 +146,7 @@ fn validate_document_element_constraint(
             }
             // child is a doctype, or a doctype follows child?
             if let Some(ref_child) = child {
-                if matches!(dom.node_kind(ref_child), Some(NodeKind::DocumentType))
-                    && !exclude.contains(&ref_child)
-                {
+                if dom.is_document_type(ref_child) && !exclude.contains(&ref_child) {
                     return Err(hierarchy_error(
                         "cannot insert Element before a DocumentType",
                     ));
@@ -159,9 +160,12 @@ fn validate_document_element_constraint(
         }
         NodeKind::DocumentFragment => {
             // Fragment must not contain Text children under Document parent.
-            let has_text = dom
-                .children_iter(node)
-                .any(|c| matches!(dom.node_kind(c), Some(NodeKind::Text)));
+            let has_text = dom.children_iter(node).any(|c| {
+                matches!(
+                    dom.node_kind(c),
+                    Some(NodeKind::Text | NodeKind::CdataSection)
+                )
+            });
             if has_text {
                 return Err(hierarchy_error(
                     "DocumentFragment has Text child nodes; cannot insert under Document",
@@ -188,9 +192,7 @@ fn validate_document_element_constraint(
                     return Err(hierarchy_error("Document already has an element child"));
                 }
                 if let Some(ref_child) = child {
-                    if matches!(dom.node_kind(ref_child), Some(NodeKind::DocumentType))
-                        && !exclude.contains(&ref_child)
-                    {
+                    if dom.is_document_type(ref_child) && !exclude.contains(&ref_child) {
                         return Err(hierarchy_error(
                             "cannot insert Element before a DocumentType",
                         ));
@@ -208,9 +210,9 @@ fn validate_document_element_constraint(
             // "...that is not child" (replace, via `exclude`). No self-exclusion of the
             // inserted node (mirrors the Element branch) — re-appending an existing
             // doctype throws, same as the documentElement case above.
-            let has_doctype = dom.children_iter(parent).any(|c| {
-                !exclude.contains(&c) && matches!(dom.node_kind(c), Some(NodeKind::DocumentType))
-            });
+            let has_doctype = dom
+                .children_iter(parent)
+                .any(|c| !exclude.contains(&c) && dom.is_document_type(c));
             if has_doctype {
                 return Err(hierarchy_error("Document already has a DocumentType child"));
             }

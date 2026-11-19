@@ -312,3 +312,47 @@ fn replace_validity_document_element_swap_ok() {
     let result = ensure_replace_validity(doc, new_html, old_html, &dom);
     assert!(result.is_ok());
 }
+
+// ---- NodeKind-only contract ----
+
+#[test]
+fn ensure_validity_parent_with_tag_but_no_node_kind_rejected() {
+    // `validate_parent_kind` reads `NodeKind` only: an entity with a
+    // `TagType` but no `NodeKind` is not an Element.
+    let mut dom = EcsDom::new();
+    let parent = dom
+        .world_mut()
+        .spawn((elidex_ecs::TagType("div".to_string()),));
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let err = ensure_pre_insertion_validity(parent, child, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+fn spawn_cdata(dom: &mut EcsDom) -> elidex_ecs::Entity {
+    dom.world_mut().spawn((
+        elidex_ecs::NodeKind::CdataSection,
+        elidex_ecs::TextContent("x".to_string()),
+    ))
+}
+
+#[test]
+fn ensure_validity_document_rejects_cdata_as_text_node() {
+    // DOM: a CDATASection is a Text node (only the *exclusive* Text node
+    // excludes it), so it cannot be inserted under a Document.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let cdata = spawn_cdata(&mut dom);
+    let err = ensure_pre_insertion_validity(doc, cdata, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn ensure_validity_document_rejects_fragment_with_cdata_child() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let frag = dom.create_document_fragment_ownerless_fixture();
+    let cdata = spawn_cdata(&mut dom);
+    assert!(dom.append_child(frag, cdata));
+    let err = ensure_pre_insertion_validity(doc, frag, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}

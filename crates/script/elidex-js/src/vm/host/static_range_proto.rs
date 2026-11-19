@@ -29,7 +29,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_dom_api::range::Range;
-use elidex_ecs::{Attributes, Entity};
+use elidex_ecs::Entity;
 
 use super::super::shape;
 use super::super::value::{
@@ -266,16 +266,11 @@ fn require_dict_member(
 fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> Result<(), VmError> {
     let dom = ctx.host().dom();
     let is_doctype = dom.is_document_type(container);
-    // `Attr` nodes are stored via the `Attributes` component on their
-    // owner element + tracked as a separate Entity for the Attr
-    // wrapper.  Detect by presence of a parent-less node whose role
-    // is Attr — currently elidex represents Attr only as wrappers
-    // around `(owner, name)` pairs, not as standalone Entities.
-    // Therefore the Attr branch is a forward-stub: no Entity in
-    // current elidex storage can fail this check, but the doc-comment
-    // documents the spec intent so a future Attr-entity migration
-    // does not regress §5.4 step 1.
-    let _ = Attributes::default;
+    // An `Attr` container is not rejected here: `create_attribute` spawns
+    // `NodeKind::Attribute` entities, but `require_node_arg` rejects an Attr
+    // argument earlier with a TypeError, whereas DOM StaticRange step 1
+    // expects InvalidNodeTypeError. Tracked at
+    // `#11-dom-api-attr-entity-model-unification` (D16 facet).
     if is_doctype {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,

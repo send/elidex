@@ -202,3 +202,21 @@ fn attributes_overwrite_preserves_order() {
     assert_eq!(keys, vec!["a", "b", "c"]);
     assert_eq!(attrs.get("b"), Some("updated"));
 }
+
+#[test]
+fn is_document_type_reads_node_kind_only() {
+    let mut dom = EcsDom::new();
+    let dt = dom.create_document_type("html", "", "", NewNodeOwner::NONE);
+    assert!(dom.is_document_type(dt));
+    let el = elem(&mut dom, "div");
+    assert!(!dom.is_document_type(el));
+    let t = dom.create_text_ownerless_fixture("x");
+    assert!(!dom.is_document_type(t));
+    // Kind-less entity carrying doctype payload is not a DocumentType.
+    let kindless = dom.world_mut().spawn((DocTypeData {
+        name: "html".to_string(),
+        public_id: String::new(),
+        system_id: String::new(),
+    },));
+    assert!(!dom.is_document_type(kindless));
+}

@@ -9,16 +9,21 @@
 //!    by `Entity::to_bits().get()`.  A cache hit returns the existing
 //!    ObjectId without allocating.
 //! 2. **Prototype chain dispatched by node kind** —
-//!    `HostData::prototype_kind_for` routes each entity to one of
-//!    four prototype chains:
+//!    `HostData::prototype_kind_for` routes each entity (by its
+//!    `NodeKind`) to one of these prototype chains:
 //!    - Element (`NodeKind::Element`) →
 //!      `Element.prototype → Node.prototype → EventTarget.prototype`
 //!    - Text (`NodeKind::Text`) →
 //!      `Text.prototype → CharacterData.prototype → Node.prototype`
 //!    - Other CharacterData (Comment / CDATA / PI) →
 //!      `CharacterData.prototype → Node.prototype`
-//!    - Other Node (Document / DocumentFragment / DocumentType /
-//!      unclassified) → `Node.prototype` directly.
+//!    - DocumentType → `DocumentType.prototype → Node.prototype`
+//!    - DocumentFragment → `DocumentFragment.prototype → Node.prototype`
+//!      (a ShadowRoot entity → `ShadowRoot.prototype →
+//!      DocumentFragment.prototype → Node.prototype`)
+//!    - Document → `Document.prototype → Node.prototype`
+//!    - Other Node (an entity without a recognised `NodeKind`) →
+//!      `Node.prototype` directly.
 //!
 //!    All chains terminate at `Object.prototype` via `Node.prototype
 //!    → EventTarget.prototype`, so Node-level members (`parentNode`,

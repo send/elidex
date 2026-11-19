@@ -301,7 +301,7 @@ pub(super) fn is_shadow_root_entity(
 
 /// WebIDL branded receiver extraction.  Returns:
 /// - `Ok(Some(entity))` when `this` is a bound HostObject wrapping
-///   an entity whose inferred `NodeKind` matches `kind_matches`.
+///   an entity whose `NodeKind` matches `kind_matches`.
 /// - `Ok(None)` when `this` is not a HostObject or the VM is
 ///   unbound — silent no-op, matches elidex's unbound-receiver
 ///   policy (post-unbind retained references must not panic).

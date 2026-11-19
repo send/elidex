@@ -1,6 +1,6 @@
 //! `DocumentType` handlers.
 
-use elidex_ecs::{DocTypeData, EcsDom, Entity, NodeKind};
+use elidex_ecs::{DocTypeData, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiError, DomApiHandler, SessionCore};
 
@@ -12,14 +12,10 @@ use crate::util::not_found_error;
 
 /// Walk document children to find the first DocumentType entity.
 ///
-/// Matches on the entity's [`EcsDom::node_kind`].
+/// Matches via [`EcsDom::is_document_type`].
 fn find_doctype(dom: &EcsDom, doc: Entity) -> Option<Entity> {
-    for child in dom.children_iter(doc) {
-        if matches!(dom.node_kind(child), Some(NodeKind::DocumentType)) {
-            return Some(child);
-        }
-    }
-    None
+    dom.children_iter(doc)
+        .find(|&child| dom.is_document_type(child))
 }
 
 /// `document.doctype` getter.

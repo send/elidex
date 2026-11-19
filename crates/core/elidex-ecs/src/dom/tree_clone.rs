@@ -157,11 +157,12 @@ impl EcsDom {
     ///   `elidex-script-session`) is **not** copied — no clone-a-node
     ///   step copies the listener list.
     ///
-    /// Returns `None` when `src` does not exist, so a missing source
-    /// can never alias the original via the returned handle, and when
-    /// `src` carries no [`NodeKind`] (not a DOM node).  `pairs` is
-    /// untouched in both cases. A descendant without a `NodeKind` is
-    /// not a DOM node and is skipped.
+    /// Returns `None` when `src` does not exist or is not a node (no
+    /// [`NodeKind`]), so a missing source can never alias the original via
+    /// the returned handle.  `pairs` is untouched in both cases. A
+    /// descendant without a `NodeKind` is not a DOM node and is skipped
+    /// (unreachable under the link-time invariant that every tree child
+    /// carries a `NodeKind`).
     ///
     /// # WHATWG DOM §4.4 "clone a node" — the clone's node document
     ///
@@ -178,7 +179,7 @@ impl EcsDom {
     /// - **otherwise** — the copy and every descendant are stamped with
     ///   `document`; an ownerless `document` (a source without a node
     ///   document) gives an ownerless clone, as for every creator.
-    #[must_use = "returns None when src does not exist"]
+    #[must_use = "returns None when src does not exist or is not a node (no NodeKind)"]
     pub fn clone_subtree(
         &mut self,
         src: Entity,
@@ -213,9 +214,9 @@ impl EcsDom {
     /// data for CharacterData, doctype fields for DocumentType) with
     /// no descendants and no parent/sibling links.
     ///
-    /// Returns `None` when `src` does not exist (so a missing source
-    /// can never alias the original via the returned handle) or has no
-    /// [`NodeKind`] (not a DOM node).  Tree
+    /// Returns `None` when `src` does not exist or is not a node (no
+    /// [`NodeKind`]), so a missing source can never alias the original via
+    /// the returned handle.  Tree
     /// relations on the clone are left at defaults — the caller
     /// threads the clone into place.  Does **not** copy `ShadowRoot`
     /// or `EventListeners` (see the module-level clone-policy table).
@@ -227,7 +228,7 @@ impl EcsDom {
     /// `document` is *clone a single node*'s "given document" (WHATWG DOM
     /// §4.4, `#clone-a-single-node`): the copy's node document. A Document
     /// source ignores it — the copy is its own node document.
-    #[must_use = "returns None when src does not exist"]
+    #[must_use = "returns None when src does not exist or is not a node (no NodeKind)"]
     pub fn clone_node_shallow(&mut self, src: Entity, document: NewNodeOwner) -> Option<Entity> {
         if !self.contains(src) {
             return None;
@@ -395,7 +396,9 @@ impl EcsDom {
                 // `kids` was snapshotted from the live tree, so each
                 // entry is guaranteed to exist; the unchecked variant
                 // skips the redundant `contains` lookup. A child without a
-                // `NodeKind` is not a DOM node and is not cloned.
+                // `NodeKind` is not a DOM node and is not cloned; this is
+                // unreachable under the link-time invariant (`link_node`
+                // asserts every tree child carries a `NodeKind`).
                 let Some(kind) = self.node_kind(child_src) else {
                     continue;
                 };
