@@ -8,7 +8,7 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
-(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies, only of class T or D, each with a slot; the PR body lists the added rows and the command. Every other row change is a deletion.
+(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies; existing rows may move to a heavier class (T/D) only through `--relabel`, which keeps the row count. Both take a class T or D and a slot; the PR body lists the rows and the command. Every other row change is a deletion.
 The lexical classifier is a floor, not the population (a paraphrase, or a phrase split across lines, is not caught); the population is covered by the recurring ledger slot `#11-ecs-mission-concept-sweep`.
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
@@ -28,7 +28,7 @@ axes.md Axis 2 sub-check 2d (authority source) grades them.
 Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
 checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
-Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>]]
+Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>] | --relabel <spec.tsv>]
 --base defaults to origin/main.
 """
 import collections
@@ -325,6 +325,44 @@ def add_new(repo_root, allowlist_path, spec_rows, base="origin/main"):
     return [], ["\t".join(r) for r in sorted(added, key=lambda r: (r[2], r[3]))]
 
 
+def relabel(repo_root, allowlist_path, spec_rows):
+    """Move existing rows to class T or D with a slot; never changes the row count. All-or-nothing.
+    Spec rows: class, slot, path, line_no. -> (errs, ["old -> new", ...])."""
+    rows, _, _ = _diff(repo_root, allowlist_path)
+    rows = [(n, list(f)) for n, f in rows if len(f) == 4]
+    done, errs, moved = set(), [], []
+    for n, f in spec_rows:
+        where = "spec line %d" % n
+        if len(f) != 4 or f[0] not in ADD_CLASSES or not SLOT.match(f[1]) or not f[3].isdigit():
+            errs.append("%s: need class T or D, a '#11-<kebab>' slot, path, line_no" % where)
+            continue
+        cls, slot, path, ln = f
+        text = _line_of(repo_root, path, int(ln))
+        if text is None or not denied(text):
+            errs.append("%s: %s:%s is not a denied line now" % (where, path, ln))
+            continue
+        hit = next((i for i, (_, r) in enumerate(rows) if i not in done and r[2] == path and r[3] == normalise(text) and r[0] != cls), None)
+        if hit is None:
+            errs.append("%s: no allowlist row for %s:%s that is not already class %s" % (where, path, ln, cls))
+            continue
+        done.add(hit)
+        old = "\t".join(rows[hit][1])
+        rows[hit][1][:2] = [cls, slot]
+        moved.append("%s -> %s" % (old, "\t".join(rows[hit][1])))
+    if errs:
+        return errs, []
+    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])
+    return [], moved
+
+
+def _line_of(repo_root, path, ln):
+    try:
+        with open(os.path.join(repo_root, path), encoding="utf-8", errors="replace") as f:
+            return f.read().split("\n")[ln - 1]
+    except (OSError, IndexError):
+        return None
+
+
 def repo_root_of(path):
     return _git(["rev-parse", "--show-toplevel"], path).decode("utf-8", "surrogateescape").strip()
 
@@ -334,20 +372,20 @@ def main(argv):
     base = "origin/main"
     if len(argv) == 4 and mode == "--add-new" and argv[2] == "--base":
         base, argv = argv[3], argv[:2]
-    if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode == "--add-new")):
-        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>]]", file=sys.stderr)
+    if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode in ("--add-new", "--relabel"))):
+        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> [--base <rev>] | --relabel <spec.tsv>]", file=sys.stderr)
         return 2
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
-    if mode == "--add-new":
+    if mode in ("--add-new", "--relabel"):
         with open(argv[1], encoding="utf-8") as f:
             spec = parse_tsv(f.read())
-        errs, added = add_new(root, DEFAULT_ALLOWLIST, spec, base)
+        errs, done = add_new(root, DEFAULT_ALLOWLIST, spec, base) if mode == "--add-new" else relabel(root, DEFAULT_ALLOWLIST, spec)
         if errs:
             print("\n".join(errs))
-            print("ecs-mission-ratchet: --add-new rejected; nothing written")
+            print("ecs-mission-ratchet: %s rejected; nothing written" % mode)
             return 1
-        for r in added:
-            print("added: " + r)
+        for r in done:
+            print(("added: " if mode == "--add-new" else "relabelled: ") + r)
         diff = _diff(root, DEFAULT_ALLOWLIST)
     elif mode == "--prune":
         n, diff = prune(root, DEFAULT_ALLOWLIST)

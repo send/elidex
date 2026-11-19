@@ -114,6 +114,9 @@ class AddNewHarness:
     def add(self, *spec, base="HEAD"):
         return self.m.add_new(self.root, self.al, self.m.parse_tsv("\n".join(spec) + "\n"), base)
 
+    def relabel(self, *spec):
+        return self.m.relabel(self.root, self.al, self.m.parse_tsv("\n".join(spec) + "\n"))
+
     def close(self):
         self.td.cleanup()
 
@@ -363,6 +366,63 @@ def sc_base_unreadable(m):  # a base that cannot be read accepts nothing
         h.close()
 
 
+ROW_S = "S\t-\ta.md\t" + LINE
+
+
+def _relabel_rejected(m, spec, rows=(ROW_S,), files=None):
+    h = AddNewHarness(m, files or {"a.md": LINE + "\n"}, rows)
+    try:
+        before = h.slurp()
+        errs, moved = h.relabel(*spec)
+        return bool(errs) and moved == [] and h.slurp() == before
+    finally:
+        h.close()
+
+
+def sc_rl_control(m):  # S -> T with a slot: row count unchanged, check passes
+    h = AddNewHarness(m, {"a.md": LINE + "\n"}, [ROW_S])
+    try:
+        errs, moved = h.relabel("T\t#11-x\ta.md\t1")
+        return (errs == [] and moved == [ROW_S + " -> T\t#11-x\ta.md\t" + LINE]
+                and h.slurp() == ("# header\nT\t#11-x\ta.md\t" + LINE + "\n").encode()
+                and m.check(h.root, h.al) == [])
+    finally:
+        h.close()
+
+
+def sc_rl_class_s(m):  # relabel moves only toward T / D
+    return _relabel_rejected(m, ["S\t#11-x\ta.md\t1"], ["N\t-\ta.md\t" + LINE])
+
+
+def sc_rl_slot_dash(m):
+    return _relabel_rejected(m, ["T\t-\ta.md\t1"])
+
+
+def sc_rl_slot_empty(m):
+    return _relabel_rejected(m, ["T\t\ta.md\t1"])
+
+
+def sc_rl_no_row(m):  # a row for another text of the same path is not a match
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1"], ["N\t-\ta.md\tmatches Firefox here"])
+
+
+def sc_rl_already(m):
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1"], ["T\t#11-y\ta.md\t" + LINE])
+
+
+def sc_rl_not_denied(m):
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1"], ["S\t-\ta.md\tplain"], {"a.md": "plain\n"})
+
+
+def sc_rl_atomic(m):  # one bad row in the batch: nothing is written
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1", "T\t#11-x\tb.md\t1"], [ROW_S, "S\t-\tb.md\tplain"],
+                             {"a.md": LINE + "\n", "b.md": "plain\n"})
+
+
+def sc_rl_consumed(m):  # two spec rows for one allowlist row: the second finds none left
+    return _relabel_rejected(m, ["T\t#11-x\ta.md\t1", "D\t#11-x\ta.md\t1"])
+
+
 def sc_atomic(m):
     return _rejected(m, {"a.md": LINE + "\n", "b.md": "plain\n"},
                      ["T\t#11-x\ta.md\t1", "T\t#11-y\tb.md\t1"])
@@ -377,6 +437,9 @@ SCENARIOS = {
     "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
     "base_denies": sc_base_denies, "base_unreadable": sc_base_unreadable,
+    "rl_control": sc_rl_control, "rl_class_s": sc_rl_class_s, "rl_slot_dash": sc_rl_slot_dash,
+    "rl_slot_empty": sc_rl_slot_empty, "rl_no_row": sc_rl_no_row, "rl_already": sc_rl_already,
+    "rl_not_denied": sc_rl_not_denied, "rl_atomic": sc_rl_atomic, "rl_consumed": sc_rl_consumed,
 }
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
 NEWHIT = "(path, int(ln)) not in text_at"
@@ -390,6 +453,14 @@ MUTANTS = [
     ("availability: batch consumption ignored", (("if not avail[key] > used[key]:", "if False:"),), ["count"]),
     ("atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if",
                                          "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows if"),), ["atomic"]),
+    ("relabel class: any class", (("or f[0] not in ADD_CLASSES ", ""),), ["rl_class_s"]),
+    ("relabel slot: any slot", (("or not SLOT.match(f[1]) ", ""),), ["rl_slot_dash", "rl_slot_empty"]),
+    ("relabel row match: text ignored", (("r[3] == normalise(text) and ", ""),), ["rl_no_row"]),
+    ("relabel row match: class ignored", ((" and r[0] != cls", ""),), ["rl_already"]),
+    ("relabel row match: consumption ignored", (("i not in done and ", ""),), ["rl_consumed"]),
+    ("relabel denied-now not required", (("if text is None or not denied(text):", "if text is None:"),), ["rl_not_denied"]),
+    ("relabel atomic: writes despite errors", (("    if errs:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])",
+                                                "    if False:\n        return errs, []\n    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])"),), ["rl_atomic"]),
     ("base scope: base-denied lines accepted", (("if was_denied(key[1]):", "if False:"),), ["base_denies"]),
     ("base unreadable: accepted as 'denies nothing'", (("was_denied = base_denied(repo_root, base)", "was_denied = lambda t: False"),), ["base_unreadable"]),
 ]
@@ -441,6 +512,10 @@ class AddNew(unittest.TestCase):
         self.assertEqual(mod.main(["--prune", "--add-new", "x"]), 2)
         self.assertEqual(mod.main(["--add-new", "x", "--base"]), 2)
         self.assertEqual(mod.main(["--prune", "--base", "HEAD"]), 2)
+        self.assertEqual(mod.main(["--relabel"]), 2)
+        self.assertEqual(mod.main(["--relabel", "x", "--prune"]), 2)
+        self.assertEqual(mod.main(["--add-new", "x", "--relabel", "y"]), 2)
+        self.assertEqual(mod.main(["--relabel", "x", "--base", "HEAD"]), 2)
 
 
 if __name__ == "__main__":
