@@ -585,10 +585,12 @@ impl VmInner {
     /// snapshot taken at frame N-1's close.  Closing after the truncate would
     /// read past the end (an `Open { frame_base, slot }` indexes the
     /// stack absolutely).  Every unwind to a saved depth uses it:
-    /// `with_call_mode`'s exit and the stack guards' panic path
-    /// (`#11-vm-stack-guard-panic-unwind-order`).  The dispatcher's
-    /// per-frame throw cleanup keeps the same close-before-truncate order
-    /// frame by frame (`pop_frame`).
+    /// `with_call_mode`'s exit and the panic branch of the GC-root guards
+    /// `VmStackScope` / `VmTempRoot`
+    /// (`#11-vm-stack-guard-panic-unwind-order`).  The per-frame pops
+    /// (`pop_frame` and the dispatcher's throw cleanup, which repeats its
+    /// three steps inline) keep the same close-before-truncate order frame
+    /// by frame.
     pub(crate) fn unwind_to(&mut self, frames_len: usize, stack_len: usize) {
         while self.frames.len() > frames_len {
             let frame = self
@@ -603,15 +605,17 @@ impl VmInner {
     /// Close each `Open` upvalue in `upvalue_ids` with its stack slot's
     /// current value.
     ///
-    /// Never panics: the stack guards call it (through [`Self::unwind_to`])
-    /// from `Drop` while a panic is unwinding, where a second panic aborts
-    /// the process.  A slot past the end of the stack is a corrupted frame;
-    /// it is asserted in debug builds outside unwinding, and the upvalue
-    /// is closed with `undefined` rather than left `Open` past the end.
+    /// Never panics while a panic is unwinding: the `VmStackScope` /
+    /// `VmTempRoot` panic branch calls it (through [`Self::unwind_to`])
+    /// from `Drop`, where a second panic aborts the process.  An unknown
+    /// upvalue or a slot past the end of the stack is a corrupted frame:
+    /// outside unwinding it panics (in every build), and while unwinding
+    /// the upvalue is skipped or closed with `undefined` rather than left
+    /// `Open` past the end.
     pub(crate) fn close_upvalues(&mut self, upvalue_ids: &[super::value::UpvalueId]) {
         for &uv_id in upvalue_ids {
             let Some(upvalue) = self.upvalues.get(uv_id.0 as usize) else {
-                debug_assert!(
+                assert!(
                     std::thread::panicking(),
                     "close_upvalues: unknown {uv_id:?}"
                 );
@@ -619,7 +623,7 @@ impl VmInner {
             };
             if let UpvalueState::Open { frame_base, slot } = upvalue.state {
                 let idx = frame_base + slot as usize;
-                debug_assert!(
+                assert!(
                     idx < self.stack.len() || std::thread::panicking(),
                     "close_upvalues: slot {idx} past the stack end {}",
                     self.stack.len(),

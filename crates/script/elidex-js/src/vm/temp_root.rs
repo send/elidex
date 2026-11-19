@@ -71,9 +71,12 @@ impl VmInner {
 ///   JsValue::Number(NaN)` under JS strict equality.
 ///
 /// During panic unwinding (`std::thread::panicking()`) both asserts
-/// are skipped to avoid double-panic process-abort; the stack is
-/// truncated unconditionally so any propagation through
-/// `catch_unwind` upstream sees a clean stack.
+/// are skipped to avoid double-panic process-abort; frames pushed
+/// inside the rooted region are popped (their upvalues closed) and the
+/// stack is truncated (`VmInner::unwind_to`), so any propagation
+/// through `catch_unwind` upstream sees a clean stack.  A clean exit
+/// must leave no frame above the guard: every runner pops its own frame
+/// on `Ok` and `Err`.
 #[cfg(feature = "engine")]
 pub(crate) struct VmTempRoot<'a> {
     vm: &'a mut VmInner,
@@ -172,8 +175,11 @@ impl VmInner {
 /// [`VmInner::push_stack_scope`].
 ///
 /// Truncates the VM stack back to the saved length on drop —
-/// **including during panic unwinding** — so any rooted values
-/// pushed during the scope are released regardless of exit path.
+/// **including during panic unwinding**, where frames pushed inside the
+/// scope are popped first (their upvalues closed; `VmInner::unwind_to`)
+/// — so any rooted values pushed during the scope are released
+/// regardless of exit path.  A clean exit must leave no frame above the
+/// scope: every runner pops its own frame on `Ok` and `Err`.
 /// Unlike `VmTempRoot` (engine-only) no value-identity is asserted on clean
 /// drop; the guard is only useful when the rooted region pushes
 /// an arbitrary (data-dependent) number of values.

@@ -430,3 +430,23 @@ fn stack_scope_unwind_survives_upvalue_past_stack_end() {
         UpvalueState::Closed(JsValue::Undefined)
     ));
 }
+
+/// The other direction of `close_upvalues`' corruption policy: outside
+/// unwinding, an upvalue slot past the stack end is a loud failure in
+/// every build, not a silent `undefined`.
+#[test]
+#[should_panic(expected = "past the stack end")]
+fn close_upvalues_outside_unwinding_rejects_slot_past_stack_end() {
+    use super::super::frame::{Upvalue, UpvalueState};
+    use super::super::value::UpvalueId;
+
+    let mut vm = Vm::new();
+    let uv = UpvalueId(vm.inner.upvalues.len() as u32);
+    vm.inner.upvalues.push(Upvalue {
+        state: UpvalueState::Open {
+            frame_base: vm.inner.stack.len() + 100,
+            slot: 0,
+        },
+    });
+    vm.inner.close_upvalues(&[uv]);
+}
