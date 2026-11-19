@@ -152,7 +152,7 @@ fn collect_row_group_infos(
 /// CSS 2.1 §17.5.3 does not define how extra space is distributed
 /// ("CSS 2.1 does not define how extra space is distributed").
 /// We use proportional distribution based on content height,
-/// which matches Chromium behavior. `[evidence]`
+/// which matches Chromium behavior.
 #[allow(clippy::cast_precision_loss)] // row count is small
 fn redistribute_surplus(row_heights: &mut [f32], surplus: f32) {
     let total: f32 = row_heights.iter().sum();

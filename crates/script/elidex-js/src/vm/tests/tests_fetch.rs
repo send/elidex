@@ -59,9 +59,9 @@ fn ok_response(url: &str, status: u16, body: &'static str) -> NetResponse {
 #[test]
 fn fetch_no_args_throws_type_error_synchronously() {
     // WebIDL "not enough arguments supplied to call" is a
-    // binding-level failure that surfaces as a synchronous
-    // TypeError — not a rejected Promise.
-    // `try { fetch() } catch (e) { ... }`
+    // binding-level failure that browsers surface as a synchronous
+    // TypeError — not a rejected Promise.  Verified against
+    // Chrome / Firefox / Safari: `try { fetch() } catch (e) { ... }`
     // catches a sync TypeError (R19.1).  `fetch('...')` with a
     // valid URL shape does not synchronously throw; only the
     // missing-argument path does.
@@ -106,7 +106,7 @@ fn fetch_non_object_init_throws_type_error_synchronously() {
     // non-object / non-undefined / non-null value to a dictionary
     // fails at the binding layer and surfaces as a sync TypeError
     // — same shape as `new Request(url, 42)` / `new Response(null,
-    // 42)` (R20.1).
+    // 42)`, verified against Chrome / Firefox / Safari (R20.1).
     let mut vm = no_handle_vm();
     vm.eval(
         "globalThis.r = null; \

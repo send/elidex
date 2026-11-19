@@ -133,8 +133,8 @@ fn parse_pointer_event_members(
         // canonical pose).
         altitude_angle = read_number(ctx, opts_id, k_altitude, std::f64::consts::FRAC_PI_2)?;
         azimuth_angle = read_number(ctx, opts_id, k_azimuth, 0.0)?;
-        // `pointerType` is `DOMString` not enumerated (arbitrary
-        // values are accepted — spec mentions `"" / "mouse" / "pen" /
+        // `pointerType` is `DOMString` not enumerated (Chrome accepts
+        // arbitrary values — spec mentions `"" / "mouse" / "pen" /
         // "touch"` as common values but doesn't enforce).
         pointer_type_sid = read_string(ctx, opts_id, k_pointer_type)?;
         // `isPrimary` is `boolean` — `ToBoolean`.

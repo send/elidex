@@ -274,7 +274,7 @@ Platform Input (Ch. 23)
                                   main thread triggers relayout)
 ```
 
-The passive event listener distinction is critical. If `addEventListener('scroll', handler, { passive: true })` (or no listener at all), the compositor never waits for the main thread. Non-passive scroll listeners force compositor → main thread round-trips that add scroll latency.
+The passive event listener distinction is critical. If `addEventListener('scroll', handler, { passive: true })` (or no listener at all), the compositor never waits for the main thread. This is why Chrome warns about non-passive scroll listeners — they force compositor → main thread round-trips that add scroll latency.
 
 ## 6.3 rayon Thread Pool
 

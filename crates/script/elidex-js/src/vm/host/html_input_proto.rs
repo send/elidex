@@ -936,8 +936,8 @@ fn native_input_get_list(
         return Ok(JsValue::Null);
     };
     // Identity-stable via `create_element_wrapper`'s per-entity cache;
-    // HTML §4.10.5.1.16 IDL `list` is not `[SameObject]`; identity stability here comes from
-    // the wrapper cache above.
+    // HTML §4.10.5.1.16 IDL `list` is not `[SameObject]` but Chrome /
+    // Firefox match this behaviour through their own wrapper caches.
     let datalist = elidex_form::resolve_input_list(ctx.host().dom(), entity);
     Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, datalist))
 }

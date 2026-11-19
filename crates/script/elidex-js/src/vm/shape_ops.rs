@@ -349,7 +349,7 @@ impl VmInner {
     /// keyed by a pre-interned `name_sid`.  The getter's `name` slot
     /// resolves to `"get {display}"` and the setter's to
     /// `"set {display}"`, where `display` is `name_sid`'s interned
-    /// UTF-8 for WebIDL and ES
+    /// UTF-8 — matching V8 / SpiderMonkey / JSC for WebIDL and ES
     /// built-in accessors.  `attrs` selects between
     /// [`shape::PropertyAttrs::WEBIDL_RO_ACCESSOR`] (DOM / WebIDL
     /// surfaces, enumerable) and

@@ -10,7 +10,7 @@
 //!   element reactions" (errors observable, not thrown).
 //! - The sync `customElements.upgrade(root)` walker in
 //!   [`super::lookup::native_ce_upgrade`] catches `Err` per candidate
-//!   and `eprintln!`s it (batch isolation — one bad
+//!   and `eprintln!`s it (matches Blink's batch isolation — one bad
 //!   constructor doesn't abort the remaining candidates in the
 //!   subtree, and the API does not throw to the JS caller).
 

@@ -162,7 +162,7 @@ fn mutation_observer_observe_target_must_be_node() {
 #[test]
 fn mutation_observer_observe_requires_two_arguments() {
     // WebIDL: `observe(Node target, MutationObserverInit options)` —
-    // both required.  Match Chrome/Firefox arg-count error message [evidence]
+    // both required.  Match Chrome/Firefox arg-count error message
     // before falling through to per-argument coercion errors.
     let err_zero = run_throws("var mo = new MutationObserver(function(){}); mo.observe();");
     assert!(
@@ -196,8 +196,8 @@ fn mutation_observer_observe_character_data_implicit_via_old_value() {
 #[test]
 fn mutation_observer_observe_explicit_attributes_false_with_old_value_throws() {
     // WHATWG DOM §4.3.2 step 6: `attributeOldValue: true` requires
-    // `attributes: true` (or absent).  This throws
-    // a TypeError citing both fields.
+    // `attributes: true` (or absent).  Browser-aligned: Chrome /
+    // Firefox throw a TypeError citing both fields.
     let err = run_throws(
         "var mo = new MutationObserver(function(){}); \
          mo.observe(document, {childList:true, attributes:false, attributeOldValue:true});",

@@ -227,7 +227,7 @@ fn native_mutation_observer_observe(
         return Ok(JsValue::Undefined);
     }
     // WebIDL signature: `observe(Node target, MutationObserverInit options)` —
-    // both arguments required.  Match Chrome/Firefox arg-count error [evidence]
+    // both arguments required.  Match Chrome/Firefox arg-count error
     // message before falling through to the per-argument coercion errors.
     if args.len() < 2 {
         return Err(VmError::type_error(format!(
@@ -607,7 +607,7 @@ fn parse_mutation_observer_init(
     // both yield the default-init dictionary (empty object branch).
     // The subsequent "at least one of childList / attributes /
     // characterData" check at the call site then surfaces a
-    // TypeError.
+    // TypeError, matching Chrome/Firefox.
     let value = match arg {
         None | Some(JsValue::Undefined | JsValue::Null) => return Ok(init),
         Some(v) => v,

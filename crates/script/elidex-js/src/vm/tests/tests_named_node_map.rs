@@ -218,8 +218,8 @@ fn attr_name_and_value_round_trip() {
 fn attr_owner_element_reflects_attachment() {
     // After `removeAttribute`, the JS-held wrapper observes the
     // detachment via `ownerElement === null` and reports the
-    // removal-time value through `value` (the
-    // cached Attr is frozen with a snapshot of `'x'` rather
+    // removal-time value through `value` (Chrome / Firefox parity:
+    // the cached Attr is frozen with a snapshot of `'x'` rather
     // than collapsing to `''` via a live re-read of the now-absent
     // attribute).
     let out = run("var d = document.createElement('div'); \
@@ -250,8 +250,8 @@ fn attr_value_setter_on_detached_attr_does_not_reattach() {
     // `.value` mutates the wrapper's snapshot in place
     // (WHATWG §4.9.2 "change an attribute" on a detached Attr)
     // but never re-attaches to the former owner — the element
-    // remains free of the attribute.
-    // Detached Attrs are free-standing nodes until reinserted
+    // remains free of the attribute.  Matches Chrome / Firefox
+    // where detached Attrs are free-standing nodes until reinserted
     // via `setAttributeNode` / `setNamedItem`.
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('id', 'x'); \
@@ -744,8 +744,8 @@ fn cached_attr_stays_detached_after_remove_named_item_cycle() {
     // `NamedNodeMap.removeNamedItem` detach path: the *previously
     // cached* Attr held by JS via `getAttributeNode` must also be
     // frozen at its removal-time value so `removeAttribute('x')` vs
-    // `attributes.removeNamedItem('x')` produce the same
-    // observable behaviour on JS-held wrappers.
+    // `attributes.removeNamedItem('x')` produce the same Chrome /
+    // Firefox observable behaviour on JS-held wrappers.
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('id', 'first'); \
          var a = d.getAttributeNode('id'); \

@@ -448,7 +448,7 @@ fn body_mixin_unhandled_rejection_drained_by_vm() {
 #[test]
 fn fetch_null_body_override_clears_base_body() {
     // R15.2: `fetch(req, {body: null})` must clear the body
-    // (spec nullable).
+    // (spec nullable; matches Chromium / Firefox behaviour).
     // The mock can't directly observe broker-facing body bytes,
     // so we verify via the parallel `new Request(req, {body: null})`
     // code path which shares the null-clears-body semantics, and

@@ -346,7 +346,7 @@ The HTTP cache is a critical performance system, separate from web-content stora
 
 ### 22.6.1 Cache Key
 
-To prevent cross-site tracking via cache probing, elidex uses double-keyed caching:
+To prevent cross-site tracking via cache probing, elidex uses double-keyed caching (matching Chrome's partition strategy):
 
 ```rust
 pub struct HttpCacheKey {

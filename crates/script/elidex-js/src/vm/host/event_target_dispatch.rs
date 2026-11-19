@@ -658,7 +658,7 @@ pub(super) fn dispatch_simple_event(
 ///
 /// Parameter order is `(old_state, new_state)` to read naturally at
 /// call sites ("closed → open" / "open → closed").  The internal slot
-/// order is `(newState, oldState)` per Chrome DevTools enumeration `[evidence]`
+/// order is `(newState, oldState)` per Chrome DevTools enumeration
 /// and the `toggle_event` shape transition.  Bindings below mirror
 /// the SIGNATURE order on the lines that ToString-intern the values
 /// so a reader following the parameter list down the function body
@@ -716,7 +716,7 @@ pub(super) fn dispatch_toggle_event(
     let new_state_sid = ctx.vm.strings.intern(new_state);
     // Slot order: 9 core values then 2 toggle-payload values.
     // Toggle slots match the `toggle_event` shape transition:
-    // newState then oldState (matches Chrome DevTools enumeration). [evidence]
+    // newState then oldState (matches Chrome DevTools enumeration).
     let slots: Vec<PropertyValue> = vec![
         PropertyValue::Data(JsValue::String(toggle_type_sid)), // type
         PropertyValue::Data(JsValue::Boolean(false)),          // bubbles

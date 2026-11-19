@@ -76,7 +76,7 @@ pub(super) fn native_number_to_string(
             };
             // §20.1.3.6 step 8: radix of 0 (i.e. absent) would have hit the
             // default branch above; here 0 comes from ToIntegerOrInfinity(NaN)
-            // which spec does not special-case — we treat it
+            // which spec does not special-case — we follow V8 and treat it
             // as an out-of-range error rather than silently defaulting.
             if !(2.0..=36.0).contains(&r_int) {
                 return Err(VmError::range_error(
@@ -109,14 +109,14 @@ pub(super) fn native_number_to_string(
     } else {
         // Non-decimal radix: integer part in the given base, plus fractional.
         // Spec §6.1.6.1.13 leaves formatting implementation-defined; follow
-        // V8's "integer → radix-N" + optional fraction ".xxxx" approximation. [evidence]
+        // V8's "integer → radix-N" + optional fraction ".xxxx" approximation.
         format_number_radix(n, radix)
     };
     let id = ctx.intern(&s);
     Ok(JsValue::String(id))
 }
 
-/// Format a finite number in `radix` (2..=36).  Mirrors V8's behavior: `[evidence]`
+/// Format a finite number in `radix` (2..=36).  Mirrors V8's behavior:
 /// integer part via standard digit conversion; fractional part via iterated
 /// multiplication until precision runs out (capped at ~52 digits).
 fn format_number_radix(n: f64, radix: u32) -> String {

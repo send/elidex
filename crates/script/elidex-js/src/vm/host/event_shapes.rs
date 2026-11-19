@@ -252,13 +252,13 @@ fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
 /// `tests_event_shape_fold.rs` are the mechanical safety net against
 /// reorderings that bypass this helper.
 ///
-/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**: `[evidence]`
+/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**:
 /// the ctor path's `view` defaults to `JsValue::Null` per the
 /// WebIDL declaration `attribute Window? view = null` on
 /// `UIEventInit` (UI Events L3 attribute table).  The UA-fire path
 /// defaults to `JsValue::Object(global_object)` — a UA convention
 /// (NOT spec-mandated): the "fire an event" / "fire a trusted
-/// event" algorithms are silent on `view`, but Chrome and Firefox `[evidence]`
+/// event" algorithms are silent on `view`, but Chrome and Firefox
 /// both surface `event.view === window` for UA-dispatched UI
 /// events by populating it from the target node's owner document's
 /// `defaultView`.  Symmetry tests in `tests_event_shape_fold.rs`
@@ -796,7 +796,7 @@ impl VmInner {
         let submit_event = extend(self, core, &[self.well_known.submitter]);
         let formdata_event = extend(self, core, &[self.well_known.form_data]);
         // ToggleEvent slot order: newState before oldState (matches
-        // dispatch_toggle_event hand-rolled allocation + Chrome [evidence]
+        // dispatch_toggle_event hand-rolled allocation + Chrome
         // DevTools enumeration order).
         let toggle_event = extend(
             self,

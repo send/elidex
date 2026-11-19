@@ -200,8 +200,8 @@ fn snapshot_attr_wrapper(
 }
 
 /// Freeze any JS-held `Attr` wrapper at its removal-time value + invalidate the
-/// wrapper cache, AFTER the removal has landed. Matches WHATWG DOM §4.9.2:
-/// through a `removeAttribute(name)` → optional same-name
+/// wrapper cache, AFTER the removal has landed. Matches WHATWG DOM §4.9.2 +
+/// Chrome / Firefox: through a `removeAttribute(name)` → optional same-name
 /// `setAttribute` cycle, a previously-cached `Attr`'s `.value` keeps reporting
 /// the value the attribute held when it was removed (without the snapshot the
 /// JS-held Attr would read live DOM state and appear to re-attach to the new
@@ -603,7 +603,7 @@ pub(super) fn native_element_set_attribute_node(
     //   `removeAttribute` keeps `el.getAttributeNode(name) === a`.
     //   The snapshot-on-`removeAttribute` path
     //   (`super::element_attrs::attr_remove`) sets
-    //   `detached_value` on the cached wrapper for
+    //   `detached_value` on the cached wrapper for Chrome / Firefox
     //   `attr.value` parity; reattaching to the original owner
     //   revives the wrapper by clearing the snapshot so subsequent
     //   reads track the live attribute again.

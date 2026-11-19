@@ -14,7 +14,7 @@
 //!
 //! - `Connected` enqueued on every insertion into a connected position
 //!   (`now-connected == true`), regardless of `was_connected`. Both
-//!   connectedCallback fires on within-tree moves
+//!   Blink and Gecko fire connectedCallback on within-tree moves
 //!   (the companion implicit Remove already fired its Disconnected,
 //!   so suppressing the Insert side would leave the lifecycle in a
 //!   stale disconnected state). `was_connected` is therefore NOT
@@ -133,7 +133,7 @@ impl CustomElementReactionConsumer {
         // continue").
         //
         // NOTE: we deliberately do NOT short-circuit on `was_connected`
-        // — connectedCallback fires on every
+        // — both Blink and Gecko fire connectedCallback on every
         // insertion into a connected position, including within-tree
         // moves (the companion Remove already fired its Disconnected,
         // so suppressing the Insert side would leave the lifecycle in

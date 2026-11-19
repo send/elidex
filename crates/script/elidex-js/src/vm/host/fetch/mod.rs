@@ -109,7 +109,8 @@ impl VmInner {
 /// the WHATWG Fetch contract that `fetch()` returns a Promise for
 /// every well-formed call.  The exceptions are WebIDL
 /// binding-level checks that run *before* the method body and
-/// must therefore throw synchronously:
+/// must therefore throw synchronously (verified on Chrome /
+/// Firefox / Safari):
 ///
 /// - No arguments at all → "not enough arguments" (R19.1).
 /// - `init` is a non-object / non-undefined / non-null — WebIDL

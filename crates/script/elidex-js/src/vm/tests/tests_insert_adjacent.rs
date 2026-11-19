@@ -155,7 +155,7 @@ fn insert_adjacent_element_rejects_bogus_where() {
 #[test]
 fn insert_adjacent_element_rejects_non_element_arg() {
     // `null` fails the WebIDL `Element` coercion. still a plain
-    // TypeError (not a DOMException).
+    // TypeError (not a DOMException), matching Blink / Gecko.
     let out = run(
         "var t = document.getElementById('t');\
          try { t.insertAdjacentElement('beforeend', null); 'no-throw'; } \

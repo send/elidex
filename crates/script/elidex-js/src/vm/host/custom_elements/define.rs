@@ -25,7 +25,7 @@ pub(crate) fn native_ce_define(
     }
 
     // WebIDL signature requires 2 arguments (name, constructor) —
-    // match Chrome / Firefox arg-count wording. [evidence]
+    // match Chrome / Firefox arg-count wording.
     if args.len() < 2 {
         return Err(VmError::type_error(format!(
             "Failed to execute 'define' on 'CustomElementRegistry': 2 arguments required, \

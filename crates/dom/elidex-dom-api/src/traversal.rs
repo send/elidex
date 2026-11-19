@@ -683,7 +683,7 @@ pub fn step_with_filter_parent_node<F: FilterAction>(
         // guard then prevents the next iteration from ascending
         // above root.  Earlier (R7) impl short-circuited on
         // `parent == root` BEFORE filtering, which was a spec
-        // violation (`parentNode()` DOES return the root from
+        // violation (browsers DO return the root from
         // `parentNode()` when the root passes the filter).
         //
         // Reject ≡ Skip in ancestor walks per spec §6.4.4.

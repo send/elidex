@@ -282,8 +282,8 @@ delta-resolved target step; a delta that resolves out of range is a no-op — ma
 - **C1 (fragment nav fires popstate)**: the umbrella §5 row's shorthand "popstate/traversal fidelity"
   and the task framing "fragment nav fires hashchange; traversal fires popstate" **understate** the
   spec: per §7.4.2.3.3 step 14 → §7.4.6.2 step 6.4.3, **fragment navigation fires popstate too**
-  (state = null). This is the modern (post-navigables-rewrite) unified behavior.
-  The matrix (§2.2) is authoritative. **Algorithm-traced + confirmed 2026-07-04**: for
+  (state = null). This is the modern (post-navigables-rewrite) unified behavior and matches current
+  Chrome/Firefox. The matrix (§2.2) is authoritative. **Algorithm-traced + confirmed 2026-07-04**: for
   a fresh fragment nav, *update document for history step application* step 2 `documentsEntryChanged` =
   (document's latest entry ≠ the new entry) = TRUE, step 1 `documentIsNew` = (latest entry is null) =
   FALSE ⇒ step 6.4.3 fires popstate; the state is null because the new entry never carries the classic

@@ -167,7 +167,7 @@ fn formdata_event_rejects_non_form_data_object() {
     // R7 IMP regression: WebIDL dictionary conversion requires the
     // `formData` member to be an actual FormData instance.  Plain
     // `{}` / non-FormData objects must throw TypeError at conversion
-    // time.
+    // time — matches Chrome / Firefox.
     let out = run("var ok = false; var msg = ''; \
          try { new FormDataEvent('formdata', { formData: {} }); } \
          catch (e) { ok = true; msg = String(e); } \
@@ -740,8 +740,8 @@ fn input_event_existing_fields_still_work() {
 fn before_unload_return_value_getter_throws_on_non_event_receiver() {
     // Brand check (WebIDL §3.7.2.4): `Object.create(BeforeUnloadEvent.
     // prototype)` is not an `ObjectKind::Event` instance, so reading
-    // `returnValue` must throw TypeError "Illegal invocation".
-    // Without the brand check the side table would
+    // `returnValue` must throw TypeError "Illegal invocation" — matches
+    // Chrome / Firefox.  Without the brand check the side table would
     // accumulate entries for arbitrary objects.
     let out = run("var e = Object.create(BeforeUnloadEvent.prototype); \
          var ok = false; var msg = ''; \
@@ -765,7 +765,7 @@ fn before_unload_return_value_setter_throws_on_non_event_receiver() {
 fn before_unload_return_value_getter_throws_on_other_event_subclass() {
     // Brand check must reject Event subclasses that aren't
     // BeforeUnloadEvent — calling the getter `.call(new MouseEvent())`
-    // throws "Illegal invocation".  The `ObjectKind::
+    // matches Chrome's "Illegal invocation" semantics.  The `ObjectKind::
     // Event` check alone is not enough; the prototype chain must include
     // `BeforeUnloadEvent.prototype`.
     let out = run("var getter = Object.getOwnPropertyDescriptor( \

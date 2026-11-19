@@ -375,7 +375,7 @@ pub(crate) fn adjust_ranges_for_split_text(
         // `(new_node, off - offset)`. The equality case (`off == offset`)
         // stays on `node` at its new end — a Range collapsed at the
         // split point is preserved on the original node, NOT migrated to
-        // `(new_node, 0)`. This matches the observable
+        // `(new_node, 0)`. This matches Chrome / Firefox observable
         // behaviour and the spec text as of 2026-05-14.
         if range.start_container == node && range.start_offset > offset {
             range.start_container = new_node;

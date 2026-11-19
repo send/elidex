@@ -328,7 +328,7 @@ fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
     // `[EnforceRange]` step 2: out-of-`[0, 2^64-1]` → throw RangeError. We
     // tighten the upper bound to `u32::MAX` because the backend cannot
     // represent values above that (pixmap is `u32`-indexed). Browsers
-    // (Chrome, Firefox) throw RangeError at similar practical thresholds. [evidence]
+    // (Chrome, Firefox) throw RangeError at similar practical thresholds.
     if !(0.0..=f64::from(u32::MAX)).contains(&truncated) {
         return Err(VmError::range_error(
             "Failed to coerce OffscreenCanvas dimension: value is out of range [0, 2^32-1]",

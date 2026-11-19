@@ -395,7 +395,7 @@ fn set_base_and_extent_collapsed_is_directionless() {
 }
 
 // ---------------------------------------------------------------------------
-// addRange — single-range disposition (Q1 (a))
+// addRange — Chrome single-range disposition (Q1 (a))
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -436,7 +436,7 @@ fn add_range_noop_when_already_set() {
     assert_eq!(
         eval_str(&mut vm, "s.getRangeAt(0) === first ? 'eq' : 'neq'"),
         "eq",
-        "single-range: addRange is no-op when rangeCount > 0"
+        "Chrome-single-range: addRange is no-op when rangeCount > 0"
     );
     vm.unbind();
 }

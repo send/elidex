@@ -36,8 +36,8 @@
 //! The alternative — installing methods directly on each element
 //! wrapper — would allocate one native-function per method per
 //! element (tens of methods × thousands of elements).  A single
-//! shared prototype
-//! aligns with
+//! shared prototype matches browser engines (V8's `HTMLElement`
+//! prototype chain, SpiderMonkey's `ElementProto`) and aligns with
 //! how other intrinsics (`Array.prototype`, `Window.prototype`) are
 //! structured elsewhere in the VM.
 

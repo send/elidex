@@ -324,7 +324,7 @@ fn element_class_name_reflects_class_attribute() {
 }
 
 // ---------------------------------------------------------------------------
-// Cached-Attr detach + reattach via
+// Chrome / Firefox parity for cached-Attr detach + reattach via
 // `removeAttribute` (Element method).  Mirrors
 // `removed_attr_stays_detached_after_same_name_set` in
 // `tests_named_node_map.rs`, which covers the `removeNamedItem` path
@@ -336,7 +336,7 @@ fn element_class_name_reflects_class_attribute() {
 
 #[test]
 fn attr_held_across_remove_set_cycle_reads_snapshot_value() {
-    // A JS-held Attr_A from `getAttributeNode` retains
+    // Chrome parity: a JS-held Attr_A from `getAttributeNode` retains
     // its `'v1'` value as a snapshot after the attribute is removed,
     // independent of a same-name `setAttribute` re-adding the
     // attribute on the same element with value `'v2'`.  The next

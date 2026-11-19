@@ -541,7 +541,7 @@ mod tests {
     #[test]
     fn shorthand_column_rule_corner3_all_initial_keeps_width() {
         // `column-rule: medium none currentcolor` — ALL initial ⇒ keep FIRST
-        // (width). The `3px` (vs the keyword `medium`) is the pre-existing R2 divergence.
+        // (width). `3px` vs Blink's `medium` is the pre-existing R2 divergence.
         let lh = [
             ("column-rule-width", "3px"),
             ("column-rule-style", "none"),

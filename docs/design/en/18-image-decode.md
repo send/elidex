@@ -28,15 +28,15 @@ Network response (bytes)
 | --- | --- | --- | --- |
 | PNG | Core | png | Lossless. Ubiquitous. |
 | JPEG | Core | zune-jpeg | Lossy. Photo standard. zune-jpeg for SIMD-optimized decode. |
-| WebP | Core | webp | Lossy + lossless + animated. Supported by all major browsers. [evidence] |
+| WebP | Core | webp | Lossy + lossless + animated. Supported by all major browsers. |
 | AVIF | Core | ravif / libdav1d | AV1-based. Next-generation standard. |
 | GIF | Core | gif | Animated GIF remains widespread. |
-| APNG | Core | png (APNG extension) | Animated PNG. All major browsers support. [evidence] |
+| APNG | Core | png (APNG extension) | Animated PNG. All major browsers support. |
 | SVG-as-image | Core | (Ch. 19) | `<img src="icon.svg">` rasterized at target size. |
 | ICO/CUR | Compat | ico | Favicon. Legacy but favicon.ico still common. |
 | BMP | Compat | image (bmp module) | Rare on modern web. |
 | TIFF | Compat | image (tiff module) | Extremely rare on web. |
-| JPEG XL | Not supported | — | Browser support unstable (Chrome added then removed). Reconsider when spec stabilizes. [evidence] |
+| JPEG XL | Not supported | — | Browser support unstable (Chrome added then removed). Reconsider when spec stabilizes. |
 
 In elidex-app mode, compat formats can be excluded at compile time, reducing binary size.
 

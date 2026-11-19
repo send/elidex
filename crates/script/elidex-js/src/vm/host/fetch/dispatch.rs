@@ -243,7 +243,7 @@ fn fetch_request_origin(ctx: &NativeContext<'_>) -> SecurityOrigin {
 /// - `Default`: no-op.
 /// - `NoStore`: append `Cache-Control: no-store`.
 /// - `Reload`: append `Cache-Control: no-cache` + `Pragma:
-///   no-cache` (for
+///   no-cache` (matches Chrome / Firefox behaviour for
 ///   `cache: 'reload'`).
 /// - `NoCache`: append `Cache-Control: max-age=0` (forces
 ///   server validation).
@@ -693,7 +693,7 @@ fn parse_init_overrides(
             // nullable body): `undefined` means "field absent →
             // preserve base body"; `null` means "explicit override
             // to empty body" (matches `new Request(req, {body:
-            // null})`), mirroring the
+            // null})` and Chromium / Firefox Fetch), mirroring the
             // headers null-override semantics fixed in R7.1.
             // Tri-state (R25.3) — see [`InitOverrides`] doc.
             // - `undefined`: preserve base / default.

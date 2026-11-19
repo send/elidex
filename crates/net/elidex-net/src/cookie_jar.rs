@@ -542,7 +542,7 @@ fn parse_set_cookie(
     let same_site = match cookie.same_site() {
         Some(cookie::SameSite::Strict) => SameSite::Strict,
         Some(cookie::SameSite::None) => {
-            // SameSite=None requires Secure
+            // SameSite=None requires Secure (Chrome 80+, Firefox 69+)
             if !secure {
                 return None;
             }

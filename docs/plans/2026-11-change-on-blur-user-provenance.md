@@ -418,14 +418,14 @@ is invalid). Script steps run via the page tool's JS evaluation, which does not 
 - **N6** (not run; PM 393, to run later) replace a selection with identical text, on `#b` / `#t` holding `a`
   (script-set before focus): (i) click; Cmd+A; type `a`; (ii) click; Cmd+A; paste `a` (clipboard filled by Cmd+A, Cmd+C
   in an `<input id=src2 value="a">`). Record `input` (`inputType`) and the value. Then, without blurring, script
-  `value = "x"`; click `#away`: `change` there means Chromium recorded the baseline (`value_before_first_user_edit_`) [evidence]
+  `value = "x"`; click `#away`: `change` there means Chromium recorded the baseline (`value_before_first_user_edit_`)
   at the identical replace (H: the script write would otherwise re-baseline). This PR keeps "value changed" (I1).
 
 Record in the PR body: engine and version (`navigator.userAgent`), date, the page source, and each case's log. One engine
 is evidence, not proof; the PR body says so.
 
-**Pre-step run 1 (2026-11-03, observed).** Substitution: Claude in Chrome was not connected; the run used headless Google [evidence]
-Chrome 156.0.8078.80 (macOS) driven over CDP (user steps `Input.dispatchMouseEvent` / `dispatchKeyEvent` / `insertText`, every [evidence]
+**Pre-step run 1 (2026-11-03, observed).** Substitution: Claude in Chrome was not connected; the run used headless Google
+Chrome 156.0.8078.80 (macOS) driven over CDP (user steps `Input.dispatchMouseEvent` / `dispatchKeyEvent` / `insertText`, every
 logged event `isTrusted === true`; script steps `Runtime.evaluate`). Same on `<input>` and `<textarea>`: M0 none, **M1 change**, M2
 none, M3 change, **M4 change**, M5 none; N1–N4 no `input`; N5 not measured (synthetic composition only). M1 and M4 both fire:
 rev 2's §4.3 STOP row (PM 303 → PM 305).
@@ -457,9 +457,9 @@ V; type `z`; Backspace (value back to V); blur → **H: no `change`** (baseline 
 - **W8** `<input value="d">` in a `<form>`, script `value = "q"` before focus: `form.reset()` (→ `"d"`) → H: none.
 
 **Pre-step run 3 — observed.** W3 none; W4 none; W5 none; **W6 `change`** (value `a@b,c@d`); W7 none; W8 none. Five of six H
-predictions hold; **W6 fails**: in Chromium the `multiple`-toggle sanitization does not re-baseline. Back to the PM (PM 305). [evidence]
+predictions hold; **W6 fails**: in Chromium the `multiple`-toggle sanitization does not re-baseline. Back to the PM (PM 305).
 
-**Measured divergence, accepted (PM 307).** Case W6 (headless Chrome 156): Chromium fires `change` (value `a@b,c@d`); elidex [evidence]
+**Measured divergence, accepted (PM 307).** Case W6 (headless Chrome 156): Chromium fires `change` (value `a@b,c@d`); elidex
 fires none (C24), because every non-user write before the first user edit is absorbed into the baseline (§4.3). Accepted because
 (1) the spec defines no baseline ("the user has changed the element's value"), so which setter re-baselines is one engine's
 internals; (2) the case is narrow (toggle `multiple` while focused before the first edit, then edit back to the sanitized value);
@@ -546,7 +546,7 @@ the WPT runner does not drive.
 
 ## §8. Edges, hand-offs and records
 
-- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [evidence]
+- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot.
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
 - **L3 P1 `#11-element-lifecycle-hooks`** (file overlap, no order): the same files — `content/event_handlers.rs`
