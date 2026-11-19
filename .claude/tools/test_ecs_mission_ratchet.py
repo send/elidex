@@ -1,6 +1,8 @@
 """Tests for ecs_mission_ratchet.py (runs in the `tools` job). No skips: the hook comparison
 degrades to fixtures-only when the hook file is absent (CI)."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -558,6 +560,26 @@ def sc_count(m):  # a batch naming the one new hit twice is rejected (named twic
                      ["N\t-\ta.md\t" + LINE])
 
 
+def sc_cli_default_base(m):  # main(["--add-new", spec]) succeeds against refs/remotes/origin/main and prints its sha
+    h = AddNewHarness(m, {"a.md": LINE + "\n"})  # base commit: the classifier denies nothing
+    try:
+        base_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=h.root, check=True, env=h.env,
+                                  capture_output=True).stdout.decode().strip()
+        subprocess.run(["git", "update-ref", "refs/remotes/origin/main", base_sha], cwd=h.root, check=True, env=h.env)
+        with open(SRC, encoding="utf-8") as f:
+            h.base_src(f.read())  # HEAD widens the classifier: base HEAD would deny the line, origin/main does not
+        spec = os.path.join(h.td.name, "spec.tsv")
+        with open(spec, "w", encoding="utf-8") as f:
+            f.write("T\t#11-x\ta.md\t1\n")
+        out = io.StringIO()
+        with mock.patch.object(m, "__file__", os.path.join(h.root, ".claude", "tools", "ecs_mission_ratchet.py"), create=True), \
+                mock.patch.object(m, "DEFAULT_ALLOWLIST", h.al), contextlib.redirect_stdout(out):
+            rc = m.main(["--add-new", spec])
+        return rc == 0 and ("base: origin/main = " + base_sha) in out.getvalue() and "\ta.md\t" in h.slurp().decode()
+    finally:
+        h.close()
+
+
 SCENARIOS = {
     "control": sc_control, "class_s": sc_class_s, "slot_dash": sc_slot_dash, "not_denied": sc_not_denied,
     "covered": sc_covered, "range": sc_range, "self_file": sc_self_file, "atomic": sc_atomic, "count": sc_count,
@@ -570,6 +592,7 @@ SCENARIOS = {
     "rl_control": sc_rl_control, "rl_class_s": sc_rl_class_s, "rl_slot_dash": sc_rl_slot_dash,
     "rl_slot_empty": sc_rl_slot_empty, "rl_no_row": sc_rl_no_row, "rl_already": sc_rl_already,
     "rl_not_denied": sc_rl_not_denied, "rl_atomic": sc_rl_atomic, "rl_consumed": sc_rl_consumed,
+    "cli_default_base": sc_cli_default_base,
 }
 # (mutant name, ((source text, replacement), ...), scenarios that must go red)
 NEWHIT = "(path, ln) not in text_at"
@@ -601,6 +624,8 @@ MUTANTS = [
     ("line_no >= 1 not required", (("return n if n >= 1 else None", "return n"), ("    if ln < 1:\n        return None\n", "")), ["rl_line0"]),
     ("base unreadable: accepted as 'denies nothing'", (("was_denied = base_denied(repo_root, base)", "was_denied = lambda t: False"),
                                                       ("at_base[path] = _base_texts(repo_root, base, path)", "at_base[path] = collections.Counter({key[1]: 9})")), ["base_unreadable"]),
+    ("--add-new default base is HEAD, not origin/main", (('spec_rows, base="origin/main"):', 'spec_rows, base="HEAD"):'),), ["cli_default_base"]),
+    ("--add-new does not print the base sha", (('            print("base: origin/main = %s" % _git(["rev-parse", "origin/main"], root).decode().strip())', "            pass"),), ["cli_default_base"]),
 ]
 
 

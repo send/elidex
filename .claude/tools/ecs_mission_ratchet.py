@@ -8,7 +8,7 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
-(one row per occurrence). The allowlist only shrinks (PM 433), with one exception (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies; existing rows may move to a heavier class (T/D) only through `--relabel`, which keeps the row count. Both take a class T or D and a slot; the PR body lists the rows and the command. Every other row change is a deletion.
+(one row per occurrence). The allowlist only shrinks (PM 433), with two command-only exceptions (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies; existing rows may move to a heavier class (T/D) only through `--relabel`, which keeps the row count. Both take a class T or D and a slot; the PR body lists the rows and the command. Every other row change is a deletion.
 The lexical classifier is a floor, not the population (a paraphrase, or a phrase split across lines, is not caught); the population is covered by the recurring ledger slot `#11-ecs-mission-concept-sweep`.
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
