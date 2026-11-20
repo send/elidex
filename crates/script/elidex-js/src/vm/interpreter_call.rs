@@ -295,8 +295,14 @@ impl VmInner {
     /// every other entry; async + generator bodies are always
     /// `Function`-kind regardless of caller (§27.8/§27.10 completion
     /// machinery is not script-completion-value-shaped).
+    ///
+    /// Entry precondition: `this`, `args` and the callee whose
+    /// `upvalue_ids` these are must be rooted by the caller — reached only
+    /// from [`Self::call_dispatch`] (whose entry scope roots all three) and
+    /// `run_function` (no callee object, `undefined` `this`, no arguments).
+    /// A new caller must go through `call_dispatch` instead.
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
-    pub(crate) fn call_internal(
+    pub(super) fn call_internal(
         &mut self,
         func_id: FuncId,
         this: JsValue,

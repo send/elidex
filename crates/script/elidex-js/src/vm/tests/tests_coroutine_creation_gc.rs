@@ -219,9 +219,12 @@ fn host_call_generator_rest_array_survives_generator_allocation() {
 }
 
 /// `call_internal` generator branch (host entry, `Vm::call`): an excess
-/// argument (no rest parameter) is held only by the host's `args` slice and
-/// the initial frame's `actual_args` while the Generator (allocation 1) is
-/// allocated; `create_coroutine` must root `actual_args` on this entry too.
+/// argument (no rest parameter) is held by the initial frame's
+/// `actual_args`, which `create_coroutine` roots, and — on this entry — also
+/// by `call_dispatch`'s rooting scope (`args`), while the Generator
+/// (allocation 1) is allocated.  Doubly rooted here, so this cell pins the
+/// entry as a whole; the cell that discriminates `create_coroutine`'s own
+/// rooting is the `push_js_call_frame` one above.
 #[test]
 fn host_call_generator_excess_argument_survives_generator_allocation() {
     let setup = "globalThis.g = function* () { yield arguments[0].x };";
@@ -235,9 +238,12 @@ fn host_call_generator_excess_argument_survives_generator_allocation() {
 }
 
 /// `call_internal` async branch (host entry, `Vm::call`): an excess
-/// argument (no rest parameter) is held only by the host's `args` slice and
-/// the initial frame's `actual_args` across the wrapper Promise (allocation
-/// 1) and the coroutine (allocation 2); the collection is at the coroutine.
+/// argument (no rest parameter) is held by the initial frame's
+/// `actual_args` (rooted by `create_coroutine`) and by `call_dispatch`'s
+/// rooting scope across the wrapper Promise (allocation 1) and the
+/// coroutine (allocation 2); the collection is at the coroutine.  Doubly
+/// rooted, as above: the discriminating cells are the `push_js_call_frame`
+/// ones.
 #[test]
 fn host_call_async_excess_argument_survives_coroutine_allocation() {
     let setup = "globalThis.out = 0; \
