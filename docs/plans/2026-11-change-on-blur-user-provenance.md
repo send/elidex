@@ -21,10 +21,10 @@ compares the current value with the focus-time snapshot and nothing else, so it 
 | user presses ArrowLeft; script `b.value = "x"`; user focuses `c` | `input` (wrong), `change` (wrong) | no `input`, no `change` |
 | paste (Cmd+V) into a `readonly` control | `input` (wrong), value unchanged | nothing |
 | IME commit into a control whose `maxlength` is full | `compositionend`, `input` (wrong) | `compositionend` only |
-| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; decided by the K-first predicate the user chose, decision D-3 of the re-derivation (PM 866; ground corrected PM 870): the user changed the value; step 2.1's text alone does not determine it, its §4.1) |
+| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; decided by the re-derivation's D-3 (its §0.4): `V` (`"third"`) differs from the value just before the first user edit (`""`); step 2.1's text alone does not determine it, its §4.1) |
 | user types `a`; script `b.value = ""` (restores the focus-time value); user focuses `c` | no `change` | no `change` |
 | script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4 [history]; contradicts the spec text under every reading, erratum under D-1: DF-1 (a)) |
-| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; decided by the K-first predicate the user chose, decision D-3 of the re-derivation (PM 866; ground corrected PM 870; §4.10.5.5 leans, does not decide): the user's edits net to nothing, so the difference is the script's; step 2.1's text alone does not determine it, its §4.1 class (b); erratum under D-1) |
+| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; decided by the re-derivation's D-3 (its §0.4; §4.10.5.5 leans, does not decide): `V` (`"x"`) equals the value just before the first user edit (`"x"`); step 2.1's text alone does not determine it, its §4.1 class (b); erratum under D-1) |
 | script `b.focus()`; user types `a`; user focuses `c` | `input`, `change` | same |
 
 ## §0. Frame, premises, decisions
@@ -141,7 +141,7 @@ not steps, and the mixed case (user edit, then script write) is not decided by t
 So `/elidex-plan-review` is mandatory.
 *Erratum (re-derivation rev 3.2, PM 870, 2026-11-21; added after landing).* "Settled by measurement" is a record, not
 a ground: a measurement is not a ground for a core requirement. The mixed case is decided by D-3 of
-`docs/plans/2026-11-change-on-blur-spec-rederivation.md` (K-first, the user's choice, PM 866; its §4.1).
+`docs/plans/2026-11-change-on-blur-spec-rederivation.md` (its §0.4; §4.1).
 
 **Single PR.** This PR is a slice under `docs/plans/2026-11-focus-fixup-program.md`, so CLAUDE.md's base case (c)
 applies (umbrella §1.2). Inside this PR the parts cannot be split further without a broken intermediate state. The
@@ -497,8 +497,8 @@ Chromium. [history]
 **Erratum (PM 432, 2026-11-20; added after landing).** The ground this record cites ("the spec defines no
 baseline") does not hold, and an engine's agreement is not a criterion for a core requirement
 (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.3). The PM withdraws PM 307 at landing (its LR-6). C24's expected
-outcome (no `change`) is decided by the K-first predicate the user chose, decision D-3 there (PM 866; ground corrected
-PM 870; its §4.1; cell DC-9); step 2.1's text alone does not determine it, and §4.10.5.5 leans without deciding.
+outcome (no `change`) is decided by decision D-3 there (its §0.4 and §4.1; cell DC-9); step 2.1's text alone does
+not determine it, and §4.10.5.5 leans without deciding.
 
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
@@ -681,7 +681,9 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
   decided, K-first (PM 866); the opening table's M1 and M9 rows and the W6 erratum (C24) now cite D-3 as the [spec]
   ground in place of "not determined / awaiting D-3". 2026-11-21, re-derivation rev 3.2, PM 870: D-3 is not a
   [spec] ground — the outcome follows from the K-first predicate the user chose; the M1 / M9 rows and the W6
-  erratum re-worded; §1 (b)'s "settled by measurement" tagged [history] with an erratum pointing to D-3.)
+  erratum re-worded; §1 (b)'s "settled by measurement" tagged [history] with an erratum pointing to D-3. Re-derivation
+  rev 3.3: the M1 / M9 rows, §1 (b)'s erratum and the W6 erratum cite D-3 by its §0.4, without restating its ground;
+  the M1 / M9 rows give K-first's comparison; the merge of #652 tagged E1's correction line `[contrast]`.)
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.
