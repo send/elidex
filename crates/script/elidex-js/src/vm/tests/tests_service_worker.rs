@@ -323,7 +323,7 @@ fn install_throwing_handler_without_wait_until_succeeds() {
     // Spec-faithful (parity-or-better vs boa): a synchronous handler throw
     // without `waitUntil` is merely reported — install still succeeds
     // (WHATWG SW Install: only an extend-lifetime-promise rejection fails it;
-    // Chrome parity).  Boa's `dispatch_sw_event` would (non-spec) fail here.
+    // timeout / discarded task aside).  Boa's `dispatch_sw_event` would (non-spec) fail here.
     let h = Harness::spawn("self.oninstall = () => { throw new Error('boom'); };");
     h.send(ContentToSw::Install);
     assert!(matches!(

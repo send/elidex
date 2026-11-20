@@ -816,7 +816,7 @@ fn native_input_event_constructor(
 }
 
 /// `InputEvent.prototype.getTargetRanges()` — D-10 stub.  Returns a
-/// freshly-allocated empty Array per call (matches Chrome behaviour
+/// freshly-allocated empty Array per call (the `targetRanges = []` result
 /// for InputEvent instances constructed without a `targetRanges`
 /// init member; real implementation comes with D-8 `#11-traversal-
 /// and-range` paired with `#11-event-modern-extras`).
@@ -825,8 +825,8 @@ fn native_input_event_constructor(
 /// `ObjectKind::Event` whose prototype chain includes
 /// `InputEvent.prototype`.  Calling `InputEvent.prototype.
 /// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore
-/// throws `TypeError("Illegal invocation")`, matching Chrome's
-/// behaviour for IDL operations.
+/// throws a `TypeError` ("create an operation function" step 2.1.2.3;
+/// the "Illegal invocation" text is a message choice).
 fn native_input_event_get_target_ranges(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

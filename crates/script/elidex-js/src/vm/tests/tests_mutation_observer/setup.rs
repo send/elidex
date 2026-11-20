@@ -196,8 +196,8 @@ fn mutation_observer_observe_character_data_implicit_via_old_value() {
 #[test]
 fn mutation_observer_observe_explicit_attributes_false_with_old_value_throws() {
     // WHATWG DOM §4.3.2 step 6: `attributeOldValue: true` requires
-    // `attributes: true` (or absent).  Browser-aligned: Chrome /
-    // Firefox throw a TypeError citing both fields.
+    // `attributes: true` (or absent); otherwise a TypeError naming
+    // both fields.
     let err = run_throws(
         "var mo = new MutationObserver(function(){}); \
          mo.observe(document, {childList:true, attributes:false, attributeOldValue:true});",

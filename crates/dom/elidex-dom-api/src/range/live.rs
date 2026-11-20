@@ -48,7 +48,7 @@
 //! [`#11-shadow-tree-live-range-tracking`](
 //!   ../../../../../../../../memory/MEMORY.md
 //! ) defer slot tracks proper coverage. PR-A behaviour: Range setStart
-//! on a shadow-tree node succeeds (Chrome-compat), but mutations
+//! on a shadow-tree node succeeds (DOM "set the start or end" has no shadow-root check), but mutations
 //! whose parent is a regular element nested inside the shadow tree
 //! still fire normally — consumers needing strict semantics filter
 //! by tree root themselves.

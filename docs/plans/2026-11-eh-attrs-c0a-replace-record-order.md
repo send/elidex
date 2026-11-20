@@ -92,7 +92,7 @@ every `mutation/mod.rs` coordinate at `:296-895` below is re-measured there at C
   | `:738` | "nested insert returned at step 3" | unchanged (*insert* step 3) |
   | `:743`, `:744` | "(steps 7–9)", "step 9" | steps 2–4, step 4 |
   | `:748`, `:750` | "step 7 … step-8 adjustment", "Step 8" | step 2, step 3 |
-  | `:756-760` | "matching the VM handler's browser-parity no-op short-circuit" | rewritten: "elidex queues no record here; the spec queues two (`#11-replace-child-self-records`: Chromium unmeasured, C0a memo §7)" |
+  | `:756-760` | "matching the VM handler's browser-parity no-op short-circuit" | rewritten: "elidex queues no record here; the spec queues two (`#11-replace-child-self-records`, C0a memo §7)" |
   | `:762-766` | the step-over rationale ("removes old_child at step 11, before new_child's adopt at step 13 …") | deleted with the closure (not renumbered: under the current order it would read "step 7 before step 6") |
   | `:790` | "source-removal (from step 13's adopt) THEN coalesced (step 14)" | step 6's adopt, step 10 |
   | `:684`, `:775` | *remove* step 12 `isParentConnected` | `:684` unchanged; `:775` deleted with the closure (`capture_move_source`'s docstring `:302` carries it) |
@@ -105,7 +105,7 @@ every `mutation/mod.rs` coordinate at `:296-895` below is re-measured there at C
   self-replace collapse)" → "ensure pre-insert validity step 3's NotFoundError (replace step 1 runs before steps 2–10)";
   `:267-271` "a no-op per browser parity (Chrome / Firefox / WebKit) — the §4.2.3 step-8 reference-child adjustment
   makes the insert+remove sequence collapse to nothing" → "elidex queues no record for a self-replace; the spec
-  queues two (`#11-replace-child-self-records`, C0a memo §7; Chromium unmeasured)" (the code is unchanged: the slot
+  queues two (`#11-replace-child-self-records`, C0a memo §7)" (the code is unchanged: the slot
   owns the fix); `integration.rs:164`, `:194` "step 14" → step 10. Tests: §6.
 - **D-14 (a) (program) — prerequisite.** The child-list family moves to `mutation/child_list.rs` (NEW) as its own PR;
   `mod.rs` re-exports the moved `pub` items. *Why first (Ax3 MIN-1):* `mutation/mod.rs` is 994 lines and three program
@@ -208,7 +208,7 @@ step 10 queues `{added [A], removed [B], prev A, next C}`. HEAD's values differ 
 `:260-261` "replace step 9 has no adjustment" → "replace step 4 has no adjustment"; `:273` "A's siblings step over B ->
 next = C" → "adopt (step 6) removes A with B in place -> next = B". `:286-288` `apply_replace_child_self_replace_no_records`
 keeps its assertion (the slot owns the fix) and its comment becomes "elidex queues no record; the spec queues two
-(`#11-replace-child-self-records`, Chromium unmeasured)". There is one test family for these shapes, not two.
+(`#11-replace-child-self-records`)". There is one test family for these shapes, not two.
 
 **Mutation guards.** Step-over kept → T17, T17b, U14, U14c. Step-over applied to the coalesced record → U14b, T17's
 `r[1]`, U14's `records[1]`.

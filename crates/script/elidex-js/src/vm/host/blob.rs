@@ -574,8 +574,8 @@ pub(crate) fn parse_blob_options_type(
                     let sid = super::super::coerce::to_string(ctx.vm, other)?;
                     let raw = ctx.vm.strings.get_utf8(sid);
                     // ASCII-only validation — if any non-ASCII byte,
-                    // fall back to empty (Chromium maps invalid types
-                    // to empty string per spec §3.2 step 4.1).
+                    // fall back to empty (FileAPI §3.1 Blob() constructor
+                    // step 3.1 maps an invalid type to the empty string).
                     let type_sid = if raw.bytes().all(|b| b.is_ascii()) {
                         let lower = raw.to_ascii_lowercase();
                         if lower == raw {

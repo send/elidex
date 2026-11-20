@@ -309,7 +309,7 @@ fn extends_conditional_null_takes_constructor_path() {
 // can't drift on bound-chain unwrapping. The user-visible surface
 // for the divergence today is small — `class B extends Bound`
 // throws at class-def time per spec (Bound has no `prototype`
-// property → protoParent is undefined → TypeError), matching V8 —
+// property → protoParent is undefined → TypeError, step 8.h.ii) —
 // so the shared helper protects against future construct callers
 // (e.g. a `Reflect.construct(Bound, args, NewTarget)` path) seeing
 // the inconsistency.
@@ -340,7 +340,7 @@ fn extends_arrow_function_throws_at_class_definition() {
 
 #[test]
 fn extends_bound_constructor_throws_on_undefined_prototype() {
-    // Spec/V8 alignment: `class B extends A.bind(null, 7)` throws
+    // Spec: `class B extends A.bind(null, 7)` throws
     // TypeError because BoundFunction objects have no `prototype`
     // own property; `Get(Bound, "prototype")` returns undefined,
     // which fails the protoParent Object/Null check (ECMA-262

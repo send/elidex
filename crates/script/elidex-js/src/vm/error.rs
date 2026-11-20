@@ -104,7 +104,7 @@ impl VmError {
     /// message here prevents the two sites from drifting (the
     /// two-chokepoint hazard).  The wording is
     /// not spec-prescribed (§3.7.1 mandates only "throw a TypeError");
-    /// matches Chrome's WebIDL surface.
+    /// matches Chrome's WebIDL surface `[evidence]`.
     pub fn illegal_constructor(name: &str) -> Self {
         Self {
             kind: VmErrorKind::TypeError,

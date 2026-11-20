@@ -550,7 +550,7 @@ fn css_text_round_trip() {
 /// `background-*: initial` longhands, so both coexist in the block. The
 /// value-KIND gate must NOT reconstruct `"initial"` from those longhands and
 /// preempt the caller's `.or_else` fallback to the direct — later, order-of-
-/// appearance-winning (css-cascade-4 §6.1) — declaration (Blink 148:
+/// appearance-winning (css-cascade-4 §6.1) — declaration (css-values-5 #pending-substitution-value:
 /// `getPropertyValue("background")` ==
 /// `"var(--bg)"`). Handler coverage is checked before the gate, so the uncovered
 /// `background` yields `None` and the fallback fires.

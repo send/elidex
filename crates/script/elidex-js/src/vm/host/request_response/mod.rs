@@ -539,7 +539,7 @@ impl VmInner {
 ///   `DELETE` / `OPTIONS` / `PATCH`),
 /// - the original case otherwise (unknown extensions like
 ///   `CustomOperation` or `MKCOL` pass through verbatim —
-///   matches Chromium / Firefox).
+///   as in Fetch's "normalize a method").
 ///
 /// The forbidden-method check runs on the uppercased token so
 /// `connect` / `Trace` / `track` all reject case-insensitively.

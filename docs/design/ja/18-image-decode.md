@@ -36,7 +36,7 @@
 | ICO/CUR | Compat | ico | ファビコン。レガシーだがfavicon.icoは依然多い。 |
 | BMP | Compat | image（bmpモジュール） | モダンWebでは稀。 |
 | TIFF | Compat | image（tiffモジュール） | Web上では極めて稀。 |
-| JPEG XL | 未対応 | — | ブラウザサポートが不安定（Chrome実装後削除）。仕様安定時に再評価。 |
+| JPEG XL | 未対応 | — | [evidence] ブラウザサポートが不安定（Chrome実装後削除）。仕様安定時に再評価。 |
 
 elidex-appモードではCompatフォーマットをコンパイル時に除外可能、バイナリサイズを削減。
 

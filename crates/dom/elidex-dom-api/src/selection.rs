@@ -18,7 +18,7 @@
 //!   registered Range + bias — never cached — so that live-range adjustments
 //!   under the selection are visible immediately.
 //!
-//! - The Chrome single-range disposition (Q1 (a), plan v3) is enforced here:
+//! - The single-range disposition (Q1 (a), plan v3) is enforced here:
 //!   [`SelectionState::add_range`] is a spec-correct no-op when a range is
 //!   already set.
 //!
@@ -159,7 +159,7 @@ impl SelectionState {
         self.active_range_id
     }
 
-    /// `Selection.rangeCount` per spec §3.1 — 0 or 1 (Chrome single-range
+    /// `Selection.rangeCount` per spec §3.1 — 0 or 1 (single-range
     /// ship per plan-v3 Q1 (a)).
     #[must_use]
     pub fn range_count(&self) -> u32 {
@@ -218,7 +218,7 @@ impl SelectionState {
     /// Per Selection API §3.1:
     /// - `Forward` direction: anchor = range start, focus = range end.
     /// - `Backward` direction: anchor = range end, focus = range start.
-    /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
+    /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both `[evidence]`
     ///   return range start for anchor in this case, so we follow suit.
     pub fn anchor(
         &self,
@@ -445,7 +445,7 @@ impl SelectionState {
     }
 
     /// `Selection.addRange(range)` per Selection API §3.2 step 3.
-    /// Chrome single-range disposition (plan-v3 Q1 (a)): no-op when
+    /// Single-range disposition (plan-v3 Q1 (a)): no-op when
     /// `rangeCount > 0`. Cross-document range is rejected as a no-op
     /// per spec §3.2 step 2 ("If range's root is not the document
     /// associated with this, abort").
@@ -647,7 +647,7 @@ fn direction_between(
 ///
 /// A node with no parent has only one boundary point (the document root)
 /// — we treat it as contained iff the range covers the whole root,
-/// matching the conservative interpretation Chrome / Firefox use.
+/// matching the conservative interpretation Chrome / Firefox use `[evidence]`.
 fn node_fully_contained(range: &Range, node: Entity, dom: &EcsDom) -> bool {
     let Some(parent) = dom.get_parent(node) else {
         // Detached node: contained only if it IS the range's

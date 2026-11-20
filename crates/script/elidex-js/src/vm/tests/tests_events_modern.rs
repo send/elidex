@@ -697,7 +697,7 @@ fn data_transfer_item_list_add_blob_falls_through_to_string_overload() {
 #[test]
 fn data_transfer_item_list_add_string_without_type_throws() {
     // `(DOMString, DOMString)` overload: `type` is required.  Missing
-    // it throws a WebIDL TypeError (matches Chromium / Firefox).
+    // it throws a WebIDL TypeError (§3.6 overload resolution).
     let out = run("var dt = new DataTransfer(); \
          var threw = false; \
          try { dt.items.add('x'); } \

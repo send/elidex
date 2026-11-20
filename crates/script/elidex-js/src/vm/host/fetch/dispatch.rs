@@ -243,7 +243,7 @@ fn fetch_request_origin(ctx: &NativeContext<'_>) -> SecurityOrigin {
 /// - `Default`: no-op.
 /// - `NoStore`: append `Cache-Control: no-store`.
 /// - `Reload`: append `Cache-Control: no-cache` + `Pragma:
-///   no-cache` (matches Chrome / Firefox behaviour for
+///   no-cache` (Fetch HTTP-network-or-cache fetch step 18, for
 ///   `cache: 'reload'`).
 /// - `NoCache`: append `Cache-Control: max-age=0` (forces
 ///   server validation).

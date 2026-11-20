@@ -124,7 +124,7 @@ pub(crate) struct DataTransferState {
 
 impl DataTransferState {
     /// Fresh empty state — `new DataTransfer()` default.  Matches
-    /// HTML §6.2 + Chrome / Firefox shipping ctor behaviour.
+    /// HTML §6.11.3 `DataTransfer()` constructor steps.
     pub(in crate::vm) fn empty() -> Self {
         Self {
             drop_effect: DropEffect::None,

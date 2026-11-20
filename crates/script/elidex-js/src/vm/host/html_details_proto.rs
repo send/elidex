@@ -121,7 +121,7 @@ fn details_set_open(
     //    actually changed).  This means
     //    `d.setAttribute('open','x'); d.open = true;
     //     d.getAttribute('open')` correctly normalises to `""` and
-    //    not the stale `"x"` — matches Chrome / Firefox.
+    //    not the stale `"x"` (HTML boolean reflection setter step 2).
     //
     //    ToggleEvent dispatch + multi-disclosure exclusion are gated
     //    on `state_changed` (step 4+), so the idempotent setter

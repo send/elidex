@@ -74,10 +74,10 @@ pub(super) fn native_number_to_string(
             } else {
                 r.trunc()
             };
-            // §20.1.3.6 step 8: radix of 0 (i.e. absent) would have hit the
-            // default branch above; here 0 comes from ToIntegerOrInfinity(NaN)
-            // which spec does not special-case — we follow V8 and treat it
-            // as an out-of-range error rather than silently defaulting.
+            // §21.1.3.6 step 3, SnapToInteger (§7.1.6) step 2: NaN throws a
+            // RangeError rather than defaulting; the NaN → 0 above reaches
+            // the out-of-range check below, which throws the same
+            // RangeError.
             if !(2.0..=36.0).contains(&r_int) {
                 return Err(VmError::range_error(
                     "toString() radix must be between 2 and 36",

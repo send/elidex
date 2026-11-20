@@ -30,7 +30,7 @@ pub(in super::super) fn convert_algorithm_identifier(
     match value {
         JsValue::Object(_) | JsValue::String(_) => Ok(value),
         // Not an object → the `DOMString` arm: ToString-coerce (matches
-        // Chrome, e.g. `digest(42, …)` coerces "42"; `Symbol()` throws).
+        // WebIDL §3.2.25 union step 15, e.g. `digest(42, …)` coerces "42"; `Symbol()` throws).
         other => Ok(JsValue::String(coerce::to_string(ctx.vm, other)?)),
     }
 }

@@ -32,7 +32,7 @@
 //!   `availWidth`/`availHeight` use the full monitor dims until a work-area
 //!   source lands (`#11-screen-available-area-workarea-source`).
 //! - `colorDepth` / `pixelDepth` report the universal `24` (8 bits per RGB
-//!   channel) every browser returns — CSSOM-View §4.3 sanctions returning 24
+//!   channel) — CSSOM-View §4.3 sanctions returning 24
 //!   when the UA does not expose color depth, and the two return the same value
 //!   "for compatibility reasons". Constant, not a transported fact.
 //!
@@ -217,7 +217,7 @@ fn native_screen_get_avail_height(
 }
 
 /// `screen.colorDepth` (CSSOM-View §4.3) — the universal `24` (8 bits per RGB
-/// channel) every browser returns. The exact value, not a placeholder (a
+/// channel), the CSSOM-View fallback value. The exact value, not a placeholder (a
 /// deeper-color device-fact transport is not a thing the engine needs to
 /// represent).
 fn native_screen_get_color_depth(

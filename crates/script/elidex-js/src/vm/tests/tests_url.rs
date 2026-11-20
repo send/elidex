@@ -491,8 +491,8 @@ fn username_setter_replaces() {
 #[test]
 fn origin_is_readonly_silently_ignored() {
     let mut vm = Vm::new();
-    // WebIDL accessor without setter swallows assignment in
-    // sloppy mode (matches V8 / Firefox).  Read after write must
+    // A WebIDL readonly attribute has no setter: [[Set]] returns false,
+    // which PutValue turns into a TypeError in strict code.  Read after write must
     // still return the original origin.
     assert_eq!(
         eval_string(

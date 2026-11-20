@@ -305,7 +305,7 @@ fn native_promise_rejection_event_constructor(
     //   - `null` / `undefined` → WebIDL treats as an empty
     //     dictionary; the subsequent `required promise` check
     //     reports "required member promise is undefined", matching
-    //     Chrome.  Collapsing `null` into a coercion error would
+    //     Chrome [evidence].  Collapsing `null` into a coercion error would
     //     diverge from the spec.
     //   - Non-object primitive (number / string / bool) → WebIDL
     //     dictionary coercion error (`parameter 2 is not of type
@@ -494,7 +494,7 @@ fn native_pop_state_event_constructor(
     let base = parse_event_init(ctx, init_arg, "PopStateEvent")?;
     let opts_id = opts_object_id(init_arg);
     // `state: any = null` (WHATWG HTML §7.2.7.2): missing / undefined
-    // both collapse to null (matches Chrome); user-supplied undefined
+    // both collapse to null; user-supplied undefined
     // is also coerced to null for parity (not strict WebIDL `any`
     // pass-through, but observable-compatible).
     let state_val = if let Some(opts_id) = opts_id {

@@ -71,7 +71,7 @@ where
 
 /// Read `href`, parse, mutate one component via the supplied closure,
 /// serialise, and write back to the `href` attribute.  No-op if the
-/// `href` attribute is unparseable (matches V8 / Firefox).  Returns
+/// `href` attribute is unparseable (HTML §4.6.3: each component setter returns when url is null).  Returns
 /// `Err` only for ECS access failures.
 pub fn href_url_set_component<F>(
     entity: Entity,
@@ -380,7 +380,7 @@ getter_handler!(HyperlinkSearchGet, "hyperlink.search.get", component_search);
 getter_handler!(HyperlinkHashGet, "hyperlink.hash.get", component_hash);
 
 /// `href` setter — replaces the entire URL via `EcsDom::set_attribute`
-/// canonical write path (lesson #181).  V8/Firefox precedent: invalid
+/// canonical write path (lesson #181).  `[ReflectSetter]` (HTML §2.6.2): invalid
 /// URL strings are still stored as-is (no parse-time TypeError).
 pub struct HyperlinkHrefSet;
 impl DomApiHandler for HyperlinkHrefSet {

@@ -448,7 +448,7 @@ pub(super) fn type_arg(
 /// or method against a specific subclass prototype.  Returns the
 /// receiver `ObjectId` if it is an `ObjectKind::Event` whose prototype
 /// chain includes `target_proto`; throws `TypeError(...)` otherwise —
-/// matches Chrome and WebIDL §3.7.2.4 brand-check semantics for IDL
+/// per WebIDL §3.7.6 (attributes) / §3.7.7 (operations) brand-check semantics for IDL
 /// `attribute` getters/setters and operations.
 ///
 /// `target_proto` should be the subclass prototype `ObjectId` (e.g.
@@ -634,7 +634,7 @@ pub(super) fn parse_event_init(
     match val {
         JsValue::Undefined | JsValue::Null => Ok(EventInit::default()),
         JsValue::Object(opts_id) => {
-            // Read order matches Chrome's invocation order: bubbles,
+            // Read order is WebIDL §3.2.17 step 4.1 (lexicographic): bubbles,
             // cancelable, composed (verified via userland getter probe).
             // Each `get_property_value` may fire user getters; side
             // effects on the init object are observable.
@@ -664,7 +664,7 @@ pub(super) fn parse_event_init(
 ///   coerce via `ToString` (Symbol throws).
 /// - `eventInitDict` optional; see [`parse_event_init`].
 /// - `new` required; call-mode (`Event('click')`) → `TypeError`
-///   (WebIDL `[Constructor]` gate — matches all major browsers).
+///   (WebIDL §3.7.1 interface object: NewTarget undefined → TypeError).
 fn native_event_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -715,10 +715,10 @@ fn native_custom_event_constructor(
     // Read `detail` separately — WebIDL `any` preserves the
     // supplied value including `undefined`.  Missing key also yields
     // `Undefined` from `get_property_value`; the WHATWG default is
-    // `null`.  We collapse both to `null` for parity with Chrome's
-    // common-case behaviour; a strict "own-key-present" distinction
-    // (which would preserve explicit `{detail: undefined}`) can be
-    // added later if tests require it.
+    // `null`.  Both collapse to `null`: WebIDL §3.2.17 step 4.1.5 applies
+    // the `= null` default when Get returns `undefined`, so an explicit
+    // `{detail: undefined}` is also `null` (no own-key distinction
+    // exists to add).
     let detail = match init_arg {
         JsValue::Object(opts_id) => {
             let v = ctx
@@ -808,7 +808,7 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 ///   - the key is absent (pure delete, no subsequent write) →
 ///     append a fresh entry with the `WEBIDL_RO` attrs the ctor
 ///     originally installed.
-///     Matches Chrome semantics (IDL attribute accessor reads the
+///     Rationale (an IDL attribute accessor reads the
 ///     internal slot even post-delete; dispatch re-installs the
 ///     property but respects any custom descriptor already in
 ///     place).

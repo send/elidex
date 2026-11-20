@@ -282,7 +282,7 @@ fn replace_child_requires_object_ref_args() {
 
 #[test]
 fn replace_child_self_replace_is_noop() {
-    // Browser parity (Chrome / Firefox / WebKit):
+    // DOM §4.2.3 "replace" returns child (step 11) for a self-replace:
     // `parent.replaceChild(x, x)` returns x without throwing —
     // the spec §4.4 step 8 reference-child adjustment makes the
     // insert+remove sequence collapse.  EcsDom::replace_child

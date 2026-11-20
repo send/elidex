@@ -320,17 +320,17 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::TextDecoder => CloneKind::Unclonable("TextDecoder"),
         // HTML §8.5.1 / §8.5.8 — `DOMParser` / `XMLSerializer` are not
         // [Serializable] (no IDL extended
-        // attribute); both throw DataCloneError in Chrome / Firefox.
+        // attribute); both throw DataCloneError (StructuredSerializeInternal step 21).
         ObjectKind::DomParser => CloneKind::Unclonable("DOMParser"),
         ObjectKind::XmlSerializer => CloneKind::Unclonable("XMLSerializer"),
         // CSSOM-View §4.3 — `Screen` is a live per-window singleton, not
-        // [Serializable]; throws DataCloneError in Chrome / Firefox. Without
+        // [Serializable]; StructuredSerializeInternal step 21 throws DataCloneError. Without
         // this arm the accessor-only Ordinary object would clone to `{}`
         // (DataCloneError-missing regression, T4). S5-2.
         ObjectKind::Screen => CloneKind::Unclonable("Screen"),
         // CSSOM-View §12.1 — `VisualViewport` is a live per-window
         // `EventTarget` singleton, not [Serializable]; throws DataCloneError in
-        // Chrome / Firefox. S5-2.
+        // StructuredSerializeInternal step 21. S5-2.
         ObjectKind::VisualViewport => CloneKind::Unclonable("VisualViewport"),
         ObjectKind::HtmlCollection => CloneKind::Unclonable("HTMLCollection"),
         ObjectKind::NodeList => CloneKind::Unclonable("NodeList"),
@@ -379,7 +379,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // D-9 events-modern-input — DataTransfer / Touch family
         // are not structured-cloneable (slot
         // `#11-events-modern-input`).  Match HTML §6.2 / Touch
-        // Events §5 implementation status in Chrome/Firefox
+        // Events §5 (not [Serializable]); StructuredSerializeInternal is
         // where these throw DataCloneError.
         ObjectKind::DataTransfer => CloneKind::Unclonable("DataTransfer"),
         ObjectKind::DataTransferItem { .. } => CloneKind::Unclonable("DataTransferItem"),
@@ -423,7 +423,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // disallowed: a single open `conn_id` per JS instance) or
         // transferring it (no [Transferable] IDL extended attribute
         // on either interface).  Throws DataCloneError consistent
-        // with Chrome / Firefox.
+        // with StructuredSerializeInternal step 21.
         ObjectKind::WebSocket => CloneKind::Unclonable("WebSocket"),
         ObjectKind::EventSource => CloneKind::Unclonable("EventSource"),
         // D-17 `#11-custom-elements-vm` — `CustomElementRegistry` is a
@@ -437,7 +437,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // engine-bridge `Wasm{Module,Instance,Memory,Table,Global,Func}`
         // handle whose `WasmStoreHandle` clone (F1 D-ii) belongs to the
         // owning agent's store (§4.1).  No `[Transferable]` IDL extended
-        // attribute on any of them.  Chrome / Firefox throw
+        // attribute on any of them, so StructuredSerializeInternal throws
         // `DataCloneError` on `structuredClone(memory)` etc.; matches
         // here (the helper turns `Unclonable` into `DataCloneError`
         // upstream).

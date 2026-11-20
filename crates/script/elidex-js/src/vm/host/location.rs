@@ -33,7 +33,7 @@
 //!
 //! `location.origin` mirrors HTML §7.2.3 "origin of a URL".  For
 //! schemes whose origin tuple is opaque (`file:`, `about:`, `data:`,
-//! `blob:`), the getter returns `"null"` — matching Blink / Gecko.
+//! some `blob:` URLs), the getter returns `"null"`.
 
 #![cfg(feature = "engine")]
 
@@ -175,7 +175,7 @@ pub(super) fn native_location_get_port(
 ) -> Result<JsValue, VmError> {
     // Default ports are stripped by the `url` crate (`port()`
     // returns None for `http://host/` even though the semantic port
-    // is 80) — matching WHATWG URL and what every browser returns.
+    // is 80) — the URL port state stores null for the default port.
     url_component(ctx, |u| match u.port() {
         Some(p) => p.to_string(),
         None => String::new(),

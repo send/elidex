@@ -32,7 +32,7 @@
 //! cannot predict the runtime nonce), and the boundary is always
 //! emitted with the leading `--` marker which would have to appear
 //! verbatim inside Blob bytes for the encoded body to be malformed.
-//! This matches Chromium / Firefox's "random boundary, no body
+//! `[evidence]` This matches Chromium / Firefox's "random boundary, no body
 //! scan" approach.
 //!
 //! Stdlib-only — no `getrandom` / `rand` workspace dependency
@@ -288,8 +288,8 @@ fn byte_slice_contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 /// Apply RFC 7578 header escaping to a name / filename: replace
 /// CR / LF / `"` with their `%0D` / `%0A` / `%22` percent-encoded
-/// forms, leaving every other byte untouched (matching Chromium /
-/// Firefox; the spec calls for HTML form-data escape rules).
+/// forms, leaving every other byte untouched (HTML §4.10.22.8
+/// multipart/form-data encoding algorithm: "must not perform any other escapes").
 fn header_quote(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(header_quoted_len(input));
     for &b in input {

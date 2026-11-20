@@ -126,7 +126,7 @@ pub(crate) fn native_ce_upgrade(
         return Ok(JsValue::Undefined);
     }
     // WebIDL `Node root` — required. A missing / non-Node arg throws
-    // a TypeError matching Chrome / Firefox wording.
+    // a TypeError matching Chrome / Firefox wording. [evidence]
     let root_value = args.first().copied().ok_or_else(|| {
         VmError::type_error(
             "Failed to execute 'upgrade' on 'CustomElementRegistry': \
@@ -140,7 +140,7 @@ pub(crate) fn native_ce_upgrade(
     // per HTML §4.13.4. Each candidate's constructor exception is
     // isolated (eprintln + continue) rather than propagated so a
     // single bad element does not abort the remaining candidates in
-    // the subtree (matches Blink's batch-upgrade isolation).
+    // the subtree (HTML §4.13.6: an upgrade reaction's exception is caught).
     let mut candidates: Vec<elidex_ecs::Entity> = Vec::new();
     {
         let host = ctx.host();

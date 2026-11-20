@@ -223,7 +223,7 @@ pub(super) fn construct_typed_array(
         },
         // Plain number (or anything number-coercible via ToNumber)
         // → length form.  Strings like `"5"` coerce too; this
-        // matches V8 / SpiderMonkey.  NaN → 0-length per ToIndex.
+        // is the ToIndex(firstArg) of TypedArray ( ...args ).  NaN → 0-length per ToIndex.
         _ => {
             let length = coerce::to_index_u32(ctx, arg0, ek.name(), "length")?;
             let byte_len = length

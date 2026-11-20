@@ -341,7 +341,7 @@ pub(super) fn map_selection_error(
 /// Read-only access to the Selection state + LiveRangeRegistry +
 /// `&EcsDom` + the active document entity.  Lazily initialises
 /// `host_data.selection_state` to a fresh empty state on first access
-/// (matches Chrome semantics — `getSelection()` always returns a
+/// (so `getSelection()` always returns a
 /// usable Selection, never null in our single-doc VM).
 ///
 /// Throws `InvalidStateError` if the VM is unbound (retained Selection

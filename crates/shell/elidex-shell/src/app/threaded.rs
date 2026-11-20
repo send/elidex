@@ -488,7 +488,7 @@ impl App {
                     return Some(ChromeAction::CloseTab(id));
                 }
                 // Ctrl/Cmd+1-8: switch to nth tab. Ctrl/Cmd+9: last tab
-                // (Chrome/Firefox convention).
+                // (Chrome/Firefox convention). [evidence]
                 winit::keyboard::Key::Character(c) => {
                     if let Some(digit) = c.as_str().chars().next().and_then(|ch| ch.to_digit(10)) {
                         if (1..=9).contains(&digit) {
@@ -509,8 +509,8 @@ impl App {
         }
 
         // Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs.
-        // NOTE: macOS HIG uses Cmd+Shift+]/[ for tab cycling, but Chrome/Firefox
-        // use Ctrl+Tab on all platforms. We follow the Chrome/Firefox convention.
+        // NOTE: macOS HIG uses Cmd+Shift+]/[ for tab cycling, but Chrome/Firefox [evidence]
+        // use Ctrl+Tab on all platforms. We follow the Chrome/Firefox convention. [evidence]
         if mods.control_key() {
             if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab) =
                 &key_event.logical_key

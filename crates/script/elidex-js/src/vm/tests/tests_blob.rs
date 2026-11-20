@@ -175,7 +175,7 @@ fn ctor_rejects_string_primitive_blob_parts() {
     // `sequence<BlobPart>` conversion throws a TypeError *before* the string
     // can be iterated per code point.  `new Blob('abc')` must reject — it
     // must NOT silently build a 3-byte "abc" Blob from the characters
-    // (matches Chrome; this is the cross-cutting reason the shared converter
+    // (this is the cross-cutting reason the shared converter
     // gained step 1 over PR201's step-1-less behaviour).
     assert!(eval_bool(
         &mut vm,

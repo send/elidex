@@ -187,7 +187,7 @@ fn iteration_sorts_by_lowercase_name() {
 fn foreach_receives_value_name_headers_args() {
     let mut vm = Vm::new();
     // WHATWG §5.2 `forEach(callback, thisArg)` — callback arity
-    // matches Chrome: `(value, name, headers) => ...`.
+    // is `(value, name, headers)` per WebIDL §3.7.9 forEach step 8.2.
     assert_eq!(
         eval_string(
             &mut vm,
