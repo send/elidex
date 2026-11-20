@@ -540,7 +540,7 @@ crates/script/elidex-js/src/vm/tests/tests_coroutine_creation_gc.rs`) by edge an
   roots `args` at `call_dispatch`'s entry (PM 851), the `call_internal`-entry cells
   (`host_call_generator_excess_argument_…`, `host_call_async_excess_argument_…`) are doubly rooted and no
   longer discriminate `create_coroutine`'s own `actual_args` rooting; the discriminating cells are the
-  `push_js_call_frame` ones. Measured at `d59b65b0` with rustc 1.99.1 (the same mutant): the five
+  `push_js_call_frame` ones. Measured at `c61a7524` with rustc 1.99.1 (the same mutant): the five
   `push_js_call_frame` excess-argument cells go red, both `host_call_*_excess_argument_*` cells stay green.
 - **Edge 28 (async), `actual_args` vector**: `async_excess_argument_survives_wrapper_promise_allocation`
   and `async_excess_argument_survives_coroutine_allocation` (`push_js_call_frame`, the collection at
