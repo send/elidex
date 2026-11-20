@@ -254,9 +254,9 @@ impl ScriptEngine for ElidexJsEngine {
         let target_wrapper = self.vm.inner.create_element_wrapper(event.target);
         let current_wrapper = self.vm.inner.create_element_wrapper(current_target);
 
-        // Build the per-listener event object, root it across the
-        // listener call (it has no other GC root until the call's
-        // arg slot becomes a stack frame), invoke the listener,
+        // Build the per-listener event object, root it (the call's own
+        // `args` rooting ends when the call returns, and the flag sync
+        // below reads it after), invoke the listener,
         // then sync flag fields back into `event.flags` so the next
         // listener / outer dispatch loop sees prior preventDefault /
         // stopPropagation calls.

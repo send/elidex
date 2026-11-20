@@ -12,11 +12,14 @@
 //! `upvalue_ids` and the combined args as Rust values.  `GetProp` pops the
 //! receiver before calling a getter, so the getter and its holder are in
 //! the same position.  Unless `call_dispatch` roots the callee, `this` and
-//! `args`, a collection at an allocation inside `call_internal` before the
-//! frame (or coroutine) holds them frees them:
-//! - the rest-parameter array (`create_array_object`), for any target with
-//!   a rest parameter;
-//! - the Generator object, for a generator target.
+//! `args`, a collection frees them:
+//! - callee / `this`: at an allocation inside `call_internal` before the
+//!   frame (or coroutine) holds them — the rest-parameter array
+//!   (`create_array_object`) or the Generator object (cells (a)–(f));
+//! - `args`: while the callee's body runs, for a value the caller still
+//!   holds only as a Rust value and the callee no longer references
+//!   (`SetProp`'s assigned value, cell (g)).  Before the frame owns them,
+//!   `call_internal`'s own allocations root the args they take.
 //!
 //! Placement: `setup` performs every allocation the case needs (the probed
 //! object is handed out through `mk()`, which drops the pool's reference,
@@ -160,4 +163,24 @@ fn value_of_holder_upvalue_survive_rest_array_allocation() {
          pool.push(o); o = undefined;"
     );
     assert_survives(&setup, "mk() + 0", 7.0, "valueOf upvalue + rest length");
+}
+
+/// (g) The `args` leg, across the callee's body: `SetProp` holds the
+/// assigned value as a Rust value and returns it as the assignment's
+/// result after the setter returns.  The setter overwrites its parameter
+/// before allocating, so while its body runs the value is held only by the
+/// call's `args` — `call_dispatch`'s entry scope is its one root.
+#[test]
+fn setter_argument_survives_allocation_in_setter_body() {
+    let setup = format!(
+        "{POOL} globalThis.vals = [{{tag: 7}}]; globalThis.mk2 = function () {{ return vals.pop() }}; \
+         var o = {{}}; Object.defineProperty(o, 'x', {{ set: function (v) {{ v = 0; var t = {{}}; }} }}); \
+         pool.push(o); o = undefined;"
+    );
+    assert_survives(
+        &setup,
+        "(mk().x = mk2()).tag",
+        7.0,
+        "assigned value after the setter",
+    );
 }
