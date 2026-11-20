@@ -55,7 +55,7 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   event and dirty flag and no `change` event (`.claude/tools/webref body html the-textarea-element | /usr/bin/grep -c 'named change'` → 0).
   elidex fires change-on-blur for `<textarea>` too (P2), as browsers do [history]. So for textarea the rule is browser behaviour,
   not spec text: the §6 pre-step measured textarea separately (identical to `<input>` in every case), and §3 marks the row.
-  **Correction (PM 432, 2026-11-20; added after landing):** the ground is not browser behaviour. The spec is silent
+  **Correction (PM 432, 2026-11-20; added after landing):** the ground is not browser behaviour [contrast]. The spec is silent
   on a textarea's `change`, and elidex's own principle decides; the principle is stated in
   `docs/plans/2026-11-change-on-blur-spec-rederivation.md` §4.2 (E-13). The measurement is `[history]`.
 - **E2 (brief, Q7 list)** — "spin/step for number": `<input type=number>` has **no user edit path** in the shell. It is not a

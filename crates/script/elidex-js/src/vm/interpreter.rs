@@ -236,29 +236,9 @@ impl VmInner {
             self.stack.len(),
             entry_stack_depth,
         );
-        // Close upvalues on any frames above the entry depth BEFORE
-        // truncating — otherwise an Upvalue still in
-        // `UpvalueState::Open { frame_base, slot }` would point at a
-        // stack index the `stack.truncate` drops, causing OOB or
-        // silent slot reuse on subsequent reads. Iterate from the top
-        // (`frames.last()`) downward so a closure escaped from frame
-        // N capturing frame N-1's local still observes the snapshot
-        // taken at frame N-1's close. The `Ok(Ok(_))` arm's truncates
-        // below are no-ops (asserted above), so this loop only does
-        // real work on the Err and panic paths.
-        while self.frames.len() > entry_frames {
-            // Pop first so the owned `frame.local_upvalue_ids` Vec
-            // can be passed to `close_upvalues` without cloning.
-            // `close_upvalues` reads `self.stack[frame_base + slot]`
-            // by absolute index, so doing the pop before the stack
-            // truncate (which happens after the loop) is still safe.
-            let frame = self
-                .frames
-                .pop()
-                .expect("frames.len() > entry_frames per loop guard");
-            self.close_upvalues(&frame.local_upvalue_ids);
-        }
-        self.stack.truncate(entry_stack_depth);
+        // No-op on the `Ok(Ok(_))` arm (asserted above); real work on the
+        // Err and panic paths.
+        self.unwind_to(entry_frames, entry_stack_depth);
         // Outer restore (Ok/Err/panic equally). `gc_enabled` /
         // `active_bound_key` wrap the NativeFunction arm's
         // per-invocation inner save/restore; `completion_value` is

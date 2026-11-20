@@ -87,7 +87,7 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
     // 2. Fragment check. Runs before the SSRF extension so the
     //    spec-mandated SyntaxError precedence is preserved (e.g.
     //    `ws://localhost/#frag` reports the fragment violation, not the
-    //    SSRF block, matching browser behaviour).
+    //    SSRF block).
     if url.fragment().is_some() {
         return Err("URL must not contain a fragment".to_string());
     }

@@ -541,7 +541,7 @@ pub enum NavClass {
 ///
 /// The fragment-**removal** case (`http://x/a#x` → `http://x/a`) is
 /// `CrossDocument`: the target's fragment is null, so step 15's fourth conjunct
-/// fails and the navigation is a full reload — matching real browsers. A naive
+/// fails and the navigation is a full reload. A naive
 /// "fragments differ" predicate would wrongly treat removal as same-document
 /// (pinned in the truth-table test).
 pub fn classify_navigation(current: &url::Url, target: &url::Url) -> NavClass {
