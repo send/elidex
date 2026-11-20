@@ -8,7 +8,8 @@ test_ecs_mission_ratchet.py compares them when the hook file is present.
 
 The hook only sees Write/Edit tool calls. This ratchet reads every tracked file and
 compares the lines the classifier denies against `ecs-mission-allowlist.tsv`
-(one row per occurrence). The allowlist only shrinks: there is no command that adds a row.
+(one row per occurrence). The allowlist only shrinks (PM 433), with two command-only exceptions (PM 855, 857): rows are appended only through `--add-new`, which itself refuses lines the base classifier already denies; existing rows may move to a heavier class (T/D) only through `--relabel`, which keeps the row count. Both take a class T or D and a slot; the PR body lists the rows and the command. Every other row change is a deletion.
+The lexical classifier is a floor, not the population (a paraphrase, or a phrase split across lines, is not caught); the population is covered by the recurring ledger slot `#11-ecs-mission-concept-sweep`.
 Not scanned: the allowlist (its rows would each be a hit for themselves) and SELF_FILES (this
 module, its test, its fixtures), which hold the classifier's vocabulary and deny examples by
 construction (class N); scanning them would make every fixture edit an allowlist addition.
@@ -27,7 +28,8 @@ axes.md Axis 2 sub-check 2d (authority source) grades them.
 Slot ids are checked for shape only (`#11-<kebab>`); that each one exists in the defer ledger is
 checked by the PM's periodic ledger check, not here (an in-repo registry would duplicate the ledger).
 
-Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune]
+Usage: python3 .claude/tools/ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> | --relabel <spec.tsv>]
+The base of --add-new is always origin/main (not choosable from the command line); its sha is printed.
 """
 import collections
 import os
@@ -39,7 +41,7 @@ BROWSER = re.compile(
     r"(?<![A-Za-z0-9_])(Chromium|Chrome|Blink|V8|Firefox|Gecko|SpiderMonkey|Safari|WebKit|JSC|JavaScriptCore|Servo|Ladybird)(?![A-Za-z0-9_])",
     re.I)
 GENERIC = re.compile(
-    r"(?<![A-Za-z0-9_])(?:all browsers|every browser|browsers do|major browsers|other engines|production[- ]engine|like browsers)(?![A-Za-z0-9_])",
+    r"(?<![A-Za-z0-9_])(?:all browsers|every browser|browsers do|major browsers|other engines|production[- ]engine|like browsers|browser behaviou?r|real browsers|browsers? (?:accept|reject)s?)(?![A-Za-z0-9_])",
     re.I)
 TAG = re.compile(r"\[(?:spec|evidence|compat|contrast|history)\]", re.I)
 TOOL_NAMES = ("mcp__claude-in-chrome", "claude-in-chrome", "Claude-in-Chrome", "ChromeDriver", "chromedriver")
@@ -55,6 +57,8 @@ UA_STRIP = (
 )
 
 CLASSES = "SECTDN"
+LIGHT = ("S", "E", "C", "N")  # the classes --relabel may move to T/D (a tuple: exact membership, not substring)
+ADD_CLASSES = ("T", "D")  # the only classes --add-new may append (a tuple: "" or "TD" is not a member)
 SLOT = re.compile(r"^#11-[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ecs-mission-allowlist.tsv")
 SELF_FILES = tuple(".claude/tools/" + n for n in (
@@ -62,7 +66,9 @@ SELF_FILES = tuple(".claude/tools/" + n for n in (
 
 REMEDY = (
     "Tag the line per CLAUDE.md 至上命題 bullet 3 ([spec] / [evidence] / [compat] / [contrast] / [history]), "
-    "or rewrite it without the engine name. Adding an allowlist row is not a remedy: the allowlist only shrinks."
+    "or rewrite it without the engine name. Adding an allowlist row is not a remedy: the allowlist only shrinks. "
+    "Inside /// and //! doc comments write the tag as a code span (`[evidence]`): rustdoc reads a bare [evidence] "
+    "as an intra-doc link and -D warnings fails."
 )
 
 
@@ -169,27 +175,43 @@ def _rel(repo_root, p):
     return os.path.relpath(full, os.path.realpath(repo_root)).replace(os.sep, "/")
 
 
+def parse_tsv(text):
+    """-> list of (lineno, fields) for every non-comment non-blank line (1-based, '\n'-numbered)."""
+    return [(i, raw.split("\t")) for i, raw in enumerate(text.split("\n"), 1)
+            if not raw.startswith("#") and raw.strip()]
+
+
 def read_allowlist(path):
-    """-> list of (tsv_lineno, fields) for every non-comment non-blank line."""
-    rows = []
     try:
         with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
+            return parse_tsv(f.read())
     except FileNotFoundError:
-        return rows
-    for i, raw in enumerate(lines, 1):
-        if raw.startswith("#") or not raw.strip():
-            continue
-        rows.append((i, raw.split("\t")))
-    return rows
+        return []
+
+
+def write_allowlist(path, comment_lines, rows):
+    """The one allowlist writer: comment lines, then rows (field lists) stably sorted by (path, text)."""
+    body = ["\t".join(r) for r in sorted(rows, key=lambda r: (r[2], r[3]))]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(list(comment_lines) + body) + "\n")
+
+
+def _comments(path):
+    with open(path, encoding="utf-8") as f:
+        return [l for l in f.read().split("\n") if l.startswith("#")]
+
+
+def _shape_errs(rows):
+    """The column-count errors of `malformed`: a writer refuses to rewrite an allowlist that has any."""
+    return ["allowlist line %d: malformed row (need 4 TAB-separated columns, got %d)" % (n, len(f))
+            for n, f in rows if len(f) != 4]
 
 
 def malformed(rows):
-    errs = []
+    errs = _shape_errs(rows)
     prev = None
     for n, f in rows:
         if len(f) != 4:
-            errs.append("allowlist line %d: malformed row (need 4 TAB-separated columns, got %d)" % (n, len(f)))
             continue
         cls, slot, path, text = f
         if cls not in list(CLASSES):
@@ -252,14 +274,140 @@ def prune(repo_root, allowlist_path):
     """Rewrite the allowlist dropping only stale rows. Never adds. -> (dropped, post-prune diff)."""
     rows, new, stale = _diff(repo_root, allowlist_path)
     drop = {n for n, _ in stale}
-    if not drop:
+    if not drop or _shape_errs(rows):  # a malformed row blocks the write; `errors` reports it
         return 0, (rows, new, stale)
-    with open(allowlist_path, encoding="utf-8") as f:
-        lines = f.read().split("\n")
-    kept = [l for i, l in enumerate(lines, 1) if i not in drop]
-    with open(allowlist_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(kept))
+    write_allowlist(allowlist_path, _comments(allowlist_path), [f for n, f in rows if n not in drop])
     return len(drop), (read_allowlist(allowlist_path), new, [])
+
+
+def base_denied(repo_root, rev):
+    """`denied` of the classifier committed at `rev`; raises if unreadable (an unknown base accepts nothing)."""
+    ns = {"__name__": "ecs_ratchet_base", "__file__": rev}
+    exec(compile(_git(["show", rev + ":.claude/tools/ecs_mission_ratchet.py"], repo_root).decode("utf-8"), rev, "exec"), ns)
+    return ns["denied"]
+
+
+def add_new(repo_root, allowlist_path, spec_rows, base="origin/main"):
+    """Append rows for lines that are new hits now and that the classifier at `base` did not deny.
+    All-or-nothing. -> (errs, added rows).
+    Each spec row is class, slot, path, line_no (1-based, '\\n'-numbered). "New hit" is _diff's `new`."""
+    try:
+        was_denied = base_denied(repo_root, base)
+    except Exception as e:
+        return ["base %s unreadable (%s); nothing accepted" % (base, type(e).__name__)], []
+    rows, new, _ = _diff(repo_root, allowlist_path)
+    shape = _shape_errs(rows)
+    if shape:
+        return shape + ["allowlist has malformed rows; nothing written"], []
+    text_at = {(p, ln): t for p, ln, t in new}
+    existing = collections.Counter((f[2], f[3]) for _, f in rows)
+    at_base = {}
+    used = collections.Counter()
+    named = set()
+    errs = []
+    added = []
+    for n, f in spec_rows:
+        where = "spec line %d" % n
+        if len(f) != 4:
+            errs.append("%s: need 4 TAB-separated columns (class, slot, path, line_no), got %d" % (where, len(f)))
+            continue
+        cls, slot, path, ln_s = f
+        if cls not in ADD_CLASSES:
+            errs.append("%s: class %r rejected: only T or D rows can be added; S/E/C/N are fixed by tag or rewrite, not rows" % (where, cls))
+            continue
+        if not SLOT.match(slot):
+            errs.append("%s: bad slot %r: T/D rows need a '#11-<kebab>' slot" % (where, slot))
+            continue
+        ln = _parse_ln(ln_s)
+        if ln is None:
+            errs.append("%s: bad line_no %r (need an integer >= 1)" % (where, ln_s))
+            continue
+        if (path, ln) not in text_at:
+            errs.append("%s: %s:%s is not a new hit (not denied, not scanned, out of range, or already covered)" % (where, path, ln))
+            continue
+        if (path, ln) in named:
+            errs.append("%s: %s:%s is named twice" % (where, path, ln))
+            continue
+        named.add((path, ln))
+        key = (path, text_at[(path, ln)])
+        if not denied(key[1]):
+            errs.append("%s: %s:%s: normalised text is not itself denied by the classifier (the row would be malformed)" % (where, path, ln))
+            continue
+        if was_denied(_line_of(repo_root, path, ln)):
+            errs.append("%s: not newly denied by this classifier change (base %s already denies it, or it is not denied now)" % (where, base))
+            continue
+        if path not in at_base:
+            at_base[path] = _base_texts(repo_root, base, path)
+        if at_base[path] is None or not at_base[path][key[1]] - existing[key] - used[key] > 0:
+            errs.append("%s: line not present at base %s: new text must be tagged or rewritten, not allowlisted" % (where, base))
+            continue
+        used[key] += 1
+        added.append([cls, slot, path, key[1]])
+    if errs:
+        return errs, []
+    write_allowlist(allowlist_path, _comments(allowlist_path), [f for _, f in rows] + added)
+    return [], ["\t".join(r) for r in sorted(added, key=lambda r: (r[2], r[3]))]
+
+
+def relabel(repo_root, allowlist_path, spec_rows):
+    """Move existing rows to class T or D with a slot; never changes the row count. All-or-nothing.
+    Spec rows: class, slot, path, line_no. -> (errs, ["old -> new", ...])."""
+    rows, _, _ = _diff(repo_root, allowlist_path)
+    shape = _shape_errs(rows)
+    if shape:
+        return shape + ["allowlist has malformed rows; nothing written"], []
+    rows = [(n, list(f)) for n, f in rows]
+    errs, moved = [], []
+    for n, f in spec_rows:
+        where = "spec line %d" % n
+        if len(f) != 4 or f[0] not in ADD_CLASSES or not SLOT.match(f[1]) or _parse_ln(f[3]) is None:
+            errs.append("%s: need class T or D, a '#11-<kebab>' slot, path, line_no" % where)
+            continue
+        cls, slot, path, ln = f
+        text = _line_of(repo_root, path, _parse_ln(ln))
+        if text is None or not denied(text):
+            errs.append("%s: %s:%s is not a denied line now" % (where, path, ln))
+            continue
+        hit = next((i for i, (_, r) in enumerate(rows) if r[2] == path and r[3] == normalise(text) and r[0] in LIGHT), None)
+        if hit is None:
+            errs.append("%s: no allowlist row of class S/E/C/N for %s:%s (T/D rows are never moved)" % (where, path, ln))
+            continue
+        old = "\t".join(rows[hit][1])
+        rows[hit][1][:2] = [cls, slot]
+        moved.append("%s -> %s" % (old, "\t".join(rows[hit][1])))
+    if errs:
+        return errs, []
+    write_allowlist(allowlist_path, _comments(allowlist_path), [r for _, r in rows])
+    return [], moved
+
+
+def _parse_ln(s):
+    """A 1-based line number from spec text, or None (int() rejects what isdigit() accepts, e.g. '\u00b2')."""
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    return n if n >= 1 else None
+
+
+def _line_of(repo_root, path, ln):
+    """The raw '\n'-line `ln` (1-based) of the file as `scan` reads it (bytes, no newline translation)."""
+    if ln < 1:
+        return None
+    try:
+        with open(os.path.join(repo_root, path), "rb") as f:
+            return f.read().decode("utf-8", "replace").split("\n")[ln - 1]
+    except (OSError, IndexError):
+        return None
+
+
+def _base_texts(repo_root, rev, path):
+    """Counter of normalised line texts of `path` as committed at `rev`, or None if it is not there."""
+    try:
+        blob = _git(["show", "%s:%s" % (rev, path)], repo_root)
+    except Exception:
+        return None
+    return collections.Counter(normalise(l) for l in blob.decode("utf-8", "replace").split("\n"))
 
 
 def repo_root_of(path):
@@ -267,14 +415,28 @@ def repo_root_of(path):
 
 
 def main(argv):
-    if argv not in ([], ["--prune"]):
-        print("usage: ecs_mission_ratchet.py [--prune]", file=sys.stderr)
+    mode = argv[0] if argv else None
+    if not (argv == [] or argv == ["--prune"] or (len(argv) == 2 and mode in ("--add-new", "--relabel"))):
+        print("usage: ecs_mission_ratchet.py [--prune | --add-new <spec.tsv> | --relabel <spec.tsv>]", file=sys.stderr)
         return 2
-    do_prune = argv == ["--prune"]
     root = repo_root_of(os.path.dirname(os.path.abspath(__file__)))
-    if do_prune:
+    if mode in ("--add-new", "--relabel"):
+        with open(argv[1], encoding="utf-8") as f:
+            spec = parse_tsv(f.read())
+        errs, done = add_new(root, DEFAULT_ALLOWLIST, spec) if mode == "--add-new" else relabel(root, DEFAULT_ALLOWLIST, spec)
+        if errs:
+            print("\n".join(errs))
+            print("ecs-mission-ratchet: %s rejected; nothing written" % mode)
+            return 1
+        if mode == "--add-new":
+            print("base: origin/main = %s" % _git(["rev-parse", "origin/main"], root).decode().strip())
+        for r in done:
+            print(("added: " if mode == "--add-new" else "relabelled: ") + r)
+        diff = _diff(root, DEFAULT_ALLOWLIST)
+    elif mode == "--prune":
         n, diff = prune(root, DEFAULT_ALLOWLIST)
-        print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
+        if not _shape_errs(diff[0]):
+            print("ecs-mission-ratchet: pruned %d stale row(s)" % n)
     else:
         diff = _diff(root, DEFAULT_ALLOWLIST)
     errs = errors(*diff)

@@ -171,7 +171,7 @@ The predicate is **`equals-excluding-fragments AND target-URL-fragment-is-NON-NU
 
 1. **Fragment removal `/a#x → /a`** (target fragment = **null**): the cluster predicate (frags differ)
    classifies it **Fragment** + fires hashchange. The **spec** (target fragment null ⇒ step 15 fails)
-   classifies it **CrossDocument** — a full reload. **Real browsers reload on fragment removal.**
+   classifies it **CrossDocument** — a full reload.
    Implementing the cluster predicate turns a reload into a silent no-rebuild + a spurious hashchange.
 2. **Identical-including-fragment `/a#x → /a#x`** via `location.href` (target fragment `x`, non-null): the
    cluster predicate (frags equal) → **Reload/CrossDocument**. The **spec** (step 15 satisfied) →

@@ -335,8 +335,8 @@ fn native_plugin_array_refresh(
 /// session (the UA-level cookie capability). It is deliberately **not** narrowed
 /// by the current document's origin: a cookie-capable session reports `true` even
 /// at host-less `about:blank` / `data:` or before the first HTTP navigation,
-/// matching real browsers (which expose `cookieEnabled` as the global cookie
-/// setting, not per-document write-eligibility) and the normative §8.10.1.5 text
+/// since `cookieEnabled` is the global cookie
+/// setting, not per-document write-eligibility, per the normative §8.10.1.5 text
 /// ("the user agent attempts to handle cookies", not "a write at this URL would
 /// succeed"). The host-less `document.cookie` write behavior is the separate
 /// `#11-cookie-opaque-origin-securityerror` concern, not this signal. Reads shared
