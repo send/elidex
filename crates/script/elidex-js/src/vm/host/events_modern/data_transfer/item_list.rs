@@ -1,4 +1,5 @@
-//! `DataTransferItemList` constructor + prototype (HTML DnD §6.2 / §6.3).
+//! The `DataTransferItemList` interface (HTML §6.11.3.1): registration and
+//! prototype natives.
 
 use super::super::super::super::shape;
 use super::super::super::super::value::{

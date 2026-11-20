@@ -1,5 +1,6 @@
-//! `DataTransfer` + `DataTransferItem` + `DataTransferItemList`
-//! constructors + prototypes (HTML DnD §6.2 / §6.3).
+//! The `DataTransfer` interface (HTML §6.11.3): constructor, prototype
+//! and the drag data store state shared with `DataTransferItem` /
+//! `DataTransferItemList` (see Submodules).
 //!
 //! ## State storage
 //!
@@ -13,13 +14,6 @@
 //!   wrapper store under `WrapperKind::DataTransferItem`.
 //! - `DataTransferItemList` → wrapper-only, single instance per
 //!   parent; cached on `DataTransferState::items_wrapper`.
-//!
-//! ## Deferred (D-14 paired)
-//!
-//! - `DataTransfer.files` accessor returns an empty FileList stub
-//!   (slot `#11-data-transfer-file-paired`).
-//! - `DataTransferItem.getAsFile()` returns null.
-//! - `DataTransferItemList.add(File)` overload throws TypeError.
 //!
 //! ## Deferred (paint pipeline)
 //!
