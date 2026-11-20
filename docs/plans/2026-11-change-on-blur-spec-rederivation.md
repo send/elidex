@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.1, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.2, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -21,9 +21,10 @@ comes from the spec, then from elidex's own principles where the spec is silent;
   - **(a)** the value at focus loss equals the first-focus value → H fires `change`; the spec fires none under every
     reading of the sentence. **[spec]**.
   - **(b)** the value differs from the first-focus value and the user's edits net to nothing → H fires none. Step
-    2.1's text alone does **not** determine this class (§4.1); §4.10.5.5 does: **D-3 is decided, K-first** (PM 866),
-    so no `change` fires. That is H's outcome: class (b) is **not a defect** **[spec]**. The same holds for M1 and
-    M6, where the user did change the value and H fires `change`, as K-first does.
+    2.1's text alone does **not** determine this class (§4.1), and §4.10.5.5 leans without deciding. The K-first
+    predicate the user chose decides it: **D-3 (K-first, the user's choice, PM 866; ground corrected PM 870)**, so no
+    `change` fires. That is H's outcome: class (b) is **not a defect**. The same predicate decides M1, M6 and S*,
+    where H fires `change`, as K-first does.
 - **The snapshot's population** (E-19) differs from the spec: a control whose `type` changes from a non-text kind to
   a text kind while focused has no snapshot, so a user edit there fires no `change`; and a user-edited text control
   whose `type` changes to Number, Range or a date / time kind loses its mark. Defect **DF-2** (§6). **[spec]**.
@@ -78,7 +79,9 @@ Spec text is quoted from `.claude/tools/webref body …`, fetched 2026-11-20 (co
 
 ### §0.4 Decisions
 
-Each line names the ground-order step that decided it.
+Each line names the ground-order step that decided it. The one exception is D-3: no step of the ground order decided
+it (step 2.1's text is undetermined, §4.10.5.5 leans without deciding, and the principle lens did not settle, §4.1),
+so the user decided it (PM 866; ground corrected PM 870), and it carries no step label.
 
 - **D-1 The mark, the funnel, the provenance rule, the commit point, the event order and the kind boundary hold on spec
   text** — [spec]: §4.10.5.5, §6.6.4 step 2.1, §2.1.4, UI Events §3.3.2 (table §4, E-1 to E-4, E-6 to E-12, E-14, E-17,
@@ -87,14 +90,15 @@ Each line names the ground-order step that decided it.
   parenthetical (Q1), under every reading of it (§4.1). H's baseline (the value before the first user value change)
   fires one in class (a). It has no ground in spec text or in an elidex principle; its only source is the #597
   measurement [history]. Recorded as defect DF-1 (a); this memo does not change the behaviour.
-- **D-3 The mixed class — decided: K-first (PM 866, 2026-11-20, the user's choice)** — [spec]. When a non-user
-  write and a user value change both happened while the control was focused, the value differs from the first-focus
-  value, and the readings of §4.1 split (class (b), M1 and M6), `change` fires iff the user changed the value,
-  `V ≠ F0`, and `V` differs from the value just before the first user value change (K-first, §4.1). Step 2.1's text
-  alone does not determine the class (§4.1). §4.10.5.5 decides class (b) (Q5: "These events are not fired in
-  response to changes made to the values of form controls by scripts."): the user's edits net to nothing, the whole
-  difference from `F0` is the script's, and no `change` fires. In M1 and M6 the user did change the value, and
-  `change` fires. K-last and L are rejected (§4.1). "K-first is closest to what landed" is not a ground
+- **D-3 The mixed class — decided: K-first (PM 866, 2026-11-20, the user's choice)** — ground: the user's choice
+  (PM 866; ground corrected PM 870); no step label (above). When a non-user write and a user value change
+  both happened while the control was focused, the value differs from the first-focus value, and the readings of
+  §4.1 split (class (b), M1, M6 and S*), `change` fires iff the user changed the value, `V ≠ F0`, and `V` differs
+  from the value just before the first user value change (K-first, §4.1). The outcomes of class (b), M1, M6 and S*
+  follow from that predicate; step 2.1's text alone does not determine them (§4.1). §4.10.5.5 (Q5: "These events are
+  not fired in response to changes made to the values of form controls by scripts.") stays a lean: K-first applies
+  it only to the value before the first user edit, not to later script writes (the uneven application §4.1 noted).
+  So class (b) fires no `change`; M1, M6 and S* fire. K-last and L are rejected (§4.1). "K-first is closest to what landed" is not a ground
   (後方互換性は維持しない). The readings not chosen (L, K-last) go to the compat layer only if content needs them.
 - **D-4 `<textarea>` fires change-on-blur under the same predicate as `<input>`** — [spec] silent (PE-2);
   [principle] decides (§4.2): One issue, one way — the text-control class has one edit funnel and one commit
@@ -163,7 +167,7 @@ None new. The memo touches two existing ones and leaves both intact.
 | WHATWG HTML §6.6.4 Processing model | *focus update steps* steps 2.1 → 2.4, 4.1 | `change` before `blur`; the old entry stays the focused area during `change` | re-derived, E-10 | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | *focusing steps* step 5; *unfocusing steps* step 8 | already focused → return; every focus loss reaches the focus update steps | re-derived, E-8, E-17 | ✓ | yes |
 | WHATWG HTML §4.10.5.5 Common event behaviors | the three user-interface classes; "without an explicit commit action" | text control = no commit action; `change` at focus loss | re-derived, E-1, E-3, E-4, E-11, E-15 | ✓ | yes |
-| WHATWG HTML §4.10.5.5 Common event behaviors | "not fired in response to changes made … by scripts"; state restoration; "on behalf of the user" | non-user writers fire nothing and do not mark; class (b) fires no `change` (D-3) | re-derived, E-2, E-6, D-3 | ✓ | yes |
+| WHATWG HTML §4.10.5.5 Common event behaviors | "not fired in response to changes made … by scripts"; state restoration; "on behalf of the user" | non-user writers fire nothing and do not mark; class (b)'s no `change` is decided by D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), which this section leans toward without deciding | re-derived, E-2, E-6, D-3 | ✓ | yes |
 | WHATWG HTML §4.10.22.2 Implicit submission | default button → `click`; no submit button → the blocking-field count, then submit | names no `change`, no focus change | re-derived, E-15, §5 | ✓ | yes |
 | WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule | spec silent on `change`; decided by principle | re-derived, E-13 | ✓ | yes |
 | WHATWG HTML §4.10.7 The select element | *send select update notifications* | `input` then `change`, own commit | boundary only, E-14; `#11-select-keyboard-change-event` | ✗ | yes |
@@ -221,7 +225,7 @@ Verdict column: **holds** = H's behaviour is what the named ground requires; **d
 | E-2 | No non-user writer marks: the `value` setters, `defaultValue`, the `value` attribute, type-change and `multiple` sanitization, `setRangeText`, form reset (plan (1) W1–W8) | Q5. A reset and a sanitization are the user agent's algorithms, not "the user" of Q1 | — | — | holds [spec] |
 | E-3 | `input` fires iff the user changed the value; bubbles and composed | Q3 (input), Q8 (textarea) | — | — | holds [spec] |
 | E-4 | A text control's only commit point is the loss of focus | Q3: typing is a change "without an explicit commit action" (Q4 names typing and pasting), and its `change` "will be fired when the control loses focus"; Q1 fires it | — | — | holds [spec] |
-| E-5 | **The baseline**: the value just before the first user value change since focus (P1, P3). A non-user write made before that change moves the baseline | Q1: "different to what it was when the control was first focused". Under every reading, no `change` fires when the value equals the first-focus value (§4.1). For the mixed class where the value differs, Q1 alone does not determine the outcome (§4.1); Q5 decides class (b): no `change`; in M1 and M6 the user did change the value: `change` (D-3, K-first, PM 866) | not reached for the mixed class: rung 1 decides it (D-3). The lens alone did not select a reading (§4.1) | the #597 runs M4, M9 and W3–W8, measured on one engine [history]; a ground for nothing | **differs** in class (a) [spec] → DF-1 (a). Class (b), M1, M6: holds [spec] (D-3) |
+| E-5 | **The baseline**: the value just before the first user value change since focus (P1, P3). A non-user write made before that change moves the baseline | Q1: "different to what it was when the control was first focused". Under every reading, no `change` fires when the value equals the first-focus value (§4.1). For the mixed class where the value differs, Q1 alone does not determine the outcome (§4.1), and Q5 leans without deciding | the lens did not select a reading (§4.1). The mixed class is decided by D-3 (K-first, the user's choice, PM 866; ground corrected PM 870): class (b) no `change`; M1, M6 and S* `change` | the #597 runs M4, M9 and W3–W8, measured on one engine [history]; a ground for nothing | **differs** in class (a) [spec] → DF-1 (a). Class (b), M1, M6, S*: holds under D-3 (K-first, the user's choice, PM 866; ground corrected PM 870) |
 | E-6 | No mark → no `change`: a script-only change fires nothing (M0, M5) | Q1 "the user has changed"; Q5 | — | — | holds [spec] |
 | E-7 | A user edit that is undone before blur fires no `change` (M7) | Q1's parenthetical: the value is not different from what it was at first focus | — | — | holds [spec] |
 | E-8 | Every focus-loss path runs the same substep: a user focus move, the unfocusing steps, the rendering-time fixup (P6). VM `focus()` / `blur()` do not yet (P9) | Q10: the focusing steps and the unfocusing steps both end in the focus update steps; `focus()` and `blur()` run them too (`webref body html dom-focus`: "Run the focusing steps for this"; "run the unfocusing steps given this") | — | — | holds [spec] for the sink paths. The VM gap is known and owned: `#11-vm-host-synthetic-dom-event-dispatch` (A2c), record R-1 of plan (1). No new defect |
@@ -276,6 +280,12 @@ can be computed from facts written at defined instants (others may exist):
 | M1 (cell C4): user types `a`; script `third` | `""` | `"third"` | `change` | `change` | none | `change` |
 | M6: script `x`; user types `a`; script `y` | `""` | `"y"` | `change` | `change` | none | `change` |
 | class (b), M9 (cells C20–C26, C7 (l)): script `x`; user types `y`, Backspace | `"a"` | `"x"` | `change` | none | none | none |
+| S* (cell DC-17): script `x`; user types `a`, Backspace (value `"x"`); script `y` | `""` | `"y"` | `change` | `change` | none | `change` |
+
+S* differs from M6 only in the user's net edit: in M6 it is non-zero (`x` → `xa`), in S* it is zero (`a`, then
+Backspace), so the whole difference from `x` to `y` is the script's; K-first still fires, because it compares `V`
+with the value just before the first user edit (`"x"`), not with the value the last script write left (`"y"`, which
+is K-last's comparison).
 
 So:
 
@@ -283,7 +293,7 @@ So:
 - **M2, M3 and M8 are not in dispute**: every reading gives H's outcome.
 - **Class (b), M1 and M6 are not determined by step 2.1's text alone.** On M1 the correction to rev 1: rev 1 said L
   and K agree on M1 and also that K is undefined on it. The second statement is the true one. K-first and K-last
-  differ on M1 and M6, so both belong with class (b). D-3 decides the three (below): K-first's column.
+  differ on M1 and M6, so both belong with class (b); S* likewise. D-3 decides the four (below): K-first's column.
 
 **The weight of Q5.** "These events are not fired in response to changes made to the values of form controls by
 scripts." In class (b), and in M1 and M6, the value's difference from `F0` at focus loss comes only from a script
@@ -294,15 +304,17 @@ easier to update the values of form controls in response to the user manipulatin
 then filter out the script's own changes to avoid an infinite loop") is met by every reading, since under none of
 them does a script write alone fire an event; and K-first does not apply the lean evenly (it fires on M1 and M6,
 where the difference is also only the script's). Q5 leans; it does not decide. Q13 (non-normative: "when the user
-commits a value change") leans the same way for class (b). *[Rev 3: superseded by D-3 below. The PM reads Q5 as
-deciding class (b) at rung 1, and answers the remark on M1 and M6: there the user did change the value.]*
+commits a value change") leans the same way for class (b). *[Rev 3 marked this paragraph superseded by D-3, on
+PM 866's reading that Q5 decides class (b) at rung 1. Rev 3.2 (PM 870) withdraws that mark: this paragraph's reading
+stands — Q5 leans and does not decide. D-3 is the user's choice of the K-first predicate, which applies the lean only
+to the value before the first user edit; the outcomes of class (b), M1, M6 and S* follow from that predicate.]*
 
 **The principle rung — lens.** One line per principle of CLAUDE.md's Design philosophy and Design discipline:
 which reading it selects or rejects.
 
 | Principle | Selects / rejects | Why |
 |---|---|---|
-| Ground order (spec → principles → evidence) | selects none; rejects the #597 measurement as a ground for K-first | the text is undetermined here; Q5 leans K without deciding (rev 3: the PM reads Q5 as deciding class (b), D-3); a measurement is `[evidence]` at most and is reached only if this table selects nothing |
+| Ground order (spec → principles → evidence) | selects none; rejects the #597 measurement as a ground for K-first | the text is undetermined here; Q5 leans K without deciding (D-3 is the user's choice, not a rung-1 decision: PM 870); a measurement is `[evidence]` at most and is reached only if this table selects nothing |
 | ECS-native first | selects none | L, K-first and K-last are each one component on the control read by one judgement function, every fact written at a defined instant by the seed or the funnel. L stores `F0` and the mark; K-first stores `F0` and the pre-edit value; K-last one fact more. A count of fields is not an ECS principle. The rule excludes another engine's internal field as a *ground* for K-first; it does not exclude the outcome |
 | Whole-engine core / compat / deprecated | selects none | all three are readings of the standard text; none is legacy or non-standard. It says only where the unchosen outcome would live if content needed it (compat) |
 | Plugin-first extensibility | not engaged | no extension point is involved |
@@ -329,12 +341,17 @@ named the seed as `F0`'s one writer (today the seed stores no value, and it has 
 the question to the PM (LR-7): for class (b), M1 and M6, which of L, K-first, K-last (or another completion of K) is
 elidex's core behaviour, and on which ground.
 
-**D-3 — decided: K-first (PM 866, 2026-11-20, the user's choice). Ground: rung 1, the spec.**
+**D-3 — decided: K-first (PM 866, 2026-11-20, the user's choice). Ground: the user's choice (PM 866; ground
+corrected PM 870); no ground-order step decided it (§0.4).**
 
-- Step 2.1's text alone is undetermined (above). §4.10.5.5 decides class (b): Q5, "These events are not fired in
-  response to changes made to the values of form controls by scripts." In class (b) the user's edits net to nothing
-  and the whole difference from `F0` is the script's: no `change`. In M1 and M6 the user did change the value:
-  `change`.
+- Step 2.1's text alone is undetermined (above), and §4.10.5.5 (Q5) leans without deciding (above). The outcomes
+  follow from the K-first predicate: in class (b) `V` equals the value just before the first user edit: no
+  `change`. In M1, M6 and S* `V` differs from it: `change`. K-first applies Q5's lean only to the value before the
+  first user edit, not to later script writes (S*: the whole difference from `x` to `y` is the script's, and
+  `change` fires).
+- *Ground corrected (PM 870).* Rev 3 wrote "Ground: rung 1, the spec — §4.10.5.5 decides class (b)", copying
+  PM 866's ground sentence. That over-reached: §4.10.5.5 does not decide class (b), M1, M6 or S*; the predicate the
+  user chose does. The decision and every expected value are unchanged.
 - **K-last is rejected** for the reason that defeats `change`'s purpose: a formatter script that rewrites the value
   on every `input` leaves the value equal to the latest non-user write, so `change` would never fire after the user
   commits.
@@ -403,12 +420,13 @@ lands between focus and the first user value change:
 
 - **(a) [spec]** the user's edits bring the value back to the first-focus value → elidex fires `change`; the spec
   fires none, under every reading of Q1 (§4.1). A defect under every reading, K-first (D-3) included.
-- **(b) [spec: Q5; D-3, PM 866]** the user's edits net to nothing and the value differs from the first-focus
-  value → elidex fires no `change`. Step 2.1's text alone does not determine the outcome (§4.1); §4.10.5.5 (Q5)
-  does: no `change` (D-3, K-first). elidex conforms. **Not a defect.**
+- **(b) D-3 (K-first, the user's choice, PM 866; ground corrected PM 870)** the user's edits net to nothing and
+  the value differs from the first-focus value → elidex fires no `change`. Step 2.1's text alone does not determine
+  the outcome (§4.1), and §4.10.5.5 (Q5) leans without deciding; the K-first predicate gives no `change`. elidex
+  conforms. **Not a defect.**
 
-M1 and M6 are in the same mixed class with the opposite sign: elidex fires `change` there, which is K-first's
-outcome (D-3: the user did change the value). elidex conforms. Not a defect.
+M1, M6 and S* are in the same mixed class with the opposite sign: elidex fires `change` there, which is K-first's
+outcome (D-3: `V` differs from the value just before the first user edit). elidex conforms. Not a defect.
 
 *Reference instant* (reading R-1, the memo's inference, not text): "first focused" is the designation of the control
 as the focused area (focus update steps step 4.1), which precedes the `focus` event (step 4.4), once per focus
@@ -419,25 +437,26 @@ session. Today the seed runs after the `focus` / `focusin` listeners
 (E-1 to E-4, E-6 to E-15, E-17).
 
 *Cells the code PR adds or re-states.* The Ground column is the source of the expected value. "UA focus" and
-"UA blur" are the shell's user focus moves, as in plan (1) §6. The cells of class (b), M1 and M6 (DC-2 to DC-7,
-DC-9, DC-11, DC-13) take their expected value from D-3 (K-first, PM 866); in rev 2 they were pending. Their "Today"
-already equals it.
+"UA blur" are the shell's user focus moves, as in plan (1) §6. The cells of class (b), M1, M6 and S* (DC-2 to
+DC-7, DC-9, DC-11, DC-13, DC-17) take their expected value from D-3 (K-first, the user's choice, PM 866; ground
+corrected PM 870); in rev 2 they were pending. Their "Today" already equals it.
 
 | Cell | Sequence | Expected | Ground | Today |
 |---|---|---|---|---|
 | DC-1 (re-states C6), both kinds | `<input id=b value="">`; UA focus `b`; script `b.value = "x"`; user Backspace (value `""`); UA blur | no `change` | [spec] Q1 (F), every reading: the value equals the first-focus value | `change` |
-| DC-2 (re-states C20), both kinds | UA focus `b`; user types `a`; UA blur (`change`); UA focus `b`; script `b.value = "x"`; user types `y`, Backspace (value `"x"`); UA blur | no `change` at the second blur | [spec] Q5 (D-3, K-first, PM 866): class (b), `"x"` ≠ `"a"`, the user's edits net to nothing, so the difference is the script's | none |
-| DC-3 (re-states C21) | `<textarea id=b>p</textarea>`; UA focus; script `b.defaultValue = "q"`; user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b) (`"q"` ≠ `"p"`); and E-13 [principle] for the kind | none |
-| DC-4 (re-states C22) | `<input id=b value="p">`; UA focus; script `b.setAttribute("value", "q")`; user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b) | none |
-| DC-5 (re-states C23) | `<input id=b value=" a">`; UA focus; script `b.type = "url"` (value `"a"`); user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b) (`"a"` ≠ `" a"`) | none |
-| DC-6 (re-states C25) | `<input id=b value="p">`; UA focus; script `b.setRangeText("q", 0, 0)` (value `"qp"`); user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b) | none |
-| DC-7 (re-states C26) | `<form id=f><input id=b value="d"></form>`; script `b.value = "x"` before focus; UA focus; script `f.reset()` (value `"d"`); user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b) (`"d"` ≠ `"x"`) | none |
+| DC-2 (re-states C20), both kinds | UA focus `b`; user types `a`; UA blur (`change`); UA focus `b`; script `b.value = "x"`; user types `y`, Backspace (value `"x"`); UA blur | no `change` at the second blur | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870): class (b), `"x"` ≠ `"a"`, and `V` equals the value just before the first user edit | none |
+| DC-3 (re-states C21) | `<textarea id=b>p</textarea>`; UA focus; script `b.defaultValue = "q"`; user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) (`"q"` ≠ `"p"`); and E-13 [principle] for the kind | none |
+| DC-4 (re-states C22) | `<input id=b value="p">`; UA focus; script `b.setAttribute("value", "q")`; user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) | none |
+| DC-5 (re-states C23) | `<input id=b value=" a">`; UA focus; script `b.type = "url"` (value `"a"`); user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) (`"a"` ≠ `" a"`) | none |
+| DC-6 (re-states C25) | `<input id=b value="p">`; UA focus; script `b.setRangeText("q", 0, 0)` (value `"qp"`); user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) | none |
+| DC-7 (re-states C26) | `<form id=f><input id=b value="d"></form>`; script `b.value = "x"` before focus; UA focus; script `f.reset()` (value `"d"`); user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) (`"d"` ≠ `"x"`) | none |
 | DC-8 (new), both kinds | UA focus `b` (value `""`); script `b.value = "x"`; user types `a` (value `"xa"`); user Backspace ×2 (value `""`); UA blur | no `change` | [spec] Q1 (F), every reading | `change` |
-| DC-9 (re-states C24) | `<input id=b type=email value="a@b, c@d">`; UA focus; script `b.setAttribute("multiple", "")` (value `"a@b,c@d"`); user `z`, Backspace; UA blur | no `change` | [spec] Q5 (D-3), class (b). The landed expected value rested on PM 307, whose cited ground does not hold (§6.3); the cell's ground is now D-3, not PM 307 | none |
+| DC-9 (re-states C24) | `<input id=b type=email value="a@b, c@d">`; UA focus; script `b.setAttribute("multiple", "")` (value `"a@b,c@d"`); user `z`, Backspace; UA blur | no `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b). The landed expected value rested on PM 307, whose cited ground does not hold (§6.3); the cell's ground is now D-3, not PM 307 | none |
 | DC-10 (new) | `<input id=b value="">` with a `focus` listener that sets `b.value = "x"`; UA focus `b`; user Backspace (value `""`); UA blur | no `change` | [spec] Q1 (F) for the comparison; **reading R-1** for the instant (the first-focus value is taken at step 4.1, before the listener runs). Under a reading that takes it after `focus`, this is class (b)'s mirror and the cell changes | `change` |
-| DC-11 (unit; re-states C7 (l)) | seed at `""`; a non-user write to `"x"`; `apply_user_edit` appends `y`; a second `apply_user_edit` removes it (value `"x"`) | the judgement returns `false` | [spec] Q5 (D-3, K-first), class (b) | `false` |
+| DC-11 (unit; re-states C7 (l)) | seed at `""`; a non-user write to `"x"`; `apply_user_edit` appends `y`; a second `apply_user_edit` removes it (value `"x"`) | the judgement returns `false` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870), class (b) | `false` |
 | DC-12 (control, unchanged) | C1, C3, C5, C9, C14, C16, C18, C19 of plan (1) | as today | [spec] E-6, E-7, and M8: every reading gives H's outcome (§4.1) | green |
-| DC-13 (control, unchanged; D-3 chose K-first) | C4 (M1), C17 (M6) of plan (1) | `change` (as today) | [spec] Q1 (U) and (F) under D-3 (K-first, PM 866): the user did change the value (§4.1) | `change` |
+| DC-13 (control, unchanged; D-3 chose K-first) | C4 (M1), C17 (M6) of plan (1) | `change` (as today) | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870): `V` differs from the value just before the first user edit (§4.1) | `change` |
+| DC-17 (new; S*), both kinds | UA focus `b` (value `""`); script `b.value = "x"`; user types `a` (value `"xa"`); user Backspace (value `"x"`); script `b.value = "y"`; UA blur | `change` | D-3 (K-first, the user's choice, PM 866; ground corrected PM 870): `"y"` ≠ `""` and `"y"` differs from the value just before the first user edit (`"x"`). §4.10.5.5 does not decide it: the user's net edit is zero and the whole difference is the script's (§4.1) | `change` |
 
 The code PR also rewrites the two code comments that name the measurement as the ground
 (`focus_snapshot.rs:4-5`, `:69-71`; the second is the ECS-mission allowlist's class-E row for that file, LR-2).
@@ -495,10 +514,12 @@ The two landed memos point here; they do not restate these.
 - **What the landed cells pin.** Until the code PR lands:
   - C6 pins behaviour that contradicts the spec text (class (a), DF-1 (a)).
   - C7 (l) and C20–C26 pin class (b)'s outcome, and C4 and C17 M1's and M6's. Step 2.1's text alone does not
-    determine them; D-3 does (K-first, PM 866: §4.10.5.5 Q5), and each pins K-first's outcome. They hold [spec].
+    determine them, and §4.10.5.5 (Q5) leans without deciding; the K-first predicate the user chose decides them
+    (D-3 (K-first, the user's choice, PM 866; ground corrected PM 870)), and each pins K-first's outcome. They hold under D-3.
   - Every other cell of plan (1) holds on the ground §4 names for its element.
 - **The first-focus argument** is §4.1: the sentence fixes `V ≠ F0` as necessary and leaves the mixed class
-  undetermined; §4.10.5.5 decides it (D-3, PM 866). "The spec decides the mixed case" (this memo's rev 1 and the
+  undetermined; §4.10.5.5 leans without deciding, and the K-first predicate the user chose decides it
+  (D-3 (K-first, the user's choice, PM 866; ground corrected PM 870)). "The spec decides the mixed case" (this memo's rev 1 and the
   errata it added to the landed memos) was wrong as a claim about step 2.1's sentence: rev 1 drew it from that
   sentence alone, for class (b), M1 and M6.
 - **The `<textarea>` ground** is §4.2 (One issue, one way).
@@ -508,8 +529,8 @@ The two landed memos point here; they do not restate these.
     (ground order), and H's outcome in class (a) contradicts Q1 under every reading (§4.1).
   - *PM 307* (W6 as an accepted divergence) cites "the spec defines no baseline", and makes agreement of another
     engine the condition to reopen. Q1 names the reference value (the value at first focus), and an engine's
-    behaviour is not an acceptance criterion. C24's outcome itself is class (b): it holds on D-3 (K-first, Q5),
-    not on PM 307's ground.
+    behaviour is not an acceptance criterion. C24's outcome itself is class (b): it holds on D-3 (K-first, the user's
+    choice, PM 866; ground corrected PM 870), not on PM 307's ground.
   - *PM 393* (`FocusValueSnapshot(Option<String>)`) cites "the focus-time `initial` was dead state". Class (a)
     needs the first-focus value at focus loss under every reading, so it is not dead state.
 
@@ -593,12 +614,13 @@ slot ledger on 2026-11-20; "0 rows" means that grep only.
     control was first focused. After a non-user write between focus and the first user value change, elidex fires
     `change` when the user's edits return the value to its first-focus value; the spec fires none under every reading
     of the step. Cells DC-1, DC-8, DC-10."
-  - *DF-1 (b)* — **[spec; D-3, PM 866]: not a defect**: "In the same situation, when the user's edits net to
-    nothing and the value differs from its first-focus value, elidex fires no `change`. The step's text alone does
-    not determine the outcome (memo §4.1); HTML §4.10.5.5 Common event behaviors ("These events are not fired in
-    response to changes made to the values of form controls by scripts.") decides it: no `change` (D-3, K-first,
-    PM 866). elidex conforms. Cells DC-2 to DC-7, DC-9, DC-11 and DC-13 (M1, M6: `change`) pin K-first's outcome
-    as today; the fix of DF-1 (a) keeps them green."
+  - *DF-1 (b)* — **D-3 (K-first, the user's choice, PM 866; ground corrected PM 870): not a defect**: "In the same situation, when the user's
+    edits net to nothing and the value differs from its first-focus value, elidex fires no `change`. The step's text
+    alone does not determine the outcome (memo §4.1), and HTML §4.10.5.5 Common event behaviors ("These events are
+    not fired in response to changes made to the values of form controls by scripts.") leans without deciding; the
+    K-first predicate the user chose gives no `change` (D-3, PM 866; ground corrected PM 870). elidex conforms.
+    Cells DC-2 to DC-7, DC-9, DC-11, DC-13 (M1, M6: `change`) and DC-17 (S*: `change`) pin K-first's outcome as
+    today; the fix of DF-1 (a) keeps them green."
   - *Defect DF-2* — **[spec]**: "The change-on-blur snapshot's population follows `is_text_control` at the seed and
     at each `type` change; step 2.1 evaluates its conjuncts at focus loss. (i) A control whose `type` changes from a
     non-text kind to a text kind while focused has no snapshot, so a user edit there fires `input` and no `change`.
@@ -644,9 +666,11 @@ slot ledger on 2026-11-20; "0 rows" means that grep only.
     value at first focus), and its reopen condition is an engine's behaviour.
   - PM 393 (the `Option<String>` representation): its ground "the focus-time `initial` was dead state" is false once
     class (a) is decided by the spec; the first-focus value is read at focus loss.
-- **LR-7 → the PM: decide D-3** (§4.1) — **answered by PM 866** (2026-11-20, the user's choice): K-first, on rung 1
-  (step 2.1 alone is undetermined; §4.10.5.5 decides class (b)). Recorded in §0.4 D-3, §4.1, §6.1 and LR-2: the
-  expected value of DC-2 to DC-7, DC-9 and DC-11 is no `change` (`false` for DC-11), that of DC-13 is `change`, and
+- **LR-7 → the PM: decide D-3** (§4.1) — **answered by PM 866** (2026-11-20, the user's choice): K-first, by the
+  user's choice; no ground-order step decided it (step 2.1 alone is undetermined; §4.10.5.5 leans without deciding;
+  ground corrected by PM 870, which replaced PM 866's "§4.10.5.5 decides (b)"). Recorded in §0.4 D-3, §4.1, §6.1 and
+  LR-2: the expected value of DC-2 to DC-7, DC-9 and DC-11 is no `change` (`false` for DC-11), that of DC-13 and
+  DC-17 is `change`, and
   DF-1 (b) is not a defect. Nothing remains open under this record.
 
 ## §8. Edits to the landed memos (this PR)
@@ -660,14 +684,15 @@ factual correction and points to this memo's section for the substance (§6.3); 
 | umbrella | DC2 (`:44`) | the textarea ground: principle (E-13), measurement `[history]` |
 | umbrella | §1.1 (b) | "the mixed case is measured" → `[history]`; the sentence fixes the reference point, the value at first focus (§4.1) |
 | umbrella | §1.2 row (1) (`:81`) | "design H" ground: re-derived here; the baseline differs (DF-1) |
-| umbrella | §3 rows for step 2.1 and textarea (`:159`, `:163`) | pointers to E-5 / DF-1 (class (a) contradicts the text; class (b) decided by §4.10.5.5 under D-3) and E-13 |
-| umbrella | §7; changelog line | erratum pointer; the cell list replaced by a pointer to §6.3; DF-1 (b) decided by D-3, not a defect |
-| plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M1 → [spec] under D-3 (K-first); M9 → class (b), [spec] §4.10.5.5 under D-3 (K-first) (§4.1) |
+| umbrella | §3 rows for step 2.1 and textarea (`:159`, `:163`) | pointers to E-5 / DF-1 (class (a) contradicts the text; class (b) decided by the K-first predicate the user chose, D-3, not by §4.10.5.5: rev 3.2, PM 870) and E-13 |
+| umbrella | §7; changelog line | erratum pointer; the cell list replaced by a pointer to §6.3; DF-1 (b) decided by D-3 (the user's choice; not by §4.10.5.5, PM 870), not a defect; rev 3.2 sentence in the changelog's erratum line |
+| plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M1 and M9 (class (b)) → decided by the K-first predicate the user chose, D-3 (PM 866; ground corrected PM 870), not [spec] (§4.1) |
 | plan (1) | E1 | textarea ground (§4.2) |
 | plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3; PM 305 / PM 393 "the PM withdraws at landing (LR-6)" |
 | plan (1) | §3 textarea row; §4.3 opening and table header; §4.4 | grounds corrected (PE-4, PE-5, §4.2); §4.3's erratum no longer says the spec decides the mixed case |
-| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold, the PM withdraws PM 307 at landing (LR-6); C24's outcome decided by D-3 (DC-9) |
-| plan (1) | changelog | erratum line |
+| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold, the PM withdraws PM 307 at landing (LR-6); C24's outcome decided by D-3, the user's choice, not by §4.10.5.5 (DC-9; rev 3.2, PM 870) |
+| plan (1) | §1 (b) (`:140`, "settled by measurement") | `[history]` tag; erratum pointing to §4.1 / D-3 (rev 3.2, PM 870) |
+| plan (1) | changelog | erratum line (rev 3.2 sentence added) |
 
 The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit above them is in place.
 
@@ -679,12 +704,22 @@ The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit abov
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation' .claude/tools/ecs-mission-allowlist.tsv` → 0).
 3. `git diff --stat origin/main` lists only `docs/plans/` files and the allowlist (rows deleted only: 15 = 14 class T
    for the slot + 1 class E, LR-1).
-4. D-3 is decided by the PM (PM 866: K-first) and recorded in §0.4, §4.1, §6.1 and LR-2 (LR-7). Satisfied when
-   PM 866 is recorded in PORTFOLIO.
+4. D-3 is decided by the PM (PM 866: K-first; ground corrected by PM 870) and recorded in §0.4, §4.1, §6.1 and LR-2
+   (LR-7). Satisfied when PM 866 and PM 870 are recorded in PORTFOLIO.
 5. The PM applies LR-1 to LR-6 at landing.
 
 ## Changelog
 
+- *Rev 3.2* (2026-11-21): ground of D-3 corrected (PM 870). Rev 3 copied PM 866's ground sentence "§4.10.5.5 decides
+  (b) at rung 1"; it over-reached. The outcomes of class (b), M1, M6 and S* follow from the K-first predicate the
+  user chose; step 2.1's text alone does not decide them, and §4.10.5.5 stays a lean that K-first applies only to the
+  value before the first user edit. No step label (§0.4 exception for D-3); the ground is written "D-3 (K-first, the
+  user's choice, PM 866; ground corrected PM 870)". Rev 3's "superseded" mark on the Q5 paragraph of §4.1 withdrawn:
+  its reading stands. New sequence S* (script `x`; user `a`, Backspace; script `y`): §4.1 table row and cell DC-17,
+  expected `change` (Today `change`). Applied to the summary, §0.4, §3 row, E-5, §4.1, §6.1, §6.3, LR-2 DF-1 (b) (and
+  its cell list), LR-7, §8, DoD 4; in the landed memos: plan (1) M1 / M9 rows, §1 (b) erratum (`[history]` on
+  "settled by measurement"), W6 erratum, changelog; umbrella §3 step 2.1 row, §7, changelog. No other expected value
+  changes.
 - *Rev 3.1* (2026-11-21): downstream sweep of D-3 into the two landed memos (plan (1) opening table M1 / M9 and the W6
   erratum; umbrella §3 step 2.1 row and §7 "What differs"); §8 rows re-worded to describe those edits.
 - **Rev 3 (2026-11-21)** — D-3 decided by the PM: **K-first** (PM 866, 2026-11-20, the user's choice). Ground: rung
