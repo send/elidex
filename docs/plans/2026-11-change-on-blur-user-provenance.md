@@ -21,10 +21,10 @@ compares the current value with the focus-time snapshot and nothing else, so it 
 | user presses ArrowLeft; script `b.value = "x"`; user focuses `c` | `input` (wrong), `change` (wrong) | no `input`, no `change` |
 | paste (Cmd+V) into a `readonly` control | `input` (wrong), value unchanged | nothing |
 | IME commit into a control whose `maxlength` is full | `compositionend`, `input` (wrong) | `compositionend` only |
-| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; not determined by the spec text, re-derivation §4.1) |
+| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; [spec] under decision D-3 of the re-derivation (K-first, PM 866): the user changed the value; step 2.1's text alone does not determine it, its §4.1) |
 | user types `a`; script `b.value = ""` (restores the focus-time value); user focuses `c` | no `change` | no `change` |
 | script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4 [history]; contradicts the spec text under every reading, erratum under D-1: DF-1 (a)) |
-| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; not determined by the spec text and awaiting decision D-3 of the re-derivation, §4.1 class (b); erratum under D-1) |
+| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; [spec] §4.10.5.5 under decision D-3 of the re-derivation (K-first, PM 866): the user's edits net to nothing, so the difference is the script's; step 2.1's text alone does not determine it, its §4.1 class (b); erratum under D-1) |
 | script `b.focus()`; user types `a`; user focuses `c` | `input`, `change` | same |
 
 ## §0. Frame, premises, decisions
@@ -494,7 +494,8 @@ Chromium. [history]
 **Erratum (PM 432, 2026-11-20; added after landing).** The ground this record cites ("the spec defines no
 baseline") does not hold, and an engine's agreement is not a criterion for a core requirement
 (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.3). The PM withdraws PM 307 at landing (its LR-6). C24's expected
-outcome is not determined by the spec text; it awaits decision D-3 there (its §4.1; cell DC-9).
+outcome (no `change`) is decided by §4.10.5.5 under decision D-3 there (K-first, PM 866; its §4.1; cell DC-9); step 2.1's
+text alone does not determine it.
 
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
@@ -673,7 +674,9 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
   under E1 and §4.4 and in §3's textarea row; `[history]` tags on the lines that name the measurement. The baseline
   differs from the spec text (DF-1 there); no behaviour and no cell changes in this memo. (Same day, re-derivation
   rev 2: the errata are one-line corrections with pointers; the mixed case is not decided by the spec text; PM 305,
-  PM 307 and PM 393 are withdrawn by the PM at landing, not by this memo.)
+  PM 307 and PM 393 are withdrawn by the PM at landing, not by this memo. 2026-11-21, re-derivation rev 3: its D-3 is
+  decided, K-first (PM 866); the opening table's M1 and M9 rows and the W6 erratum (C24) now cite D-3 as the [spec]
+  ground in place of "not determined / awaiting D-3".)
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.

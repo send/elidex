@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.1, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -658,15 +658,15 @@ factual correction and points to this memo's section for the substance (§6.3); 
 | Memo | Site | Edit |
 |---|---|---|
 | umbrella | DC2 (`:44`) | the textarea ground: principle (E-13), measurement `[history]` |
-| umbrella | §1.1 (b) | "the mixed case is measured" → the sentence fixes the reference point; the mixed class is open (§4.1) |
+| umbrella | §1.1 (b) | "the mixed case is measured" → `[history]`; the sentence fixes the reference point, the value at first focus (§4.1) |
 | umbrella | §1.2 row (1) (`:81`) | "design H" ground: re-derived here; the baseline differs (DF-1) |
-| umbrella | §3 rows for step 2.1 and textarea (`:159`, `:163`) | pointers to E-5 / DF-1 and E-13 |
-| umbrella | §7; changelog line | erratum pointer; the cell list replaced by a pointer to §6.3 |
-| plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M9 → class (b), undetermined (§4.1) |
+| umbrella | §3 rows for step 2.1 and textarea (`:159`, `:163`) | pointers to E-5 / DF-1 (class (a) contradicts the text; class (b) decided by §4.10.5.5 under D-3) and E-13 |
+| umbrella | §7; changelog line | erratum pointer; the cell list replaced by a pointer to §6.3; DF-1 (b) decided by D-3, not a defect |
+| plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M1 → [spec] under D-3 (K-first); M9 → class (b), [spec] §4.10.5.5 under D-3 (K-first) (§4.1) |
 | plan (1) | E1 | textarea ground (§4.2) |
 | plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3; PM 305 / PM 393 "the PM withdraws at landing (LR-6)" |
 | plan (1) | §3 textarea row; §4.3 opening and table header; §4.4 | grounds corrected (PE-4, PE-5, §4.2); §4.3's erratum no longer says the spec decides the mixed case |
-| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold, the PM withdraws PM 307 at landing (LR-6) |
+| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold, the PM withdraws PM 307 at landing (LR-6); C24's outcome decided by D-3 (DC-9) |
 | plan (1) | changelog | erratum line |
 
 The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit above them is in place.
@@ -685,6 +685,8 @@ The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit abov
 
 ## Changelog
 
+- *Rev 3.1* (2026-11-21): downstream sweep of D-3 into the two landed memos (plan (1) opening table M1 / M9 and the W6
+  erratum; umbrella §3 step 2.1 row and §7 "What differs"); §8 rows re-worded to describe those edits.
 - **Rev 3 (2026-11-21)** — D-3 decided by the PM: **K-first** (PM 866, 2026-11-20, the user's choice). Ground: rung
   1, the spec — step 2.1's text alone is undetermined, and §4.10.5.5 (Q5, re-checked with `.claude/tools/webref body
   html common-input-element-events` on 2026-11-21) decides class (b): no `change`; M1 and M6 fire. K-last and L
