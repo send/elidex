@@ -127,7 +127,7 @@ fn native_dt_item_get_type(
     Ok(JsValue::String(sid))
 }
 
-/// `DataTransferItem.prototype.getAsString(callback)` (HTML §6.3).
+/// `DataTransferItem.prototype.getAsString(callback)` (HTML §6.11.3.2).
 /// Enqueues a microtask invoking the callback with the stored
 /// string; null callback → no-op.  Per-spec semantics.
 fn native_dt_item_get_as_string(
@@ -200,7 +200,7 @@ fn native_dt_item_get_as_string(
     Ok(JsValue::Undefined)
 }
 
-/// `DataTransferItem.prototype.getAsFile()` (HTML §6.3).
+/// `DataTransferItem.prototype.getAsFile()` (HTML §6.11.3.2).
 ///
 /// D-14 `#11-file-api` Phase 5: returns the File wrapper for File-kind
 /// entries; returns `null` for String-kind entries (per spec) or out-

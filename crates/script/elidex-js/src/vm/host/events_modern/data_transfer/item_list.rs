@@ -206,7 +206,7 @@ fn native_dt_item_list_remove(
         // D-14 `#11-file-api` Phase 5 — keep `file_entries` and the
         // `[SameObject]` files_wrapper in sync if the removed entry
         // was a File.  Drop the FIRST matching `file_id` only — the
-        // same File may legitimately appear multiple times (HTML §6.2
+        // same File may legitimately appear multiple times (HTML §6.11.3.1
         // `items.add(f); items.add(f)` is a valid no-dedup append), so
         // a `retain(|id| id != file_id)` would wrongly evict every
         // sibling copy when only one items entry was removed.

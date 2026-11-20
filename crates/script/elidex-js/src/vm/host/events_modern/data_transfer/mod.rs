@@ -21,6 +21,13 @@
 //!   real paint integration deferred to slot
 //!   `#11-data-transfer-drag-image-paint`.
 //!
+//! ## Deferred (layering)
+//!
+//! - The drag data store algorithms (`types`, `setData`, `clearData`,
+//!   `items.add` / `remove` / `clear`) live here in `vm/host/`; their
+//!   move to an engine-independent home is slot
+//!   `#11-data-transfer-drag-data-store-layering`.
+//!
 //! ## Submodules
 //!
 //! - `item` — `DataTransferItem` (registration + prototype natives).
@@ -290,7 +297,7 @@ fn native_dt_set_drop_effect(
     if let Some(new_val) = DropEffect::from_str_ascii_ci(&raw) {
         dt_state_mut(ctx.vm, id).drop_effect = new_val;
     }
-    // Silent retain on invalid value per HTML §6.2.
+    // Silent retain on invalid value per HTML §6.11.3.
     Ok(JsValue::Undefined)
 }
 
@@ -408,11 +415,10 @@ fn native_dt_get_types(
             member: "types",
         },
     )?;
-    // Build a fresh Array per `types` getter (HTML §6.2 step 3-5).
-    // Each String entry contributes its format; any File-kind
-    // entry contributes the literal `"Files"` (NOT yet reachable
-    // since D-9 doesn't accept File entries, but the path is
-    // wired in advance).
+    // Build a fresh Array per `types` getter (HTML §6.11.3, the steps that
+    // rebuild the types array).  Each String entry contributes its
+    // format; any File-kind entry (`items.add(File)`) contributes the
+    // literal `"Files"`.
     //
     // WebIDL §3.2.27 specifies `FrozenArray<DOMString>`; this
     // returns a mutable Array because the VM's Array.prototype.push
@@ -468,8 +474,8 @@ fn native_dt_get_data(
     let format_sid = super::super::super::coerce::to_string(ctx.vm, format_val)?;
     // ASCII-CI format match on WTF-16 code units.  Concatenate
     // matching String entries (typical use is single-entry;
-    // multi-entry concat matches HTML §6.2 step 4 "for each item in
-    // the drag data store matching format").  Operating on the
+    // multi-entry concat is not in HTML §6.11.3 `getData()`, which
+    // reads the one text item whose type string equals format).  Operating on the
     // WTF-16 pool slice preserves lone surrogates — `get_utf8`
     // would lossily replace them with `U+FFFD` and corrupt
     // round-trips for non-ASCII DOMString data.
@@ -573,8 +579,9 @@ fn native_dt_clear_data(
     let format_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     if matches!(format_arg, JsValue::Undefined) {
         // No argument — drain all String entries (File-kind entries
-        // retained per HTML §6.2 step "Remove each item in the drag
-        // data store item list whose kind is text").
+        // retained per HTML §6.11.3 `clearData()` step 3, "remove each
+        // item in the drag data store item list whose kind is Plain
+        // Unicode string").
         let had_removal = {
             let state = dt_state_mut(ctx.vm, id);
             let before = state.items.len();
