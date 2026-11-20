@@ -126,7 +126,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    mechanisms that half contains, and returns umbrella for both. §5's 1a row carries one derivation: an
    argument-layout and inline-cache contract, an *observable* iterator-closing correction (dec. 13a),
    and GC root lifetime across four call-entry windows (dec. 10), each with an assertion the other two
-   pass — edge 32, edge 21, edges 27/28 respectively. §5's 1b row carries the other: five roots that
+   pass — edge 32, edge 21, edges 27/28 respectively (⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).) §5's 1b row carries the other: five roots that
    intersect at one argument-emit helper and share no chokepoint below it, so following this decision
    as it stood would let all five ship as one PR. So the sentence this paragraph used to end on —
    *"each of 1a/1b remains a terminal unit under an approved umbrella (per-PR slices touching one
@@ -151,7 +151,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    a stated reason? **Recommendation (added round 8 — this was the only §9 entry with none, and it
    sits inside the 1a half's deliverable — specifically the child of umbrella 1a that owns the argument-layout and inline-cache contract): share — for that child only.** `collect_array_like` already has the correct
    `.or_undefined()` normalisation that child needs, and
-   `call_internal` — one of dec. 10's four unrooted windows — is already reached at N≫1 through it,
+   `call_internal` — one of dec. 10's four unrooted windows (⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).) — is already reached at N≫1 through it,
    so sharing puts that on one audited path. ⚠ *This entry once said `Reflect.apply` "will home there" too; that is withdrawn — **dec. 17** resolves the generic path the other way (it must NOT reuse the dense fast path), and dec. 17 is the home of that question.* The array-like/dense distinction stays a
    *caller-side* precondition, not a second helper.
 9. **Slice 0ca sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
@@ -161,7 +161,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
    **0ca's acceptance criteria**: (a) re-run **all three passes** — pass 3 at **both** variant and sub-arm-body granularity — and classify every hit, so the arm list is reproducible rather than inherited; (b) §7.2 carries **one row per §2.2 defect row** as its
    row-derivation rule — the table's completeness claim is then anchored to the sweep rather than to
    authoring instinct.
-10. **Generator/async callee GC window — root it in the child of umbrella 1a that roots the four call-entry argument windows, via that umbrella's derivation, which mints it; carve withdrawn. ⚠ REMEDY CORRECTED
+10. **Generator/async callee GC window — root it in the child of umbrella 1a that roots the four call-entry argument windows, via that umbrella's derivation, which mints it; carve withdrawn (⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).). ⚠ REMEDY CORRECTED
     (round 8): `gc_enabled` bracketing is WRONG for the async path.** Round 4 chose bracketing as
     "the only remedy-complete-by-construction option". Verified in round 8 that it cannot be applied
     at the site [§6.3](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) named: `interpreter.rs:893` is not an allocation but
@@ -186,6 +186,24 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     `Reflect.apply` will home there. dec. 10's own justification (a documented-contract violation
     does not qualify for deferral) applies verbatim. Enumerate by command
     (`grep -n "drain(base\.\.)"` / `SuspendedFrame {`) and root all four windows in one unit.
+
+    ⚠ **Erratum 2026-11-18 (PM 829) — RESOLVED by `#11-vm-coroutine-creation-frame-rooting` (PM 806,
+    owner VM P4), with remedy (b).** The round-8 text above stands as written; read it with three
+    corrections. *(i) The fix.* The window is closed by rooting; no `gc_enabled` bracket was added. All
+    four sites enumerated above (`push_js_call_frame` and `call_internal`, async and generator) now end in
+    one creation helper, `VmInner::create_coroutine` (`git grep -n 'fn create_coroutine' --
+    crates/script/elidex-js/src/vm/natives_generator.rs`). It allocates the coroutine shell (for an async
+    call, the wrapper Promise first) while the frame's values are still on the VM stack, roots
+    `actual_args` and the wrapper with `push_stack_scope` across those allocations, and only then drains /
+    truncates and installs the frame, with no allocation in between. `make_async_coroutine_and_drive`
+    roots the coroutine on the stack for the initial drive, and `drive_async_coroutine` roots a
+    non-Promise `await` operand across `create_promise`. *(ii) A description above is no longer true.*
+    `make_async_coroutine_and_drive` no longer "allocates the wrapper Promise + Generator" or back-links
+    the frame: it now receives both (`make_async_coroutine_and_drive(vm, gen_id, wrapper)`) and only
+    drives the first step; the allocation and the back-link are `create_coroutine`'s. The
+    `natives_generator.rs` / `interpreter.rs` line numbers above are those of the round-8 read.
+    *(iii) The home.* ⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845). Edges 27/28: the erratum in
+    [§6.4](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md).
 
 11. **IC entry point** ([§6.3](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) IC): `Option<usize>` refactor of `ic_call`/`ic_call_method`
     (recommended, one SoT) vs. duplicating the three-way body. ⚠ **Round-8 caveat**: both callers
@@ -282,7 +300,7 @@ means `git show 39cc365a:docs/plans/2026-07-vm-p4-es-language-completeness.md`. 
     sequencing paragraph in §5 defers to it by name rather than carrying a second copy, so an ordering
     assertion outside the column is neither enforceable nor readable: nothing consults it. And none is
     needed here. **The children umbrella 1a mints landing first breaks nothing**: their acceptance is stated over their own artifacts —
-    the existing suite plus edges 21/27/28/32, which umbrella 1a's derivation places one per child —
+    the existing suite plus edges 21/27/28/32, which umbrella 1a's derivation places one per child (⚠ (c) is closed; see slice-plan row 1a's 2026-11-20 erratum (PM 845).) —
     and turns true whether or not the conformance table
     exists, which is the same measurement that deleted the edge. What 0cb buys later slices is a
     baseline they are *measured against once it exists*, not a precondition they wait on. Was an unowned either/or in §7.2; ratified here so 0cb's author

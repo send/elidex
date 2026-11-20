@@ -8,7 +8,7 @@
 //! `.return()` / `.throw()` and full `yield*` support land with PR2.5
 //! (generator spec completion).
 
-use super::frame::UpvalueState;
+use super::frame::{CallFrame, UpvalueState};
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     FrameCompletion, GeneratorStatus, JsValue, NativeContext, Object, ObjectId, ObjectKind,
@@ -80,6 +80,106 @@ pub(crate) fn op_yield_suspend(
     }
     vm.generator_yielded = Some(value);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Create — invoked from the generator-call short-circuits
+// ---------------------------------------------------------------------------
+
+impl VmInner {
+    /// Create a coroutine (a Generator in `SuspendedStart`) that owns the
+    /// initial frame `frame` built by a call site, taking the frame's
+    /// locals off the VM stack.  The one creation path for generator and
+    /// async calls: `call_internal` and `push_js_call_frame` both end here.
+    ///
+    /// Spec counterparts (ECMA-262): the generator object and its
+    /// suspended-start state of EvaluateGeneratorBody (§15.5.2) with
+    /// GeneratorStart (§27.8.3.1), and the promise capability of
+    /// EvaluateAsyncFunctionBody (§15.8.4); the first drive is
+    /// [`make_async_coroutine_and_drive`] (AsyncFunctionStart, §27.10.5.1).
+    /// Async generators are not implemented (`#11-vm-async-generators`):
+    /// an `async function*` call takes the async-function path here.
+    ///
+    /// `frame.base..` is the locals region (including the rest array) and
+    /// `frame.cleanup_base` the stack height to restore (callee and
+    /// receiver below `base`; equal to `base` when there is nothing to
+    /// drop).  The locals at `base..` and, on the `push_js_call_frame`
+    /// entry, the callee and receiver below `base` are on the VM stack.
+    /// On the `call_internal` entry, `this`, the callee and `args` past
+    /// `param_count` are not,
+    /// and no caller contract roots them
+    /// (`#11-vm-call-internal-callee-this-rooting`).  `create_coroutine`
+    /// roots `actual_args` itself:
+    /// `push_js_call_frame` clears an excess argument (no rest parameter)
+    /// from its stack slot, so the `Vec` can be its only holder.
+    ///
+    /// Invariant: values leave the VM stack only into an already-allocated
+    /// container, with no allocation between the drain and the install.
+    /// [`VmInner::alloc_object`] may collect before it inserts its object
+    /// and requires every `ObjectId` reachable only through that object to
+    /// be rooted already; the locals, callee and receiver are rooted only
+    /// while they are still on the stack.  So the shell is allocated
+    /// **first** (its `suspended: None` is traceable as-is), then the
+    /// locals are drained, then the frame is installed and back-linked.
+    ///
+    /// Async coroutines also get their wrapper Promise here, returned as
+    /// the second element.  The wrapper is a fresh object held only by a
+    /// Rust local while the coroutine is allocated.
+    ///
+    /// One stack scope, opened before the first allocation (the wrapper,
+    /// else the shell), holds `actual_args` and the wrapper across the
+    /// allocations.  It ends before the drain: anything still pushed would
+    /// be drained into the frame's `stack_slice`.  A scope rather than
+    /// `push_temp_root`, because the number of values is data-dependent and
+    /// `push_temp_root` is engine-only while coroutines exist in every row.
+    pub(crate) fn create_coroutine(
+        &mut self,
+        is_async: bool,
+        mut frame: CallFrame,
+    ) -> (ObjectId, Option<ObjectId>) {
+        let locals_end = self.stack.len();
+        let (gen_id, wrapper) = {
+            let mut scope = self.push_stack_scope();
+            if let Some(args) = &frame.actual_args {
+                scope.stack.extend_from_slice(args);
+            }
+            let wrapper = is_async.then(|| super::natives_promise::create_promise(&mut scope));
+            if let Some(w) = wrapper {
+                scope.stack.push(JsValue::Object(w));
+            }
+            let proto = scope.generator_prototype;
+            let gen_id = scope.alloc_object(Object {
+                kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
+                    status: GeneratorStatus::SuspendedStart,
+                    suspended: None,
+                    wrapper,
+                })),
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: proto,
+                extensible: true,
+            });
+            (gen_id, wrapper)
+        };
+        debug_assert_eq!(
+            self.stack.len(),
+            locals_end,
+            "create_coroutine: the rooting scope must end before the locals are drained",
+        );
+        // No allocation from here to the install below.
+        let stack_slice: Vec<JsValue> = self.stack.drain(frame.base..).collect();
+        self.stack.truncate(frame.cleanup_base);
+        frame.cleanup_base = frame.base;
+        frame.generator = Some(gen_id);
+        let ObjectKind::Generator(state) = &mut self.get_object_mut(gen_id).kind else {
+            unreachable!("create_coroutine: allocated object is not a Generator");
+        };
+        state.suspended = Some(SuspendedFrame {
+            frame,
+            stack_slice,
+            upvalue_slots: Vec::new(),
+        });
+        (gen_id, wrapper)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,8 +602,19 @@ pub(crate) fn drive_async_coroutine(
                     id
                 }
                 other => {
-                    let p = super::natives_promise::create_promise(vm);
-                    let _ = super::natives_promise::settle_promise(vm, p, false, other);
+                    // `other` (e.g. an awaited plain object) has left the
+                    // coroutine's stack and is held only by this Rust
+                    // local.  `alloc_object` may collect before inserting
+                    // and requires every value reachable only through the
+                    // new object to be rooted already, so root `other` on
+                    // the VM stack across `create_promise`; once
+                    // `settle_promise` stores it as `p`'s result it is
+                    // reachable through `p`, and nothing allocates before
+                    // the GC-off window below links `p` into the graph.
+                    let mut scope = vm.push_stack_scope();
+                    scope.stack.push(other);
+                    let p = super::natives_promise::create_promise(&mut scope);
+                    let _ = super::natives_promise::settle_promise(&mut scope, p, false, other);
                     p
                 }
             };
@@ -537,36 +648,27 @@ fn alloc_async_step(vm: &mut VmInner, gen: ObjectId, is_throw: bool) -> ObjectId
     })
 }
 
-/// Create an async coroutine wrapping `suspended` and drive its first
-/// step.  Returns the wrapper Promise (the async function's return value).
+/// Drive the first step of a coroutine freshly made by
+/// [`VmInner::create_coroutine`] for an async call (ECMA-262
+/// AsyncFunctionStart, §27.10.5.1).  Returns the wrapper Promise (the async
+/// function's return value).
 ///
-/// The initial frame is prepared by the call-site (same shape as a
-/// generator initial frame); `drive_async_coroutine` runs the body until
-/// the first await, return, or throw.
+/// The coroutine is rooted on the VM stack for the whole initial drive —
+/// once the body suspends its frame has left `frames`, and
+/// `drive_async_coroutine` allocates (the Promise wrapping a non-Promise
+/// `await` operand; the Error object for a non-`ThrowValue` abrupt
+/// completion) while the coroutine and its wrapper are otherwise held only
+/// by Rust locals.  After a suspension the coroutine is reachable through
+/// the continuation steps subscribed to the awaited Promise.
 pub(crate) fn make_async_coroutine_and_drive(
     vm: &mut VmInner,
-    suspended: super::value::SuspendedFrame,
+    gen_id: ObjectId,
+    wrapper: ObjectId,
 ) -> Result<JsValue, VmError> {
-    let wrapper = super::natives_promise::create_promise(vm);
-    let proto = vm.generator_prototype;
-    let gen_id = vm.alloc_object(Object {
-        kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
-            status: GeneratorStatus::SuspendedStart,
-            suspended: Some(suspended),
-            wrapper: Some(wrapper),
-        })),
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    // Back-link the saved frame to the coroutine it belongs to.
-    if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
-        if let Some(susp) = &mut state.suspended {
-            susp.frame.generator = Some(gen_id);
-        }
-    }
+    let mut scope = vm.push_stack_scope();
+    scope.stack.push(JsValue::Object(gen_id));
     // Initial drive: arg value is ignored for SuspendedStart (it's never
     // pushed onto the body's stack), so we pass Undefined.
-    drive_async_coroutine(vm, gen_id, JsValue::Undefined, false)?;
+    drive_async_coroutine(&mut scope, gen_id, JsValue::Undefined, false)?;
     Ok(JsValue::Object(wrapper))
 }

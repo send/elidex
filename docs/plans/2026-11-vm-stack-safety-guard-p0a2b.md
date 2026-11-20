@@ -149,6 +149,12 @@ each with its rule-12 code at landing; the classification re-derives them, §6):
   `engine.rs:275` and `vm/natives_promise.rs:591` (`channel:report`), and `vm/interpreter_call.rs:631`
   (`push_js_call_frame` → `make_async_coroutine_and_drive`, the wrapper is settled inside the callee:
   `channel`, moved from N).
+  ⚠ *Erratum 2026-11-18 (PM 829, `#11-vm-coroutine-creation-frame-rooting`):* that row's use is no longer
+  a `match` with an `Err(_e)` arm; it is `.unwrap_or(JsValue::Undefined)` on the same call in
+  `push_js_call_frame` (`git grep -n 'unwrap_or(JsValue::Undefined)$' --
+  crates/script/elidex-js/src/vm/interpreter_call.rs`), with the same fallback. The `Err` stays unreachable
+  for the same reason (P0a-1 §4.2 "The async start" and its erratum), so the row's class and code are
+  unchanged; its line and shape are the tracked check's at P0a-2b's head (§10).
 - **S (2):** `vm/coerce.rs:246` (`to_display_string`, console display); `vm/host/custom_elements/flush.rs:70`
   (`invoke_one` reports inside). Home: P0 umbrella §6 item 2. `engine.rs:275` (D-14's engine half, PM 533
   item 3) and `vm/natives_promise.rs:591` (D-15, PM 544) are no longer S.
