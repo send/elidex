@@ -1,15 +1,17 @@
 //! `DataTransferItemList` constructor + prototype (HTML DnD §6.2 / §6.3).
 
-use crate::vm::shape;
-use crate::vm::value::{
+use super::super::super::super::shape;
+use super::super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
-use crate::vm::wrapper_intern::{WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey};
-use crate::vm::VmInner;
+use super::super::super::super::wrapper_intern::{
+    WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey,
+};
+use super::super::super::super::VmInner;
 
+use super::super::super::events::install_ctor;
 use super::super::DataTransferEntry;
 use super::dt_state_mut;
-use crate::vm::host::events::install_ctor;
 
 pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
     let parent = vm
@@ -26,9 +28,9 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItemList",
-        crate::vm::value::native_illegal_constructor_unreachable,
+        super::super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_list_global,
-        crate::vm::value::CallShape::IllegalConstructor,
+        super::super::super::super::value::CallShape::IllegalConstructor,
     );
     let k_length = vm.well_known.length;
     let k_add = vm.well_known.add;
@@ -60,10 +62,6 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         shape::PropertyAttrs::METHOD,
     );
 }
-
-// ---------------------------------------------------------------------------
-// DataTransferItemList
-// ---------------------------------------------------------------------------
 
 fn require_dt_item_list_receiver(
     ctx: &NativeContext<'_>,
@@ -135,7 +133,7 @@ fn native_dt_item_list_add(
     // resolved.
     if let JsValue::Object(file_obj_id) = data_arg {
         if matches!(ctx.vm.get_object(file_obj_id).kind, ObjectKind::File) {
-            let type_sid = crate::vm::host::blob::blob_type(ctx.vm, file_obj_id);
+            let type_sid = super::super::super::blob::blob_type(ctx.vm, file_obj_id);
             let new_index = {
                 let state = dt_state_mut(ctx.vm, parent_dt_id);
                 let i = state.items.len() as u32;
@@ -160,8 +158,8 @@ fn native_dt_item_list_add(
              2 arguments required.",
         ));
     }
-    let data_sid = crate::vm::coerce::to_string(ctx.vm, data_arg)?;
-    let type_sid = crate::vm::coerce::to_string(ctx.vm, type_arg)?;
+    let data_sid = super::super::super::super::coerce::to_string(ctx.vm, data_arg)?;
+    let type_sid = super::super::super::super::coerce::to_string(ctx.vm, type_arg)?;
     let new_index = {
         let state = dt_state_mut(ctx.vm, parent_dt_id);
         let i = state.items.len() as u32;
@@ -199,8 +197,8 @@ fn native_dt_item_list_remove(
         }
     };
     let idx_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let idx_num = crate::vm::coerce::to_number(ctx.vm, idx_arg)?;
-    let idx = crate::vm::coerce::f64_to_uint32(idx_num) as usize;
+    let idx_num = super::super::super::super::coerce::to_number(ctx.vm, idx_arg)?;
+    let idx = super::super::super::super::coerce::f64_to_uint32(idx_num) as usize;
     let state = dt_state_mut(ctx.vm, parent_dt_id);
     if idx < state.items.len() {
         let removed = state.items.remove(idx);

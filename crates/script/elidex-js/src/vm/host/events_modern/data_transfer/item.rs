@@ -1,13 +1,13 @@
 //! `DataTransferItem` constructor + prototype (HTML DnD §6.2 / §6.3).
 
-use crate::vm::shape;
-use crate::vm::value::{
+use super::super::super::super::shape;
+use super::super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
-use crate::vm::VmInner;
+use super::super::super::super::VmInner;
 
+use super::super::super::events::install_ctor;
 use super::super::DataTransferEntry;
-use crate::vm::host::events::install_ctor;
 
 pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
     let parent = vm
@@ -24,9 +24,9 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItem",
-        crate::vm::value::native_illegal_constructor_unreachable,
+        super::super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_global,
-        crate::vm::value::CallShape::IllegalConstructor,
+        super::super::super::super::value::CallShape::IllegalConstructor,
     );
     // `kind` / `type` readonly accessors + `getAsString` /
     // `getAsFile` methods.  StringId fields are Copy — snapshot
@@ -63,10 +63,6 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         shape::PropertyAttrs::METHOD,
     );
 }
-
-// ---------------------------------------------------------------------------
-// DataTransferItem
-// ---------------------------------------------------------------------------
 
 fn require_dt_item_receiver(
     ctx: &NativeContext<'_>,
@@ -197,9 +193,9 @@ fn native_dt_item_get_as_string(
         prototype: ctx.vm.function_prototype,
         extensible: true,
     });
-    ctx.vm
-        .microtask_queue
-        .push_back(crate::vm::natives_promise::Microtask::Callback { func: bound });
+    ctx.vm.microtask_queue.push_back(
+        super::super::super::super::natives_promise::Microtask::Callback { func: bound },
+    );
     Ok(JsValue::Undefined)
 }
 

@@ -26,6 +26,14 @@
 //! - `setDragImage(element, x, y)` stores entity_bits + coords;
 //!   real paint integration deferred to slot
 //!   `#11-data-transfer-drag-image-paint`.
+//!
+//! ## Submodules
+//!
+//! - `item` — `DataTransferItem` (registration + prototype natives).
+//! - `item_list` — `DataTransferItemList` (registration + prototype
+//!   natives + the `DataTransferItem` wrapper cache).
+//!
+//! Their `register_*_global` entry points are re-exported here.
 
 #![cfg(feature = "engine")]
 
@@ -215,7 +223,7 @@ fn dt_state(vm: &VmInner, id: ObjectId) -> &DataTransferState {
     vm.data_transfer_states.get(&id).unwrap_or(&EMPTY_DT_STATE)
 }
 
-pub(super) fn dt_state_mut(vm: &mut VmInner, id: ObjectId) -> &mut DataTransferState {
+fn dt_state_mut(vm: &mut VmInner, id: ObjectId) -> &mut DataTransferState {
     vm.data_transfer_states
         .entry(id)
         .or_insert_with(DataTransferState::empty)
