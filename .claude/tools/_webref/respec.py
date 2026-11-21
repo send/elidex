@@ -14,7 +14,7 @@ module holds the ReSpec specifics):
 
 If (1) is already a rendered ReSpec document (`classify_respec`) and lacks the anchor, (2) and (3)
 are skipped (`miss_is_final`). Every fetch goes through
-`cache.cached_fetch_url` (no extra headers; see that module).
+`cache.cached_fetch_url` or `cache.cached_fetch` (no extra headers; see that module).
 Hosts contacted by this module, in addition to the existing
 raw.githubusercontent.com (webref data) and the spec's own nightly host
 (w3c.github.io and friends, already used by `body`):
@@ -69,14 +69,25 @@ def _tr_date(html: bytes) -> str:
 # (`respec-config.js`) are not loaders and always sit beside the real one.
 _SCRIPT_SRC_RE = re.compile(
     rb'<script\b[^>]*?(?<![-\w])src\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]*))', re.I)
-_LOADER_NAME_RE = re.compile(r"respec-w3c(?:-common)?(?:\.min)?(?:\.js)?", re.I)
+# Fail-safe direction: an unknown ReSpec build name must land in "unrendered"
+# (one extra fetch), not "ordinary" (raw hits accepted). So a loader is any file
+# name of ReSpec build shape `respec-*` (optionally `.js`/`.min.js`), UNLESS it
+# is a config or plugin file. Exclusions, derived from the cache: configs
+# `respec-config.js` and `<x>-respec-config.js` (the latter never starts with
+# `respec-`, so the shape test already rejects it); plugin bundles, which are
+# either `main.js` under a `respec-<plugin>@<ver>/dist/` directory (rejected by
+# the shape test) or named `respec-<plugin>` (`respec-vc`, `respec-mermaid`,
+# `respec-oas`), excluded explicitly.
+_LOADER_NAME_RE = re.compile(r"respec-[\w.-]+?(?:\.min)?(?:\.js)?", re.I)
+_NOT_LOADER_RE = re.compile(
+    r"respec-(?:config|vc|mermaid|oas)(?:[-.@][\w.@-]*)?", re.I)
 
 
 def _has_respec_loader(html: bytes) -> bool:
     for m in _SCRIPT_SRC_RE.finditer(html):
         url = next(g for g in m.groups() if g is not None).decode("utf-8", "replace")
         name = re.split(r"[?#]", url, maxsplit=1)[0].rsplit("/", 1)[-1]
-        if _LOADER_NAME_RE.fullmatch(name):
+        if _LOADER_NAME_RE.fullmatch(name) and not _NOT_LOADER_RE.fullmatch(name):
             return True
     return False
 
@@ -92,7 +103,8 @@ def classify_respec(html: bytes) -> str:
       3. `id="respecDocument"` -> rendered (older rendered output, e.g. N-Quads
          TR; hand-written ReSpec sources also carry it on `<body>`, which is why
          it ranks after the loader test);
-      4. else ordinary (fail-safe: not recognisably ReSpec).
+      4. else ordinary (not recognisably ReSpec; the loader test is the
+         fail-safe side: unknown `respec-*` names count as loaders).
     On the cached catalog pages this puts every ReSpec nightly in rendered or
     unrendered (the config can be external, so `respecConfig` alone misses
     about a seventh of them)."""

@@ -199,9 +199,16 @@ class IdlExtAttrTests(unittest.TestCase):
         self.assertNotEqual(m.extract_idl_blocks(text, "E"), extract_idl_blocks(text, "E"))
 
     def test_string_spanning_lines_hides_its_semicolon(self):
-        text = 'enum E {\n  "a\n;b",\n  "c"\n};\ninterface After {\n};\n'
+        text = 'enum E {\n  "a\n}; b",\n  "c"\n};\ninterface After {\n};\n'
         self.assertEqual(extract_idl_blocks(text, "E"),
-                         ["enum E {", '  "a', ';b",', '  "c"', "};", ""])
+                         ["enum E {", '  "a', '}; b",', '  "c"', "};", ""])
+
+    def test_mutant_string_mode_reset_at_line_end(self):
+        m = mutate(idl_mod, "end = line.find('\"', i)\n            if end < 0:\n                return depth, mode, False",
+                   "end = line.find('\"', i)\n            if end < 0:\n                return depth, 'code', False")
+        text = 'enum E {\n  "a\n}; b",\n  "c"\n};\ninterface After {\n};\n'
+        self.assertEqual(m.extract_idl_blocks(text, "E"), ["enum E {", '  "a', '}; b",', ""])
+        self.assertEqual(len(extract_idl_blocks(text, "E")), 6)
 
     def test_mutant_line_shape_end_swallows_following_definitions(self):
         m = mutate(idl_mod, "bdepth, mode, ended = _scan_definition(line, bdepth, mode)",
@@ -824,10 +831,24 @@ class ClassifyRespecTests(unittest.TestCase):
         for h in (b"<script src='js/irrespective.js'></script>",
                   b'<script data-src="respec-w3c.js"></script>',
                   b"<script src='respec-config.js'></script>",
+                  b"<script src='js/svc-respec-config.js'></script>",
+                  b"<script src='https://cdn.example/respec-mermaid.js'></script>",
+                  b"<script src='https://cdn.example/respec-oas/dist/respec-oas.js'></script>",
                   b"<script src='https://cdn.jsdelivr.net/gh/w3c/respec-vc@3.5.1/dist/main.js'></script>",
                   b"<script src='/respec/index.html'></script>"):
             with self.subTest(h=h):
                 self.assertEqual(self.classify(h), "ordinary")
+
+    def test_unknown_respec_build_name_is_a_loader_fail_safe(self):
+        self.assertEqual(self.classify(b"<script src='respec-geonovum.js'></script>"),
+                         "unrendered")
+
+    def test_mutant_exact_name_pattern_misses_unknown_build(self):
+        m = mutate(respec_mod, 'r"respec-[\\w.-]+?(?:\\.min)?(?:\\.js)?"', 'r"respec-w3c(?:-common)?(?:\\.min)?(?:\\.js)?"')
+        self.assertEqual(m.classify_respec(b"<script src='respec-geonovum.js'></script>"),
+                         "ordinary")
+        self.assertEqual(self.classify(b"<script src='respec-geonovum.js'></script>"),
+                         "unrendered")
 
     def test_inline_config_is_unrendered(self):
         self.assertEqual(self.classify(UNRENDERED), "unrendered")
