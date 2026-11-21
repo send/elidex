@@ -202,7 +202,7 @@ gh pr checks <N> -R send/elidex
 - [ ] review 3 channel を `/external-review` Step 1 で読む (reviewThreads は改ページして `totalCount` == 取得数)。
       skill の手順内の読み取りには `# converge-manual-ok`。未解決 thread は 0 か、各々に返信と理由
 - [ ] Codex の評価対象 commit == current head、かつ dry。silent 👍 は verdict でない
-- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head == merge する head
+- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head == merge する head。差が main の merge commit だけなら、やり直さない (`/drive` §6 の 3 と同じ、PM 927)
 - [ ] **その PR の plan の landing 条件を読み直す** (PM 425 → 437): 対象は PR body、PR が実装する plan memo、
       その umbrella plan。memo は PR head の版を読む (`git fetch -q origin pull/<N>/head` の後
       `git show <headRefOid>:<path>`)。条件の語は日英両方の regex で引く:
