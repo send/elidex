@@ -82,16 +82,17 @@ fn require_element_arg(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<()
     };
     let entity = Entity::from_bits(entity_bits).ok_or_else(adjacent_element_detached_error)?;
     // Stale-entity check BEFORE the kind lookup: a destroyed entity
-    // has no components, so `node_kind_inferred` would return None
+    // has no components, so `is_element` would return false
     // and masquerade as "wrong type".  Catching it here keeps the
     // error message aligned with `require_receiver` (which makes the
     // same split for stale receivers).
     if !ctx.host().dom().contains(entity) {
         return Err(adjacent_element_detached_error());
     }
-    match ctx.host().dom().node_kind_inferred(entity) {
-        Some(NodeKind::Element) => Ok(()),
-        _ => Err(adjacent_element_arg_error()),
+    if ctx.host().dom().is_element(entity) {
+        Ok(())
+    } else {
+        Err(adjacent_element_arg_error())
     }
 }
 

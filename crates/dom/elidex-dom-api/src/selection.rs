@@ -52,7 +52,7 @@
 //! has been materialised yet, `getRangeAt(0)` builds one on demand —
 //! `RangeId` is the source of truth.
 
-use elidex_ecs::{DocTypeData, EcsDom, Entity, NodeKind};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::MutationRecord;
 
 use crate::range::{
@@ -345,7 +345,7 @@ impl SelectionState {
         node: Entity,
         offset: usize,
     ) -> Result<bool, SelectionError> {
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(SelectionError::InvalidNodeType);
         }
         if offset > node_length(node, dom) {
@@ -428,7 +428,7 @@ impl SelectionState {
             return Ok(false);
         }
         let id = self.active_range_id.ok_or(SelectionError::InvalidState)?;
-        if is_doctype(node, dom) {
+        if dom.is_document_type(node) {
             return Err(SelectionError::InvalidNodeType);
         }
         if offset > node_length(node, dom) {
@@ -504,7 +504,7 @@ impl SelectionState {
         {
             return Ok(false);
         }
-        if is_doctype(anchor_node, dom) || is_doctype(focus_node, dom) {
+        if dom.is_document_type(anchor_node) || dom.is_document_type(focus_node) {
             return Err(SelectionError::InvalidNodeType);
         }
         let new_direction =
@@ -540,7 +540,7 @@ impl SelectionState {
         owner_document: Entity,
         parent: Entity,
     ) -> Result<bool, SelectionError> {
-        if is_doctype(parent, dom) {
+        if dom.is_document_type(parent) {
             return Err(SelectionError::InvalidNodeType);
         }
         if !root_is_document(parent, owner_document, dom) {
@@ -736,15 +736,6 @@ impl SelectionState {
 // ---------------------------------------------------------------------------
 // Helpers (engine-indep, not exposed)
 // ---------------------------------------------------------------------------
-
-/// `true` when `node` is a `DocumentType` per WHATWG DOM `length of a
-/// node` exception list. Mirrors the private helper in
-/// `range::boundary`; duplicated here to keep that one
-/// file-scoped (lesson #228 — write primitives self-contained).
-fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
-    matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(node).is_ok()
-}
 
 /// DOM §1.1 / §4.2.1: `node`'s root is the associated document (`node` is
 /// in its document tree; the associated document, not any document:

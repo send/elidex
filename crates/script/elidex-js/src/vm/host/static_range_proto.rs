@@ -1,24 +1,24 @@
-//! `StaticRange` interface (WHATWG DOM §5.4) — eager / immutable
+//! `StaticRange` interface (WHATWG DOM §5.5) — eager / immutable
 //! AbstractRange holder.
 //!
 //! ## Layering
 //!
 //! `StaticRange` is **not** registered in
-//! [`elidex_dom_api::LiveRangeRegistry`] (spec §5.4 deliberately
+//! [`elidex_dom_api::LiveRangeRegistry`] (spec §5.5 deliberately
 //! omits live-range tracking).  The four boundary fields are stored
 //! inline in [`super::super::value::ObjectKind::StaticRange`] as
 //! [`Entity`] bits + offsets; the wrapper has no other state.
 //!
 //! ## Constructor — eager validation
 //!
-//! `new StaticRange(init)` (spec §5.4 step 1) eagerly throws
+//! `new StaticRange(init)` (spec §5.5 step 1) eagerly throws
 //! `InvalidNodeTypeError` if either container is a `DocumentType` or
 //! `Attr`.  Offsets are coerced via WebIDL `unsigned long`
 //! (`coerce::to_uint32`) per the AbstractRange dictionary.
 //!
 //! ## `isValid()` — lazy validation
 //!
-//! `staticRange.isValid()` (spec §5.4 *is valid* criteria) returns true only if
+//! `staticRange.isValid()` (spec §5.5 *is valid* criteria) returns true only if
 //! all of:
 //! - both containers share a root,
 //! - `startOffset ≤ length(startContainer)`,
@@ -29,7 +29,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_dom_api::range::Range;
-use elidex_ecs::{Attributes, DocTypeData, Entity, NodeKind};
+use elidex_ecs::Entity;
 
 use super::super::shape;
 use super::super::value::{
@@ -82,7 +82,7 @@ impl VmInner {
             self.install_accessor_pair(proto_id, name_sid, getter, None, attrs);
         }
 
-        // `isValid()` — spec §5.4 *is valid* criteria.  Method (data property)
+        // `isValid()` — spec §5.5 *is valid* criteria.  Method (data property)
         // rather than accessor per WebIDL signature.  No SID dedicated
         // — intern at install time.
         let is_valid_sid = self.strings.intern("isValid");
@@ -174,7 +174,7 @@ fn require_static_range_receiver(
 // Constructor — eager validation
 // ---------------------------------------------------------------------------
 
-/// `new StaticRange(init)` (WHATWG DOM §5.4).
+/// `new StaticRange(init)` (WHATWG DOM §5.5).
 ///
 /// Eager step 1: throw `InvalidNodeTypeError` if `init.startContainer`
 /// or `init.endContainer` is a `DocumentType` or `Attr`.  Spec
@@ -262,23 +262,15 @@ fn require_dict_member(
     }
 }
 
-/// Spec §5.4 step 1 — reject `DocumentType` / `Attr` container.
+/// Spec §5.5 step 1 — reject `DocumentType` / `Attr` container.
 fn reject_invalid_container(ctx: &mut NativeContext<'_>, container: Entity) -> Result<(), VmError> {
     let dom = ctx.host().dom();
-    let is_doctype = matches!(
-        dom.node_kind_inferred(container),
-        Some(NodeKind::DocumentType)
-    ) || dom.world().get::<&DocTypeData>(container).is_ok();
-    // `Attr` nodes are stored via the `Attributes` component on their
-    // owner element + tracked as a separate Entity for the Attr
-    // wrapper.  Detect by presence of a parent-less node whose role
-    // is Attr — currently elidex represents Attr only as wrappers
-    // around `(owner, name)` pairs, not as standalone Entities.
-    // Therefore the Attr branch is a forward-stub: no Entity in
-    // current elidex storage can fail this check, but the doc-comment
-    // documents the spec intent so a future Attr-entity migration
-    // does not regress §5.4 step 1.
-    let _ = Attributes::default;
+    let is_doctype = dom.is_document_type(container);
+    // An `Attr` container is not rejected here: `create_attribute` spawns
+    // `NodeKind::Attribute` entities, but `require_node_arg` rejects an Attr
+    // argument earlier with a TypeError, whereas DOM StaticRange step 1
+    // expects InvalidNodeTypeError. Tracked at
+    // `#11-dom-api-attr-entity-model-unification` (D16 facet).
     if is_doctype {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,

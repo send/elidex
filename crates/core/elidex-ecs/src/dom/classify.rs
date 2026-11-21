@@ -5,8 +5,8 @@
 //! the read-only brand / kind / namespace / tag-name predicates that answer a
 //! classification question about a single entity:
 //!
-//! - kind: [`EcsDom::node_kind`], [`EcsDom::node_kind_inferred`],
-//!   [`EcsDom::is_element`], [`EcsDom::is_document_fragment`]
+//! - kind: [`EcsDom::node_kind`], [`EcsDom::is_element`],
+//!   [`EcsDom::is_document_fragment`], [`EcsDom::is_document_type`]
 //! - namespace: [`EcsDom::namespace_of`], [`EcsDom::is_html_namespace`]
 //! - HTML tag-name predicates: [`EcsDom::is_base_element`],
 //!   [`EcsDom::is_template_element`]
@@ -21,7 +21,7 @@
 use hecs::Entity;
 
 use super::EcsDom;
-use crate::components::{CommentData, DocTypeData, Namespace, NodeKind, TagType, TextContent};
+use crate::components::{Namespace, NodeKind, TagType};
 
 impl EcsDom {
     /// HTML tag-name predicate: returns `true` iff `entity` is an
@@ -79,17 +79,10 @@ impl EcsDom {
             .map_or(Namespace::Html, |n| *n)
     }
 
-    /// Returns `true` if the entity is an element node.
-    ///
-    /// Checks `NodeKind` first, falls back to `TagType` presence for
-    /// backwards compatibility with entities created before `NodeKind` was added
-    /// (a shim slated for removal: `#11-nodekind-inference-shim`).
+    /// Returns `true` if the entity is an element node (its `NodeKind` is `Element`).
     #[must_use]
     pub fn is_element(&self, entity: Entity) -> bool {
-        if let Ok(kind) = self.world.get::<&NodeKind>(entity) {
-            return *kind == NodeKind::Element;
-        }
-        self.world.get::<&TagType>(entity).is_ok()
+        matches!(self.node_kind(entity), Some(NodeKind::Element))
     }
 
     /// Returns the `NodeKind` of an entity, if it has one.
@@ -119,6 +112,12 @@ impl EcsDom {
             && !self.is_shadow_root(entity)
     }
 
+    /// Whether `entity` is a `DocumentType` node (reads its [`NodeKind`]).
+    #[must_use]
+    pub fn is_document_type(&self, entity: Entity) -> bool {
+        matches!(self.node_kind(entity), Some(NodeKind::DocumentType))
+    }
+
     /// Whether `entity` is an element in the HTML namespace.
     ///
     /// `true` iff `entity` is an element AND its [`namespace_of`] is
@@ -135,38 +134,5 @@ impl EcsDom {
     #[must_use]
     pub fn is_html_namespace(&self, entity: Entity) -> bool {
         self.is_element(entity) && self.namespace_of(entity) == Namespace::Html
-    }
-
-    /// Effective `NodeKind` — returns the explicit component when
-    /// present, otherwise infers from payload components for legacy
-    /// entities that predate the `NodeKind` component (same rules as
-    /// [`clone_node_shallow`](Self::clone_node_shallow) and
-    /// `HostData::prototype_kind_for`): `TagType` ⇒ `Element`,
-    /// `TextContent` ⇒ `Text`, `CommentData` ⇒ `Comment`,
-    /// `DocTypeData` ⇒ `DocumentType`.  Returns `None` only when no
-    /// kind component and no DOM payload is present.
-    ///
-    /// Use this in any code path that has to treat legacy entities
-    /// as real DOM nodes — e.g. `splitText` brand checks,
-    /// `isEqualNode` equality, variadic argument normalisation. The
-    /// inference is a shim slated for removal (`#11-nodekind-inference-shim`).
-    #[must_use]
-    pub fn node_kind_inferred(&self, entity: Entity) -> Option<NodeKind> {
-        if let Some(kind) = self.node_kind(entity) {
-            return Some(kind);
-        }
-        if self.world.get::<&TagType>(entity).is_ok() {
-            return Some(NodeKind::Element);
-        }
-        if self.world.get::<&TextContent>(entity).is_ok() {
-            return Some(NodeKind::Text);
-        }
-        if self.world.get::<&CommentData>(entity).is_ok() {
-            return Some(NodeKind::Comment);
-        }
-        if self.world.get::<&DocTypeData>(entity).is_ok() {
-            return Some(NodeKind::DocumentType);
-        }
-        None
     }
 }

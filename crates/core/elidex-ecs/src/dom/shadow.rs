@@ -203,9 +203,8 @@ impl EcsDom {
                 null_registry: init.null_registry,
             },
             TreeRelation::default(),
-            NodeKind::DocumentFragment,
         );
-        let shadow_root_entity = self.spawn_node(shadow_root, owner);
+        let shadow_root_entity = self.spawn_node(NodeKind::DocumentFragment, shadow_root, owner);
 
         if !self.append_child(host, shadow_root_entity) {
             let _ = self.world.despawn(shadow_root_entity);

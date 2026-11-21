@@ -801,9 +801,8 @@ fn normalize_before_arg(
                 // The HostObject enters the HTMLElement arm only when its backing
                 // entity is actually an Element node; Text / Comment / Document
                 // wrappers fall through to the `long` branch.
-                let is_element = Entity::from_bits(entity_bits).is_some_and(|e| {
-                    ctx.host().dom().node_kind_inferred(e) == Some(NodeKind::Element)
-                });
+                let is_element =
+                    Entity::from_bits(entity_bits).is_some_and(|e| ctx.host().dom().is_element(e));
                 if is_element {
                     Ok(before_arg)
                 } else {
