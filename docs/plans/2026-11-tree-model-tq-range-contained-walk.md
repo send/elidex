@@ -20,7 +20,9 @@ and P5c shapes, V5 also P4c); the mutant lines gain the kills measured on them (
 V2 P1-light), and the per-shape table follows the mutant list. (4) §7.1: the `wc -l` counts re-measured at the code
 PR's base `bf113e6c` and head `9f3a229e` (`tests_selection.rs` was 839 on that base, not the plan's 787; 913 after).
 (5) §10 item 5 and §11 P-3: the two inline `//` comments in `contained_top_level_nodes`' body still say "§5.5";
-§10 item 1 limits `mutation.rs` to `///` lines, so `tq` leaves them to the §5.5 renumber sweep (not missed).
+they belong to the registered DOM §5.x Range renumber sweep (memory `project_dom-events-section-renumber-sweep.md`,
+part "DOM §5.x Range", PM 882: each cite is re-derived on its own there), which is why `tq` leaves them (not missed;
+§10 item 1's `///`-only limit is the consequence, not the reason).
 
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
@@ -672,7 +674,8 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    keeps, holds no "§5.5", and states the three clauses of *contained* and which part enforces which (§0.1).
    Not missed (erratum 2026-11-22): the two inline `//` comments in `contained_top_level_nodes`' body, `// DOM §5.5
    "contained": …` and `// §5.5 omit-nested: …`, still say §5.5. They are not the doc comment, and item 1 limits the
-   `mutation.rs` diff to `///` lines, so `tq` leaves them to the §5.5 renumber sweep (§11 P-3). measure: `git grep -n
+   `mutation.rs` diff to `///` lines; the reason is that they belong to the registered DOM §5.x Range renumber sweep
+(PM 882, per-cite re-derivation), so `tq` leaves them to it (§11 P-3). measure: `git grep -n
    -F '§5.5' 9f3a229e -- crates/dom/elidex-dom-api/src/range/mutation.rs`.
 6. Prereq landed: `tsel` (`#11-selection-boundary-setter-skips-root-check`; "Selection operations check the spec's
    tree preconditions", PM 890) is in the code PR's base (§9 item 3), and V6 is green there.

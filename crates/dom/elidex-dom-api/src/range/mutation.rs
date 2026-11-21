@@ -85,7 +85,11 @@ impl Range {
     ///   by descent. The walk's upward step is unchanged (it climbs from a
     ///   shadow root to its host: `#11-shadow-root-is-a-tree-root`), so a walk
     ///   that starts inside a shadow tree is not covered by the walk; the
-    ///   root clause is held for it only by the `compare_points` test below;
+    ///   `compare_points` test below excludes those candidates only through
+    ///   position order, which today counts the stored shadow root among the
+    ///   host's children (`child_index_in_ancestor`, D13 (a):
+    ///   `#11-range-compare-points-shadow-index`), so this holds only until
+    ///   that slot changes the count;
     /// - position clauses: the canonical `compare_points` test below. The walk
     ///   is only an over-approximation of these — it includes nodes *outside*
     ///   the range (e.g. children before an element `start_offset`, Codex
