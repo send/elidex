@@ -3,7 +3,7 @@
 //!
 //! The VM-side `dom_selection_proto.rs` is a thin marshalling layer over
 //! this state machine — all spec algorithms (direction derivation, anchor /
-//! focus computation, validity gates, alias dispatch) live here. The same
+//! focus computation, tree preconditions, alias dispatch) live here. The same
 //! layering mandate as for [`crate::range::live::LiveRangeRegistry`] applies
 //! (CLAUDE.md "VM host/ は engine-bound 責務のみ" / lesson #226).
 //!
@@ -19,8 +19,20 @@
 //!   under the selection are visible immediately.
 //!
 //! - The single-range disposition (Q1 (a), plan v3) is enforced here:
-//!   [`SelectionState::add_range`] is a spec-correct no-op when a range is
-//!   already set.
+//!   [`SelectionState::add_range`] aborts when `rangeCount` is not 0
+//!   (Selection API §3 `addRange()` step 2). `rangeCount` itself is 0 for a
+//!   selection that is empty or whose anchor or focus is not in the
+//!   document's tree, so such a selection is replaced by `addRange()`.
+//!
+//! - The tree preconditions of Selection API §3 are checked here, each in
+//!   its spec step order and before any state change: the setters
+//!   (`collapse` / `extend` / `setBaseAndExtent`) **abort** (`Ok(false)`, no
+//!   exception) unless the associated document is a shadow-including
+//!   inclusive ancestor of the node; `selectAllChildren` / `addRange` abort
+//!   unless the root is the associated document; `deleteFromDocument`,
+//!   `getRangeAt` and the `rangeCount` / `type` / `anchor*` / `focus*`
+//!   attributes read "in the document tree" as: the root is the associated
+//!   document (tree-model `tsel` plan §0.5).
 //!
 //! - `direction` derivation per Selection API §3.1 is tri-state:
 //!   `Forward` / `Backward` / `Directionless`. A collapsed range is
@@ -120,9 +132,6 @@ pub enum SelectionError {
     /// `node` is a `DocumentType` (Selection API §3.2 collapse / extend
     /// step 1).
     InvalidNodeType,
-    /// `node`'s document differs from the Selection's owner document
-    /// (Selection API §3.2 collapse step 2).
-    WrongDocument,
     /// `offset` exceeds `node`'s length per WHATWG DOM "length of a node".
     IndexSize,
     /// Operation requires `rangeCount > 0` (Selection API §3.2 extend
@@ -159,11 +168,19 @@ impl SelectionState {
         self.active_range_id
     }
 
-    /// `Selection.rangeCount` per spec §3.1 — 0 or 1 (single-range
-    /// ship per plan-v3 Q1 (a)).
+    /// `Selection.rangeCount` per Selection API §3: "0 if this is empty or
+    /// either focus or anchor is not in the document tree, and 1
+    /// otherwise" (single-range ship per plan-v3 Q1 (a)). One definition,
+    /// shared with `type`, `getRangeAt()`, `deleteFromDocument()` and
+    /// `addRange()` step 2.
     #[must_use]
-    pub fn range_count(&self) -> u32 {
-        u32::from(self.active_range_id.is_some())
+    pub fn range_count(
+        &self,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> u32 {
+        u32::from(self.anchor_and_focus_in_document_tree(registry, dom, owner_document))
     }
 
     /// `true` when there is no current range.
@@ -184,11 +201,21 @@ impl SelectionState {
             .unwrap_or(true)
     }
 
-    /// `Selection.type` per spec §3.1 — derived from current range state.
-    pub fn selection_type(&self, registry: &mut LiveRangeRegistry, dom: &EcsDom) -> SelectionType {
+    /// `Selection.type` per Selection API §3: `None` if this is empty or
+    /// either focus or anchor is not in the document tree, `Caret` if the
+    /// range is collapsed, `Range` otherwise.
+    pub fn selection_type(
+        &self,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> SelectionType {
         let Some(id) = self.active_range_id else {
             return SelectionType::None;
         };
+        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
+            return SelectionType::None;
+        }
         let collapsed = registry
             .with_range(id, dom, |range, _| range.collapsed())
             .unwrap_or(true);
@@ -212,10 +239,13 @@ impl SelectionState {
         self.direction
     }
 
-    /// `(Selection.anchorNode, Selection.anchorOffset)` derived from the
-    /// current range + direction. `None` when `rangeCount == 0`.
+    /// The Selection API §2 *anchor* concept: `(node, offset)` derived from
+    /// the current range + direction. `None` when this is empty. It need not
+    /// be in the document tree (it "could be in a shadow tree of the same
+    /// document", §2); the `anchorNode` / `anchorOffset` attributes read
+    /// [`Self::anchor_in_document_tree`] instead.
     ///
-    /// Per Selection API §3.1:
+    /// Per Selection API §3:
     /// - `Forward` direction: anchor = range start, focus = range end.
     /// - `Backward` direction: anchor = range end, focus = range start.
     /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
@@ -235,9 +265,9 @@ impl SelectionState {
         })
     }
 
-    /// `(Selection.focusNode, Selection.focusOffset)`. Inverse of
+    /// The Selection API §2 *focus* concept, `(node, offset)`. Inverse of
     /// [`Self::anchor`]; see that doc-comment for the per-direction
-    /// mapping.
+    /// mapping and for why it need not be in the document tree.
     pub fn focus(&self, registry: &mut LiveRangeRegistry, dom: &EcsDom) -> Option<(Entity, usize)> {
         let id = self.active_range_id?;
         registry.with_range(id, dom, |range, _| {
@@ -249,14 +279,64 @@ impl SelectionState {
         })
     }
 
-    /// `Selection.collapse(node, offset)` per spec §3.2. Spec aliases
-    /// `setPosition` to this — the VM-side proto installs both names
-    /// pointing at this impl.
+    /// Selection API §3 (`anchorNode`, `anchorOffset`): the anchor, or
+    /// `None` if it is null or not in the document tree.
+    pub fn anchor_in_document_tree(
+        &self,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> Option<(Entity, usize)> {
+        self.anchor(registry, dom)
+            .filter(|&(node, _)| root_is_document(node, owner_document, dom))
+    }
+
+    /// Selection API §3 (`focusNode`, `focusOffset`): the focus, or `None`
+    /// if it is null or not in the document tree.
+    pub fn focus_in_document_tree(
+        &self,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> Option<(Entity, usize)> {
+        self.focus(registry, dom)
+            .filter(|&(node, _)| root_is_document(node, owner_document, dom))
+    }
+
+    /// Selection API §3 (`rangeCount`, `type`, `getRangeAt()`,
+    /// `deleteFromDocument()`; paraphrased): this is not empty and both
+    /// anchor and focus are in the document tree, read as the associated
+    /// document's tree (tsel plan §0.5, rung 2). The one home of that
+    /// condition.
+    fn anchor_and_focus_in_document_tree(
+        &self,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> bool {
+        let Some(id) = self.active_range_id else {
+            return false;
+        };
+        registry
+            .with_range(id, dom, |range, dom| {
+                root_is_document(range.start_container, owner_document, dom)
+                    && root_is_document(range.end_container, owner_document, dom)
+            })
+            .unwrap_or(false)
+    }
+
+    /// `Selection.collapse(node, offset)` per Selection API §3 (`setPosition`
+    /// is an alias — the VM-side proto installs both names pointing at this
+    /// impl). Steps, each before any state change: DocumentType → throw
+    /// (step 2); offset beyond the node's length → throw (step 3); the
+    /// associated document is not a shadow-including inclusive ancestor of
+    /// `node` → abort (step 4); else set the range (step 6, through DOM
+    /// *set the start or end of a range to a boundary point*).
     ///
-    /// Validity gates (run in this order, all before any state mutation
-    /// per lesson #249): DocumentType rejection / cross-document rejection
-    /// / offset bound. On any rejection, the Selection state is left
-    /// bit-identical.
+    /// Returns `Ok(true)` when a range was set and `Ok(false)` on the
+    /// abort (no state change, no exception), so the VM-side caller
+    /// schedules `selectionchange` only when something happened. On an
+    /// exception the Selection state is left bit-identical.
     pub fn collapse(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -264,33 +344,35 @@ impl SelectionState {
         owner_document: Entity,
         node: Entity,
         offset: usize,
-    ) -> Result<(), SelectionError> {
+    ) -> Result<bool, SelectionError> {
         if is_doctype(node, dom) {
             return Err(SelectionError::InvalidNodeType);
-        }
-        if !same_document(node, owner_document, dom) {
-            return Err(SelectionError::WrongDocument);
         }
         if offset > node_length(node, dom) {
             return Err(SelectionError::IndexSize);
         }
+        if !crate::focus::is_in_document(dom, node, owner_document) {
+            return Ok(false);
+        }
         let mut range = Range::new_with_owner(node, owner_document);
-        range.set_start(node, offset);
-        range.set_end(node, offset);
+        range.set_start_to_boundary(node, offset, dom);
+        range.set_end_to_boundary(node, offset, dom);
         let id = registry.register(range);
         self.active_range_id = Some(id);
         self.direction = SelectionDirection::Directionless;
-        Ok(())
+        Ok(true)
     }
 
-    /// `Selection.collapseToStart()` per spec §3.2 — collapses the
+    /// `Selection.collapseToStart()` per Selection API §3 — collapses the
     /// existing range to its start boundary. Throws `InvalidStateError`
-    /// when `rangeCount == 0`.
+    /// when this is empty. Returns `Ok(true)` on every non-error path (the
+    /// range is replaced), so the VM-side caller keeps its unconditional
+    /// `selectionchange`.
     pub fn collapse_to_start(
         &mut self,
         registry: &mut LiveRangeRegistry,
         dom: &EcsDom,
-    ) -> Result<(), SelectionError> {
+    ) -> Result<bool, SelectionError> {
         let id = self.active_range_id.ok_or(SelectionError::InvalidState)?;
         registry
             .with_range_mut(id, dom, |range, _| {
@@ -298,17 +380,18 @@ impl SelectionState {
             })
             .ok_or(SelectionError::InvalidState)?;
         self.direction = SelectionDirection::Directionless;
-        Ok(())
+        Ok(true)
     }
 
-    /// `Selection.collapseToEnd()` per spec §3.2 — collapses the existing
-    /// range to its end boundary. Throws `InvalidStateError` when
-    /// `rangeCount == 0`.
+    /// `Selection.collapseToEnd()` per Selection API §3 — collapses the
+    /// existing range to its end boundary. Throws `InvalidStateError` when
+    /// this is empty. Returns `Ok(true)` on every non-error path, as
+    /// [`Self::collapse_to_start`].
     pub fn collapse_to_end(
         &mut self,
         registry: &mut LiveRangeRegistry,
         dom: &EcsDom,
-    ) -> Result<(), SelectionError> {
+    ) -> Result<bool, SelectionError> {
         let id = self.active_range_id.ok_or(SelectionError::InvalidState)?;
         registry
             .with_range_mut(id, dom, |range, _| {
@@ -316,16 +399,23 @@ impl SelectionState {
             })
             .ok_or(SelectionError::InvalidState)?;
         self.direction = SelectionDirection::Directionless;
-        Ok(())
+        Ok(true)
     }
 
-    /// `Selection.extend(node, offset)` per spec §3.2. Moves the focus
-    /// to `(node, offset)` while keeping the anchor; the range is set to
-    /// `(anchor → focus)` in tree order. Direction is set to `Forward`
-    /// when the new focus follows the anchor, `Backward` otherwise.
+    /// `Selection.extend(node, offset)` per Selection API §3. Moves the
+    /// focus to `(node, offset)` while keeping the anchor. Steps, each
+    /// before any state change: the associated document is not a
+    /// shadow-including inclusive ancestor of `node` → abort (step 1);
+    /// empty → `InvalidStateError` (step 2); DocumentType → throw and
+    /// offset beyond the length → throw (DOM *set the start or end*
+    /// steps 1-2, run by the writes of steps 5-7); `node`'s root is not the
+    /// range's root → both points to `(node, offset)` (step 5); otherwise
+    /// forward / backward through DOM *set the start* / *set the end*
+    /// (steps 6-7). Direction is `Forward` when the new focus does not
+    /// precede the anchor, `Backward` otherwise.
     ///
-    /// `InvalidStateError` when `rangeCount == 0`. Standard validity gates
-    /// otherwise.
+    /// Returns `Ok(true)` when the range was replaced, `Ok(false)` on the
+    /// step 1 abort.
     pub fn extend(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -333,15 +423,13 @@ impl SelectionState {
         owner_document: Entity,
         node: Entity,
         offset: usize,
-    ) -> Result<(), SelectionError> {
-        if self.active_range_id.is_none() {
-            return Err(SelectionError::InvalidState);
+    ) -> Result<bool, SelectionError> {
+        if !crate::focus::is_in_document(dom, node, owner_document) {
+            return Ok(false);
         }
+        let id = self.active_range_id.ok_or(SelectionError::InvalidState)?;
         if is_doctype(node, dom) {
             return Err(SelectionError::InvalidNodeType);
-        }
-        if !same_document(node, owner_document, dom) {
-            return Err(SelectionError::WrongDocument);
         }
         if offset > node_length(node, dom) {
             return Err(SelectionError::IndexSize);
@@ -351,32 +439,50 @@ impl SelectionState {
         let (anchor_node, anchor_offset) = self
             .anchor(registry, dom)
             .ok_or(SelectionError::InvalidState)?;
+        let range_root = registry
+            .with_range(id, dom, |range, dom| {
+                dom.find_tree_root(range.start_container)
+            })
+            .ok_or(SelectionError::InvalidState)?;
         let new_direction = direction_between(anchor_node, anchor_offset, node, offset, dom);
         let mut range = Range::new_with_owner(anchor_node, owner_document);
-        if new_direction == SelectionDirection::Backward {
+        if dom.find_tree_root(node) != range_root {
+            // Step 5: set newRange's start and end to newFocus. The
+            // boundary-point setters alone would collapse a backward
+            // cross-root extend at oldAnchor.
             range.set_start(node, offset);
-            range.set_end(anchor_node, anchor_offset);
-        } else {
-            range.set_start(anchor_node, anchor_offset);
             range.set_end(node, offset);
+        } else if new_direction == SelectionDirection::Backward {
+            range.set_start_to_boundary(node, offset, dom);
+            range.set_end_to_boundary(anchor_node, anchor_offset, dom);
+        } else {
+            range.set_start_to_boundary(anchor_node, anchor_offset, dom);
+            range.set_end_to_boundary(node, offset, dom);
         }
-        // Old RangeId is left in the registry — GC sweep tail will
-        // unregister it when the Range wrapper becomes unreachable.
+        // Old RangeId is left in the registry — `mutate_selection`
+        // unregisters it when no wrapper holds it.
         let id = registry.register(range);
         self.active_range_id = Some(id);
         self.direction = new_direction;
-        Ok(())
+        Ok(true)
     }
 
     /// `Selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset)`
-    /// per spec §3.2. Sets anchor and focus simultaneously; direction is
-    /// derived from the tree-order relationship (collapsed →
+    /// per Selection API §3. Sets anchor and focus simultaneously;
+    /// direction is derived from the tree-order relationship (collapsed →
     /// `Directionless`).
     ///
-    /// Per WebIDL §3.7.6 (lesson #245), the VM-side wrapper coerces all
-    /// four args in declared order before any spec step runs. This impl
-    /// runs validity gates serially: DocumentType / WrongDocument / offset
-    /// bound check on both `anchor` and `focus` before any mutation.
+    /// Per WebIDL §3.7.7 Operations, the VM-side wrapper coerces all four
+    /// args in declared order (overload resolution converts left to right)
+    /// before any spec step runs. Steps, each before any state change:
+    /// an offset beyond its node's length → `IndexSizeError` (step 1);
+    /// the associated document is not a shadow-including inclusive
+    /// ancestor of either node → abort (step 2); DocumentType for either
+    /// node → throw (DOM *set the start or end* step 1, inside step 5);
+    /// then forward / backward through the DOM setters (step 5).
+    ///
+    /// Returns `Ok(true)` when the range was replaced, `Ok(false)` on the
+    /// step 2 abort.
     #[allow(clippy::too_many_arguments)]
     pub fn set_base_and_extent(
         &mut self,
@@ -387,52 +493,58 @@ impl SelectionState {
         anchor_offset: usize,
         focus_node: Entity,
         focus_offset: usize,
-    ) -> Result<(), SelectionError> {
-        if is_doctype(anchor_node, dom) || is_doctype(focus_node, dom) {
-            return Err(SelectionError::InvalidNodeType);
-        }
-        if !same_document(anchor_node, owner_document, dom)
-            || !same_document(focus_node, owner_document, dom)
-        {
-            return Err(SelectionError::WrongDocument);
-        }
+    ) -> Result<bool, SelectionError> {
         if anchor_offset > node_length(anchor_node, dom)
             || focus_offset > node_length(focus_node, dom)
         {
             return Err(SelectionError::IndexSize);
         }
+        if !crate::focus::is_in_document(dom, anchor_node, owner_document)
+            || !crate::focus::is_in_document(dom, focus_node, owner_document)
+        {
+            return Ok(false);
+        }
+        if is_doctype(anchor_node, dom) || is_doctype(focus_node, dom) {
+            return Err(SelectionError::InvalidNodeType);
+        }
         let new_direction =
             direction_between(anchor_node, anchor_offset, focus_node, focus_offset, dom);
         let mut range = Range::new_with_owner(anchor_node, owner_document);
         if new_direction == SelectionDirection::Backward {
-            range.set_start(focus_node, focus_offset);
-            range.set_end(anchor_node, anchor_offset);
+            range.set_start_to_boundary(focus_node, focus_offset, dom);
+            range.set_end_to_boundary(anchor_node, anchor_offset, dom);
         } else {
-            range.set_start(anchor_node, anchor_offset);
-            range.set_end(focus_node, focus_offset);
+            range.set_start_to_boundary(anchor_node, anchor_offset, dom);
+            range.set_end_to_boundary(focus_node, focus_offset, dom);
         }
         let id = registry.register(range);
         self.active_range_id = Some(id);
         self.direction = new_direction;
-        Ok(())
+        Ok(true)
     }
 
-    /// `Selection.selectAllChildren(parentNode)` per spec §3.2. Sets the
-    /// range to `(parentNode, 0) → (parentNode, parentNode.length)` and
-    /// clears direction to `Directionless` (this op does not establish
-    /// a forward/backward intent).
+    /// `Selection.selectAllChildren(parentNode)` per Selection API §3.
+    /// Steps: DocumentType → throw (step 1); `parentNode`'s root is not
+    /// the associated document → abort (step 2); then the range is set to
+    /// `(parentNode, 0) → (parentNode, parentNode.length)` (steps 4-5,
+    /// plain "set", not "set the start") and direction cleared to
+    /// `Directionless` (the direction step is the slot
+    /// `#11-selection-select-all-children-steps`'s).
+    ///
+    /// Returns `Ok(true)` when the range was replaced, `Ok(false)` on the
+    /// step 2 abort.
     pub fn select_all_children(
         &mut self,
         registry: &mut LiveRangeRegistry,
         dom: &EcsDom,
         owner_document: Entity,
         parent: Entity,
-    ) -> Result<(), SelectionError> {
+    ) -> Result<bool, SelectionError> {
         if is_doctype(parent, dom) {
             return Err(SelectionError::InvalidNodeType);
         }
-        if !same_document(parent, owner_document, dom) {
-            return Err(SelectionError::WrongDocument);
+        if !root_is_document(parent, owner_document, dom) {
+            return Ok(false);
         }
         let len = node_length(parent, dom);
         let mut range = Range::new_with_owner(parent, owner_document);
@@ -441,27 +553,34 @@ impl SelectionState {
         let id = registry.register(range);
         self.active_range_id = Some(id);
         self.direction = SelectionDirection::Directionless;
-        Ok(())
+        Ok(true)
     }
 
-    /// `Selection.addRange(range)` per Selection API §3.2 step 3.
-    /// Single-range disposition (plan-v3 Q1 (a)): no-op when
-    /// `rangeCount > 0`. Cross-document range is rejected as a no-op
-    /// per spec §3.2 step 2 ("If range's root is not the document
-    /// associated with this, abort").
+    /// `Selection.addRange(range)` per Selection API §3. Steps: the root of
+    /// the range's boundary points is not the associated document → abort
+    /// (step 1); `rangeCount` is not 0 → abort (step 2; `rangeCount` the
+    /// attribute's value, so a selection outside the document tree is
+    /// replaced); else set this's range to `range` (step 3).
     ///
-    /// Returns `true` when the range was actually set, `false` on no-op
-    /// (so VM-side can decide whether to fire `selectionchange`).
+    /// Returns `true` when the range was set, `false` on an abort (so
+    /// VM-side can decide whether to schedule `selectionchange`). The
+    /// displaced range, if any, is freed by the VM-side caller.
     pub fn add_range(
         &mut self,
-        range_owner_document: Entity,
-        self_owner_document: Entity,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
         range_id: RangeId,
     ) -> bool {
-        if self.active_range_id.is_some() {
+        let rooted = registry
+            .with_range(range_id, dom, |range, dom| {
+                root_is_document(range.start_container, owner_document, dom)
+            })
+            .unwrap_or(false);
+        if !rooted {
             return false;
         }
-        if range_owner_document != self_owner_document {
+        if self.range_count(registry, dom, owner_document) != 0 {
             return false;
         }
         self.active_range_id = Some(range_id);
@@ -469,64 +588,71 @@ impl SelectionState {
         true
     }
 
-    /// `Selection.removeRange(range)` per spec §3.2. `InvalidStateError`
-    /// when `range` is not the current range.
-    pub fn remove_range(&mut self, range_id: RangeId) -> Result<(), SelectionError> {
+    /// `Selection.removeRange(range)` per Selection API §3.
+    /// `InvalidStateError` when `range` is not the current range. Returns
+    /// `Ok(true)` on every non-error path (the range is dissociated).
+    pub fn remove_range(&mut self, range_id: RangeId) -> Result<bool, SelectionError> {
         match self.active_range_id {
             Some(current) if current == range_id => {
                 self.active_range_id = None;
                 self.direction = SelectionDirection::Directionless;
-                Ok(())
+                Ok(true)
             }
             _ => Err(SelectionError::InvalidState),
         }
     }
 
-    /// `Selection.removeAllRanges()` per spec §3.2 — drops the current
-    /// range. Old RangeId is left in the registry; GC sweep tail
-    /// unregisters when no wrapper is reachable.
-    pub fn remove_all_ranges(&mut self) {
+    /// `Selection.removeAllRanges()` per Selection API §3 — drops the
+    /// current range. Old RangeId is left in the registry;
+    /// `mutate_selection` unregisters it when no wrapper holds it.
+    ///
+    /// Returns `true` unconditionally, also on an empty selection where
+    /// nothing is dissociated; that is the slot
+    /// `#11-selection-change-on-noop-range-mutation`'s (facet (a)), whose
+    /// fix is one edit here.
+    pub fn remove_all_ranges(&mut self) -> bool {
         self.active_range_id = None;
         self.direction = SelectionDirection::Directionless;
+        true
     }
 
-    /// `Selection.empty()` per spec §3.2 — alias of
-    /// [`Self::remove_all_ranges`].
-    pub fn empty(&mut self) {
-        self.remove_all_ranges();
+    /// `Selection.empty()` per Selection API §3 — alias of
+    /// [`Self::remove_all_ranges`], with the same unconditional return
+    /// value (slot `#11-selection-change-on-noop-range-mutation`,
+    /// facet (a)).
+    pub fn empty(&mut self) -> bool {
+        self.remove_all_ranges()
     }
 
-    /// `Selection.deleteFromDocument()` per spec §3.3. Early-return when
-    /// `rangeCount == 0` per spec step 1. Otherwise delegates to
-    /// `Range::delete_contents`, which collapses the range to the
-    /// deletion start (Selection state is consistent because we hold a
-    /// `RangeId` reference, not a snapshot).
+    /// `Selection.deleteFromDocument()` per Selection API §3: invoke
+    /// `deleteContents()` on this's range "if this is not empty and both
+    /// focus and anchor are in the document tree. Otherwise the method must
+    /// do nothing." The document tree is the associated document's.
     ///
-    /// Returns the `MutationRecord`s produced by the underlying
+    /// Returns `None` for the "do nothing" branch, and `Some(records)` when
+    /// `deleteContents()` ran (a collapsed range included:
+    /// `Some(vec![])`): the `MutationRecord`s produced by
     /// `Range::delete_contents` (childList removals + characterData
-    /// text-splice records) so the VM-side caller routes them through
-    /// the same `commit_notify_records` chokepoint as the Range
-    /// natives (One-issue-one-way: a record-producing primitive's records
-    /// are never silently dropped). The `characterData` text-splice
-    /// records flow with zero change here — `delete_contents` produces
-    /// them (B1.3-ii) and this path inherits them for free.
+    /// text-splice records) so the VM-side caller routes them through the
+    /// same `commit_notify_records` chokepoint as the Range natives
+    /// (One-issue-one-way: a record-producing primitive's records are never
+    /// silently dropped).
     pub fn delete_from_document(
         &mut self,
         registry: &mut LiveRangeRegistry,
         dom: &mut EcsDom,
-    ) -> Vec<MutationRecord> {
-        let Some(id) = self.active_range_id else {
-            return Vec::new();
-        };
+        owner_document: Entity,
+    ) -> Option<Vec<MutationRecord>> {
+        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
+            return None;
+        }
+        let id = self.active_range_id?;
         // `with_range_mut` would need `&mut EcsDom` to call
         // `delete_contents` from inside the closure, but `with_range_mut`'s
         // closure receives `&EcsDom`. Clone the boundary state out under
         // a shared borrow, run `delete_contents(&mut dom)` outside the
         // closure, then write the post-deletion boundaries back via
-        // `with_range_mut` (Copilot R2 MIN cleanup: removed an earlier
-        // no-op `with_range_mut` that bound `range` to `_` and returned
-        // nothing — confusing because it read as if some mutation
-        // happened there).
+        // `with_range_mut`.
         let snapshot = registry.with_range(id, dom, |range, _| range.clone());
         let mut records = Vec::new();
         if let Some(mut range) = snapshot {
@@ -542,13 +668,34 @@ impl SelectionState {
             });
         }
         self.direction = SelectionDirection::Directionless;
-        records
+        Some(records)
     }
 
-    /// `Selection.containsNode(node, allowPartialContainment)` per spec
-    /// §3.2. Cross-document `node` returns `false` (no throw). The
-    /// `allowPartialContainment` arg switches between full-contain
-    /// (default) and partial-overlap semantics.
+    /// `Selection.getRangeAt(index)` per Selection API §3: throw
+    /// `IndexSizeError` (here [`SelectionError::OutOfRange`]) "if index is
+    /// not 0, or if this is empty or either focus or anchor is not in the
+    /// document tree"; otherwise the current range (a reference, not a
+    /// copy: the caller wraps the same `RangeId`).
+    pub fn range_at(
+        &self,
+        index: usize,
+        registry: &mut LiveRangeRegistry,
+        dom: &EcsDom,
+        owner_document: Entity,
+    ) -> Result<RangeId, SelectionError> {
+        if index != 0 {
+            return Err(SelectionError::OutOfRange);
+        }
+        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
+            return Err(SelectionError::OutOfRange);
+        }
+        self.active_range_id.ok_or(SelectionError::OutOfRange)
+    }
+
+    /// `Selection.containsNode(node, allowPartialContainment)` per
+    /// Selection API §3: `false` if this is empty or `node`'s root is not
+    /// the associated document (no throw); else full-contain (default) or
+    /// partial-overlap containment per `allowPartialContainment`.
     pub fn contains_node(
         &self,
         registry: &mut LiveRangeRegistry,
@@ -560,8 +707,7 @@ impl SelectionState {
         let Some(id) = self.active_range_id else {
             return false;
         };
-        // Cross-document → false.
-        if !same_document(node, owner_document, dom) {
+        if !root_is_document(node, owner_document, dom) {
             return false;
         }
         registry
@@ -600,21 +746,11 @@ fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
         || dom.world().get::<&DocTypeData>(node).is_ok()
 }
 
-/// `true` when `node`'s owner document is `owner_document`. Used by
-/// Selection's cross-document gates (spec §3.2 collapse step 4 etc.).
-///
-/// Uses [`EcsDom::owner_document`] (the stored node document, set at
-/// creation and changed only by DOM *adopt*) rather than `find_tree_root`,
-/// so a detached node created by `document.createElement('div')` matches
-/// before it is linked into the main tree.
-/// A node that IS the Document itself returns `None`; we treat that
-/// as a self-match against `owner_document` so Selection ops on
-/// `document` directly are accepted.
-fn same_document(node: Entity, owner_document: Entity, dom: &EcsDom) -> bool {
-    if node == owner_document {
-        return true;
-    }
-    dom.owner_document(node) == Some(owner_document)
+/// DOM §1.1 / §4.2.1: `node`'s root is the associated document (`node` is
+/// in its document tree; the associated document, not any document:
+/// tree-model tsel plan §0.5).
+fn root_is_document(node: Entity, owner_document: Entity, dom: &EcsDom) -> bool {
+    dom.find_tree_root(node) == owner_document
 }
 
 /// Tree-order comparison wrapper around the private `compare_points`

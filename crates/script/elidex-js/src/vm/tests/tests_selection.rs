@@ -31,10 +31,12 @@ unsafe fn bind(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, doc: el
 
 /// Common DOM setup — `globalThis.root` = `<div>`, two `<span>`
 /// children for offset-bearing ops, plus a text node for `toString`.
-/// `root` is detached (no document.body present in tests); Selection
-/// works equally on detached subtrees because `same_document` checks
-/// `find_tree_root`, which makes a detached `root` its own root.
+/// `root` is the document element (appended to `document`): the Selection
+/// setters abort unless the associated document is a shadow-including
+/// inclusive ancestor of the node (Selection API §3), so every node of the
+/// tree must be in the document.
 const TREE_SETUP: &str = "globalThis.root = document.createElement('div');\
+     document.appendChild(root);\
      globalThis.s0 = document.createElement('span');\
      globalThis.s1 = document.createElement('span');\
      globalThis.t = document.createTextNode('hello');\
