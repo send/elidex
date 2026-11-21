@@ -37,6 +37,8 @@ census count was re-measured at `bfc63658` with the same result (§8). Drafts 1 
 [2026-11-tree-model-census.md](2026-11-tree-model-census.md) (commands, counts, per-file tables, scripts, spec
 lookups; §6 here says what each population is for).
 
+**Changelog.** erratum §5 (slice order: tsel before tq), no rev bump, PM 884.
+
 **Rulings this memo implements (decided, not reopened here).**
 
 - **PM 730**: (X) is canonical (a shadow root is a tree root; the host relation is held only by the link pair); a
@@ -714,6 +716,7 @@ The table's last column is a **dependency** order, not a landing order:
 - tp-1, tp-2 → ta. tp-3, tp-4 → tc.
 - tq → ta (PM 820: tp → tq → ta). `tq` edits the same function as `ta` (`next_in_preorder_global`, whose upward
   step `ta` re-types), and `ta`'s acceptance assumes the Range path is closed.
+- tsel → tq (erratum, tsel plan PR, PM 884): the order is tp → tsel → tq → ta; `tsel` ([2026-11-tree-model-tsel-selection-boundary-preconditions.md](2026-11-tree-model-tsel-selection-boundary-preconditions.md), slot `#11-selection-boundary-setter-skips-root-check`) makes Selection operations check the spec's tree preconditions (PM 890), and `tq`'s cross-root Selection `toString` cell expects `""` on that base.
 - ta → tc, tm, and `te`'s own flip. (Outside this program: ta → the DOM-walker program's slice 1, PM 761.)
 - tc → tr, tf.
 - tr, tf, tm → te's deletion of the accessor and `Flip`; te → ts; ts → PR (io), rewritten on this base (§7.2).
