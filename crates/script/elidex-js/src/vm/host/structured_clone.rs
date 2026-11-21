@@ -437,9 +437,10 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // engine-bridge `Wasm{Module,Instance,Memory,Table,Global,Func}`
         // handle whose `WasmStoreHandle` clone (F1 D-ii) belongs to the
         // owning agent's store (§4.1).  No `[Transferable]` IDL extended
-        // attribute on any of them, so StructuredSerializeInternal throws
-        // `DataCloneError` on `structuredClone(memory)` etc. (the helper
-        // turns `Unclonable` into `DataCloneError` upstream).
+        // attribute on any of them.  Chrome / Firefox throw
+        // `DataCloneError` on `structuredClone(memory)` etc.; matches
+        // here (the helper turns `Unclonable` into `DataCloneError`
+        // upstream).
         ObjectKind::WasmModule => CloneKind::Unclonable("WebAssembly.Module"),
         ObjectKind::WasmInstance => CloneKind::Unclonable("WebAssembly.Instance"),
         ObjectKind::WasmMemory => CloneKind::Unclonable("WebAssembly.Memory"),

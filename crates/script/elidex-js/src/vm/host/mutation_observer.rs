@@ -614,11 +614,9 @@ fn parse_mutation_observer_init(
     };
     let JsValue::Object(opts_id) = value else {
         // Primitives (number / boolean / string / Symbol / BigInt)
-        // would, per spec, be ToObject-coerced to a wrapper before
-        // reading fields — every field then absent so default-init
-        // applies.  Phase 2 simplification: reject with TypeError;
-        // tracked at `#11-mutation-observer-extras` for full
-        // primitive→ToObject parity (low real-world hit rate).
+        // throw TypeError: WebIDL §3.2.17 (dictionary conversion)
+        // step 1 rejects a value that is not an Object, undefined or
+        // null.
         return Err(VmError::type_error(
             "Failed to execute 'observe' on 'MutationObserver': options is not an object",
         ));

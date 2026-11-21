@@ -320,10 +320,9 @@ pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
 /// three observer init-dict parsers (and any future surface
 /// following the same WebIDL pattern) share one canonical form
 /// rather than each inlining the same `get_property_value + matches!`
-/// check.  Object-only API surface — primitives that should
-/// ToObject-coerce per spec §3.10.7 are handled by the caller (most
-/// callers reject primitives with a TypeError, which is the WebIDL
-/// §3.2.17 step 1 result; follow-ups tracked at
+/// check.  Object-only API surface — primitives are handled by the
+/// caller (callers reject them with a TypeError, which is the WebIDL
+/// §3.2.17 step 1 result for a dictionary; follow-ups tracked at
 /// `#11-mutation-observer-extras`).
 pub(crate) fn read_dict_field(
     ctx: &mut NativeContext<'_>,

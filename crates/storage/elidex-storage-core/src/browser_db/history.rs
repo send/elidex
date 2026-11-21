@@ -1,7 +1,7 @@
 //! History persistence sub-store (design doc §22.4.2 HistoryStore).
 //!
 //! Two-table design: `urls` (aggregated) + `visits` (per-visit).
-//! Frecency scoring follows the Chromium/Firefox pattern with time-decay buckets `[history]`.
+//! Frecency scoring follows the Chromium/Firefox pattern with time-decay buckets.
 
 use std::time::SystemTime;
 
@@ -285,7 +285,7 @@ impl<'db> HistoryStore<'db> {
 
     /// Calculate frecency for a URL based on its visit history.
     ///
-    /// Uses time-decay buckets (Chromium/Firefox pattern `[history]`):
+    /// Uses time-decay buckets (Chromium/Firefox pattern):
     /// - Within 1 day: weight 100
     /// - Within 1 week: weight 70
     /// - Within 1 month: weight 50
