@@ -654,33 +654,57 @@ fn assert_delete_over_host(vm: &mut Vm, shape: Shape) {
     assert!(eval_bool(vm, "sr.host === h"));
 }
 
-#[test]
-fn delete_contents_over_closed_host_reports_no_shadow_root() {
-    for shape in [Shape::NoLight, Shape::LightBefore, Shape::LightAfter] {
-        let mut vm = Vm::new();
-        let mut session = SessionCore::new();
-        let mut dom = EcsDom::new();
-        let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
-        vm.eval(&host_script(shape)).unwrap();
-        vm.eval("rg.deleteContents();").unwrap();
-        assert_delete_over_host(&mut vm, shape);
-        vm.unbind();
-    }
+fn delete_contents_over_closed_host(shape: Shape) {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    vm.eval(&host_script(shape)).unwrap();
+    vm.eval("rg.deleteContents();").unwrap();
+    assert_delete_over_host(&mut vm, shape);
+    vm.unbind();
 }
 
 #[test]
-fn selection_delete_from_document_over_closed_host_reports_no_shadow_root() {
-    for shape in [Shape::NoLight, Shape::LightBefore, Shape::LightAfter] {
-        let mut vm = Vm::new();
-        let mut session = SessionCore::new();
-        let mut dom = EcsDom::new();
-        let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
-        vm.eval(&host_script(shape)).unwrap();
-        vm.eval("var sel = window.getSelection(); sel.addRange(rg); sel.deleteFromDocument();")
-            .unwrap();
-        assert_delete_over_host(&mut vm, shape);
-        vm.unbind();
-    }
+fn delete_contents_over_closed_host_reports_no_shadow_root_p1() {
+    delete_contents_over_closed_host(Shape::NoLight);
+}
+
+#[test]
+fn delete_contents_over_closed_host_reports_no_shadow_root_p1_light() {
+    delete_contents_over_closed_host(Shape::LightBefore);
+}
+
+#[test]
+fn delete_contents_over_closed_host_reports_no_shadow_root_p1c() {
+    delete_contents_over_closed_host(Shape::LightAfter);
+}
+
+fn selection_delete_over_closed_host(shape: Shape) {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    vm.eval(&host_script(shape)).unwrap();
+    vm.eval("var sel = window.getSelection(); sel.addRange(rg); sel.deleteFromDocument();")
+        .unwrap();
+    assert_delete_over_host(&mut vm, shape);
+    vm.unbind();
+}
+
+#[test]
+fn selection_delete_from_document_over_closed_host_reports_no_shadow_root_p1() {
+    selection_delete_over_closed_host(Shape::NoLight);
+}
+
+#[test]
+fn selection_delete_from_document_over_closed_host_reports_no_shadow_root_p1_light() {
+    selection_delete_over_closed_host(Shape::LightBefore);
+}
+
+#[test]
+fn selection_delete_from_document_over_closed_host_reports_no_shadow_root_p1c() {
+    selection_delete_over_closed_host(Shape::LightAfter);
 }
 
 #[test]
