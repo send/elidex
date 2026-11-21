@@ -110,7 +110,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
-- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける (PM 934)。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
