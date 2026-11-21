@@ -256,13 +256,19 @@ impl SelectionState {
         dom: &EcsDom,
     ) -> Option<(Entity, usize)> {
         let id = self.active_range_id?;
-        registry.with_range(id, dom, |range, _| {
-            if matches!(self.direction, SelectionDirection::Backward) {
-                (range.end_container, range.end_offset)
-            } else {
-                (range.start_container, range.start_offset)
-            }
-        })
+        registry.with_range(id, dom, |range, _| self.anchor_of(range))
+    }
+
+    /// The anchor end of `range` under the current direction: the one
+    /// home of the direction → anchor mapping, shared by [`Self::anchor`]
+    /// and [`Self::extend`] (which reads it together with the range's
+    /// root in one registry lookup).
+    fn anchor_of(&self, range: &Range) -> (Entity, usize) {
+        if matches!(self.direction, SelectionDirection::Backward) {
+            (range.end_container, range.end_offset)
+        } else {
+            (range.start_container, range.start_offset)
+        }
     }
 
     /// The Selection API §2 *focus* concept, `(node, offset)`. Inverse of
@@ -435,15 +441,12 @@ impl SelectionState {
         }
         // Capture the current anchor BEFORE allocating any new range so
         // we keep the pre-extend boundary semantics.
-        let direction = self.direction;
         let ((anchor_node, anchor_offset), range_root) = registry
             .with_range(id, dom, |range, dom| {
-                let anchor = if matches!(direction, SelectionDirection::Backward) {
-                    (range.end_container, range.end_offset)
-                } else {
-                    (range.start_container, range.start_offset)
-                };
-                (anchor, dom.find_tree_root(range.start_container))
+                (
+                    self.anchor_of(range),
+                    dom.find_tree_root(range.start_container),
+                )
             })
             .ok_or(SelectionError::InvalidState)?;
         let new_direction = direction_between(anchor_node, anchor_offset, node, offset, dom);
