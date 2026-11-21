@@ -7,8 +7,9 @@
 is in neither PR's diff: the PM applies it at the P1a cut-over, and the P1a memo's cut-over (its §7.1 step A2, with
 E24 of its §7.5) owns applying it, by reference to this file. Every section and id named below without a file
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
-Since the move it has two revisions: PM 922 added the `git_segments()` iterator ("One derivation" below), and PM 930
-its marks and `pass_through_defers()` ("Defer only on derivable shapes" below).
+Since the move it has three revisions: PM 922 added the `git_segments()` iterator ("One derivation" below), PM 930
+a list of marks for the pass-through, and PM 936 replaced that list with a positive grammar ("Defer only on a positive
+minimal grammar" below).
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -29,40 +30,44 @@ for every git segment, nested ones included. `scan()` becomes the first in-scope
 function, so the cwd it judges is the one `scan()` judges, by construction. The third field is the violation
 `check_git` (or an env assignment) found; the pass-through ignores it.
 
-**Defer only on derivable shapes (PM 930).** Deferring when every *yielded* segment is installed skipped the Claude
-hooks for git calls the iterator never yields or whose cwd it misreads: from an installed elidex worktree,
-`git status && env -C <another repository> git push origin HEAD:main` yields only `status`, and 13 of the 22 forms of
-the PM 930 probe deferred for a push that runs outside elidex. So `git_segments` takes an optional `marks` list and
-adds a reason to it at every shape whose cwd it does not derive positively, and the predicate is one function in this
-file, `pass_through_defers(cmd, cwd, installed)`: true only when no mark is set, at least one git segment is yielded,
-and every yielded cwd is in scope and `installed` (the caller passes `installed`: the §4.7 form of the P1a memo
-§7.1). The rule: **defer only on shapes the walker derives positively; an unknown shape does not defer.** A command
-not deferred runs the Claude hook as today, and the double guard is harmless. The marks, one line of
-`git_segments` each:
-- an operator holding `(` or `)` (a subshell, whose `cd` does not leak; an unquoted `$( … )`; a function; `case`);
-- a token holding `` ` `` or `$(` (command substitution inside quotes);
-- an assignment or a wrapper (`env`, `command`, `sudo`, `exec`, `time`, `nohup`, `nice`, `builtin`) before the
-  command (`GIT_DIR=…`, `GIT_WORK_TREE=…`, `env -C …`, `command -p …`);
-- a command that is a reserved word (`if`, `then`, `{`, `}`, `while`, …) or a builtin that changes the shell's state
-  (`pushd`, `popd`, `export`, `unset`, `source`, `eval`, …);
-- a `git` token (by basename) in an argument position (`xargs … git`, `find … -exec git`);
-- a `cd` that is not `cd <dir>` with one literal target (no `$`, no `` ` ``, no unresolved `~`) run whatever the
-  previous command did and reaching the next one: `cd -`, a bare `cd`, `cd -P …`, a `cd` after `&&` / `||` / `|` /
-  `&`, or before `||` / `|` / `&`;
-- a git option before the subcommand other than `-C <literal dir>`, `--no-pager`, `-p`, `-P`, `--paginate`,
-  `--no-optional-locks`, `--no-advice` (so `--git-dir`, `--work-tree`, `-c`, `--config-env`), or no subcommand;
-- a shell that is not `<sh> -c '…'` (`bash -lc`, `bash -x -c`, `bash script.sh`);
-- nesting deeper than 3.
+**Defer only on a positive minimal grammar (PM 936).** PM 930 deferred unless `git_segments` set a *mark* at a shape
+it does not derive. That is an enumerated exemption, and the next shape no mark named fell through as derivable: the
+PM 936 attestation found zsh's builtins and precommands (zsh, `/bin/zsh`, is the shell the Bash tool runs) — `chdir
+<dir>`, `noglob cd <dir>`, `nocorrect cd <dir>`, `repeat 1 cd <dir>`, `- cd <dir>`; 87 of zsh's 127 builtins and
+reserved words were on no list — a `#` comment and a heredoc body, both read by the walker as commands; from an
+elidex worktree `chdir <lexime>; git push …` and `noglob cd <lexime>; git push …` deferred (driver-confirmed). So the
+criterion is turned around: **only the commands of one small grammar can defer; everything else does not.** The
+grammar is one function in this file, `pass_through_grammar(cmd)`, and it is the grammar's one home (the P1a memo
+§7.1 points here). `pass_through_defers(cmd, cwd, installed)` is true only when the grammar accepts `cmd`,
+`git_segments` yields at least one git segment, and every yielded cwd is in scope and `installed` (the caller passes
+`installed`: the §4.7 form of the P1a memo §7.1). The grammar:
+- a command is one or more non-empty segments joined only by `;` or `&&`;
+- a segment is `git`, then only `-C <path>`, `--no-pager`, `-p`, `-P`, `--paginate`, `--no-optional-locks` or
+  `--no-advice` before a subcommand, then the subcommand and its arguments; or `cd <path>` with exactly one argument,
+  an absolute path. The program word is an unquoted `git` or `cd`;
+- a path has no `.` or `..` component, so the textual join `git_segments` and `in_scope` make is the directory the
+  shell enters; a `cd` target is absolute, so `CDPATH` and zsh's `cdablevars` play no part;
+- every character is a letter, a digit, a space, or one of `_ . / @ % + , : = - ' " ; &` — so no `#`, `<`, `>`,
+  `|`, `$`, `` ` ``, `~`, `\`, `(`, `)`, `{`, `}`, `[`, `]`, `*`, `?`, `!`, `^`, tab or newline: no comment,
+  heredoc, redirection, pipe, expansion, subshell, brace, glob or second line; no `;` or `&` inside quotes (so the
+  grammar's segments are `git_segments`'s); no unquoted word starts with `=` (zsh's `=cmd` expansion).
 
-A relative `cd <dir>` is derived as `<cwd>/<dir>`, which assumes an empty `CDPATH` (it is empty in the session shell,
-2026-11-22). The marks are a second channel: the yields and the cwd tracking are unchanged, so `scan()` is too (a
-differential run of the PM 922 iterator and this one over 568 (command, cwd) pairs — the test lists, the 22 probe
-forms, the attestation's five `git config` forms and three `cd` / `eval` forms, from four cwds — found 0
-differences in `scan()` and in the yielded cwds).
-**`scan()`'s deny is not widened (PM 930).** Several of the marked shapes are its blind spots — it misreads the cwd
-or does not see the git call — and its docstring lists them: a `cd` inside `( … )` read as leaking, `cd -`,
-`pushd` / `popd`, a `cd` target with `$`, a command starting with a reserved word, `bash -lc`, git after a wrapper's
-options, git in an argument position, `GIT_DIR=` / `GIT_WORK_TREE=` and `--git-dir` / `--work-tree`.
+So a builtin, precommand, reserved word, assignment or wrapper in front, a nested shell (`bash -c …`), a pipe into
+another program (`git log | tail`) and a compound with another program (`cargo fmt --all && git commit …`) do not
+defer: the Claude hook runs on them as today, and the double guard is harmless. A `cd <dir>; git …` whose `cd`
+fails leaves git in the previous cwd; `installed(<dir>)` then fails too (its `git -C <dir>` cannot enter the
+directory either), so the command does not defer. The grammar assumes that the session shell defines no alias or
+function named `git` or `cd` (`type cd git` in `/bin/zsh` on 2026-11-22: a shell builtin, `/opt/homebrew/bin/git`).
+`git_segments` takes no marks: PM 930's `marks` argument and its operator tracking are gone, so the iterator and
+`scan()` are PM 922's, unchanged in behaviour (every existing test passes on them).
+**`scan()`'s deny is not widened (PM 930, PM 936).** The shapes whose cwd it misreads or whose git call it does not
+see are its blind spots, and its docstring lists them: a `cd` inside `( … )` read as leaking, `cd -`, `pushd` /
+`popd`, a `cd` target with `$`, a command starting with a reserved word, `bash -lc`, git after a wrapper's options,
+git in an argument position, `GIT_DIR=` / `GIT_WORK_TREE=` and `--git-dir` / `--work-tree`, zsh's `chdir` and the
+precommands (`noglob cd`, `nocorrect cd`, `repeat N cd`, `- cd`), a `#` comment and a heredoc body (both read as
+commands). For what the hooks decide (push and commit), the long-run canonical guard is P1a's git hooks: git runs
+them whatever the shell spelling. The reroute of the hooks path itself, which no git hook sees, stays with this
+guard's text reading and `--check` (I4).
 
 **No silent overlap with the existing rules.** `-c core.hooksPath=…` (and `-c core.hooksPath …`,
 `-ccore.hooksPath=…`), `--config-env=core.hooksPath=…` and a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment are
@@ -79,7 +84,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 ```diff
 --- a/git-hook-bypass-guard.py
 +++ b/git-hook-bypass-guard.py
-@@ -6,13 +6,29 @@
+@@ -6,13 +6,32 @@
      `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
    - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
      `git commit -n` (-an / -nm のような束ね形も)
@@ -105,26 +110,16 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +実効 cwd の導出にも見えない所がある (deny はここを広げない。git を見落とすか cwd を読み違える): `( ... )` の中の
 +`cd` を外へ漏れると読む、`cd -` / `pushd` / `popd` / `$` を含む `cd` の先、`if` / `{` など予約語で始まる command、`bash -lc`
 +(`-c` だけを認める)、`env -C` / `command -p` / `sudo ...` など wrapper の option の後ろの git、`xargs git` のように
-+引数の位置にある git、`GIT_DIR=` / `GIT_WORK_TREE=` と `--git-dir` / `--work-tree`。
-+pass_through_defers() (elidex の push-branch / fmt hook の pass-through) は逆向きに倒す: cwd を導出できると認めた
-+形だけで defer し、それ以外 (上の形、認めない形すべて) は defer しない。
++引数の位置にある git、`GIT_DIR=` / `GIT_WORK_TREE=` と `--git-dir` / `--work-tree`、zsh の `chdir` と precommand
++(`noglob cd` / `nocorrect cd` / `repeat N cd` / `- cd`)、`#` から行末までの comment (その中も command として読む)、
++heredoc の本文 (command として読む)。長期の正はここではなく elidex の git hook (P1 plan memo の P1a、pre-push /
++pre-commit): shell の綴りによらず git 自身が走らせる。
++pass_through_defers() (elidex の push-branch / fmt hook の pass-through) は逆向きに倒す: pass_through_grammar() の
++正の最小文法に当てはまる command だけを defer の候補にし、それ以外 (上の形も、未知の形も) はすべて defer しない。
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -29,12 +45,28 @@
- HOOKED_SUBCMDS = {"commit", "push", "merge", "pull", "rebase", "cherry-pick", "am", "revert"}
- WRAPPERS = {"env", "command", "exec", "time", "nohup", "nice", "sudo", "builtin"}
- SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-+# pass-through: cwd を導出できると認めない command (予約語、shell の状態を変える builtin)
-+RESERVED = {"if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "while", "until", "do", "done",
-+            "in", "function", "time", "coproc", "{", "}", "!", "[[", "]]"}
-+SHELL_STATE = {"pushd", "popd", "export", "unset", "source", ".", "alias", "set", "shopt", "declare", "typeset",
-+               "local", "readonly", "trap", "hash", "enable", "eval"}
-+# pass-through: subcommand より前に置いてよい git の option (どの repository で走るかを変えないもの)
-+GIT_PLAIN_OPTS = {"--no-pager", "-P", "-p", "--paginate", "--no-optional-locks", "--no-advice"}
- # git global options that take a separate value (besides -C / -c / --config-env handled below)
- GLOBAL_VALUE_OPTS = {"--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--attr-source"}
- # commit short options that consume a value (rest of the cluster / next token is the value)
+@@ -35,6 +54,15 @@
  COMMIT_VALUE_SHORT = set("mFCctSu")
  COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
                       "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
@@ -140,68 +135,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def state_dir():
-@@ -70,34 +102,70 @@
- SEPS = {";", "&", "&&", "|", "||", "|&", ";;", "(", ")", "\n"}
- 
- 
--def segments(cmd):
--    """shlex で分け、制御演算子と改行で区切った token 列のリストを返す。"""
-+def split(cmd):
-+    """shlex で分け、制御演算子と改行で区切る -> ([(前の演算子, token 列, 後ろの演算子)], 演算子すべて)。端は ""。"""
-     lex = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()\n")
-     lex.whitespace = " \t\r"
-     lex.whitespace_split = False
-     lex.commenters = ""
--    segs, cur = [], []
-+    parts, ops, cur, before = [], [], [], ""
-     for tok in lex:
-         if tok and all(c in ";&|()\n" for c in tok):  # operator run, quoted ones are never all-punct unquoted
-+            ops.append(tok)
-             if cur:
--                segs.append(cur)
--            cur = []
-+                parts.append((before, cur, tok))
-+            cur, before = [], tok
-         else:
-             cur.append(tok)
-     if cur:
--        segs.append(cur)
--    return segs
-+        parts.append((before, cur, ""))
-+    return parts, ops
- 
- 
-+def segments(cmd):
-+    """制御演算子と改行で区切った token 列のリスト。"""
-+    return [seg for _b, seg, _a in split(cmd)[0]]
-+
-+
-+def seq_op(op):
-+    """端、または `;` と改行だけの演算子 (前の command の成否によらず次が走る区切り)。"""
-+    return op == "" or (set(op) <= {";", "\n"} and ";;" not in op)
-+
-+
-+def opaque_path(d):
-+    """cd / -C の先を字面から導出できない (展開が要る) なら True。"""
-+    return "$" in d or "`" in d or os.path.expanduser(d).startswith("~")
-+
-+
-+def git_opts_derivable(args):
-+    """git の後ろの token: subcommand の前が `-C <dir>` と GIT_PLAIN_OPTS だけで、subcommand があれば True。"""
-+    i = 0
-+    while i < len(args) and args[i].startswith("-"):
-+        if args[i] == "-C" and i + 1 < len(args) and not opaque_path(args[i + 1]):
-+            i += 2
-+        elif args[i] in GIT_PLAIN_OPTS:
-+            i += 1
-+        else:
-+            return False
-+    return i < len(args)
-+
-+
- def is_assign(tok):
-     k, eq, _ = tok.partition("=")
-     return bool(eq) and k.replace("_", "a").isalnum() and not k[0].isdigit()
+@@ -95,9 +123,16 @@
  
  
  def env_hooks_assign(tok):
@@ -220,7 +154,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def hookspath_key(s):
-@@ -140,6 +208,58 @@
+@@ -140,6 +175,58 @@
      return False
  
  
@@ -279,7 +213,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  def check_git(args, cwd):
      """args: git の後ろの token。-> (violation or None, effective_cwd)"""
      i, hits = 0, []
-@@ -173,6 +293,12 @@
+@@ -173,6 +260,12 @@
              break
      sub = args[i] if i < len(args) else None
      rest = args[i + 1:] if sub else []
@@ -292,59 +226,35 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -186,44 +312,83 @@
+@@ -186,14 +279,16 @@
      return (hits[0] if hits else None), eff
  
  
 -def scan(cmd, cwd, depth=0):
 -    """-> (violation, effective_cwd_of_the_violating_git) or (None, None)。cd を追跡する。"""
-+def git_segments(cmd, cwd, depth=0, marks=None):
++def git_segments(cmd, cwd, depth=0):
 +    """cmd の git の呼び出しごとに (git の後ろの token, 実効 cwd, 違反 or "") を yield する。
 +    実効 cwd の導出 (hook JSON の cwd、先行する `cd`、`git -C <dir>`) と `bash -c` / `sh -c` / `eval` の再帰は
-+    ここにだけある。scan() と、elidex の push-branch / fmt hook の pass-through の両方がこれを使う。
-+    marks (list) を渡すと、実効 cwd を導出できると認めない形を見るたびに理由を 1 つ足す。yield と cwd の追跡は
-+    marks によらず同じ (scan() の判定は変わらない)。"""
-+    mark = marks.append if marks is not None else (lambda _why: None)
++    ここにだけある。scan() と、elidex の push-branch / fmt hook の pass-through の両方がこれを使う。"""
      if depth > 3:
 -        return None, None
 -    exported = False  # `export GIT_CONFIG_KEY_n=core.hooksPath` seen earlier in this command
--    for seg in segments(cmd):
-+        mark("nested deeper than 3")
 +        return
-+    parts, ops = split(cmd)
-+    if any(c in op for op in ops for c in "()"):
-+        mark("( ): subshell, $( ), function or case")
 +    exported = ""  # `export GIT_CONFIG_KEY_n=core.hooksPath` / `GIT_CONFIG_PARAMETERS=...` seen earlier in this command
-+    for before, seg, after in parts:
-+        if any("`" in t or "$(" in t for t in seg):
-+            mark("command substitution")
+     for seg in segments(cmd):
          j = 0
 -        seg_env = any(env_hooks_assign(t) for t in seg[:next((n for n, t in enumerate(seg) if not (is_assign(t) or os.path.basename(t) in WRAPPERS)), len(seg))])
 +        seg_env = next(filter(None, map(env_hooks_assign, seg[:next((n for n, t in enumerate(seg) if not (is_assign(t) or os.path.basename(t) in WRAPPERS)), len(seg))])), "")
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
-+        if j:
-+            mark("assignment or wrapper before the command")
          if j >= len(seg):
-             continue
-         prog, rest = os.path.basename(seg[j]), seg[j + 1:]
-+        if prog in RESERVED or prog in SHELL_STATE:
-+            mark("reserved word or shell builtin: " + prog)
-+        if prog != "git" and any(os.path.basename(t) == "git" for t in rest):
-+            mark("git in an argument position")
-+        if prog == "cd" and not (len(rest) == 1 and not rest[0].startswith("-") and not opaque_path(rest[0])
-+                                 and seq_op(before) and (seq_op(after) or after == "&&")):
-+            mark("cd whose target or reach is not derivable")
-         if prog == "cd" and rest:
-             d = rest[0] if not rest[0].startswith("-") else (rest[1] if len(rest) > 1 else "")
+@@ -204,13 +299,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
 -            exported = exported or any(env_hooks_assign(t) for t in rest)
 +            exported = exported or next(filter(None, map(env_hooks_assign, rest)), "")
          elif prog == "git":
-+            if not git_opts_derivable(rest):
-+                mark("git option other than -C before the subcommand")
              v, eff = check_git(rest, cwd)
 -            if not v and (seg_env or exported):
 -                v = "GIT_CONFIG_KEY_n=core.hooksPath"
@@ -354,16 +264,14 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          elif prog in SHELLS or prog == "eval":
              inner = None
              if prog == "eval":
-                 inner = " ".join(rest)
+@@ -218,12 +310,110 @@
              elif "-c" in rest and rest.index("-c") + 1 < len(rest):
                  inner = rest[rest.index("-c") + 1]
-+            if prog in SHELLS and not (rest[:1] == ["-c"] and len(rest) > 1):
-+                mark("shell other than `<sh> -c '...'`")
              if inner:
 -                v, eff = scan(inner, cwd, depth + 1)
 -                if v:
 -                    return v, eff
-+                yield from git_segments(inner, cwd, depth + 1, marks)
++                yield from git_segments(inner, cwd, depth + 1)
 +
 +
 +def scan(cmd, cwd):
@@ -374,15 +282,95 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      return None, None
  
  
++# pass-through の受理文法 (pass_through_grammar) に使ってよい字。`#` `<` `>` `|` `$` `` ` `` `~` `\` `(` `)` `{` `}`
++# `[` `]` `*` `?` `!` `^` 改行 tab は入っていない (comment、heredoc / redirect、pipe、展開、subshell、brace、glob)
++PT_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _./@%+,:=-'\";&")
++# subcommand より前に置いてよい git の option (どの repository で走るかを変えないもの)
++GIT_PLAIN_OPTS = {"--no-pager", "-P", "-p", "--paginate", "--no-optional-locks", "--no-advice"}
++
++
++def plain_path(d, absolute):
++    """`.` / `..` の component を持たない path の字面 (absolute なら `/` で始まる)。展開の字は PT_CHARS が除く。"""
++    return bool(d) and not d.startswith(("-", "=")) and (d.startswith("/") or not absolute) \
++        and all(c not in (".", "..") for c in d.split("/"))
++
++
++def pass_through_grammar(cmd):
++    """pass-through が defer を考えてよい形 (正の最小文法) なら True。command = segment を `;` か `&&` だけで
++    つないだもの。segment は `git [-C <path> | GIT_PLAIN_OPTS]... <subcommand> [引数...]` か `cd <絶対 path>` (引数 1 つ)。
++    program の語は quote 無しの `git` / `cd` そのもの、path は `.` / `..` の無い字面、字は PT_CHARS だけ、quote の中に
++    `;` / `&` は無く、quote 無しで `=` から始まる語 (zsh の =cmd 展開) も無い。これ以外 (builtin / precommand / 予約語 /
++    代入 / wrapper が前に付く形、`#`、heredoc、展開、redirect、pipe、subshell、brace、入れ子の shell) はすべて False。"""
++    if not cmd or not set(cmd) <= PT_CHARS:
++        return False
++    segs, words, word, quoted, q, i = [], [], None, False, None, 0
++    while i < len(cmd):
++        c = cmd[i]
++        if q:
++            if c in ";&":
++                return False
++            if c == q:
++                q = None
++            else:
++                word += c
++        elif c in "'\"":
++            q, quoted, word = c, True, (word or "")
++        elif c in " ;&":
++            if word is not None:
++                words.append((word, quoted))
++                word, quoted = None, False
++            if c != " ":
++                if c == "&":
++                    if cmd[i:i + 2] != "&&":
++                        return False
++                    i += 1
++                if not words:
++                    return False
++                segs.append(words)
++                words = []
++        else:
++            word = (word or "") + c
++        i += 1
++    if q:
++        return False
++    if word is not None:
++        words.append((word, quoted))
++    if not words:
++        return False
++    segs.append(words)
++    for seg in segs:
++        if any(w.startswith("=") and not qd for w, qd in seg) or seg[0][1]:
++            return False
++        prog, args = seg[0][0], [w for w, _qd in seg[1:]]
++        if prog == "cd":
++            if not (len(args) == 1 and plain_path(args[0], absolute=True)):
++                return False
++        elif prog == "git":
++            k = 0
++            while k < len(args) and args[k].startswith("-"):
++                if args[k] == "-C" and k + 1 < len(args) and plain_path(args[k + 1], absolute=False):
++                    k += 2
++                elif args[k] in GIT_PLAIN_OPTS:
++                    k += 1
++                else:
++                    return False
++            if k >= len(args):
++                return False
++        else:
++            return False
++    return True
++
++
 +def pass_through_defers(cmd, cwd, installed):
 +    """elidex の push-branch / fmt hook の pass-through の判定 (P1 plan memo §7.1)。installed(cwd) -> bool は呼ぶ側が
-+    渡す (その worktree の installed(wt))。True (defer してよい) は、cwd を導出できないと marks された形が 1 つも無く、
-+    git の呼び出しが 1 つ以上あり、そのすべての実効 cwd が in_scope で installed の時だけ。未知の形は defer しない。
-+    相対の `cd <dir>` は CDPATH が空だと仮定して導出する。内部エラーも defer しない。"""
++    渡す (その worktree の installed(wt))。True (defer してよい) は、cmd が pass_through_grammar() に当てはまり、
++    git_segments() (scan() と同じ導出) が git の呼び出しを 1 つ以上 yield し、そのすべての実効 cwd が in_scope で
++    installed の時だけ。それ以外と内部エラーは defer しない。"""
 +    try:
-+        marks = []
-+        effs = [eff for _args, eff, _v in git_segments(cmd, cwd, marks=marks)]
-+        return not marks and bool(effs) and all(in_scope(e) for e in effs) and all(installed(e) for e in effs)
++        if not pass_through_grammar(cmd):
++            return False
++        effs = [eff for _args, eff, _v in git_segments(cmd, cwd)]
++        return bool(effs) and all(in_scope(e) for e in effs) and all(installed(e) for e in effs)
 +    except Exception:
 +        return False
 +
@@ -394,11 +382,19 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as two classes, `Segments` and
 `PassThrough`, that load the script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the
-Mutants paragraph below are the one home of the counts** (the P1a memo points here): run on 2026-11-22 (PM 930)
-against a scratch copy of the live file patched with `hook-v3.diff` (the block above) and `test-v3.diff`, both in
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 26 tests OK;
-against the unpatched file: 40 failures and 68 errors. Each positive form was measured to reroute, or to write, the
-key (§3.2):
+Mutants paragraph below are the one home of the counts and probe results** (the P1a memo points here): run on
+2026-11-22 (PM 936) against a scratch copy of the live file patched with `hook-v4.diff` (the block above) and
+`test-v4.diff`, both in `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/`
+below): 25 tests OK; against the unpatched file: 40 failures and 343 errors (subtests counted). The two diffs, applied
+with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`), reproduce the patched files byte for byte. The
+**corpus** is 299 distinct forms whose git runs outside elidex, each given an elidex JSON cwd and every cwd reported
+installed: the 49 forms of `REPORTED` whose push runs elsewhere (21 of the PM 930 probe's 22 — the 22nd,
+`cd a; cd b && git push`, runs inside elidex —, the PM 936 attestation's 20, and 8 forms of the classes PM 936
+named), and two forms per word of zsh 5.9's builtins and reserved words (`print -l ${(k)builtins}` and
+`${(k)reswords}`: 127 distinct words, pinned in the test; zshmisc(1)'s precommand modifiers are among them),
+generated from the pinned list, not picked (`ZSH_FORMS`). On the patched file none defers; on the PM 930 file
+(`hook-v3.diff`, marks) 182 of the 299 defer. Each positive config form was measured to reroute, or to write, the key
+(§3.2):
 
 | kind | commands (cwd in scope unless stated) | expected |
 |---|---|---|
@@ -415,51 +411,57 @@ key (§3.2):
 | out of scope (negative) | every `DENY` entry from `/private/tmp` (the existing loop); `git config --file /private/tmp/x core.hooksPath /alt` from `/private/tmp` | allow |
 | `git_segments` cwd | `cd /s/wt && git push origin HEAD` from `/s/repo`; `git -C sub push origin HEAD` from `/r`; `bash -c 'cd /x && git status'`; `sh -c 'git -C y status'`; `eval "cd /x && git status"` | effective cwds `/s/wt`; `/r/sub`; `/x`; `/r/y`; `/x` |
 | E21 compound | `cd <e>/repo && git push origin HEAD:x; cd <e>/wt && git push origin HEAD:y` from `<e>/repo` (`<e>` in scope), with only `<e>/repo` installed | cwds `<e>/repo`, `<e>/wt`; `pass_through_defers` false; true when both are |
-| pass-through: the PM 930 probe | the 22 forms, each with its JSON cwd, every cwd reported installed | `cd a; cd b && git push` from an elidex cwd defers; the 21 others do not, the 13 that deferred before among them |
-| pass-through: derivable | `git push origin HEAD`; `git status && git push origin HEAD`; `cd <elidex> && git push origin HEAD` and `git -C <elidex> push origin HEAD` from another repository; `bash -c 'git push origin HEAD'`; `git push origin HEAD 2>&1 \| tail -5`; `git --no-pager log -1 && git push origin HEAD`; `cargo fmt --all && git add -A && git commit -m x` | defers |
-| pass-through: one kind of mark each | `(true; cd <elidex>; true); git push …` from another repository; `xargs … git`; `echo "$(cd <other> && git push …)"; git status`; `GIT_DIR=…`; `{ cd <other>; git push …; }`; `cd <elidex> && cd - && git push …`; `false && cd <elidex>; git push …`; `--git-dir=…`; `bash -lc '…'` — every yielded cwd in scope | exactly one kind of mark; does not defer |
-| pass-through: edges | five nested `bash -c` under `git status &&`; `ls -la`; an unterminated quote; an `installed` that raises | does not defer |
-| marks beside `scan()` | the 22 forms, `git_segments` with and without `marks` | the same yields |
+| pass-through: corpus | the 299 forms above: `chdir <lexime>; git push …`, `noglob cd <lexime>; git push …`, `- cd …`, `repeat 1 cd …`, `cd <lexime>; true # ; cd <elidex>` and a newline before `git push …`, `cd <lexime>; cat <<EOF` with `cd <elidex>` as its body before `git push …`, `bash -lc '…'`, `env -C <lexime> git push …`, `GIT_DIR=…`, `( cd …; git push )`, `{ cd …; git push; }`, `CDPATH=…`, `cd <lexime>/.. && cd lexime && …`, and `<w> cd <lexime>; git push …` / `<w> <lexime>; git push …` for each of the 127 zsh words | none defers |
+| pass-through: plain | `git push origin HEAD`; `cd <elidex> && git push origin HEAD`, `cd <elidex>; git push origin HEAD` and `git -C <elidex> push origin HEAD` from another repository; `git status && git push origin HEAD`; `git --no-pager log -1 && git push origin HEAD`; `git commit -m 'fix: one line'` | the grammar accepts; defers |
+| pass-through: one rule each | 31 otherwise plain commands from an elidex cwd, each breaking one rule: `#`, `<<<`, `>`, a newline, `&` (trailing, and between two commands), `\|\|`, `$`, `` ` ``, `*`, `( )`, `{ }`, `noglob git`, `..` and `.` in a `cd` target, a relative `cd`, `cd` with two arguments, a bare `cd`, `..` in `-C`, a word `=x`, `'git'`, `;` and `&&` inside quotes, `-c x=y`, no subcommand, `bash -c '…'`, `GIT_DIR=`, a trailing `;`, `;;`, `&&&`, the empty command | the grammar rejects; does not defer |
+| pass-through: edges | `cd <elidex>` alone from another repository (no git call); `git push origin HEAD` from `/private/tmp`; an `installed` that raises | does not defer |
 | `scan()` on the iterator | `git_segments` replaced in the loaded module by one that yields a sentinel violation in scope | `scan("true", <out of scope>)` returns the sentinel |
 
 **Mutants** (each a replacement in a temp copy of the patched file, asserted to occur exactly once, run through the
-file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-22 (PM 930) all twenty-six were killed by the tests above.
-Twenty-five are one-line replacements; the `scan()` row replaces a block):
+file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-22 (PM 936) all thirty were killed by the tests above.
+The first five are the ones PM 936 named; the `scan()` row replaces a block, the others one or two lines. (ii) and
+(iii) are killed by the one-rule rows only: without a newline, which the grammar excludes too, a `#` or a `<<`
+cannot make git run where the walker does not see it, so every corpus form carrying one also breaks a second rule;
+the rows pin the rule itself):
 
-| replaced line | → | killed by |
+| replaced | → | killed by |
 |---|---|---|
+| (i) the `else: return False` for a program other than `git` / `cd` in `pass_through_grammar` | `pass` (any program word accepted: the old behaviour) | the corpus, one-rule |
+| (ii) `PT_CHARS` | `#` added | one-rule (`#c`) |
+| (iii) `PT_CHARS` | `<` added (`<<` allowed) | one-rule (`<<<x`) |
+| (iv) `prog, args = seg[0][0], …` | a word in front of `cd` skipped (a builtin before `cd` accepted) | the corpus (`noglob cd <lexime>; git push …` and the other generated `<w> cd` forms) |
+| (v) `if prog == "cd":` | `if prog == "cd" and False:` (plain `cd <wt> && git push` rejected) | plain, the E21 compound case |
+| `if c in ";&":` (inside quotes) | `if False:` | one-rule (`'a;b'`, `'a&&b'`) |
+| the `.` / `..` component test of `plain_path` | dropped | one-rule (`/x/..`, `/.`, `-C ../main`) |
+| `(d.startswith("/") or not absolute)` | `True` (a relative `cd` accepted) | one-rule (`cd x`) |
+| the unquoted-`=` word test | dropped | one-rule (`=x`) |
+| the quoted-program test (`seg[0][1]`) | dropped | one-rule (`'git'`) |
+| `if cmd[i:i + 2] != "&&":` | `if False:` (a lone `&` taken as a separator) | one-rule (`git fetch & git push …`) |
+| the inner `if not words: return False` | `pass` (empty segments accepted) | one-rule (`;;`, trailing `;`) |
+| `len(args) == 1 and` for `cd` | dropped | one-rule (`cd <a> <b>`) |
+| the `else: return False` for a git option | `k += 1` (any option accepted) | one-rule (`-c x=y`), the corpus (`--git-dir=…`) |
+| `if k >= len(args): return False` | `pass` | one-rule (no subcommand) |
+| `if not pass_through_grammar(cmd):` (in `pass_through_defers`) | `if False:` | the corpus, one-rule |
+| `bool(effs) and all(in_scope(e) for e in effs) and all(installed` | the `in_scope` conjunct dropped | the corpus, edges (`/private/tmp`) |
+| ` and all(installed(e) for e in effs)` | dropped | the E21 compound case, the raising `installed` |
+| `cwd = os.path.join(cwd, os.path.expanduser(d))` (in `git_segments`) | `pass` (the iterator ignores `cd`) | the `cd` / nested / `eval` cwd cases, the E21 compound case, `cd <elidex> && …` from outside, plain, the corpus |
+| `yield from git_segments(inner, cwd, depth + 1)` | `pass` (recursion dropped) | the nested and `eval` cwd cases, the `bash -c` `DENY` entries |
+| the body of `scan()` | a loop over a full copy of `git_segments` (a divergent copy) | only the `scan()`-on-the-iterator case: the copy behaves identically, so no behavioural case can see it; the test replaces `git_segments` and observes that `scan()` follows it |
 | `if not any(n.lower() == "core.hookspath" for n in names):` | exact-case compare | `core.HOOKSPATH` forms |
 | `if k.upper() == "GIT_CONFIG_PARAMETERS" and` | `if False and` | the env rows |
 | `if target and not in_scope(eff) and in_scope(target):` | `if False:` | the from-outside `--file` rows |
 | `if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:` | drop `len(names) == 1` | every legacy write |
 | `CONFIG_READ_SUBCMDS = {"list", "get"}` | add `"set"` | the `set` rows |
-| `    if sub == "config":` | another name | every config row |
-| `        if names and names[0].lower() == "core":` | exact-case compare | `rename-section Core zz` |
-| `    if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
-| `            pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
-| `                cwd = os.path.join(cwd, os.path.expanduser(d))` (in `git_segments`) | `pass` (the iterator ignores `cd`) | the E21 compound case, the `cd` / nested / `eval` cwd cases, `cd <elidex> && …` from outside, the pass-through probe, derivable and one-mark cases |
-| `                yield from git_segments(inner, cwd, depth + 1, marks)` | `pass` (recursion dropped) | the nested and `eval` cwd cases, the `bash -c` `DENY` entries, the pass-through probe, derivable and nesting cases |
-| the body of `scan()` | a full copy of the pre-refactor walk (a divergent copy) | only the `scan()`-on-the-iterator case: the copy behaves identically, so no behavioural case can see it; the test replaces `git_segments` and observes that `scan()` follows it |
-| `        return not marks and bool(effs) and …` (in `pass_through_defers`) | drop `not marks and` (marks ignored) | the probe and one-mark cases, nesting |
-| `            mark("git in an argument position")` | `pass` (an un-yielded `git` token not marked) | the `xargs` one-mark case, the probe |
-| `        mark("( ): subshell, $( ), function or case")` | `pass` (a subshell's `cd` read as leaking) | the `(true; cd <elidex>; true); git push …` one-mark case (in the plain `(cd …)` forms the `cd` mark also fires) |
-| `            mark("command substitution")` | `pass` | the `"$( … )"` one-mark case |
-| `            mark("assignment or wrapper before the command")` | `pass` | the `GIT_DIR=` one-mark case, the probe |
-| `            mark("reserved word or shell builtin: " + prog)` | `pass` | the `{ …; }` one-mark case, the probe |
-| `            mark("cd whose target or reach is not derivable")` | `pass` | the `cd -` and `false && cd` one-mark cases, the probe |
-| `                mark("git option other than -C before the subcommand")` | `pass` | the `--git-dir=` one-mark case, the probe |
-| `` mark("shell other than `<sh> -c '...'`") `` | `pass` | the `bash -lc` one-mark case, the probe |
-| `        mark("nested deeper than 3")` | `pass` | the nesting case |
-| `bool(effs) and all(in_scope(e) for e in effs) and all(installed` | drop the `in_scope` conjunct | the probe (`cd ~/repos/send.sh/lexime && git push` and the other out-of-scope forms) |
-| ` and all(installed(e) for e in effs)` | dropped | the E21 compound case, the raising `installed` |
-| `            cur, before = [], tok` (in `split`) | `cur = []` (the operator before a segment is lost) | the `false && cd` one-mark case |
-| `and (seq_op(after) or after == "&&")):` | `and seq_op(after)):` (a `cd` before `&&` marked) | the derivable cases, the E21 compound case, the probe |
+| `if sub == "config":` | another name | every config row |
+| `if names and names[0].lower() == "core":` | exact-case compare | `rename-section Core zz` |
+| `if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
+| `pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
 
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v3.diff`, the block above, and `test-v3.diff`) — the `git_segments()` refactor of
-`scan()` (PM 922) and the marks and `pass_through_defers()` (PM 930) included — and apply it only after; apply the
+the whole diff (`guardpatch/hook-v4.diff`, the block above, and `test-v4.diff`) — the `git_segments()` refactor of
+`scan()` (PM 922) and `pass_through_grammar()` / `pass_through_defers()` (PM 936) included — and apply it only after; apply the
 diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
