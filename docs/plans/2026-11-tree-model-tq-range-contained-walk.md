@@ -565,7 +565,7 @@ predicted from the same walk (the P1-light shape under M2: the raw sibling of `l
 the `compare_points` filter as in P1) and are checked at the final head (§10). U3 / V3 are not mutant killers (green
 at base); they pin that `extract` no longer depends on `apply_append_child`'s refusal.
 
-**Per-shape table (erratum 2026-11-22; one test per shape at `9f3a229e`; mutants run there by the driver, PM 943).**
+**Per-shape table (erratum 2026-11-22; one test per shape at `9f3a229e`; M1–M3 run there once each by the code-PR coder, every cell below observed; raw logs M{1,2,3}_{d,j}.log in the driver's scratchpad).**
 For §10 item 2: ✗ = red under the mutant, · = green. Test names are the cell's name with the shape suffix; list them
 with `git diff bf113e6c 9f3a229e | /usr/bin/grep -E '^\+\s*fn [a-z_0-9]+\(\)'` → 26 lines, one per column entry below.
 
