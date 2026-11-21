@@ -97,7 +97,7 @@ there.
 | 1 | `column-rule: solid` | `3px` / `solid` / `currentcolor` | {style} | `solid` | `solid` | I-A: drop width+color (both initial), keep style |
 | 2 | `column-rule: thick blue` | `5px` / `none` / `#0000ff` | {width, color} — **style-gap** | `5px #0000ff` | `thick blue` | I-A×I-B: drop the **middle** (style=none=initial), keep width then color **in order** (no re-sort) |
 | 2b | `column-rule: dashed green` | `3px` / `dashed` / `#008000` | {style, color} | `dashed #008000` | `dashed green` | I-A: leading width omitted, survivors in order |
-| 3 | `column-rule: medium none currentcolor` | `3px` / `none` / `currentcolor` | **{} — ALL INITIAL** | `3px` | `medium` | **I-D**: omit-all → `""` is invalid → keep the **first** canonical component (width). Structure matches Blink [evidence]; the `3px` vs `medium` **string** divergence is a pre-existing width-keyword issue (see Risks) |
+| 3 | `column-rule: medium none currentcolor` | `3px` / `none` / `currentcolor` | **{} — ALL INITIAL** | `3px` | `medium` | **I-D**: omit-all → `""` is invalid → keep the **first** canonical component (width). Structure matches Blink; the `3px` vs `medium` **string** divergence is a pre-existing width-keyword issue (see Risks) |
 | 3b | `column-rule: thick solid red` | `5px` / `solid` / `#ff0000` | {all} | `5px solid #ff0000` | `thick solid red` | all kept, canonical order (component-value forms diverge; see Risks) |
 
 ### `columns` — canonical order: width, count
@@ -120,7 +120,7 @@ Omit each component whose stored serialization equals its initial serialization;
 emit the survivors in canonical order joined by `" "`; **if the survivor set is
 empty (all-initial), keep the first canonical component** (so the result is never
 `""`). This one rule, driven only by the passed longhand order + `self.initial_value`,
-reproduces **every** Blink structural result above [evidence] — for both `column-rule` and
+reproduces **every** Blink structural result above — for both `column-rule` and
 `columns`. The two `match` arms therefore share one body.
 
 ## Ideal architecture (plugin-first, one-issue-one-way)

@@ -216,7 +216,9 @@ N	-	docs/plans/2026-07-session-history-slice-A-content-phase-separation.md	- **C
 N	-	docs/plans/2026-07-session-history-slice-B-app-phase-separation.md	- **Chrome-button traversals** (`app/navigation.rs::handle_chrome_action`) reach the same
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor`
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	re-verified against Blink at their PRs — the *rule* is expected to hold (keep first
+T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	reproduces **every** Blink structural result above — for both `column-rule` and
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	underspecified for the all-initial corners (I-D), so Blink is the cited source
+T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	| 3 | `column-rule: medium none currentcolor` | `3px` / `none` / `currentcolor` | **{} — ALL INITIAL** | `3px` | `medium` | **I-D**: omit-all → `""` is invalid → keep the **first** canonical component (width). Structure matches Blink; the `3px` vs `medium` **string** divergence is a pre-existing width-keyword issue (see Risks) |
 N	-	docs/plans/2026-07-shorthand-value-kind-gate.md	'initial 4px')` → `cssText === ""` (Blink rejects its own getter output as
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-value-kind-gate.md	(≡ its initial value) to reach Blink's `"solid red"` is a family-dependent facet
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-value-kind-gate.md	**Deferred (named slot) — the Blink-faithful omit-initial `initial`-omit:** making
