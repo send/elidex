@@ -5,10 +5,10 @@ four neighbours → slots) + widened umbrella erratum.
 Rev 1.1 also marks every Selection API quote taken from webref's raw cache (PM 896; §3 lookups).
 Rev 1.2: PM 897 (Selection attributes' document-tree clause in; P-13 cells spec-valued; P-14 → widened slot).
 Rev 1.3: plan-review R1 fixes K1–K6 (0/7/21/0); decision record
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/tree-model/tsel-r1-decisions.md` (the "R1 decision record"
+`tsel-r1-decisions.md` (the PM's record, kept outside the repository; the "R1 decision record"
 below); PM 901 ratifies P-15.
 Rev 1.4: Step 4.5 re-check fixes M1–M11 (A2 0/0/3, A4 0/1/4, A5 0/1/2); full citation audit §3.2 (PM); decision
-record `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/tree-model/tsel-r13-recheck-decisions.md` (the "re-check
+record `tsel-r13-recheck-decisions.md` (the PM's record, kept outside the repository; the "re-check
 decision record" below); PM 903 (slots for P-17 / P-18), PM 905 (P-20 folded).
 
 Slice **`tsel`** of the umbrella
@@ -241,7 +241,7 @@ reformatted in Rev 1.3 (R1 decision record K6). How `tq`'s own Changelog entry j
 
 `tsel` has no row in the §5 table; part (d) is its record there. Not edited here: umbrella §7.4 "At `ta`" item
 (5) restates the slice list without `tsel` ("Slices tp → tq → ta → …"); that text is a landing item, applied from
-the landing list `elidex-pm-trial/handoff/pending-at-landing/tree-model-umbrella.md`, so `tsel` is added there at
+the PM's landing list for the umbrella (`tree-model-umbrella.md`, outside the repository), so `tsel` is added there at
 application (§8 L-7), not by a sixth erratum part.
 
 ### §0.5 Lens block (basis order: spec → elidex principle → evidence)
@@ -785,10 +785,7 @@ second document):
 
 Rows A1-A8 are round 3 (Rev 1.2, 2026-11-21, same base and command, `rustc 1.99.1 (58cf8f9c3 2026-10-13)`, one
 cargo job; the temporary file removed and `mod.rs` restored afterwards, `git status --short` empty). The probe
-sources are kept outside the repository for the record (VM round 3:
-`/private/tmp/claude-501/-Users-kazuaki-orca-workspaces-elidex-L3/dd0852cc-51ac-4464-8e63-719a384a6780/scratchpad/tests_tsel_probe_round3.rs`; VM round 2:
-`/private/tmp/claude-501/-Users-kazuaki-orca-workspaces-elidex-L3/dd0852cc-51ac-4464-8e63-719a384a6780/scratchpad/tests_tsel_probe_round2.rs`;
-dom-api: `.../scratchpad/tsel_probe_domapi.diff`); the round-1 cases (1a-4a, N1-N5) are the rows above, on the same
+sources are kept outside the repository by the driver (not cited here); the round-1 cases (1a-4a, N1-N5) are the rows above, on the same
 fixture.
 
 Rev 1.3 (R1 decision record K1) ran no probe. The third write source's cells are **predicted from code**, per
@@ -1114,7 +1111,7 @@ attribute helpers +≈45, `same_document` −≈10 → ≈780); `dom_selection_m
   moved out of the document (§0.1 item 8). If `tr` turns DOM *position* step 1 ("Assert: nodeA and nodeB have
   the same root.") into code, those three call sites reach it from production, so `tr`'s plan takes them (its
   cells assert relations, not `tsel`'s collapse point). Next to L-3.
-- **L-7** the umbrella landing list (`elidex-pm-trial/handoff/pending-at-landing/tree-model-umbrella.md`, the
+- **L-7** the umbrella landing list (the PM's `tree-model-umbrella.md`, outside the repository; the
   application of umbrella §7.4 "At `ta`" item (5)): the new slice list "Slices tp → tq → ta → …" gains `tsel`
   ("tp → tsel → tq → ta → …", umbrella §5.1 as amended by §0.4 (d)) when the PM applies it; the umbrella text is
   not edited by this plan PR (§0.4).
@@ -1213,8 +1210,7 @@ P-5 is a precondition on this landing.
 
 ## §11. Premises found wrong or not foreseen
 
-- **P-1** The slot draft's path `handoff/pending-at-landing/selection-boundary-slot.md` no longer exists; it was
-  applied and renamed `selection-boundary-slot.DONE.md`. The ledger row (`project_open-defer-slots.md`) holds the
+- **P-1** The PM's slot draft (outside the repository) was applied and retired. The PM's ledger row holds the
   registered text, which also lists `collapse` and `select_all_children` raw writes as sites.
 - **P-2** "No VM change" (slot draft, *Home of the fix*; ledger row): false. The abort must not throw and an
   operation that does nothing must not schedule `selectionchange`, so `mutate_selection`,
