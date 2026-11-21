@@ -62,29 +62,29 @@ Files (all (NEW) unless marked):
 | P1a | `.claude/tools/ecs_mission_ratchet.py` (MODIFIED) | `--rev <sha>`: materialise `<sha>`'s tree in a temp dir and run **`<sha>`'s own ratchet module** on it; the running copy only orchestrates (§4.5) |
 | P1a | `.claude/tools/test_ecs_mission_ratchet.py` (MODIFIED) | control + mutant for `--rev` (695 lines today; the addition keeps it under 1000) |
 | P1a | `mise.toml` `[tasks.install-githooks]` (MODIFIED) | runs `origin/main`'s `install.sh` with `bash -c` after a read that must succeed (§4.7); not part of `[tasks.ci]` |
-| P1a | `.claude/skills/pm/SKILL.md` (MODIFIED) | one row in the §2 PM-pass table, the text of §4.9: `mise run install-githooks -- --check` in every PM pass from shim install on (D33) — in P1a, not P3, so the standing item is in the PM procedure before anything is installed |
+| P1a | `.claude/skills/pm/SKILL.md` (MODIFIED) | one row in the §2 PM-pass table, the text of §4.9: `mise run install-githooks -- --check` in every PM pass from shim install on (D33) — in P1a, not P3b, so the standing item is in the PM procedure before anything is installed |
 
 P1b's files (`merge-pr`, `test_merge_pr.py`): P1b memo §1.
 
 **Non-goals.**
 - Installing the shim into the shared repository, or changing any Claude hook (cut-over, §7, PM / user after merge).
 - The Codex PreToolUse / Stop adapters (PLAN rows 4, 9, 11 = P2).
-- **The repo docs that name the old procedure — P3, one list (this is the only copy; §7 points here):**
-  1. `.claude/skills/drive/codex.md` (new, PLAN §4).
-  2. `CLAUDE.md` Workflow "Git" line (`CLAUDE.md:54` at 6cbe39e3): "CI 全 pass を目視確認してから squash merge
+- **The repo docs that name the old procedure — one list (this is the only copy; §7 points here). Items 1 and 7 are done by #663 (1c50c3d0); items 2–6 are P3b:**
+  1. DONE by #663: `.claude/skills/drive/codex.md` (PLAN §4). Its interim rows are removed by P1a (§7.1 A0) and P1b (P1b memo §7.2 B0).
+  2. P3b: `CLAUDE.md` Workflow "Git" line (`CLAUDE.md:54` at 6cbe39e3): "CI 全 pass を目視確認してから squash merge
      (… この目視が最終ゲート)" — the check becomes `merge-pr` step 10; the line names `merge-pr` instead.
-  3. `CLAUDE.md` Workflow worktree line (`CLAUDE.md:55`): names `~/.claude/hooks/git-push-branch-guard.sh` as what
+  3. P3b: `CLAUDE.md` Workflow worktree line (`CLAUDE.md:55`): names `~/.claude/hooks/git-push-branch-guard.sh` as what
      blocks a branch-mismatch push — becomes pre-push.
-  4. `.github/workflows/ci.yml` `trip-wires` job comment (`ci.yml:191-194`) and `tools` job comment
+  4. P3b: `.github/workflows/ci.yml` `trip-wires` job comment (`ci.yml:191-194`) and `tools` job comment
      (`ci.yml:275-278`): "merging still rests on the CLAUDE.md convention of eyeballing CI" — becomes `merge-pr`.
-  5. `.claude/skills/drive/SKILL.md` §6 step 4 (its raw `gh pr merge … --match-head-commit <sha>`) — becomes the
+  5. P3b: `.claude/skills/drive/SKILL.md` §6 step 4 (its raw `gh pr merge … --match-head-commit <sha>`) — becomes the
      `merge-pr` invocation of P1b memo §4.4 (with `ELIDEX_PM_DIR`).
-  6. `.claude/skills/pm/SKILL.md` §4: the go token (file name with the full 40-hex sha, P1b memo §7.2), PM-merged PRs
+  6. P3b: `.claude/skills/pm/SKILL.md` §4: the go token (file name with the full 40-hex sha, P1b memo §7.2), PM-merged PRs
      ("PM が起こした PR も、同じ確認の後に PM が同じコマンドで merge する") through `merge-pr`, and Dependabot PRs
      ("Dependabot の PR も CI/tools lane が実行する (PM 240)") through `merge-pr` after the CI/tools lane posts
      `@codex review` (D35). The `--check` standing item is P1a's row
-     (§4.9), not P3's.
-  7. `.claude/skills/pre-push/SKILL.md`: the one-line reference for Codex drivers (PLAN §5 P3).
+     (§4.9), not P3b's.
+  7. DONE by #663: `.claude/skills/pre-push/SKILL.md`, the one-line reference for Codex drivers (PLAN §5 P3).
 - Stopping `git commit --amend` itself. Amend is harmless until the amended commit is pushed over its old self,
   and that push is a non-fast-forward which pre-push rejects (PLAN row 1).
 - Tags. Tags are not part of the PR / merge flow; pre-push applies the fast-forward rule to them (II7) and no
@@ -600,7 +600,7 @@ Bypass-guard memo §4.8 (PM 916); this memo's §7.1 step A2 applies it.
 ### §4.9 The PM-skill row [P1a]
 
 P1a's diff adds one row to the PM-pass table of `.claude/skills/pm/SKILL.md` §2 ("PM pass (毎回この順、出力は表)"),
-after its last row: the standing item of D33 (PM 908: it is in P1a's diff, not P3's). It goes in §2, not in §4
+after its last row: the standing item of D33 (PM 908: it is in P1a's diff, not P3b's). It goes in §2, not in §4
 ("Merge 検証"), because §4 runs once per merge and the item runs in every pass. Before A1 the row has a value, not a
 `skipped:` (the skill's skip limit would otherwise escalate it every pass until A1). The row, with `<n>` = the next
 row number:
@@ -692,7 +692,7 @@ The P1b rows (`merge-pr` steps 1–14, the overlay rule, III1, IV3): P1b memo §
 
 ## §7 Cut-over (PM / user, after each merge) and the E2E cases
 
-The repository documents that name the old procedure change in P3; their one list is §1 non-goals ("The repo docs
+The repository documents that name the old procedure change in #663 (done) and P3b; their one list is §1 non-goals ("The repo docs
 that name the old procedure"), not restated here. **Where each E2E case runs, stated once**: E1–E18 and E20–E23 in
 a scratch `git clone --local` under `$S` (§7.5 setup); E19 and E24 in the shared repository, after A1 (E19) and
 after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 is the first real merge after B3.
