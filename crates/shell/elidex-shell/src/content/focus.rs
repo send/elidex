@@ -1,5 +1,5 @@
 //! Focus management: focusability checks, focus/blur event dispatch,
-//! and change-on-blur for text controls.
+//! and the change-on-blur dispatch of `take_change_on_blur`'s verdict.
 //!
 //! Focus *state* is the canonical `ElementState::FOCUS` ECS component — read
 //! via [`elidex_dom_api::focus::current_focus`] (with its connectedness
@@ -185,9 +185,10 @@ fn dispatch_focus_event_with_related(
     pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" on text-control blur (HTML §6.6.4 focus update steps
-/// step 2.1; the `<input>` / `<textarea>` qualifier is at `elidex_form`'s
-/// `focus_snapshot` module doc). The verdict is `elidex_form::take_change_on_blur`'s, which
+/// Dispatch "change" at the blur of a Population element (the `input` /
+/// `textarea` elements `elidex_form::record_focus_snapshot` seeds; HTML §6.6.4
+/// focus update steps step 2.1, see `elidex_form`'s `focus_snapshot` module
+/// doc). The verdict is `elidex_form::take_change_on_blur`'s, which
 /// consumes the `FocusValueSnapshot`; this sink only dispatches.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
     if take_change_on_blur(&mut pipeline.dom, entity) {

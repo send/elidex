@@ -208,15 +208,30 @@ fn e2b_type_change_checkable_to_text_clears_checked_via_sanitize() {
     });
 }
 
+/// A focused `<input>` (seeded) carrying the value `value`, then a user edit
+/// appending `a` at the end: the mark is `value`, the value `value + "a"`.
+fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
+    use crate::{apply_user_edit, record_focus_snapshot};
+    let (mut dom, e) = setup("input", &[("value", value)]);
+    record_focus_snapshot(&mut dom, e);
+    let end = value.chars().count();
+    let edit = apply_user_edit(&mut dom, e, |f| {
+        f.set_cursor(end);
+        f.insert_at_cursor("a");
+    })
+    .unwrap();
+    assert!(edit.changed);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), format!("{value}a")));
+    (dom, e)
+}
+
 #[test]
-fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
-    // Codex S2 F7: a focused text control whose `type` flips to a non-text
-    // kind (text → checkbox) must drop the focus-time change-on-blur
-    // snapshot at the `set_attribute` chokepoint, else a later blur consumes
-    // the stale text baseline and fires a spurious `change`.
-    // `record_focus_snapshot` only re-evaluates at focus time, so the
-    // reconciler's type arm clears it mid-focus.
-    use crate::record_focus_snapshot;
+fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
+    // DC-16u (plan B-7, R-2): a `type` change writes nothing to the
+    // change-on-blur component, so the snapshot survives a flip text →
+    // checkbox; the kind at focus loss decides, and a Checkbox defines an input
+    // activation behavior, so the verdict is `false`.
+    use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
@@ -226,18 +241,71 @@ fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
     assert!(
-        crate::test_support::snap(&dom, e) == crate::test_support::Snap::Absent,
-        "type flip to a non-text kind must clear the stale focus snapshot"
+        crate::test_support::snap(&dom, e) == crate::test_support::Snap::Unmarked,
+        "a `type` flip writes nothing to the focus snapshot"
     );
+    assert!(!take_change_on_blur(&mut dom, e), "Checkbox at focus loss");
+}
+
+#[test]
+fn dc14u_seed_on_checkbox_survives_flip_to_text() {
+    // DC-14u: the seed is written on an `<input type=checkbox>` (the
+    // population is the element); a flip to text writes nothing; a user edit
+    // then marks it, and the take (kind Text at focus loss) fires.
+    use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
+    let (mut dom, e) = setup("input", &[("type", "checkbox")]);
+    record_focus_snapshot(&mut dom, e);
+    assert!(dom.set_attribute(e, "type", "text").did_set);
+    let edit = apply_user_edit(&mut dom, e, |f| f.insert_at_cursor("a")).unwrap();
+    assert!(edit.changed);
+    assert!(take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_after_flip_to_hidden() {
+    // PB-5: `<input value="x">`, user edit → "xa" (mark "x"); `type=hidden`:
+    // step 1 writes the content attribute "xa", Hidden defines no
+    // sanitization, so V stays "xa" ≠ the mark; only the kind (QB-1) makes the
+    // verdict `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "hidden").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), "xa"));
+    assert!(!take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_after_flip_to_file() {
+    // PB-6: as PB-5; `type=file`: step 3 (filename mode) sets V to "", File
+    // defines no sanitization; V "" ≠ the mark "x"; only R-2 makes the verdict
+    // `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "file").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), ""));
+    assert!(!take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_at_color() {
+    // PB-7: as PB-5; `type=color`: value mode → value mode, steps 1–3 do
+    // nothing; step 6 sanitizes "xa" to "#000000" ≠ the mark "x"; still Color
+    // at focus loss, so R-2 makes the verdict `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "color").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), "#000000"));
+    assert!(!take_change_on_blur(&mut dom, e));
 }
 
 #[test]
 fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
-    // The complement of e2c: flipping between two text kinds (text → search)
-    // keeps the control a text control, so the user-edit mark must survive —
-    // only a non-text destination clears the snapshot. The edit comes first:
-    // an unmarked snapshot is indistinguishable from a re-seeded one, so only
-    // a marked one shows that the flip neither clears nor re-seeds it.
+    // The complement of e2c: a `type` change never writes the change-on-blur
+    // component, so the user-edit mark survives a text → search flip and the
+    // kind at focus loss (Search: `change` applies) lets the verdict fire. The
+    // edit comes first: an unmarked snapshot is indistinguishable from a
+    // re-seeded one, so only a marked one shows that the flip neither clears
+    // nor re-seeds it.
     use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {

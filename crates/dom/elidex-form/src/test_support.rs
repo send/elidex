@@ -21,6 +21,20 @@ pub(crate) fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> E
     e
 }
 
+/// A `tag` element (`textarea`, `select`, `button`, `output`, `meter`,
+/// `progress`, …) carrying the `FormControlState` the production single-entity
+/// attach ([`crate::create_form_control_state`]) gives it, as parse, insert and
+/// `createElement` do. An element from `create_element_ownerless_fixture` alone
+/// carries none (it runs no attach).
+pub(crate) fn attached_element(dom: &mut EcsDom, tag: &str) -> Entity {
+    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
+    assert!(
+        crate::create_form_control_state(dom, e),
+        "create_form_control_state must attach to <{tag}>"
+    );
+    e
+}
+
 /// `e`'s change-on-blur snapshot, as the three cases tests distinguish.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Snap {

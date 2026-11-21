@@ -74,12 +74,12 @@ pub trait FocusEventSink {
     /// The bound (active) document.
     fn document(&self) -> Entity;
 
-    /// §6.6.4 focus-update step 2.1 — fire `change` if a focused text control's
-    /// value was user-edited since focus. **Owns the change-on-blur snapshot
-    /// consume**: the sink calls `elidex_form::take_change_on_blur` (the one
-    /// place the verdict is computed) and dispatches `change` iff it returns
-    /// `true`; a no-op impl (VM, until its dispatch primitive lands) leaves the
-    /// snapshot intact so the later dispatch can still observe it.
+    /// §6.6.4 focus-update step 2.1 — fire `change` per the Population
+    /// element's verdict. **Owns the change-on-blur snapshot consume**: the sink
+    /// calls `elidex_form::take_change_on_blur` (the one place the verdict is
+    /// computed) and dispatches `change` iff it returns `true`; a no-op impl
+    /// (VM, until its dispatch primitive lands) leaves the snapshot intact so
+    /// the later dispatch can still observe it.
     fn commit_change_on_blur(&mut self, old: Entity);
 
     /// Seed the engine-bound change-on-blur baseline for the element gaining

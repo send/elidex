@@ -24,10 +24,7 @@
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
 use crate::value_mode::apply_type_change_value_migration;
-use crate::{
-    clear_focus_snapshot, create_form_control_state, parse_positive_with_fallback,
-    sanitize_for_type_change,
-};
+use crate::{create_form_control_state, parse_positive_with_fallback, sanitize_for_type_change};
 use crate::{FormControlKind, FormControlState};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
@@ -155,15 +152,6 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             };
             state.kind = new_kind;
             sanitize_for_type_change(&mut state, old_kind);
-        }
-        // HTML §4.10.5.5 change-on-blur baseline: a `type` flip to a non-text
-        // kind while the control is focused must drop the change-on-blur
-        // snapshot (unmarked seed; baseline = value before the first user change, plan D-1), else the eventual blur consumes the stale baseline and fires
-        // a spurious `change`. `record_focus_snapshot` only re-evaluates at focus
-        // time, so the mid-focus flip needs this clear at the `set_attribute`
-        // chokepoint (mirrors the non-text clear inside `record_focus_snapshot`).
-        if !new_kind.is_text_control() {
-            clear_focus_snapshot(dom, node);
         }
         return;
     }

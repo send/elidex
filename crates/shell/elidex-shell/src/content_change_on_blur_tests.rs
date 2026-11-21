@@ -1,7 +1,7 @@
 //! Change-on-blur user provenance (HTML §6.6.4 focus update steps step 2.1
 //! (`<input>` / `<textarea>` qualifier: see `elidex_form`'s `focus_snapshot`),
-//! §4.10.5.5 Common event behaviors): `change` fires at a blurred text control
-//! only for a value the **user** changed since focus, and `input` fires for a
+//! §4.10.5.5 Common event behaviors): `change` fires at a blurred
+//! `input` / `textarea` element only for a value the **user** changed since focus, and `input` fires for a
 //! user action only when it changed the value.
 //!
 //! Plan: `docs/plans/2026-11-change-on-blur-user-provenance.md` §6 (cells
@@ -676,4 +676,92 @@ fn c26_form_reset_rebaselines() {
         "document.getElementById('f').reset();",
         "d",
     );
+}
+
+// ---- The population is the element; the kind is read at focus loss -------
+// (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`, DF-2)
+
+/// A script `#b.type = t`.
+fn script_set_type(state: &mut ContentState, t: &str) {
+    eval(
+        &mut state.pipeline,
+        &format!("document.getElementById('b').type = '{t}';"),
+    );
+}
+
+/// DC-14: a control focused as a checkbox, then flipped to text, then user-edited,
+/// fires `input` then `change` at blur (step 2.1's conjuncts hold at focus
+/// loss; `"a"` differs from the first-focus value `""`).
+#[test]
+fn dc14_checkbox_focused_then_text_then_user_edit() {
+    let (mut s, _b) = setup("<input id=b type=checkbox><input id=c>");
+    ua_focus(&mut s, "b");
+    script_set_type(&mut s, "text");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    user_key(&mut s, "a");
+    ua_focus(&mut s, "c");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "input:insertText,change,blur,focusout"
+    );
+}
+
+/// DC-15: text → Number after a user edit: `change` applies to Number, the
+/// user changed the value while focused, `"1"` differs from `""`.
+#[test]
+fn dc15_text_to_number_after_user_edit() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    user_key(&mut s, "1");
+    script_set_type(&mut s, "number");
+    assert_eq!(value(&s, "b"), "1");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
+}
+
+/// DC-16 (control): text → Checkbox after a user edit: the Checkbox state
+/// defines an input activation behavior, so no `change` at blur.
+#[test]
+fn dc16_text_to_checkbox_after_user_edit_no_change() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    user_key(&mut s, "a");
+    script_set_type(&mut s, "checkbox");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
+}
+
+/// DC-18: a round trip text → checkbox → text after a user edit: the value
+/// stays `"a"` and the kind at focus loss is Text, so `change` fires.
+#[test]
+fn dc18_round_trip_through_checkbox() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    user_key(&mut s, "a");
+    script_set_type(&mut s, "checkbox");
+    script_set_type(&mut s, "text");
+    assert_eq!(value(&s, "b"), "a");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
+}
+
+/// DC-19: a round trip text → color → text after a user edit: the sanitization
+/// writes `"#000000"`, which differs from the value just before the first user
+/// edit (`""`, D-3), so `change` fires.
+#[test]
+fn dc19_round_trip_through_color() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    user_key(&mut s, "a");
+    script_set_type(&mut s, "color");
+    assert_eq!(value(&s, "b"), "#000000");
+    script_set_type(&mut s, "text");
+    assert_eq!(value(&s, "b"), "#000000");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
 }
