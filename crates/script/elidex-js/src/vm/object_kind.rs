@@ -211,8 +211,8 @@ pub enum ObjectKind {
     /// methods `preventDefault` / `stopPropagation` /
     /// `stopImmediatePropagation`.  The `cancelable` / `passive` fields
     /// are immutable after construction — `preventDefault` silently
-    /// no-ops when either is `false` (matches browser behaviour for
-    /// passive listeners and non-cancelable events, WHATWG DOM §2.9).
+    /// no-ops when either is `false` (DOM "set the canceled flag" for
+    /// passive listeners and non-cancelable events, WHATWG DOM §2.2).
     ///
     /// `composed_path` is the lazily-built JS array returned by
     /// `composedPath()` — cached on first call so repeated invocations
@@ -1033,7 +1033,7 @@ pub enum ObjectKind {
     /// list.  Payload-free apart from the parent reference; every
     /// read consults the parent's state.  Identity preserved via
     /// the parent's `items_wrapper` slot (a single wrapper per
-    /// parent — matches Chrome `[SameObject]` semantics).
+    /// parent — HTML §6.11.3 IDL marks `items` `[SameObject]`).
     ///
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]

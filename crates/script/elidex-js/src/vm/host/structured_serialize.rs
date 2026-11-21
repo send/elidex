@@ -49,7 +49,7 @@ use super::super::VmInner;
 ///   [`stringify_for_structured_shortcut`]
 ///   (before the `toJSON` hook, so an accessor-returned Date is caught too) and
 ///   degraded to `None` here — the same policy as BigInt / cyclic, for the same
-///   CR-3 reason (a `pushState` browsers accept must not start throwing).
+///   CR-3 reason (a `pushState` that StructuredSerializeForStorage accepts must not start throwing).
 /// - **`function` / `symbol`**: structured clone must throw `DataCloneError`, but
 ///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
 ///   gap (succeeds where the spec throws).

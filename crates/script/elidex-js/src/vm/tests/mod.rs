@@ -20,6 +20,7 @@ mod tests_blob;
 mod tests_body_interface;
 mod tests_body_mixin;
 mod tests_bound_accessor;
+mod tests_bound_call_gc;
 #[cfg(feature = "engine")]
 mod tests_cache;
 mod tests_call_shape_sanity;
@@ -39,6 +40,7 @@ mod tests_console;
 mod tests_construct_isconstructor;
 mod tests_cookie_referrer;
 mod tests_core_eval;
+mod tests_coroutine_creation_gc;
 mod tests_create_element_iframe;
 mod tests_create_element_options;
 mod tests_create_event_object;

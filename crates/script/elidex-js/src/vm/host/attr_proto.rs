@@ -21,8 +21,8 @@
 //! Live `Attr` wrappers are interned in the unified wrapper store
 //! (`WrapperKind::Attr`) keyed by
 //! `(owner Element entity, qualified-name StringId)`, so repeated
-//! `getAttributeNode('id')` returns the same `ObjectId` (matches
-//! Chrome / Firefox / Safari).  The qualified-name `StringId` is
+//! `getAttributeNode('id')` returns the same `ObjectId` (DOM returns
+//! the attribute node itself, §4.9).  The qualified-name `StringId` is
 //! always `intern(get_utf8(...))` — the UTF-8 form the DOM itself
 //! stores via [`elidex_ecs::EcsDom::set_attribute`].  Every hit
 //! site (`getAttributeNode`, `nnm.{item, getNamedItem,

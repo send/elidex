@@ -204,7 +204,7 @@ fn resolve_next_url(
 /// Build the method / body / headers triple for the redirected
 /// request per RFC 9110 §15.4:
 /// - 303: always change to GET (and drop body)
-/// - 301, 302: change POST to GET (browser behaviour), preserve
+/// - 301, 302: change POST to GET (Fetch, HTTP-redirect fetch), preserve
 ///   other methods
 /// - 307, 308: preserve method and body
 ///

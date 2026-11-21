@@ -1,7 +1,7 @@
 //! HTML §"reflect" non-negative-integer parser
 //! (slot `#11-tags-T2a-url-bearing`).
 //!
-//! WHATWG HTML §2.4.4.2 ("Rules for parsing non-negative integers")
+//! WHATWG HTML §2.3.4.2 ("Rules for parsing non-negative integers")
 //! specifies the algorithm used by IDL `unsigned long` reflect
 //! attributes — most notably `<img>.width` / `<img>.height`.  The
 //! algorithm is:
@@ -10,8 +10,8 @@
 //! 2. Optional leading `+`.
 //! 3. Take the maximal *leading* run of ASCII digits.  Trailing
 //!    non-digit garbage (e.g. `"100px"` → `100`) is ignored — it does
-//!    not fail the parse, matching browser behaviour for legacy CSS
-//!    pixel-suffixed reflect attributes.
+//!    not fail the parse (HTML "rules for parsing non-negative integers"; legacy CSS
+//!    pixel-suffixed reflect attributes).
 //! 4. On overflow, saturate at `u32::MAX`.
 //! 5. If no digits were collected (empty after trim, leading non-digit
 //!    such as `-` or a letter), return `0` — the IDL default for
@@ -24,7 +24,7 @@
 //! back through `EcsDom::set_attribute`.
 
 /// Parse a content-attribute string per HTML's "rules for parsing
-/// non-negative integers" (HTML §2.4.4.2).  Takes the maximal leading
+/// non-negative integers" (HTML §2.3.4.2).  Takes the maximal leading
 /// run of ASCII digits (so `"100px"` → `100`); returns `0` when no
 /// digits are present, and saturates at `u32::MAX` on overflow.
 pub fn parse_unsigned_long(raw: &str) -> u32 {
@@ -74,7 +74,7 @@ const I32_MIN_MAGNITUDE: u64 = I32_MAX_AS_U64 + 1;
 /// 2. Optional leading sign (`+` or `-`).
 /// 3. Take the maximal *leading* run of ASCII digits — trailing
 ///    non-digit characters are ignored (`"100px"` → `100`,
-///    `"1foo"` → `1`, matching browser behaviour).
+///    `"1foo"` → `1`, per HTML "rules for parsing integers").
 /// 4. If no digits follow the optional sign, return `None` (empty,
 ///    sign-only, whitespace-only, or leading non-digit).
 /// 5. On magnitude overflow (`> i32::MAX` / `< i32::MIN`) saturate at the
@@ -211,7 +211,7 @@ pub fn parse_double_or_default(raw: Option<&str>, default: f64) -> f64 {
         if end == exp_digits_start {
             // Trailing "e" / "e+" without exponent digits — drop the
             // exponent suffix and parse the mantissa alone (matches
-            // browser behaviour for `"1e"` → 1).
+            // HTML "rules for parsing floating-point number values": exponent past end → conversion, `"1e"` → 1).
             end = exp_marker;
         }
     }
@@ -484,7 +484,7 @@ mod tests {
     fn double_bare_exponent_marker_drops_suffix() {
         // `"1e"` is a leading "1" with a trailing exponent marker that
         // has no exponent digits — drop the bare `e` and parse the
-        // mantissa, matching browser behaviour.
+        // mantissa (HTML "rules for parsing floating-point number values").
         assert_eq!(parse_double_or_default(Some("1e"), 0.0), 1.0);
         assert_eq!(parse_double_or_default(Some("2.5e+"), 0.0), 2.5);
     }

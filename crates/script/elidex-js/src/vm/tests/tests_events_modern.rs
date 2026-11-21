@@ -454,9 +454,8 @@ fn data_transfer_files_same_object() {
 }
 
 #[test]
-fn data_transfer_files_empty_stub() {
-    // D-9 ships a FileList stub (empty Array per slot
-    // `#11-data-transfer-file-paired`).
+fn data_transfer_files_empty_on_new() {
+    // A new DataTransfer has no File items, so `files` is empty.
     let out = run("String(new DataTransfer().files.length);");
     assert_eq!(out, "0");
 }
@@ -682,10 +681,8 @@ fn data_transfer_item_list_add_blob_falls_through_to_string_overload() {
     // Per WebIDL overload resolution + File API §11.1, `Blob` is not
     // a `File` subclass — `dt.items.add(blob, 'text/plain')` follows
     // the `(DOMString, DOMString)` overload via `ToString(blob)`.
-    // The real `add(File)` brand check lands with D-14 (slot
-    // `#11-data-transfer-file-paired`); once `ObjectKind::File`
-    // exists the brand path will catch File but still let Blob fall
-    // through here.
+    // The `add(File)` brand check (D-14) catches `ObjectKind::File`
+    // only, so Blob still falls through here.
     let out = run("var dt = new DataTransfer(); \
          var blob = new Blob(['x']); \
          var item = dt.items.add(blob, 'text/plain'); \
@@ -697,7 +694,7 @@ fn data_transfer_item_list_add_blob_falls_through_to_string_overload() {
 #[test]
 fn data_transfer_item_list_add_string_without_type_throws() {
     // `(DOMString, DOMString)` overload: `type` is required.  Missing
-    // it throws a WebIDL TypeError (matches Chromium / Firefox).
+    // it throws a WebIDL TypeError (§3.6 overload resolution).
     let out = run("var dt = new DataTransfer(); \
          var threw = false; \
          try { dt.items.add('x'); } \

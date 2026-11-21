@@ -11,8 +11,8 @@ Design direction PM-anchored: *property-agnostic value-KIND gate in the
 coordinator, running after the §6.6.1 all-present + uniform-`!important` checks
 and — per the **R2 amendment** below — after handler-coverage dispatch, as an
 **override** of a covered family's collapse.* This memo grounds every corner
-against the live parser/serializer (throwaway probe, since removed) and live Blink
-(Chrome 148.0.7778.271), and resolves the one genuinely family-dependent corner.
+against the live parser/serializer (throwaway probe, since removed) and live Blink [evidence]
+(Chrome 148.0.7778.271) [evidence], and resolves the one genuinely family-dependent corner.
 
 ---
 
@@ -31,7 +31,7 @@ outside the §6.6.1 shorthand-reconstruction algorithm:
 
 ```
 background: initial; background: var(--bg)
-  → getPropertyValue("background")   Blink 148: "var(--bg)"   (later wins)
+  → getPropertyValue("background")   expected:  "var(--bg)"   (later wins)
   → before R2 (gate before dispatch): "initial"              ✗ regression
 ```
 
@@ -70,9 +70,9 @@ direct declaration competes).
 restores the *forward* case (earlier expanded longhands, later direct `var()` →
 `var()` wins). The **reverse / covered** cases stay order-blind, a pre-existing gap
 independent of this gate:
-- `background: var(--bg); background: initial` → Blink `"initial"`, elidex
+- `background: var(--bg); background: initial` → expected `"initial"` (later wins), elidex
   `"var(--bg)"` (the caller's `.or_else` is declaration-order-blind).
-- `margin: initial; margin: var(--x)` → Blink `"var(--x)"`, elidex `"initial"` (a
+- `margin: initial; margin: var(--x)` → expected `"var(--x)"` (later wins), elidex `"initial"` (a
   **covered** shorthand reconstructs from the stale longhands; the direct `var()`
   never reached). Affects `margin` today; `column-rule`/`columns` after PR1.
 
@@ -81,7 +81,7 @@ whole-shorthand declaration supersedes them, and `getPropertyValue` is not
 declaration-order-aware between the direct decl and the expanded longhands. The fix
 belongs in the parser/block (declaration supersession) or an order-aware getter —
 NOT the value-KIND gate. Uncovered-alone keyword serialization
-(`column-rule: initial` → Blink `"initial"`, elidex `""` until PR1 covers it) is
+(`column-rule: initial` → target `"initial"` (corner 1), elidex `""` until PR1 covers it) is
 part of the same order-aware machinery.
 
 ---
@@ -129,12 +129,12 @@ identical latent bug today (measured below).
 ### Confirmed via throwaway probe (elidex, then removed)
 
 - `margin-top:initial; margin-right:5px; margin-bottom:initial; margin-left:5px`
-  → elidex **`"initial 5px"`** (Blink `""`).
-- `margin-top:inherit; …:5px …` → elidex **`"inherit 5px 5px"`** (Blink `""`).
-- `margin-top:var(--x); …:0px …` → elidex **`"var(--x) 0px 0px"`** (Blink `""`).
-- `row-gap:var(--g); column-gap:4px` → elidex **`"var(--g) 4px"`** (Blink `""`).
+  → elidex **`"initial 5px"`** (CSSOM §6.7.2 step 1.2: `""`).
+- `margin-top:inherit; …:5px …` → elidex **`"inherit 5px 5px"`** (CSSOM §6.7.2 step 1.2: `""`).
+- `margin-top:var(--x); …:0px …` → elidex **`"var(--x) 0px 0px"`** (CSSOM §6.7.2 step 1.2: `""`).
+- `row-gap:var(--g); column-gap:4px` → elidex **`"var(--g) 4px"`** (CSSOM §6.7.2 step 1.2: `""`).
 - `margin-top:initial; margin-right:inherit; …` (mixed different) → elidex
-  **`"initial inherit"`** (Blink `""`).
+  **`"initial inherit"`** (CSSOM §6.7.2 step 1.2: `""`).
 
 ---
 
@@ -174,9 +174,9 @@ denominator = strings** (see *Ideal architecture*). Classes:
 - **V** unresolved var — string contains `var(` (`CssValue::Var` →`"var(--x)"`,
   or a `RawTokens` carrying `var(`).
 
-### Corner matrix (Blink = Chrome 148, measured; elidex-today measured/derived)
+### Corner matrix (Blink = Chrome 148, measured [evidence]; elidex-today measured/derived)
 
-| # | Kind pattern | Representative input | **Blink** | **elidex today** | **Target** | Decided by |
+| # | Kind pattern | Representative input | **Blink** [evidence] | **elidex today** | **Target** | Decided by |
 |---|---|---|---|---|---|---|
 | 1 | all-same **K** | `margin: initial` | `initial` | `initial` (str-eq accident) | `initial` | coord: all-same-K |
 | 1 | all-same **K** | `column-rule: initial` | `initial` | `""` (Multicol unserved; PR1-naive → `"initial initial initial"`) | `initial` | coord: all-same-K |
@@ -353,7 +353,7 @@ concrete initials), so the gate falls through to the handler.
 - **`#11-css-wide-revert-keyword`** — `revert`/`revert-layer` have **no**
   representation in elidex: `parse_global_keyword` (`elidex-css/src/values.rs:96`)
   returns `None` for them, so `margin: revert` produces **0 declarations**
-  (measured) and `getPropertyValue` yields `""` where Blink yields `"revert"`.
+  (measured) and `getPropertyValue` yields `""` where corner 1 (all-same K) gives `"revert"`.
   This is a **parser + `CssValue` model** gap orthogonal to serialization; the gate
   already classifies the strings for forward-compat. **Trigger**: revert support
   (needs a `CssValue` variant + cascade origin rollback) or a WPT/site. **Re-eval**:
@@ -365,11 +365,11 @@ concrete initials), so the gate falls through to the handler.
   the later wins across both. The **forward** case is fixed in this PR (coverage-first
   ordering routes an uncovered shorthand's `None` to the caller's `.or_else`). The
   **reverse / covered** cases stay order-blind, a pre-existing gap independent of the
-  gate: `background: var(--bg); background: initial` → elidex `"var(--bg)"` (Blink
-  `"initial"`); `margin: initial; margin: var(--x)` → elidex `"initial"` (Blink
+  gate: `background: var(--bg); background: initial` → elidex `"var(--bg)"` (expected
+  `"initial"`); `margin: initial; margin: var(--x)` → elidex `"initial"` (expected
   `"var(--x)"` — a covered shorthand reconstructs from the stale longhands). Same
   machinery covers uncovered-alone keyword serialization (`column-rule: initial` →
-  elidex `""` vs Blink `"initial"` until PR1 covers it). Root = parser/block
+  elidex `""` vs expected `"initial"` until PR1 covers it). Root = parser/block
   declaration-supersession, or an order-aware getter — NOT the value-KIND gate.
   **Trigger**: a WPT/site depending on later-shorthand-`var()` round-trip, or the
   order-aware getter work. **Re-eval**: 2026-10-31.
@@ -379,7 +379,7 @@ concrete initials), so the gate falls through to the handler.
   the coordinator's all-present check fails and each caller's `.or_else(...)` fallback
   reads the shorthand's own stored value — inline path `style.get(property)`
   (`style.rs:78`), rule path `last(&normalized)` last-declaration lookup
-  (`cssom_sheet.rs:619`) — returning `"var(--x)"` (measured, matches Blink). The gate
+  (`cssom_sheet.rs:619`) — returning `"var(--x)"` (measured). The gate
   runs *after* all-present and is never reached, so it cannot regress this. (This
   corrects the task premise that elidex returns `""` here.)
 

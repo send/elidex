@@ -40,10 +40,12 @@ impl VmInner {
     /// ```
     pub(crate) fn push_temp_root(&mut self, value: JsValue) -> VmTempRoot<'_> {
         let saved_len = self.stack.len();
+        let saved_frames = self.frames.len();
         self.stack.push(value);
         VmTempRoot {
             vm: self,
             saved_len,
+            saved_frames,
             expected: value,
         }
     }
@@ -69,13 +71,19 @@ impl VmInner {
 ///   JsValue::Number(NaN)` under JS strict equality.
 ///
 /// During panic unwinding (`std::thread::panicking()`) both asserts
-/// are skipped to avoid double-panic process-abort; the stack is
-/// truncated unconditionally so any propagation through
-/// `catch_unwind` upstream sees a clean stack.
+/// are skipped to avoid double-panic process-abort; frames pushed
+/// inside the rooted region are popped (their upvalues closed) and the
+/// stack is truncated (`VmInner::unwind_to`), so any propagation
+/// through `catch_unwind` upstream sees a clean stack.  A clean exit
+/// must leave no frame above the guard: every runner pops its own frame
+/// on `Ok` and `Err`.
 #[cfg(feature = "engine")]
 pub(crate) struct VmTempRoot<'a> {
     vm: &'a mut VmInner,
     saved_len: usize,
+    /// Frame depth at push: frames pushed inside the rooted region are
+    /// unwound on panic (`VmInner::unwind_to`).
+    saved_frames: usize,
     expected: JsValue,
 }
 
@@ -99,14 +107,14 @@ impl std::ops::DerefMut for VmTempRoot<'_> {
 #[cfg(feature = "engine")]
 impl Drop for VmTempRoot<'_> {
     fn drop(&mut self) {
-        let stack = &mut self.vm.stack;
         if std::thread::panicking() {
             // Avoid double-panic; just restore.  An assertion failure
             // here while unwinding would abort the process and lose the
             // original panic's diagnostic.
-            stack.truncate(self.saved_len);
+            self.vm.unwind_to(self.saved_frames, self.saved_len);
             return;
         }
+        let stack = &mut self.vm.stack;
         assert_eq!(
             stack.len(),
             self.saved_len + 1,
@@ -154,9 +162,11 @@ impl VmInner {
     /// `Self::push_temp_root` for the stronger contract.
     pub(crate) fn push_stack_scope(&mut self) -> VmStackScope<'_> {
         let saved_len = self.stack.len();
+        let saved_frames = self.frames.len();
         VmStackScope {
             vm: self,
             saved_len,
+            saved_frames,
         }
     }
 }
@@ -165,14 +175,20 @@ impl VmInner {
 /// [`VmInner::push_stack_scope`].
 ///
 /// Truncates the VM stack back to the saved length on drop —
-/// **including during panic unwinding** — so any rooted values
-/// pushed during the scope are released regardless of exit path.
+/// **including during panic unwinding**, where frames pushed inside the
+/// scope are popped first (their upvalues closed; `VmInner::unwind_to`)
+/// — so any rooted values pushed during the scope are released
+/// regardless of exit path.  A clean exit must leave no frame above the
+/// scope: every runner pops its own frame on `Ok` and `Err`.
 /// Unlike `VmTempRoot` (engine-only) no value-identity is asserted on clean
 /// drop; the guard is only useful when the rooted region pushes
 /// an arbitrary (data-dependent) number of values.
 pub(crate) struct VmStackScope<'a> {
     vm: &'a mut VmInner,
     saved_len: usize,
+    /// Frame depth at scope entry: frames pushed inside the scope are
+    /// unwound on panic (`VmInner::unwind_to`).
+    saved_frames: usize,
 }
 
 impl VmStackScope<'_> {
@@ -202,15 +218,15 @@ impl std::ops::DerefMut for VmStackScope<'_> {
 
 impl Drop for VmStackScope<'_> {
     fn drop(&mut self) {
-        let stack = &mut self.vm.stack;
         if std::thread::panicking() {
             // Avoid double-panic during unwinding; just restore
             // unconditionally so any `catch_unwind` upstream sees a
             // clean stack.  An assertion failure here would abort
             // the process and lose the original panic's diagnostic.
-            stack.truncate(self.saved_len);
+            self.vm.unwind_to(self.saved_frames, self.saved_len);
             return;
         }
+        let stack = &mut self.vm.stack;
         // On clean drop, catch under-pops: scoped code that pops
         // below `saved_len` would make a bare `truncate` silently
         // no-op and hide the corruption.  Match `VmTempRoot`'s

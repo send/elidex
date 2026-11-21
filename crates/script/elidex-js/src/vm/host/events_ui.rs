@@ -159,7 +159,7 @@ fn parse_ui_members(
         .vm
         .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.detail))?;
     // `detail` is WebIDL `long` (UI Events §3.2) — ToInt32 per WebIDL
-    // §3.10.9 (NaN / ±Infinity / ±0 → 0; otherwise truncate + mod 2^32
+    // §3.2.4.9 (NaN / ±Infinity / ±0 → 0; otherwise truncate + mod 2^32
     // with two's-complement reinterpret).  Browsers surface 0 for
     // `new UIEvent('x', {detail: NaN}).detail`; preserving NaN was the
     // pre-R3.4 behaviour.
@@ -816,17 +816,17 @@ fn native_input_event_constructor(
 }
 
 /// `InputEvent.prototype.getTargetRanges()` — D-10 stub.  Returns a
-/// freshly-allocated empty Array per call (matches Chrome behaviour
+/// freshly-allocated empty Array per call (the `targetRanges = []` result
 /// for InputEvent instances constructed without a `targetRanges`
 /// init member; real implementation comes with D-8 `#11-traversal-
 /// and-range` paired with `#11-event-modern-extras`).
 ///
-/// Brand-checks the receiver per WebIDL §3.7.2.4: `this` must be an
+/// Brand-checks the receiver per WebIDL §3.7.7: `this` must be an
 /// `ObjectKind::Event` whose prototype chain includes
 /// `InputEvent.prototype`.  Calling `InputEvent.prototype.
 /// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore
-/// throws `TypeError("Illegal invocation")`, matching Chrome's
-/// behaviour for IDL operations.
+/// throws a `TypeError` ("create an operation function" step 2.1.2.3;
+/// the "Illegal invocation" text is a message choice).
 fn native_input_event_get_target_ranges(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

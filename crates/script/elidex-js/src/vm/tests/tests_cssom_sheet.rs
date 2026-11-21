@@ -279,7 +279,7 @@ fn rule_style_length() {
 fn rule_style_length_dedupes_property_names() {
     // R3 IMP regression: CSSOM §6.6.1 supported-property-name list
     // counts distinct names; `div { color: red; color: blue; }`
-    // reports length 1 (matches Chrome).
+    // reports length 1.
     let out = run_with_css(
         "div { color: red; color: blue; }",
         "var s = document.getElementsByTagName('style')[0]; \

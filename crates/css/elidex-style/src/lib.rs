@@ -218,7 +218,7 @@ pub fn serialize_shorthand_value(
     // whole-shorthand `var()` (`background: var(--bg)`) — which, being the later
     // declaration, wins by order of appearance (css-cascade-4 §6.1) and is read
     // back via the caller's `.or_else` (a getter fallback outside the §6.6.1
-    // shorthand-reconstruction algorithm). Blink 148:
+    // shorthand-reconstruction algorithm). css-values-5 #pending-substitution-value:
     // `background: initial; background: var(--bg)` →
     // `getPropertyValue("background")` == `"var(--bg)"`, NOT the expanded-longhand
     // `"initial"`). Running the value-KIND gate *before* this dispatch would emit

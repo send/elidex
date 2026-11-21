@@ -109,7 +109,7 @@ fn tree_walker_first_child_descends_into_first() {
 fn tree_walker_parent_returns_root_when_filter_accepts() {
     // Copilot R19: WHATWG §6.4 parentNode allows the walker's
     // root to be returned when it passes whatToShow + filter.
-    // Browsers (Chrome / Firefox) return the root in this case.
+    // parentNode() steps 2.1–2.2 can return the root itself.
     // The earlier (R7) implementation short-circuited on
     // `parent == root` before filtering, returning null
     // incorrectly.  Per spec, only an attempt to ascend ABOVE

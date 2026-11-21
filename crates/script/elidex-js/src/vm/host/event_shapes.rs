@@ -252,16 +252,15 @@ fn push_val(slots: &mut Vec<PropertyValue>, v: JsValue) {
 /// `tests_event_shape_fold.rs` are the mechanical safety net against
 /// reorderings that bypass this helper.
 ///
-/// **Value asymmetry vs ctor (deliberate Chrome-parity divergence)**:
+/// **Value asymmetry vs ctor (deliberate)**:
 /// the ctor path's `view` defaults to `JsValue::Null` per the
 /// WebIDL declaration `attribute Window? view = null` on
 /// `UIEventInit` (UI Events L3 attribute table).  The UA-fire path
-/// defaults to `JsValue::Object(global_object)` — a UA convention
-/// (NOT spec-mandated): the "fire an event" / "fire a trusted
-/// event" algorithms are silent on `view`, but Chrome and Firefox
-/// both surface `event.view === window` for UA-dispatched UI
-/// events by populating it from the target node's owner document's
-/// `defaultView`.  Symmetry tests in `tests_event_shape_fold.rs`
+/// defaults to `JsValue::Object(global_object)`: the "fire an event" /
+/// "fire a trusted event" algorithms are silent on `view`, but the UI Events
+/// event-type tables give it (e.g. §3.3.4.3 focusin: `UIEvent.view : Window`).
+/// elidex populates it for UA-dispatched UI events from the target node's
+/// owner document's `defaultView`.  Symmetry tests in `tests_event_shape_fold.rs`
 /// assert NAME equality on `getOwnPropertyNames(uaEvent)` vs
 /// `getOwnPropertyNames(ctorEvent)`, not value equality — checking
 /// values would falsely flag this deliberate asymmetry.

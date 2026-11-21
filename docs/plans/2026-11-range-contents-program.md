@@ -663,7 +663,7 @@ checks the dispositions asked for:
     - When the queued upgrade runs, "upgrade an element" step 9 puts the element's (null) registry into the active
       constructor map, and the HTML element constructor step 5 finds no definition in a null registry and throws, so
       the element would end "failed".
-    - The measured outcome differs from that reading. **Chromium (HeadlessChrome 156.0.0.0, 2026-11-03; probe and
+    - The measured outcome differs from that reading. [evidence] **Chromium (HeadlessChrome 156.0.0.0, 2026-11-03; probe and
       result in the PM handoff directory, `handoff/l3-d15probe/index.html` and `result.txt`)**: custom elements inside
       `document.cloneNode(true)` are **not** upgraded (prototype `HTMLElement`, `:defined` false, no constructor run);
       the same holds for `cloneContents` / `extractContents` of a range inside that cloned document, for

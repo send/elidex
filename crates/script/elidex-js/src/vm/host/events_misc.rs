@@ -203,7 +203,7 @@ impl VmInner {
         // object AND as own properties of the interface prototype
         // object.  Pre-fix only the prototype carried them, so
         // `WheelEvent.DOM_DELTA_PIXEL` returned `undefined` —
-        // divergence from Chrome / Firefox.
+        // contrary to WebIDL §3.7.5.
         //
         // Attrs: `WEBIDL_RO` (writable=false, enumerable=true,
         // configurable=true).  The configurable=true delta from spec
@@ -386,7 +386,7 @@ fn native_formdata_event_constructor(
     }
     // WebIDL dictionary conversion: `required FormData formData` —
     // the value must be a FormData instance (per WHATWG IDL §3.10.21
-    // interface-type coercion).  Chrome / Firefox throw TypeError at
+    // interface-type coercion), which throws TypeError at
     // dictionary conversion time if the value is not a FormData; we
     // brand-check via `ObjectKind::FormData`.  Anything else
     // (`null` is already rejected by the required-member check above;
@@ -569,8 +569,8 @@ fn native_progress_event_constructor(
         // without `[EnforceRange]`): ToNumber → sign-magnitude truncate
         // toward zero → mod 2^64.  Routes the raw ToNumber result
         // through `coerce::f64_to_uint64_loose` so `loaded: -1` yields
-        // 2^64 - 1 (Chrome-compatible), `loaded: 1.5` yields 1, and
-        // NaN / ±∞ yield 0 — matching Chrome / Firefox / WPT.  Without
+        // 2^64 - 1, `loaded: 1.5` yields 1, and
+        // NaN / ±∞ yield 0 (ConvertToInt steps 8–10).  Without
         // this conversion, `-1` would be reflected verbatim, which is
         // the R6 IMP that this fix addresses.
         let l_raw = read_number(ctx, opts_id, k_loaded, 0.0)?;

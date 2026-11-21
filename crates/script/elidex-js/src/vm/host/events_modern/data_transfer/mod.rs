@@ -1,5 +1,6 @@
-//! `DataTransfer` + `DataTransferItem` + `DataTransferItemList`
-//! constructors + prototypes (HTML DnD §6.2 / §6.3).
+//! The `DataTransfer` interface (HTML §6.11.3): constructor, prototype
+//! and the drag data store state shared with `DataTransferItem` /
+//! `DataTransferItemList` (see Submodules).
 //!
 //! ## State storage
 //!
@@ -14,18 +15,26 @@
 //! - `DataTransferItemList` → wrapper-only, single instance per
 //!   parent; cached on `DataTransferState::items_wrapper`.
 //!
-//! ## Deferred (D-14 paired)
-//!
-//! - `DataTransfer.files` accessor returns an empty FileList stub
-//!   (slot `#11-data-transfer-file-paired`).
-//! - `DataTransferItem.getAsFile()` returns null.
-//! - `DataTransferItemList.add(File)` overload throws TypeError.
-//!
 //! ## Deferred (paint pipeline)
 //!
 //! - `setDragImage(element, x, y)` stores entity_bits + coords;
 //!   real paint integration deferred to slot
 //!   `#11-data-transfer-drag-image-paint`.
+//!
+//! ## Deferred (layering)
+//!
+//! - The drag data store algorithms (`types`, `setData`, `clearData`,
+//!   `items.add` / `remove` / `clear`) live here in `vm/host/`; their
+//!   move to an engine-independent home is slot
+//!   `#11-data-transfer-drag-data-store-layering`.
+//!
+//! ## Submodules
+//!
+//! - `item` — `DataTransferItem` (registration + prototype natives).
+//! - `item_list` — `DataTransferItemList` (registration + prototype
+//!   natives + the `DataTransferItem` wrapper cache).
+//!
+//! Their `register_*_global` entry points are re-exported here.
 
 #![cfg(feature = "engine")]
 
@@ -33,9 +42,15 @@ use super::super::super::shape;
 use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, StringId, VmError,
 };
-use super::super::super::wrapper_intern::{WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey};
 use super::super::super::VmInner;
 use super::super::events::install_ctor;
+mod item;
+mod item_list;
+
+pub(in crate::vm) use item::register_data_transfer_item_global;
+use item_list::invalidate_item_wrapper_cache_from;
+pub(in crate::vm) use item_list::register_data_transfer_item_list_global;
+
 use super::{DataTransferEntry, DataTransferState, DropEffect, EffectAllowed};
 
 // ---------------------------------------------------------------------------
@@ -63,111 +78,6 @@ pub(in crate::vm) fn register_data_transfer_global(vm: &mut VmInner) {
     );
     install_data_transfer_accessors(vm, proto_id);
     install_data_transfer_methods(vm, proto_id);
-}
-
-pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
-    let parent = vm
-        .object_prototype
-        .expect("register_data_transfer_item_global requires object_prototype");
-    let proto_id = vm.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: Some(parent),
-        extensible: true,
-    });
-    vm.data_transfer_item_prototype = Some(proto_id);
-    install_ctor(
-        vm,
-        proto_id,
-        "DataTransferItem",
-        super::super::super::value::native_illegal_constructor_unreachable,
-        vm.well_known.data_transfer_item_global,
-        super::super::super::value::CallShape::IllegalConstructor,
-    );
-    // `kind` / `type` readonly accessors + `getAsString` /
-    // `getAsFile` methods.  StringId fields are Copy — snapshot
-    // them first so the install calls can take `&mut vm` without
-    // holding an outstanding borrow of `well_known`.
-    let k_kind = vm.well_known.kind;
-    let k_type = vm.well_known.event_type;
-    let k_get_as_string = vm.well_known.get_as_string;
-    let k_get_as_file = vm.well_known.get_as_file;
-    vm.install_accessor_pair(
-        proto_id,
-        k_kind,
-        native_dt_item_get_kind,
-        None,
-        shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-    );
-    vm.install_accessor_pair(
-        proto_id,
-        k_type,
-        native_dt_item_get_type,
-        None,
-        shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-    );
-    vm.install_native_method(
-        proto_id,
-        k_get_as_string,
-        native_dt_item_get_as_string,
-        shape::PropertyAttrs::METHOD,
-    );
-    vm.install_native_method(
-        proto_id,
-        k_get_as_file,
-        native_dt_item_get_as_file,
-        shape::PropertyAttrs::METHOD,
-    );
-}
-
-pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
-    let parent = vm
-        .object_prototype
-        .expect("register_data_transfer_item_list_global requires object_prototype");
-    let proto_id = vm.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: Some(parent),
-        extensible: true,
-    });
-    vm.data_transfer_item_list_prototype = Some(proto_id);
-    install_ctor(
-        vm,
-        proto_id,
-        "DataTransferItemList",
-        super::super::super::value::native_illegal_constructor_unreachable,
-        vm.well_known.data_transfer_item_list_global,
-        super::super::super::value::CallShape::IllegalConstructor,
-    );
-    let k_length = vm.well_known.length;
-    let k_add = vm.well_known.add;
-    let k_remove = vm.well_known.remove;
-    let k_clear = vm.well_known.clear_method;
-    vm.install_accessor_pair(
-        proto_id,
-        k_length,
-        native_dt_item_list_get_length,
-        None,
-        shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
-    );
-    vm.install_native_method(
-        proto_id,
-        k_add,
-        native_dt_item_list_add,
-        shape::PropertyAttrs::METHOD,
-    );
-    vm.install_native_method(
-        proto_id,
-        k_remove,
-        native_dt_item_list_remove,
-        shape::PropertyAttrs::METHOD,
-    );
-    vm.install_native_method(
-        proto_id,
-        k_clear,
-        native_dt_item_list_clear,
-        shape::PropertyAttrs::METHOD,
-    );
 }
 
 fn install_data_transfer_accessors(vm: &mut VmInner, proto_id: ObjectId) {
@@ -387,7 +297,7 @@ fn native_dt_set_drop_effect(
     if let Some(new_val) = DropEffect::from_str_ascii_ci(&raw) {
         dt_state_mut(ctx.vm, id).drop_effect = new_val;
     }
-    // Silent retain on invalid value per HTML §6.2.
+    // Silent retain on invalid value per HTML §6.11.3.
     Ok(JsValue::Undefined)
 }
 
@@ -505,11 +415,10 @@ fn native_dt_get_types(
             member: "types",
         },
     )?;
-    // Build a fresh Array per `types` getter (HTML §6.2 step 3-5).
-    // Each String entry contributes its format; any File-kind
-    // entry contributes the literal `"Files"` (NOT yet reachable
-    // since D-9 doesn't accept File entries, but the path is
-    // wired in advance).
+    // Build a fresh Array per `types` getter (HTML §6.11.3, the steps that
+    // rebuild the types array).  Each String entry contributes its
+    // format; any File-kind entry (`items.add(File)`) contributes the
+    // literal `"Files"`.
     //
     // WebIDL §3.2.27 specifies `FrozenArray<DOMString>`; this
     // returns a mutable Array because the VM's Array.prototype.push
@@ -565,8 +474,8 @@ fn native_dt_get_data(
     let format_sid = super::super::super::coerce::to_string(ctx.vm, format_val)?;
     // ASCII-CI format match on WTF-16 code units.  Concatenate
     // matching String entries (typical use is single-entry;
-    // multi-entry concat matches HTML §6.2 step 4 "for each item in
-    // the drag data store matching format").  Operating on the
+    // multi-entry concat is not in HTML §6.11.3 `getData()`, which
+    // reads the one text item whose type string equals format).  Operating on the
     // WTF-16 pool slice preserves lone surrogates — `get_utf8`
     // would lossily replace them with `U+FFFD` and corrupt
     // round-trips for non-ASCII DOMString data.
@@ -670,8 +579,9 @@ fn native_dt_clear_data(
     let format_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     if matches!(format_arg, JsValue::Undefined) {
         // No argument — drain all String entries (File-kind entries
-        // retained per HTML §6.2 step "Remove each item in the drag
-        // data store item list whose kind is text").
+        // retained per HTML §6.11.3 `clearData()` step 3, "remove each
+        // item in the drag data store item list whose kind is Plain
+        // Unicode string").
         let had_removal = {
             let state = dt_state_mut(ctx.vm, id);
             let before = state.items.len();
@@ -800,428 +710,4 @@ fn native_dt_set_drag_image(
     state.drag_image_x = x;
     state.drag_image_y = y;
     Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
-// DataTransferItem
-// ---------------------------------------------------------------------------
-
-fn require_dt_item_receiver(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    member: &str,
-    op_kind: &str,
-) -> Result<(ObjectId, u32), VmError> {
-    match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItem {
-                parent_dt_id,
-                index,
-            } => Ok((parent_dt_id, index)),
-            _ => Err(VmError::type_error(format!(
-                "Failed to {op_kind} the '{member}' property from \
-                 'DataTransferItem': Illegal invocation."
-            ))),
-        },
-        _ => Err(VmError::type_error(format!(
-            "Failed to {op_kind} the '{member}' property from \
-             'DataTransferItem': Illegal invocation."
-        ))),
-    }
-}
-
-fn native_dt_item_get_kind(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let (parent_dt_id, index) = require_dt_item_receiver(ctx, this, "kind", "read")?;
-    let entry = ctx
-        .vm
-        .data_transfer_states
-        .get(&parent_dt_id)
-        .and_then(|s| s.items.get(index as usize));
-    let sid = match entry {
-        Some(DataTransferEntry::String { .. }) => ctx.vm.well_known.kind_string,
-        Some(DataTransferEntry::File { .. }) => ctx.vm.well_known.kind_file,
-        None => ctx.vm.well_known.empty,
-    };
-    Ok(JsValue::String(sid))
-}
-
-fn native_dt_item_get_type(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let (parent_dt_id, index) = require_dt_item_receiver(ctx, this, "type", "read")?;
-    let entry = ctx
-        .vm
-        .data_transfer_states
-        .get(&parent_dt_id)
-        .and_then(|s| s.items.get(index as usize));
-    let sid = match entry {
-        Some(DataTransferEntry::String { format, .. }) => *format,
-        Some(DataTransferEntry::File { type_sid, .. }) => *type_sid,
-        None => ctx.vm.well_known.empty,
-    };
-    Ok(JsValue::String(sid))
-}
-
-/// `DataTransferItem.prototype.getAsString(callback)` (HTML §6.3).
-/// Enqueues a microtask invoking the callback with the stored
-/// string; null callback → no-op.  Per-spec semantics.
-fn native_dt_item_get_as_string(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let (parent_dt_id, index) = match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItem {
-                parent_dt_id,
-                index,
-            } => (parent_dt_id, index),
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'getAsString' on 'DataTransferItem': \
-                     Illegal invocation.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'getAsString' on 'DataTransferItem': \
-                 Illegal invocation.",
-            ));
-        }
-    };
-    let cb_arg = args.first().copied().unwrap_or(JsValue::Null);
-    // null / undefined callback → no-op per WebIDL nullable
-    // callback handling.
-    let cb_id = match cb_arg {
-        JsValue::Null | JsValue::Undefined => return Ok(JsValue::Undefined),
-        JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => id,
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'getAsString' on 'DataTransferItem': \
-                 parameter 1 is not a function.",
-            ));
-        }
-    };
-    // Resolve string entry (File entries: no-op per spec —
-    // "kind is not text", returns immediately).
-    let entry = ctx
-        .vm
-        .data_transfer_states
-        .get(&parent_dt_id)
-        .and_then(|s| s.items.get(index as usize));
-    let data_sid = match entry {
-        Some(DataTransferEntry::String { data, .. }) => *data,
-        _ => return Ok(JsValue::Undefined),
-    };
-    // Enqueue microtask via a one-shot BoundFunction wrapper.  The
-    // microtask path (`Microtask::Callback { func }`) invokes the
-    // function with `this=undefined` and no args; the BoundFunction
-    // wrapper prepends `bound_args` so the user callback observes
-    // its data string argument as expected.
-    let bound = ctx.vm.alloc_object(Object {
-        kind: ObjectKind::BoundFunction {
-            target: cb_id,
-            bound_this: JsValue::Undefined,
-            bound_args: vec![JsValue::String(data_sid)],
-        },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: ctx.vm.function_prototype,
-        extensible: true,
-    });
-    ctx.vm
-        .microtask_queue
-        .push_back(super::super::super::natives_promise::Microtask::Callback { func: bound });
-    Ok(JsValue::Undefined)
-}
-
-/// `DataTransferItem.prototype.getAsFile()` (HTML §6.3).
-///
-/// D-14 `#11-file-api` Phase 5: returns the File wrapper for File-kind
-/// entries; returns `null` for String-kind entries (per spec) or out-
-/// of-range indices.  Slot `#11-data-transfer-file-paired` resolved.
-fn native_dt_item_get_as_file(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let (parent_dt_id, index) = match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItem {
-                parent_dt_id,
-                index,
-            } => (parent_dt_id, index),
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'getAsFile' on 'DataTransferItem': \
-                     Illegal invocation.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'getAsFile' on 'DataTransferItem': \
-                 Illegal invocation.",
-            ));
-        }
-    };
-    let file_id = ctx
-        .vm
-        .data_transfer_states
-        .get(&parent_dt_id)
-        .and_then(|s| s.items.get(index as usize))
-        .and_then(|entry| match entry {
-            DataTransferEntry::File { file_id, .. } => Some(*file_id),
-            DataTransferEntry::String { .. } => None,
-        });
-    Ok(file_id.map_or(JsValue::Null, JsValue::Object))
-}
-
-// ---------------------------------------------------------------------------
-// DataTransferItemList
-// ---------------------------------------------------------------------------
-
-fn require_dt_item_list_receiver(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    member: &str,
-    op_kind: &str,
-) -> Result<ObjectId, VmError> {
-    match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItemList { parent_dt_id } => Ok(parent_dt_id),
-            _ => Err(VmError::type_error(format!(
-                "Failed to {op_kind} the '{member}' property from \
-                 'DataTransferItemList': Illegal invocation."
-            ))),
-        },
-        _ => Err(VmError::type_error(format!(
-            "Failed to {op_kind} the '{member}' property from \
-             'DataTransferItemList': Illegal invocation."
-        ))),
-    }
-}
-
-fn native_dt_item_list_get_length(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let parent_dt_id = require_dt_item_list_receiver(ctx, this, "length", "read")?;
-    let len: u32 = ctx
-        .vm
-        .data_transfer_states
-        .get(&parent_dt_id)
-        .map_or(0, |s| u32::try_from(s.items.len()).unwrap_or(u32::MAX));
-    Ok(JsValue::Number(f64::from(len)))
-}
-
-fn native_dt_item_list_add(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let parent_dt_id = match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItemList { parent_dt_id } => parent_dt_id,
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'add' on 'DataTransferItemList': \
-                     Illegal invocation.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'add' on 'DataTransferItemList': \
-                 Illegal invocation.",
-            ));
-        }
-    };
-    let data_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `add(File)` overload — WebIDL overload resolution picks this
-    // path when the first arg is a File brand.  Blob is a sibling
-    // (per File API §11.1), NOT a subclass at the IDL overload-
-    // resolution level — but in our impl File IS-A Blob via
-    // prototype chain.  For overload resolution we accept ONLY
-    // ObjectKind::File here (Blob and other Objects fall through to
-    // the (DOMString, DOMString) overload via ToString below).
-    //
-    // D-14 `#11-file-api` Phase 5 — slot `#11-data-transfer-file-paired`
-    // resolved.
-    if let JsValue::Object(file_obj_id) = data_arg {
-        if matches!(ctx.vm.get_object(file_obj_id).kind, ObjectKind::File) {
-            let type_sid = super::super::blob::blob_type(ctx.vm, file_obj_id);
-            let new_index = {
-                let state = dt_state_mut(ctx.vm, parent_dt_id);
-                let i = state.items.len() as u32;
-                state.items.push(DataTransferEntry::File {
-                    file_id: file_obj_id,
-                    type_sid,
-                });
-                state.file_entries.push(file_obj_id);
-                // Invalidate cached files_wrapper so the next
-                // `.files` read sees the updated entry list.
-                state.files_wrapper = None;
-                i
-            };
-            let item_wrapper = item_wrapper_for(ctx.vm, parent_dt_id, new_index);
-            return Ok(JsValue::Object(item_wrapper));
-        }
-    }
-    let type_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    if matches!(type_arg, JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Failed to execute 'add' on 'DataTransferItemList': \
-             2 arguments required.",
-        ));
-    }
-    let data_sid = super::super::super::coerce::to_string(ctx.vm, data_arg)?;
-    let type_sid = super::super::super::coerce::to_string(ctx.vm, type_arg)?;
-    let new_index = {
-        let state = dt_state_mut(ctx.vm, parent_dt_id);
-        let i = state.items.len() as u32;
-        state.items.push(DataTransferEntry::String {
-            format: type_sid,
-            data: data_sid,
-        });
-        i
-    };
-    // Return the newly-added DataTransferItem wrapper.
-    let item_wrapper = item_wrapper_for(ctx.vm, parent_dt_id, new_index);
-    Ok(JsValue::Object(item_wrapper))
-}
-
-fn native_dt_item_list_remove(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let parent_dt_id = match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItemList { parent_dt_id } => parent_dt_id,
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'remove' on 'DataTransferItemList': \
-                     Illegal invocation.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'remove' on 'DataTransferItemList': \
-                 Illegal invocation.",
-            ));
-        }
-    };
-    let idx_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let idx_num = super::super::super::coerce::to_number(ctx.vm, idx_arg)?;
-    let idx = super::super::super::coerce::f64_to_uint32(idx_num) as usize;
-    let state = dt_state_mut(ctx.vm, parent_dt_id);
-    if idx < state.items.len() {
-        let removed = state.items.remove(idx);
-        // D-14 `#11-file-api` Phase 5 — keep `file_entries` and the
-        // `[SameObject]` files_wrapper in sync if the removed entry
-        // was a File.  Drop the FIRST matching `file_id` only — the
-        // same File may legitimately appear multiple times (HTML §6.2
-        // `items.add(f); items.add(f)` is a valid no-dedup append), so
-        // a `retain(|id| id != file_id)` would wrongly evict every
-        // sibling copy when only one items entry was removed.
-        if let DataTransferEntry::File { file_id, .. } = removed {
-            if let Some(pos) = state.file_entries.iter().position(|&id| id == file_id) {
-                state.file_entries.remove(pos);
-            }
-            state.files_wrapper = None;
-        }
-        // Invalidate downstream identity-cache entries for indices
-        // ≥ idx because the index→entry mapping shifts.
-        invalidate_item_wrapper_cache_from(ctx.vm, parent_dt_id, idx as u32);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_dt_item_list_clear(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let parent_dt_id = match this {
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::DataTransferItemList { parent_dt_id } => parent_dt_id,
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to execute 'clear' on 'DataTransferItemList': \
-                     Illegal invocation.",
-                ));
-            }
-        },
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'clear' on 'DataTransferItemList': \
-                 Illegal invocation.",
-            ));
-        }
-    };
-    let state = dt_state_mut(ctx.vm, parent_dt_id);
-    state.items.clear();
-    // D-14 `#11-file-api` Phase 5 — clear file_entries + invalidate
-    // [SameObject] files_wrapper in lockstep with items.clear.
-    state.file_entries.clear();
-    state.files_wrapper = None;
-    invalidate_item_wrapper_cache_from(ctx.vm, parent_dt_id, 0);
-    Ok(JsValue::Undefined)
-}
-
-/// Materialise or look up an identity-cached
-/// [`ObjectKind::DataTransferItem`] wrapper for `(parent_dt_id, index)`.
-pub(in crate::vm) fn item_wrapper_for(
-    vm: &mut VmInner,
-    parent_dt_id: ObjectId,
-    index: u32,
-) -> ObjectId {
-    vm.intern_wrapper(
-        WrapperKey::object_indexed(parent_dt_id, WrapperKind::DataTransferItem, index),
-        |vm| {
-            let proto = vm
-                .data_transfer_item_prototype
-                .expect("DataTransferItem.prototype must be registered before item_wrapper_for");
-            vm.alloc_object(Object {
-                kind: ObjectKind::DataTransferItem {
-                    parent_dt_id,
-                    index,
-                },
-                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-                prototype: Some(proto),
-                extensible: true,
-            })
-        },
-    )
-}
-
-/// Drop cached DataTransferItem wrappers at or above `from_index`
-/// for the given parent — used after list mutations that shift
-/// indices.  Cache entries below `from_index` survive because
-/// their index→entry mapping is unaffected.
-///
-/// Post-seam this is a whole-`wrapper_store` `retain` rather than a
-/// scan of a dedicated DataTransferItem map — the same bulk-op idiom
-/// the GC sweep (`gc/collect.rs`) and `Vm::unbind` retains use. The
-/// scan is bounded by total interned wrappers, but DataTransfer item
-/// lists are tiny and these index-shifting mutations (`remove` /
-/// `clearData`) are rare cold-path drag-and-drop operations, so the
-/// O(store) pass is an acceptable trade for one unified store.
-fn invalidate_item_wrapper_cache_from(vm: &mut VmInner, parent_dt_id: ObjectId, from_index: u32) {
-    if let Some(hd) = vm.host_data.as_deref_mut() {
-        hd.wrapper_store.retain(|key, _| {
-            !(key.kind == WrapperKind::DataTransferItem
-                && key.owner == WrapperOwner::Object(parent_dt_id)
-                && matches!(key.subkey, WrapperSubkey::Index(idx) if idx >= from_index))
-        });
-    }
 }

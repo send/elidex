@@ -346,7 +346,7 @@ HTTPキャッシュはWebコンテンツストレージとは別の重要な性�
 
 ### 22.6.1 キャッシュキー
 
-キャッシュプローブによるクロスサイトトラッキングを防止するため、elidexはダブルキーキャッシングを使用（Chromeのパーティション戦略に準拠）：
+キャッシュプローブによるクロスサイトトラッキングを防止するため、elidexはダブルキーキャッシングを使用（Fetch §2.7 Network partition keys / §2.8 HTTP cache partitionsのネットワークパーティションキーに準拠）：
 
 ```rust
 pub struct HttpCacheKey {
