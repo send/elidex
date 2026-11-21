@@ -5,6 +5,9 @@ cross-PR invariants and slot owners: its §1–§4; scope by PM decisions 260 an
 `layout-change-on-blur-provenance`, worktree `wt-change-provenance`. Rev 3.2, 2026-11-05 (rev 3.1 plan-reviewed; PM 393 changes listed in the changelog).
 Owner Layout; crates `elidex-form`, `elidex-shell`, `elidex-dom-api` (one doc comment), `elidex-js` (one test, one doc comment).
 
+*Erratum banner (2026-11-20; added after landing):* lines tagged `[history]` name the #597 measurement, a ground for
+nothing; see D-1's erratum.
+
 **Defect.** HTML's focus update steps fire `change` at a blurred control only if "the user has changed the element's
 value … while the control was focused without committing that change (such that it is different to what it was when the
 control was first focused)", and §4.10.5.5 says `input` and `change` "are not fired in response to changes made to the
@@ -21,10 +24,10 @@ compares the current value with the focus-time snapshot and nothing else, so it 
 | user presses ArrowLeft; script `b.value = "x"`; user focuses `c` | `input` (wrong), `change` (wrong) | no `input`, no `change` |
 | paste (Cmd+V) into a `readonly` control | `input` (wrong), value unchanged | nothing |
 | IME commit into a control whose `maxlength` is full | `compositionend`, `input` (wrong) | `compositionend` only |
-| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; decided by the re-derivation's D-3 (its §0.4): `V` (`"third"`) differs from the value just before the first user edit (`""`); step 2.1's text alone does not determine it, its §4.1) |
+| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1 [history]; the re-derivation's D-3 (its §0.4): `V` (`"third"`) differs from the value just before the first user edit (`""`)) |
 | user types `a`; script `b.value = ""` (restores the focus-time value); user focuses `c` | no `change` | no `change` |
 | script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4 [history]; contradicts the spec text under every reading, erratum under D-1: DF-1 (a)) |
-| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; decided by the re-derivation's D-3 (its §0.4; §4.10.5.5 leans, does not decide): `V` (`"x"`) equals the value just before the first user edit (`"x"`); step 2.1's text alone does not determine it, its §4.1 class (b); erratum under D-1) |
+| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9 [history]; the re-derivation's D-3 (its §0.4): `V` (`"x"`) equals the value just before the first user edit (`"x"`); erratum under D-1) |
 | script `b.focus()`; user types `a`; user focuses `c` | `input`, `change` | same |
 
 ## §0. Frame, premises, decisions
@@ -91,8 +94,8 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   - The baseline is not the spec's reference value, the value "when the control was first focused" (its §4.1; defect
     DF-1, its §6.1). What this memo's cells pin until the code PR lands: its §6.3.
   - The grounds this record cites for PM 305 (the §6 measurement) and for PM 393 ("the focus-time `initial` was dead
-    state") do not hold (its §6.3). The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names;
-    its LR-6 also names for withdrawal PM 307's "initial = before", the first-mark overwrite this record describes.
+    state") do not hold, and PM 307's "initial = before" (the first-mark overwrite this record describes) contradicts
+    the spec text: what the PM withdraws at landing and what stays, its LR-6.
 - **D-2 One user-edit funnel, at the value change** (E3). `elidex_form::apply_user_edit` (NEW), in
   `crates/dom/elidex-form/src/user_edit.rs` (NEW), runs a user edit closure on the control's `FormControlState`, compares the value
   before and after, and if it changed (a) marks the snapshot (if one exists) and (b) returns `changed = true`. The shell
@@ -140,9 +143,9 @@ type-flip clear / despawn).
 (b) **No canonical algorithm.** "The user has changed the element's value … without committing that change" is prose,
 not steps, and the mixed case (user edit, then script write) is not decided by the text (§4.3; settled by measurement [history]).
 So `/elidex-plan-review` is mandatory.
-*Erratum (re-derivation rev 3.2, PM 870, 2026-11-21; added after landing).* "Settled by measurement" is a record, not
+*Erratum (PM 870, 2026-11-21; added after landing).* "Settled by measurement" is a record, not
 a ground: a measurement is not a ground for a core requirement. The mixed case is decided by D-3 of
-`docs/plans/2026-11-change-on-blur-spec-rederivation.md` (its §0.4; §4.1).
+`docs/plans/2026-11-change-on-blur-spec-rederivation.md` (its §0.4).
 
 **Single PR.** This PR is a slice under `docs/plans/2026-11-focus-fixup-program.md`, so CLAUDE.md's base case (c)
 applies (umbrella §1.2). Inside this PR the parts cannot be split further without a broken intermediate state. The
@@ -400,7 +403,6 @@ clone, a new unfocused entity); `fieldset.rs:62` (disabled); `radio.rs:80/89` (c
 
 Under H every family re-baselines before the mark and none marks (I4); no family calls anything new (D-4). Only W1 /
 W2 were measured in Chromium [history]; W3–W8 follow elidex's rule that every non-user change is alike (Q-1, §10).
-(2026-11-20: "re-baselines before the mark" is the landed behaviour, not a spec requirement; D-1's erratum.)
 
 ### §5.3 Named risks
 
@@ -411,7 +413,6 @@ W2 were measured in Chromium [history]; W3–W8 follow elidex's rule that every 
   `change`. Both omissions are visible, so the miss is not silent. `apply_user_edit`'s doc comment names the paths (§8).
 - **R3 One engine, one writer measured** — H is measured on the `value` setter in Chromium 156 only [history]; W3–W8 follow from
   treating every non-user change alike (§5.2). The PR body says so.
-  (2026-11-20: the measurement is not a ground for H; D-1's erratum.)
 - **R4 Cost** — one value clone per user edit, O(len), the same order as the edit (§4.1).
 
 ## §6. Test and coverage plan
@@ -448,7 +449,6 @@ is invalid). Script steps run via the page tool's JS evaluation, which does not 
   in an `<input id=src2 value="a">`). Record `input` (`inputType`) and the value. Then, without blurring, script
   `value = "x"`; click `#away`: `change` there means Chromium recorded the baseline (`value_before_first_user_edit_`)
   at the identical replace (H: the script write would otherwise re-baseline). This PR keeps "value changed" (I1).
-  (2026-11-20: N6 needs no probe as a ground; §4.4's correction.)
 
 Record in the PR body: engine and version (`navigator.userAgent`), date, the page source, and each case's log. One engine
 is evidence, not proof; the PR body says so.
@@ -496,10 +496,9 @@ internals; (2) the case is narrow (toggle `multiple` while focused before the fi
 Chromium. [history]
 
 **Erratum (PM 432, 2026-11-20; added after landing).** The ground this record cites ("the spec defines no
-baseline") does not hold, and an engine's agreement is not a criterion for a core requirement
-(`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.3). The PM withdraws, at landing, the parts of PM 307 that its LR-6 names ((b), and "initial = before"). C24's expected
-outcome (no `change`) is decided by decision D-3 there (its §0.4 and §4.1; cell DC-9); step 2.1's text alone does
-not determine it, and §4.10.5.5 leans without deciding.
+baseline") does not hold, and an engine's agreement is not a criterion for a core requirement; what the PM
+withdraws from PM 307 at landing and what stays: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` LR-6. C24's expected outcome (no
+`change`) is decided by D-3 there (its §0.4; cell DC-9).
 
 Red-first: each NEW cell runs on `d7d34035` with the fix absent; "HEAD" is the expected result there (C27–C29 need the
 test clipboard, so their HEAD column is `d7d34035` plus that seam). Shell cells drive `handle_key` / `handle_ime` on a
@@ -581,7 +580,7 @@ the WPT runner does not drive.
 
 ## §8. Edges, hand-offs and records
 
-- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [history] (2026-11-20: the cited ground does not hold; the PM withdraws PM 307 (b) at landing, the re-derivation's LR-6; §6's erratum.)
+- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [history]
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
 - **L3 P1 `#11-element-lifecycle-hooks`** (file overlap, no order): the same files — `content/event_handlers.rs`
@@ -667,27 +666,13 @@ Search first: `memory/project_open-defer-slots.md` has no entry for any of the f
   assert elidex's rule that every non-user change re-baselines before the mark. The run-2 driver can run C21–C26's
   sequences unchanged. The designer recommends it: a family that diverges would change a cell's expected outcome, not
   the mechanism.
-  (2026-11-20: a measurement would not be a ground for these cells; D-1's erratum.)
 
 Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decision 264 (D-6, D-2).
 
 ## Changelog
 
-- *Erratum* (2026-11-20; no rev bump; added after landing; PM 432, PM 842): the grounds of model H re-derived in
-  `docs/plans/2026-11-change-on-blur-spec-rederivation.md`. Errata under D-1, §4.3 and §6 (W6); corrections
-  under E1 and §4.4 and in §3's textarea row; `[history]` tags on the lines that name the measurement. The baseline
-  differs from the spec text (DF-1 there); no behaviour and no cell changes in this memo. (Same day, re-derivation
-  rev 2: the errata are one-line corrections with pointers; the mixed case is not decided by the spec text; PM 305,
-  PM 307 and PM 393 are withdrawn by the PM at landing, not by this memo. 2026-11-21, re-derivation rev 3: its D-3 is
-  decided, K-first (PM 866); the opening table's M1 and M9 rows and the W6 erratum (C24) now cite D-3 as the [spec]
-  ground in place of "not determined / awaiting D-3". 2026-11-21, re-derivation rev 3.2, PM 870: D-3 is not a
-  [spec] ground — the outcome follows from the K-first predicate the user chose; the M1 / M9 rows and the W6
-  erratum re-worded; §1 (b)'s "settled by measurement" tagged [history] with an erratum pointing to D-3. Re-derivation
-  rev 3.3: the M1 / M9 rows, §1 (b)'s erratum and the W6 erratum cite D-3 by its §0.4, without restating its ground;
-  the M1 / M9 rows give K-first's comparison; the merge of #652 tagged E1's correction line `[contrast]`.
-  Re-derivation rev 3.4: the D-1 and W6 errata and §8's W6 line name the parts of PM 305, PM 307 and PM 393 that
-  its LR-6 withdraws, not the whole records. Re-derivation rev 3.5: the D-1 erratum also names PM 307's "initial =
-  before", which its LR-6 names for withdrawal.)
+- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; added after landing; PM 432, PM 842): errata per
+  `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.
