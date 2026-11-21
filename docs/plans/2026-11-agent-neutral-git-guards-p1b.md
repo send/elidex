@@ -2,14 +2,9 @@
 
 ## §0 Status
 
-**Pair (PM 908)**: this memo is the **P1b** slice of the P1 plan. The **P1a memo**,
-`docs/plans/2026-11-agent-neutral-git-guards-p1a.md`, holds the P1a slice and is the one home of everything the two
-slices share: the program, scope source, slices, seam, nature and edge-density (its §0), the goal and non-goals
-(its §1), the axes and their shared items (its §2), the spec sources, breadth and measurements (its §3, §3.1,
-§3.2), the rung of §5, the E2E sites and setup (its §7, §7.5), the further approvals (its §7.3), the decision
-records (its §8), layering (its §9), the PLAN.md errata (its §10) and provenance (its §11). Section numbers are
-those of the single memo the pair was split from; a section or row absent here is in the P1a memo. Ids are unique
-across the pair; an id not defined here is defined in the P1a memo.
+**Pair (PM 908)**: this memo is the **P1b** slice of the P1 plan. The pairing rule — what the **P1a memo**,
+`docs/plans/2026-11-agent-neutral-git-guards-p1a.md`, holds for both slices, how section numbers and ids work across
+the memos — is stated once, in the P1a memo §0 ("Pair").
 
 ## §1 Goal and non-goals
 
@@ -61,16 +56,20 @@ head `H` exactly once:
      boilerplate quotes the trigger, hence the author condition); none → the epoch.
    - c. **Each item's assessed sha, derived as the global resolver derives it**: the `assessed_commit_marker`
      followed by a backticked 7–40-hex sha; else the first `/blob/<sha>/` link in the body; else, for a formal
-     review, its `commit_id`. Items matching `error_verdict_match` or `status_comment_match` are set aside first
-     (neither verdict nor finding). The round = the items newer than `T` whose sha names `H` (compared on the shorter
-     length, at least 7). **An item newer than `T` with no derivable sha is a finding item** (fail-safe, driver
-     decision for round 2): it cannot be placed on a head, so it cannot be shown not to be about `H`. The global
+     review, its `commit_id`. **The body-finding test comes first**, as in the global resolver (its
+     `has_body_finding` is computed for every item, and error / status excuse only a comment without one): an item
+     whose body matches the body-finding detector of d is never set aside; only an item with no body finding that
+     matches `error_verdict_match` or `status_comment_match` is set aside (neither verdict nor finding). The round =
+     the items newer than `T` whose sha names `H` (compared on the shorter length, at least 7). **An item newer
+     than `T` with no derivable sha is a finding item** (fail-safe, driver decision for round 2): it cannot be
+     placed on a head, so it cannot be shown not to be about `H`. The global
      resolver drops such an item from the pass, which is safe for a loop that polls again but would be a fail-open
      for a merge. Remedy: read it, then a new trigger opens a new round.
    - d. The round holds at least one dry verdict (an issue comment matching `dry_verdict_match`) and **no finding
-     item**: no review body matching the body-finding detector (the generic `/blob/<sha>/…#L<n>` pattern ∪
-     `body_finding_match`), no bot issue comment in the round that is neither dry, error nor status, and no item of
-     c's no-sha kind. Dry vs findings is decided across every item, not by the latest one (#492).
+     item**: no item (review body or issue comment) matching the body-finding detector (the generic
+     `/blob/<sha>/…#L<n>` pattern ∪ `body_finding_match`), no bot issue comment in the round that is neither dry,
+     error nor status, and no item of c's no-sha kind. Dry vs findings is decided across every item, not by the
+     latest one (#492).
 
    The review-summary comment's `Completed` row is **not** an assessment: "a status widget reading completed is not
    a verdict" (`~/.claude/skills/external-review/SKILL.md`, the reviewer-neutral rules; the overlay lists the row
@@ -197,7 +196,7 @@ resolver's use, written once in the script:
 | `bot_login` | literal; REST compares it whole, GraphQL compares it with a trailing `[bot]` removed |
 | `trigger` | literal containment in an issue comment's body (step 8b) |
 | `assessed_commit_marker` | regex prefix, followed by `` [^`]*`([0-9a-f]{7,40}) `` (step 8c) |
-| `dry_verdict_match`, `error_verdict_match`, `status_comment_match` | regex searched in the body (jq `test`) |
+| `dry_verdict_match`, `error_verdict_match`, `status_comment_match` | regex searched in the body (jq `test`); error / status set an item aside only when the body-finding test (next row) does not match it (step 8c) |
 | `body_finding_match` | regex, OR-ed with the always-on generic `/blob/[0-9a-f]{7,40}/[^)[:space:]]*#L[0-9]+` |
 
 **Where the values are canonical.** `external-review/project.md` § reviewer also writes `bot_login`, `trigger`,
@@ -229,7 +228,8 @@ refused), step 3 refuses with the `merge --ff-only` remedy. Step 3 is the reconc
 *which* copy runs, the self check says that copy is `origin/main`'s.
 **Who sets `ELIDEX_PM_DIR`**: the PM, in the kickoff brief of every driver, Claude and Codex. A Claude Bash call does
 not keep exports, so Claude drivers write it on the invocation line as above; Codex drivers have it in the launch
-environment (or on the line). The E2E setup sets it (§7.5).
+environment (or on the line). The E2E cases set it on their own lines (§7.5: `$S/pm` for M1–M4, the real PM dir for
+M6; M7 runs under the PM's kickoff).
 
 Because of step 3, a PR that changes `merge-pr` is merged with `origin/main`'s copy; P1b itself, before which
 `origin/main` has no copy, is merged by hand — the last raw merge outside break-glass. The Codex-head logic is
@@ -290,7 +290,7 @@ The row shape: P1a memo §6. The P1b rows:
 | P1b | step 4 PM dir | `ELIDEX_PM_DIR` set to an existing dir | unset; set to a missing dir | default to a path; test only "set" |
 | P1b | step 6 merge queue | `mergeQueue` null | `mergeQueue` non-null → exit 1 | skip the query |
 | P1b | step 7 token | token `<PR>-<H>` present | none; token for an older sha; token named with a 7-char sha | glob `<PR>-*`; prefix compare |
-| P1b | step 8 Codex | dry verdict comment on `H` after the last trigger, 0 unresolved Codex threads; the same with the head review only on page 2 (#487 shape); the trigger inside a longer human comment ("fixed X. @codex review") counts | only a `Completed` summary row on `H` (lexime #332 shape); dry verdict + one unresolved Codex thread; dry verdict older than the last trigger; a finding comment and a dry verdict seconds apart (#492); a marker-less findings comment (heading + `/blob/<H>/…#L` link) beside a dry verdict (#506 R88 shape); a bot comment newer than the trigger with no marker and no blob link that is neither error nor status; a bot comment quoting the trigger is not a trigger (the dry verdict before the human trigger stays stale); verdict on an older sha; overlay key missing; `gh api` exits non-zero | accept the summary row; ignore threads; latest item wins (the #492 case passes); filter comments by the marker (the #506 case passes); drop items with no sha (the no-sha case passes); trigger by equality (the longer-comment control fails); trigger from any author (the bot's quote resets `T`); drop the trigger cut-off; drop `--paginate` (fake serves page 1 only without it); empty assessment → allow |
+| P1b | step 8 Codex | dry verdict comment on `H` after the last trigger, 0 unresolved Codex threads; the same with the head review only on page 2 (#487 shape); the trigger inside a longer human comment ("fixed X. @codex review") counts | only a `Completed` summary row on `H` (lexime #332 shape); dry verdict + one unresolved Codex thread; dry verdict older than the last trigger; a finding comment and a dry verdict seconds apart (#492); a marker-less findings comment (heading + `/blob/<H>/…#L` link) beside a dry verdict (#506 R88 shape); a findings comment on `H` (heading + `/blob/<H>/…#L12` link) that quotes `Codex Review: Something went wrong`, beside a dry verdict; a bot comment newer than the trigger with no marker and no blob link that is neither error nor status; a bot comment quoting the trigger is not a trigger (the dry verdict before the human trigger stays stale); verdict on an older sha; overlay key missing; `gh api` exits non-zero | accept the summary row; ignore threads; latest item wins (the #492 case passes); filter comments by the marker (the #506 case passes); set error / status items aside before the body-finding test (the quoting findings comment is set aside and the merge proceeds); drop items with no sha (the no-sha case passes); trigger by equality (the longer-comment control fails); trigger from any author (the bot's quote resets `T`); drop the trigger cut-off; drop `--paginate` (fake serves page 1 only without it); empty assessment → allow |
 | P1b | §4.4 overlay rule | the tracked `external-converge/project.md` yields every key, each value of its kind; the four keys shared with `external-review/project.md` are equal | a fixture overlay with a key's bullet missing, doubled, or with an empty span → exit 1, names the key | take the line's first backtick span (it is the key's own name); accept the last of two bullets |
 | P1b | step 9 state | `CLEAN` | `UNSTABLE`, `BLOCKED`, `DIRTY`, `BEHIND`, `DRAFT`, `UNKNOWN`, `HAS_HOOKS`, `FOO` | deny-list `DIRTY\|BLOCKED` |
 | P1b | step 10 CI | `CheckRun` entries `COMPLETED` + `SUCCESS` / `NEUTRAL` / `SKIPPED`; a `StatusContext` `SUCCESS` | `CLEAN` with a pending `CheckRun`; a `FAILURE`; a `StatusContext` `PENDING`; empty rollup; unrecognised conclusion; unknown `__typename` | check only failed entries (pending passes); read only `conclusion` (the `StatusContext` cases pass); allow an empty rollup |
@@ -338,12 +338,14 @@ runs them; if one ever did, the second run is harmless (IV4).
 
 The setup and E1–E24: P1a memo §7.5.
 
-| # | slice | command (in `$S/wt` on branch `wtb` unless stated) | expected |
+`$S/pm` is an empty directory made for M1–M4 (`mkdir -p $S/pm/handoff/codex-lanes/go`) and removed with `$S`.
+
+| # | slice | command (the §4.4 invocation from a worktree of the shared repository, against a real open PR, unless stated) | expected |
 |---|---|---|---|
 | M1 | P1b | `merge-pr <open PR>` with no token (`ELIDEX_PM_DIR=$S/pm`) | exit 1, "no go token"; PR still open |
 | M2 | P1b | token for an older sha of that PR (in `$S/pm`) | exit 1, names both shas |
 | M3 | P1b | token for head (in `$S/pm`), no dry Codex verdict on head after the last trigger | exit 1, names the Codex condition |
-| M4 | P1b | token for head, `mergeStateStatus` not `CLEAN`, or a check pending | exit 1, names the state or the check |
+| M4 | P1b | token for head (in `$S/pm`), `mergeStateStatus` not `CLEAN`, or a check pending | exit 1, names the state or the check |
 | M5 | P1b | a copy of `merge-pr` saved under `$S` and run from there | exit 1, invocation site |
 | M6 | P1b | `merge-pr --dry-run <PR>` on a PR the PM has approved (`ELIDEX_PM_DIR` = the real PM dir, token written) | exit 0, prints the `gh pr merge … --match-head-commit <H> --delete-branch=false` command; the PR is still open |
 | M7 | P1b | the first real merge the PM approves after B3, run by the driver from its own PR worktree (cwd = the worktree its live session holds) | merged; sync and cleanup notes printed once; the PR's worktree is **left in place** and the cleanup note says so; no PostToolUse notes in the Claude transcript for that command |

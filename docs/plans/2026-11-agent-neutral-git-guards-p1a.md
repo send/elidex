@@ -29,11 +29,13 @@ decisions.
 - **P1b — merge wrapper**: `merge-pr` and its tests. Cut-over P1b memo §7.2.
 - **The seam**: this memo's own II × III intersection is empty — `merge-pr` pushes nothing, so no pre-push
   decision meets a merge decision (§2 pair table). The two slices share only the test-isolation helper (T4), which
-  P1a adds and P1b imports. §2 stays one section; each invariant is tagged **[P1a]**, **[P1b]** or **[both]**.
+  P1a adds and P1b imports. §2 is split by slice tag: each invariant is tagged **[P1a]**, **[P1b]** or **[both]**;
+  the [P1a] and [both] items are here, the [P1b] items in the P1b memo §2.
 **Nature**: repo tooling. New tracked files under `.claude/tools/githooks/` and `.claude/tools/agent/`, their
 tests, one `mise` task; one modified tool (`.claude/tools/ecs_mission_ratchet.py` gains `--rev`, with its test); one
-line in `.claude/skills/pm/SKILL.md`. Zero `crates/**` diff. Nothing under `~/.claude` is edited by the PRs (bypass-guard memo §4.8 is
-a patch the PM applies at cut-over), and nothing is installed into any `.git/hooks`:
+row in the §2 PM-pass table of `.claude/skills/pm/SKILL.md` (§4.9). Zero `crates/**` diff. Nothing under
+`~/.claude` is edited by the PRs (bypass-guard memo §4.8 is a patch the PM applies at cut-over), and nothing is
+installed into any `.git/hooks`:
 installing the shim and changing the matching Claude hooks is the **cut-over**, done by the PM / user after each
 merge (§7).
 **Edge-dense**: yes — six intersecting axes (§2). So `/elidex-plan-review` is mandatory before implementation
@@ -79,8 +81,8 @@ P1b's files (`merge-pr`, `test_merge_pr.py`): P1b memo §1.
      `merge-pr` invocation of P1b memo §4.4 (with `ELIDEX_PM_DIR`).
   6. `.claude/skills/pm/SKILL.md` §4: the go token (file name with the full 40-hex sha, P1b memo §7.2), PM-merged PRs
      (`pm:224`) through `merge-pr`, and Dependabot PRs (`pm:223`: the CI/tools lane runs them, PM 240) through
-     `merge-pr` after the CI/tools lane posts `@codex review` (D35). The `--check` standing item is P1a's line, not
-     P3's.
+     `merge-pr` after the CI/tools lane posts `@codex review` (D35). The `--check` standing item is P1a's row
+     (§4.9), not P3's.
   7. `.claude/skills/pre-push/SKILL.md`: the one-line reference for Codex drivers (PLAN §5 P3).
 - Stopping `git commit --amend` itself. Amend is harmless until the amended commit is pushed over its old self,
   and that push is a non-fast-forward which pre-push rejects (PLAN row 1).
@@ -359,7 +361,7 @@ memo).
 | git §OPTIONS (git-push(1)) | `--verify`, `--no-verify` | toggles the pre-push hook | stated limit II10 | ✓ | yes |
 | git §OPTIONS (git-commit(1)) | `-n`, `--no-verify` | bypasses pre-commit | stated limit VI6 | ✓ | yes |
 | git §HOOKS (githooks(5)) | pre-commit | no parameters; non-zero aborts | pre-commit exit | ✓ | yes |
-| git §ENVIRONMENT (measured, not githooks(5)) | pre-commit index | `GIT_INDEX_FILE` names the index being committed; a temporary index for `commit <path>` / `commit -a` | pre-commit VI1 reads `git diff --cached` / `git show :<path>` through it | measured only: githooks(5) does not describe the temporary index | yes |
+| git §ENVIRONMENT VARIABLES (git(1); the temporary index measured, not in githooks(5)) | pre-commit index | `GIT_INDEX_FILE` names the index being committed; a temporary index for `commit <path>` / `commit -a` | pre-commit VI1 reads `git diff --cached` / `git show :<path>` through it | measured only: githooks(5) does not describe the temporary index | yes |
 | git §HOOKS (githooks(5)) | pre-merge-commit | an automatic merge runs pre-merge-commit; a conflicted merge concluded with `git commit` runs pre-commit (last paragraph) | VI5: automatic merges unchecked (backstop CI `check`); conflict resolutions checked | ✓ | yes |
 | git §OPERATION MODES (git-merge-base(1)) | `--is-ancestor` | exit 0 / 1 / other | pre-push II4, II5 | measured: 128 for an unknown or all-zero sha | yes |
 | git §OPTIONS (git-rev-parse(1)) | `--git-path hooks`, `--git-common-dir`, `--path-format=absolute` | hooks path honours `core.hooksPath`, including a worktree-level value | `installed(wt)` (§4.1), installer | measured: key unset → `<common dir>/hooks` from the main and a linked worktree; `--worktree` value → that value | no |
@@ -445,6 +447,8 @@ false. A fresh repository with `core.hooksPath` unset and the shims in `.git/hoo
 **Which copy evaluates it**: always `origin/main`'s `install.sh`, run in the §4.7 form — by the `mise` task (§4.7),
 by `--check`, and by the §7.1 pass-through. No caller runs a working-tree `install.sh`, so there is one predicate,
 not one per checkout.
+**Re-install when the shim changes**: a PR that changes `.claude/tools/githooks/shim.sh` writes a re-run of
+`mise run install-githooks` into its own cut-over; the PM confirms it landed (PM 921).
 
 The shim (body in `.claude/tools/githooks/shim.sh`, written by the installer as `pre-push` and `pre-commit`):
 
@@ -700,8 +704,9 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 | A3 | one good push and one good commit in a real lane worktree | same | real use, both layers deciding |
 | A4 | after A2; user approval of PLAN §6 item 3 (its text: 「git hook 移行後に Claude hook (`set:24,30`) を撤去するか (global)」), then **`:24` and `:30` only**: an elidex-scoped pass-through (below) instead of removal — narrower than that text (PM 893 (2)) | in an installed elidex worktree only the git hooks decide push-branch and fmt; everywhere else unchanged | V2 / V5 / V6 |
 
-**For the user, at A2** (PM 908). After A2, as before it, the bypass guard denies `--no-verify` to every Claude
-session, the PM's included. So when a broken hook on `origin/main` blocks its own fix (the push / commit
+**For the user, from A1** (PM 908). The shims are installed at A1, so from then on the push / commit break-glass
+can be needed; before A2 and after it, the bypass guard denies `--no-verify` to every Claude session, the PM's
+included. So when a broken hook on `origin/main` blocks its own fix (the push / commit
 break-glass, §7.4), you run the bypass — in your own terminal, or as `! <command>` in the PM session — from the exact
 commands and record line the PM gives you; no agent can run it. Before A2, check the `! <command>` form once
 (§7.4, the unverified premise and its one-command check); until it passes, use your own terminal.
@@ -736,8 +741,8 @@ them to the user:
 
 | line | today | would become |
 |---|---|---|
-| `:13` | amend / force deny on flag text (inline jq) | the force half: the same elidex-scoped pass-through (pre-push II5 covers `-f` and `+<refspec>`); **the amend half stays everywhere** |
-| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. Break-glass (P1b memo §7.4) is unchanged by either form: the user runs it outside the Claude Bash tool, and its sync and cleanup are in the commands the PM prepares |
+| `:13` | amend / force deny on flag text (`git-amend-force-push-guard.sh`: a `grep -E` over `.tool_input.command`) | the force half: the same elidex-scoped pass-through (pre-push II5 covers `-f` and `+<refspec>`); **the amend half stays everywhere** |
+| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. Break-glass is not changed by either form (P1b memo §7.4) |
 | `:42` | delete-branch worktree guard | in elidex, inert once raw merges are denied (`merge-pr` writes `--delete-branch=false`); kept as is under the adapter form |
 | `:136`, `:142` | PostToolUse sync / cleanup | unchanged entries; the scripts stay (V4). Under the deny form they never fire for elidex merges; under the adapter form they keep serving raw merges. Changed only after `:36` (V3) |
 
@@ -811,7 +816,7 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E16 | P1a | E13 with `ELIDEX_FMT_OK=$(git write-tree)`; then with `ELIDEX_FMT_OK=1` | committed, note; then rejected |
 | E17 | P1a | E13 with `PATH` not holding a working `rustfmt` (the untrusted mise shim) | committed, warning |
 | E18 | P1a | in the scratch clone: `git -C $S/wt config --worktree core.hooksPath $S/alt`, then the §4.7 form with `--check` from `$S/repo` | lists `$S/wt`, exits 1; after `--unset`, exits 0 |
-| E19 | P1a | after A1, in the shared repository, through the PM's own invocation: `mise run install-githooks -- --check` → exit 0. Negative control through the same invocation, from a script file that installs its cleanup first — `trap 'git worktree remove --force $S/neg' EXIT` — then `git worktree add --detach $S/neg origin/main`, `git -C $S/neg config --worktree core.hooksPath $S/alt`, `mise run install-githooks -- --check; rc=$?` from the main worktree → `rc` is 1 and the output names `$S/neg`; then the trap's removal and a re-run → exit 0; the script exits with an explicit status built from both captured codes | as stated; the negative control is the one sanctioned write of the key, undone by the trap on every exit |
+| E19 | P1a | after A1, in the shared repository, through the PM's own invocation: `mise run install-githooks -- --check` → exit 0. Negative control through the same invocation, from a script file that installs a backstop first — `trap 'git worktree remove --force $S/neg 2>/dev/null' EXIT`, for an early exit only — then `git worktree add --detach $S/neg origin/main`, `git -C $S/neg config --worktree core.hooksPath $S/alt`, `mise run install-githooks -- --check; rc1=$?` from the main worktree → `rc1` is 1 and the output names `$S/neg`; then, explicitly, `git worktree remove --force $S/neg` and `mise run install-githooks -- --check; rc2=$?` → `rc2` is 0; the script ends with `[ "$rc1" = 1 ] && [ "$rc2" = 0 ]` as its status | as stated; the negative control is the one sanctioned write of the key, undone by the explicit removal (the trap only covers an exit before it) |
 | E20 | P1a | after A4, with `GIT_BYPASS_GUARD_EXTRA_SCOPE=$S` in the hook's environment (the bypass guard's test override, so `$S` counts as elidex): feed `{"tool_input":{"command":"git push origin HEAD:other"},"cwd":"$S/repo"}` to `git-push-branch-guard.sh`, and a staged-unformatted commit command to `cargo-fmt-precommit.sh`, in the installed scratch clone | no output from either (passed through; the git hook decides) |
 | E21 | P1a | E20 with `cwd` = `$S/wt` after `git -C $S/wt config --worktree core.hooksPath $S/alt` (I4); and a compound `cd $S/repo && git push origin HEAD:x; cd $S/wt && git push origin HEAD:y` from `$S/repo` | deny from the Claude hook (as before A4) in both: one segment's worktree is not installed |
 | E22 | P1a | E20 without `GIT_BYPASS_GUARD_EXTRA_SCOPE`, from a repository outside the scope (a scratch `git init` under `$S`, or a lexime worktree, read only) | deny, as before A4 |
@@ -850,11 +855,11 @@ No question is open. Each former question was decided by the driver (lens conver
   ground (D42).
 - **PM 908** (after plan-review round 2): the plan is split into this memo (P1a, and everything both slices share)
   and the P1b memo (§0 Pair); the PM-skill row is in P1a's diff (§4.9, D33, §7.1 A0–A2); the P1a break-glass actor
-  is the user, with the commands and record line prepared by the PM (§7.4, D39, the A2 note in §7.1).
+  is the user, with the commands and record line prepared by the PM (§7.4, D39, the A1 note in §7.1).
 - **PM 916**: §4.8 is its own file, the bypass-guard memo, applied by this memo's cut-over by reference (§0, §7.1
   A2); the merge break-glass actor is the user too, for the same reason (the PM is a Claude session, and
   `gh-pr-merge-head-guard` applies to it), with one actor rule for both kinds (§7.4; P1b memo D32, III5); the
-  `! <command>` premise is unverified, and the user checks it before A2 (§7.4, the A2 note in §7.1).
+  `! <command>` premise is unverified, and the user checks it before A2 (§7.4, the A1 note in §7.1).
 
 ## §9 Layering and what is not touched
 
@@ -876,6 +881,10 @@ mode is unchanged).
 PLAN.md is the PM's file; this section is addressed to the PM, who applies (or rejects) each item there. PLAN.md:3
 already points here as the canonical errata; the items after the first eight are new since, so its count
 "誤り 8 件" becomes fourteen.
+
+**PLAN.md:3 itself** (not counted in the fourteen): it names "the P1 plan memo (branch ci-agent-neutral-guards-p1)
+の errata 節". Since PM 908 the plan is two memos (§0 Pair); the errata are this memo's §10,
+`docs/plans/2026-11-agent-neutral-git-guards-p1a.md` §10, and the pointer should name it.
 
 Every cited line in PLAN §0, §1 rows 1, 2, 3, 5, 6, 7, 8, 17, §3, §5 P1, §6, §7 that points into this repository or
 `~/.claude` was re-read at `origin/main` 3cbd5b88 (PLAN cites 1b727d18; `git diff --stat 1b727d18 3cbd5b88 --
