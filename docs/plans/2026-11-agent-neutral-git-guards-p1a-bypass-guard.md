@@ -7,6 +7,7 @@
 is in neither PR's diff: the PM applies it at the P1a cut-over, and the P1a memo's cut-over (its §7.1 step A2, with
 E24 of its §7.5) owns applying it, by reference to this file. Every section and id named below without a file
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
+Since the move it has one revision: PM 922 added the `git_segments()` iterator ("One derivation" below).
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -18,6 +19,14 @@ written here, against the file as read on 2026-11-21 (`shasum -a 256` =
 patch is re-derived, not forced). It follows the file's own structure: one more case in `check_git` (by
 subcommand), the env rule widened inside `env_hooks_assign`, the same `in_scope` (no copy of its roots), the same
 fail-open on an internal error, and tests in the existing `git-hook-bypass-guard.test.py` lists.
+
+**One derivation of each git segment (PM 922).** The patch also moves the walk now inside `scan()` — the shell
+segments, the `cd` tracking, `git -C` (through `check_git`), the env assignments and the `bash -c` / `sh -c` /
+`eval` recursion — into one iterator, `git_segments(cmd, cwd)`, which yields `(git_args, effective_cwd, violation)`
+for every git segment, nested ones included. `scan()` becomes the first in-scope violation of that iterator
+(behaviour unchanged: every existing test passes on it), and the P1a memo §7.1 pass-through iterates the same
+function, so the cwd it judges is the one `scan()` judges, by construction. The third field is the violation
+`check_git` (or an env assignment) found; the pass-through ignores it.
 
 **No silent overlap with the existing rules.** `-c core.hooksPath=…` (and `-c core.hooksPath …`,
 `-ccore.hooksPath=…`), `--config-env=core.hooksPath=…` and a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment are
@@ -167,11 +176,20 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -190,10 +274,10 @@
-     """-> (violation, effective_cwd_of_the_violating_git) or (None, None)。cd を追跡する。"""
+@@ -186,14 +270,16 @@
+     return (hits[0] if hits else None), eff
+ 
+ 
+-def scan(cmd, cwd, depth=0):
+-    """-> (violation, effective_cwd_of_the_violating_git) or (None, None)。cd を追跡する。"""
++def git_segments(cmd, cwd, depth=0):
++    """cmd の git の呼び出しごとに (git の後ろの token, 実効 cwd, 違反 or "") を yield する。
++    実効 cwd の導出 (hook JSON の cwd、先行する `cd`、`git -C <dir>`) と `bash -c` / `sh -c` / `eval` の再帰は
++    ここにだけある。scan() と、elidex の push-branch / fmt hook の pass-through の両方がこれを使う。"""
      if depth > 3:
-         return None, None
+-        return None, None
 -    exported = False  # `export GIT_CONFIG_KEY_n=core.hooksPath` seen earlier in this command
++        return
 +    exported = ""  # `export GIT_CONFIG_KEY_n=core.hooksPath` / `GIT_CONFIG_PARAMETERS=...` seen earlier in this command
      for seg in segments(cmd):
          j = 0
@@ -180,7 +198,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
          if j >= len(seg):
-@@ -204,11 +288,11 @@
+@@ -204,13 +290,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
@@ -188,17 +206,37 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +            exported = exported or next(filter(None, map(env_hooks_assign, rest)), "")
          elif prog == "git":
              v, eff = check_git(rest, cwd)
-             if not v and (seg_env or exported):
+-            if not v and (seg_env or exported):
 -                v = "GIT_CONFIG_KEY_n=core.hooksPath"
-+                v = seg_env or exported
-             if v and in_scope(eff):
-                 return v, eff
+-            if v and in_scope(eff):
+-                return v, eff
++            yield rest, eff, (v or seg_env or exported)
          elif prog in SHELLS or prog == "eval":
+             inner = None
+             if prog == "eval":
+@@ -218,9 +301,14 @@
+             elif "-c" in rest and rest.index("-c") + 1 < len(rest):
+                 inner = rest[rest.index("-c") + 1]
+             if inner:
+-                v, eff = scan(inner, cwd, depth + 1)
+-                if v:
+-                    return v, eff
++                yield from git_segments(inner, cwd, depth + 1)
++
++
++def scan(cmd, cwd):
++    """-> (violation, effective_cwd_of_the_violating_git) or (None, None)。"""
++    for _args, eff, v in git_segments(cmd, cwd):
++        if v and in_scope(eff):
++            return v, eff
+     return None, None
+ 
+ 
 ```
 
-**Tests** (added to the `DENY` / `ALLOW` lists and as two methods of `git-hook-bypass-guard.test.py`; written and
-run against a scratch copy of the patched file on 2026-11-21: 14 tests OK; the same tests against the unpatched
-file fail, 39 subtests). Each positive form was measured to reroute, or to write, the key (§3.2):
+**Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as a `Segments` class that loads the
+script under test by path, in `git-hook-bypass-guard.test.py`; run against a scratch copy of the patched file on
+2026-11-22: 20 tests OK; against the unpatched file: 40 failures and 5 errors). Each positive form was measured to reroute, or to write, the key (§3.2):
 
 | kind | commands (cwd in scope unless stated) | expected |
 |---|---|---|
@@ -213,9 +251,13 @@ file fail, 39 subtests). Each positive form was measured to reroute, or to write
 | other keys (negative) | `--worktree user.name a`; `config set core.editor vim`; `--unset user.email`; `--remove-section alias`; `--worktree core.hooks /alt`; `--worktree core.hooksPathX /alt`; `GIT_CONFIG_PARAMETERS="'user.name'='a'" git commit -m x` | allow |
 | text, not a command (negative) | `git commit -m 'git config core.hooksPath /alt'`; `git log --grep 'git config --worktree core.hooksPath'` | allow |
 | out of scope (negative) | every `DENY` entry from `/private/tmp` (the existing loop); `git config --file /private/tmp/x core.hooksPath /alt` from `/private/tmp` | allow |
+| `git_segments` cwd | `cd /s/wt && git push origin HEAD` from `/s/repo`; `git -C sub push origin HEAD` from `/r`; `bash -c 'cd /x && git status'`; `sh -c 'git -C y status'`; `eval "cd /x && git status"` | effective cwds `/s/wt`; `/r/sub`; `/x`; `/r/y`; `/x` |
+| E21 compound | `cd /s/repo && git push origin HEAD:x; cd /s/wt && git push origin HEAD:y` from `/s/repo`, with only `/s/repo` installed | cwds `/s/repo`, `/s/wt`; the pass-through predicate (every segment installed) is false; true when both are |
+| `scan()` on the iterator | `git_segments` replaced in the loaded module by one that yields a sentinel violation in scope | `scan("true", <out of scope>)` returns the sentinel |
 
-**Mutants** (each a one-line replacement in a temp copy, run through the file's own `GIT_BYPASS_GUARD_SCRIPT`
-override; all nine were killed by the tests above on 2026-11-21):
+**Mutants** (each a replacement in a temp copy of the patched file, run through the file's own
+`GIT_BYPASS_GUARD_SCRIPT` override; all twelve were killed by the tests above on 2026-11-22; the first nine are
+one-line, the last a block):
 
 | replaced line | → | killed by |
 |---|---|---|
@@ -228,11 +270,15 @@ override; all nine were killed by the tests above on 2026-11-21):
 | `        if names and names[0].lower() == "core":` | exact-case compare | `rename-section Core zz` |
 | `    if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
 | `            pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
+| `                cwd = os.path.join(cwd, os.path.expanduser(d))` (in `git_segments`) | `pass` (the iterator ignores `cd`) | the E21 compound case, the `cd` / nested / `eval` cwd cases, `cd <elidex> && …` from outside |
+| `                yield from git_segments(inner, cwd, depth + 1)` | `pass` (recursion dropped) | the nested and `eval` cwd cases, the `bash -c` `DENY` entries |
+| the body of `scan()` | a full copy of the pre-refactor walk (a divergent copy) | only the `scan()`-on-the-iterator case: the copy behaves identically, so no behavioural case can see it; the test replaces `git_segments` and observes that `scan()` follows it |
 
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
-(`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log), apply the
-diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the nine
+(`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
+the whole diff — the `git_segments()` refactor of `scan()` included (PM 922) — and apply it only after; apply the
+diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the twelve
 mutants above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
 `git rev-parse --git-path hooks` unchanged afterwards; `git config --get core.hooksPath` → runs. If the hook files

@@ -635,7 +635,7 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D38 | P1a | the bypass-guard patch (bypass-guard memo §4.8): the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
 | D39 | P1a | P1a break-glass: `--no-verify`, run by the user from the commands and record line the PM prepares (who acts: §7.4); recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
-| D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it imports the bypass guard's derivation and `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots) |
+| D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it iterates the bypass guard's `git_segments()` — the iterator its `scan()` is built on — and calls its `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots); PM 922 (one iterator shared by `scan()` and the pass-through, user-approved option A) |
 
 The P1b rows (D13–D19, D22–D25, D30–D32, D34–D37, D42): P1b memo §5.
 
@@ -700,7 +700,7 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 |---|---|---|---|
 | A0 | P1a merges | scripts on `origin/main`, nothing installed; the §4.9 PM-pass row is in the PM skill and reads `not installed yet` | nothing runs them; Claude hooks unchanged |
 | A1 | E2E E1–E18 in a scratch clone (§7.5), then user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0; then E19 in the shared repository; from here on the §4.9 row runs `--check` in every PM pass | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow; every branch is judged by `origin/main`'s rules (I2), so no list of unguarded branches is needed |
-| A2 | prerequisites for A4, global, PM / user: apply the patch of bypass-guard memo §4.8 to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants, then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
+| A2 | prerequisites for A4, global, PM / user: apply the patch of bypass-guard memo §4.8 to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants — the diff includes the `git_segments()` refactor of `scan()` (PM 922) and is shown to the user before it is applied (that section's application line) — then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
 | A3 | one good push and one good commit in a real lane worktree | same | real use, both layers deciding |
 | A4 | after A2; user approval of PLAN §6 item 3 (its text: 「git hook 移行後に Claude hook (`set:24,30`) を撤去するか (global)」), then **`:24` and `:30` only**: an elidex-scoped pass-through (below) instead of removal — narrower than that text (PM 893 (2)) | in an installed elidex worktree only the git hooks decide push-branch and fmt; everywhere else unchanged | V2 / V5 / V6 |
 
@@ -713,11 +713,12 @@ commands and record line the PM gives you; no agent can run it. Before A2, check
 
 **The pass-through (A4).** `git-push-branch-guard.sh` (`:24`) and `cargo-fmt-precommit.sh` (`:30`) gain one early
 exit, taken only when **every git segment** of the command passes both tests below; one segment that fails either
-(or a command in which no git segment is found) and the hook runs unchanged:
-- **Its effective cwd**, derived per segment exactly as `~/.claude/hooks/git-hook-bypass-guard.py` derives it (the
-  hook JSON's `cwd`, a preceding `cd`, `git -C <dir>`; `segments()` and `check_git()` of that file), is in scope by
-  that file's `in_scope`. The pass-through imports that file by path and calls its functions; it copies neither
-  the derivation nor `SCOPE_ROOTS` / `SCOPE_PARENT`. (Two copies of the roots exist today — that file and
+(or a command in which no git segment is found) and the hook runs unchanged. The segments and their effective cwds
+are the ones `git_segments(cmd, cwd)` of `~/.claude/hooks/git-hook-bypass-guard.py` yields — the iterator that
+file's `scan()` is built on (bypass-guard memo §4.8, PM 922), nested `bash -c` / `sh -c` / `eval` segments included:
+- **Its effective cwd** (the hook JSON's `cwd`, a preceding `cd`, `git -C <dir>`, as `git_segments` derives it) is
+  in scope by that file's `in_scope`. The pass-through imports that file by path and calls `git_segments` and
+  `in_scope`; it copies neither the derivation nor `SCOPE_ROOTS` / `SCOPE_PARENT`. (Two copies of the roots exist today — that file and
   `ecs-mission-guard.py`; the pass-through adds none. The roots themselves are read in that file, not here.)
 - **`installed(wt)` holds** for that cwd: the hook runs the §4.7 form there —
   `b=$(git -C "$cwd" show refs/remotes/origin/main:.claude/tools/githooks/install.sh) && bash -c "$b" install.sh
@@ -821,7 +822,7 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E21 | P1a | E20 with `cwd` = `$S/wt` after `git -C $S/wt config --worktree core.hooksPath $S/alt` (I4); and a compound `cd $S/repo && git push origin HEAD:x; cd $S/wt && git push origin HEAD:y` from `$S/repo` | deny from the Claude hook (as before A4) in both: one segment's worktree is not installed |
 | E22 | P1a | E20 without `GIT_BYPASS_GUARD_EXTRA_SCOPE`, from a repository outside the scope (a scratch `git init` under `$S`, or a lexime worktree, read only) | deny, as before A4 |
 | E23 | P1a | E20 after `git -C $S/repo update-ref refs/remotes/origin/main <a commit before P1a>` (the read of `install.sh` fails) | deny, as before A4 |
-| E24 | P1a | after A2, in the shared repository: the bypass-guard memo §4.8 E2E line | as that section states |
+| E24 | P1a | after A2 (the diff, refactor included, applied after the user saw it), in the shared repository: the bypass-guard memo §4.8 E2E line | as that section states |
 
 M1–M7 [P1b]: P1b memo §7.5.
 
@@ -860,6 +861,8 @@ No question is open. Each former question was decided by the driver (lens conver
   A2); the merge break-glass actor is the user too, for the same reason (the PM is a Claude session, and
   `gh-pr-merge-head-guard` applies to it), with one actor rule for both kinds (§7.4; P1b memo D32, III5); the
   `! <command>` premise is unverified, and the user checks it before A2 (§7.4, the A1 note in §7.1).
+- **PM 922** (user approved option A): the effective-cwd derivation is one iterator, `git_segments()`, in the bypass
+  guard; `scan()` and the §7.1 pass-through both use it (bypass-guard memo §4.8, D41).
 
 ## §9 Layering and what is not touched
 
@@ -964,6 +967,10 @@ re-pointed to a scratch bare repository, and `git init` repositories with `HOME`
 - bypass-guard memo §4.8: the hook and its test copied into the scratchpad, patched, `python3 git-hook-bypass-guard.test.py` (patched:
   OK, 14 tests; with `GIT_BYPASS_GUARD_SCRIPT` = the unpatched file: 39 subtest failures), and the nine mutants
   through `GIT_BYPASS_GUARD_SCRIPT` (all killed); `diff -u` of the two hook files is the block in bypass-guard memo §4.8.
+  Re-run on 2026-11-22 for PM 922 (scratch copies of the live guard, `shasum -a 256` = `9902fe77…0438` unchanged):
+  the round-2 patch still applies with `patch -p1`; with the `git_segments()` refactor and the `Segments` tests
+  added, OK 20 tests (unpatched: 40 failures, 5 errors) and all twelve mutants killed; the new diff applied to a
+  fresh copy reproduces the patched file byte for byte.
 - `~/.claude/hooks/gh-pr-merge-head-guard.sh` header lines 1–19; `.claude/skills/external-converge/project.md`
   § reviewer and `external-review/project.md` § reviewer; `~/.claude/skills/external-review/SKILL.md` Step 1
   resolver; `.claude/skills/pm/SKILL.md:222-224`; `~/.codex/rules/default.rules` (`prefix_rule(pattern=[…])`);
