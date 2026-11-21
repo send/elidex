@@ -89,8 +89,7 @@ pub(super) fn trace_work_list(
     // trace fan-out marks the cached `Range` wrapper at
     // `range_instances[active_range_id.bits()]` so the registry entry
     // survives across sweeps even when the user has dropped their JS
-    // Range reference. Selection is not a root: its state survives only while
-    // its wrapper is marked; slot `#11-selection-range-unregistered-by-gc`.
+    // Range reference (Selection itself is the JS-reachable root).
     #[cfg(feature = "engine")] selection_instance: Option<ObjectId>,
     #[cfg(feature = "engine")] selection_active_range_id_bits: Option<u64>,
     #[cfg(feature = "engine")] range_instances: &std::collections::HashMap<u64, ObjectId>,

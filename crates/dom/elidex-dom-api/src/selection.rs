@@ -48,9 +48,13 @@
 //! references of its own to root. The VM-side wrapper layer
 //! (`vm/gc/trace.rs`) fans out from a marked `Selection` wrapper to the
 //! cached `Range` wrapper at `range_instances[active_range_id.bits()]`,
-//! which keeps the registry entry alive across sweeps. If no Range wrapper
-//! has been materialised yet, `getRangeAt(0)` builds one on demand —
-//! `RangeId` is the source of truth.
+//! which keeps the registry entry alive across sweeps only while that
+//! `Selection` wrapper is itself marked: neither the Selection state nor its
+//! wrapper is a GC root, so with both wrappers unreachable the sweep
+//! unregisters the active `RangeId` (slot
+//! `#11-selection-range-unregistered-by-gc`). If no Range wrapper has been
+//! materialised yet, `getRangeAt(0)` builds one on demand — `RangeId` is the
+//! source of truth.
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::MutationRecord;

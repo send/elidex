@@ -54,7 +54,9 @@
 //! cached `Range` wrapper at
 //! `range_instances[active_range_id.bits()]` so the LiveRangeRegistry
 //! entry survives across sweeps even when the user has dropped their
-//! JS Range reference.  If no Range wrapper has been materialised
+//! JS Range reference — but only while this wrapper is itself marked:
+//! the Selection is not a GC root (slot
+//! `#11-selection-range-unregistered-by-gc`).  If no Range wrapper has been materialised
 //! yet (Selection set internally via `collapse(node, 0)` and
 //! `getRangeAt(0)` never called), the trace fan-out is a no-op —
 //! `getRangeAt(0)` builds a wrapper from the still-registered
