@@ -3,7 +3,9 @@
 ## §0 Status
 
 **Program**: the Codex-lane program. Its driver memo lives **outside this repository**:
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/PLAN.md` (PM 872, status "draft, not ratified").
+`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/PLAN.md` (PM 872). It is the approved program
+memo: PM 873 records the user's approval of the whole Codex-lane plan, and PM 874 ordered this per-PR memo.
+⚠ PLAN.md's header still says "draft (未 ratify)"; the PM is asked to update it (§10).
 This memo is the per-PR plan for its phase **P1** (PLAN §5 P1, rows 1, 2, 3, 5, 6, 7, 8 and 17 of PLAN §1).
 **Scope source**: PM 873 / 874. The scope is not re-opened here; §8 holds only the choices that scope leaves open.
 **Nature**: repo tooling. New tracked files under `.claude/tools/githooks/` and `.claude/tools/agent/`, their tests,
@@ -11,9 +13,8 @@ one `mise` task. Zero `crates/**` diff. Nothing under `~/.claude` is edited, and
 `.git/hooks`: installing the shim and removing the matching Claude hooks is the **cut-over**, done by the PM after
 merge (§7).
 **Edge-dense**: yes — five intersecting axes (§2). So `/elidex-plan-review` is mandatory before implementation
-(CLAUDE.md Design discipline, "Edge-dense work"). This PR is meant as the terminal per-PR slice of the program.
-⚠ The base case of that rule asks for an *approved* umbrella; PLAN.md is still a draft. Whether PM 873/874 counts
-as that approval is the PM's call (§8 Q0).
+(CLAUDE.md Design discipline, "Edge-dense work"). This PR is the terminal per-PR slice under the approved program
+memo (PM 873/874, decided Q0 in §8).
 
 ## §1 Goal and non-goals
 
@@ -30,7 +31,7 @@ Files this PR adds (all (NEW)):
 | `.claude/tools/githooks/pre-commit` | rustfmt check of the staged `.rs` blobs only; opt-out by env var |
 | `.claude/tools/githooks/shim.sh` | the body the installer writes into the hooks directory, once per hook name; runs the tracked script of the worktree git is running in, passes when that script is absent |
 | `.claude/tools/githooks/install.sh` | the installer the `mise` task runs |
-| `.claude/tools/agent/merge-pr` | `merge-pr <PR>`: PM go token, Codex assessed head == PR head, `mergeStateStatus`, then `gh pr merge --squash --match-head-commit`, then the existing post-merge sync and cleanup scripts |
+| `.claude/tools/agent/merge-pr` | `merge-pr [--dry-run] <PR>`: refuses unless it is byte-identical to `origin/main`'s copy; PM go token, Codex assessed head == PR head, `mergeStateStatus`, every CI check complete and green, then `gh pr merge --squash --match-head-commit`, then the existing post-merge sync and cleanup scripts. `--dry-run` runs every check and prints the merge command instead of running it |
 | `.claude/tools/githooks/test_githooks.py` | control + mutant tests for both hooks, the shim and the installer |
 | `.claude/tools/agent/test_merge_pr.py` | control + mutant tests for the wrapper |
 | `mise.toml` `[tasks.install-githooks]` | runs `bash .claude/tools/githooks/install.sh`; not part of `[tasks.ci]` |
@@ -41,6 +42,8 @@ Files this PR adds (all (NEW)):
   (`drive/codex.md`, `/pm` §4, CLAUDE.md Workflow line on the push guard = P3).
 - Stopping `git commit --amend` itself. Amend is harmless until the amended commit is pushed over its old self,
   and that push is a non-fast-forward which pre-push rejects (PLAN row 1).
+- Tags. Tags are not part of the PR / merge flow; pre-push applies the fast-forward rule to them (II7) and no
+  more, so a tag moved *forward* along history passes (stated limit, decided Q5 in §8).
 - Defeating a deliberate bypass. A git hook cannot stop `--no-verify` (git §HOOKS, §3 row 8); CI (`check` for
   fmt, `tools` for the ratchet) is behind it, and for Claude sessions the existing `git-hook-bypass-guard.py`.
 
@@ -60,7 +63,24 @@ intersection in one line.
   unguarded. PM scope; `main` is protected by the server ruleset and every branch by CI.
 - I4. One worktree can route around the shim: `extensions.worktreeConfig` is `true` in the shared repository, and
   `git config --worktree core.hooksPath <dir>` makes `git rev-parse --git-path hooks` answer `<dir>` for that
-  worktree only (measured in a scratch clone). The installer reports such worktrees; it cannot prevent them.
+  worktree only (measured in a scratch clone). A git hook cannot close this: once the hooks path points elsewhere,
+  the shim never runs. Which layer closes it (driver decision):
+  - **Prevention = the agent adapter layer.** Claude: the global `git-hook-bypass-guard.py` must also deny
+    `git config [--worktree|--local|--global|--system] core.hooksPath …` (any write of the key). Read on 2026-11-21:
+    it already denies `-c core.hooksPath=…` / `-c core.hooksPath …` / `-ccore.hooksPath=…`,
+    `--config-env=core.hooksPath=…`, a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment and `--no-verify` (its
+    docstring lines 5–14); it has no rule for `git config … core.hooksPath`, and in the probe it did not stop the
+    `--worktree` form. Codex: PLAN row 4's adapter (P2). Both are global changes applied by the PM / user, not by
+    this PR — cut-over prerequisites (§7 step 2a).
+  - **Detection = this PR.** `install.sh --check` (and every install run) lists each worktree of the repository
+    whose effective `git -C <wt> config --get core.hooksPath` (which resolves worktree-level config) is not the
+    shared hooks dir the shims live in, and exits non-zero if there is one. The PM runs `mise run
+    install-githooks -- --check` in each PM pass until P2 lands.
+  - **Residual accepted gap: a person running git by hand** (no agent adapter sees it). Behind it stay the server
+    (the `main` ruleset, with the admin bypass removed on 11-21: blocks non-FF and direct pushes to `main`) and CI
+    (`check` for fmt, `tools` for the ratchet). Neither covers **branch-mismatch pushes** or **force pushes to a
+    feature branch**: for those the git hook is the only layer, and a by-hand reroute of the hooks path leaves them
+    open until the next `--check` reports the worktree.
 - I5. A branch can weaken its own copy of the scripts (I2). That edit is in its PR diff, under review.
 
 **II — push decisions × push shapes.** pre-push stdin is one line per ref,
@@ -82,7 +102,7 @@ intersection in one line.
   whole push (a non-zero exit aborts the push "without pushing anything", §3 row 6; measured).
 - II7. Tags: II1 and II2 do not apply (they are about `refs/heads/`); II3–II5 apply. Annotated tag objects are
   peeled by `merge-base --is-ancestor` (measured exit 0 between two tag objects on one line of history). A tag
-  moved *forward* along history passes II5 (stated limit, §8 Q5).
+  moved *forward* along history passes II5 (stated limit, §1 non-goals, decided Q5).
 - II8. Empty stdin (an up-to-date push, measured: the hook runs with no lines) → allow and do not run the ratchet.
 - II9. The ratchet runs once per push, after every line has passed, and only if at least one line updates or
   creates a ref. It reads the pushing worktree's **working tree**, not the pushed commit (`ecs_mission_ratchet.py`
@@ -90,18 +110,29 @@ intersection in one line.
   not; the CI `tools` job runs it on the PR head and is the authority.
 - II10. `--no-verify` skips the hook entirely (§3 row 8). Not stoppable from inside git.
 
-**III — merge decision order and TOCTOU.** `merge-pr <PR>` does, in this order, reading the PR head `H` exactly once:
-1. Usage: exactly one argument, all digits. Else exit 2 (the cleanup script needs a number, and a URL or branch
-   argument would need a second resolution of the PR).
-2. `gh pr view <PR> -R <repo> --json number,state,isDraft,headRefOid,mergeStateStatus` → `H` (40 hex). `state` must
-   be `OPEN`.
-3. Go token: the file `<PM dir>/handoff/codex-lanes/go/<PR>-<H>` must exist, with `H` the full 40-hex sha (PLAN §6
+**III — merge decision order and TOCTOU.** `merge-pr [--dry-run] <PR>` does, in this order, reading the PR head
+`H` exactly once:
+1. Usage: optionally `--dry-run`, then exactly one argument, all digits. Else exit 2 (the cleanup script needs a
+   number, and a URL or branch argument would need a second resolution of the PR).
+1a. Self check: `git fetch origin main`, then the running file must be byte-identical to
+   `git show origin/main:.claude/tools/agent/merge-pr`. Else refuse (a PR must not be able to weaken its own merge
+   gate; decided Q2). A failed fetch or a missing blob refuses too.
+1b. PM dir: `ELIDEX_PM_DIR` must be set and name an existing directory. Else refuse (decided Q1).
+2. `gh pr view <PR> -R <repo> --json number,state,isDraft,headRefOid,mergeStateStatus,statusCheckRollup` → `H` (40
+   hex). `state` must be `OPEN`.
+3. Go token: the file `$ELIDEX_PM_DIR/handoff/codex-lanes/go/<PR>-<H>` must exist, with `H` the full 40-hex sha (PLAN §6
    decision 6; Claude drivers use it too). A token naming another sha of the same PR is reported by name ("go is for
    `<sha>`, head is `H`"). No prefix matching.
 4. Codex assessed head == `H`: the paginated logic of `gh-pr-merge-head-guard.sh` (formal reviews ∪ `Reviewed
    commit:` comments ∪ `Completed` rows of the review-summary comment; `--paginate --slurp`, flattened with `add`).
    Compared on the shorter of the two lengths, at least 7.
 5. `mergeStateStatus == CLEAN`. Anything else, including values not known today, refuses.
+5a. CI: every entry of `statusCheckRollup` is complete with a green conclusion (`SUCCESS`, `NEUTRAL`, `SKIPPED`), and
+   there is at least one entry. A pending, failed, cancelled or unrecognised entry refuses (decided Q3: CLAUDE.md
+   Workflow "CI 全 pass を目視確認してから squash merge", made mechanical). ⚠ Unmeasured assumption: that pending or
+   failed non-required checks also make `mergeStateStatus` `UNSTABLE`. Step 5a does not rely on it — the test plan
+   (§6) feeds `CLEAN` together with a pending check and expects a refusal.
+5b. `--dry-run`: print the step 6 command (with `H`) and "would merge", exit 0, stop here (decided Q4).
 6. `gh pr merge <PR> -R <repo> --squash --match-head-commit <H> --delete-branch=false`. Never `--auto`, `--admin`,
    `-d`. `--match-head-commit` is the server-side pin: if the head moved after step 2, GitHub refuses the merge.
 7. `gh pr view <PR> --json state,headRefOid` → `MERGED` and head `H`. Only then step 8. If step 6 exited non-zero
@@ -113,7 +144,8 @@ intersection in one line.
    `additionalContext`. A missing script prints a note; a script's non-zero exit prints a note; neither changes the
    exit code.
 
-Exit codes: 0 merged; 1 refused at steps 2–5 (nothing merged); 2 usage; 3 step 6 failed and the PR is not merged.
+Exit codes: 0 merged, or `--dry-run` with every check passed; 1 refused at steps 1a–5a (nothing merged); 2 usage;
+3 step 6 failed and the PR is not merged.
 - III1. TOCTOU between step 2 and step 6 on the head: closed by the pin. Every check (token, Codex, state) is about
   the same `H`, and the server merges only `H`.
 - III2. TOCTOU on `mergeStateStatus` between step 5 and step 6 (base moved, a check run flipped): **not** pinned by
@@ -150,6 +182,9 @@ Exit codes: 0 merged; 1 refused at steps 2–5 (nothing merged); 2 usage; 3 step
   order leaves raw merges without sync / cleanup.
 - V4. The post-merge scripts stay in `~/.claude/hooks/` after their PostToolUse entries are removed: `merge-pr`
   calls them.
+- V5. The adapter-layer prevention of I4 (Claude bypass guard extended to `git config … core.hooksPath`) is in place
+  before the Claude push / commit hooks are removed; from shim install until P2, `install.sh --check` runs in every
+  PM pass. Without both, removing the Claude hooks makes I4 an unwatched hole for agents.
 
 **F — fail direction per check** (rule: decide by where an unknown falls, not by how complete a list is).
 
@@ -162,7 +197,7 @@ Exit codes: 0 merged; 1 refused at steps 2–5 (nothing merged); 2 usage; 3 step
 | pre-commit: `rustfmt --version` fails | **pass with a warning** | the CI `check` job's `cargo fmt --all -- --check` is the authority; in an untrusted checkout the `rustfmt` shim exits 1 (measured). Rejecting there would train operators onto the opt-out — the failure mode recorded in `gh-pr-merge-head-guard.sh` for #487 |
 | shim: tracked script absent | pass with a note | PM scope (I3) |
 | installer: hooks path outside the repository's common dir, or a non-shim hook already there | refuse | writing there would act on other repositories, or replace someone's hook |
-| merge-pr: every `gh` / `jq` failure, no Codex assessment at all, a `mergeStateStatus` other than `CLEAN`, no PM dir, a token for another sha | **refuse** | the wrapper *is* the merge, which cannot be undone. The current head guard fails open (its header, lines 14–16) because it sits in front of a merge a human still decides; here nothing is behind |
+| merge-pr: every `gh` / `jq` / fetch failure, a running file that differs from `origin/main`'s, no Codex assessment at all, a `mergeStateStatus` other than `CLEAN`, a check run not complete and green, `ELIDEX_PM_DIR` unset or missing, a token for another sha | **refuse** | the wrapper *is* the merge, which cannot be undone. The current head guard fails open (its header, lines 14–16) because it sits in front of a merge a human still decides; here nothing is behind |
 | merge-pr: post-merge script missing or failing | note, exit 0 | the merge already happened |
 
 **T — the test harness** (CI `tools` job, `scripts/python-suites.sh`).
@@ -179,7 +214,7 @@ Exit codes: 0 merged; 1 refused at steps 2–5 (nothing merged); 2 usage; 3 step
 | pair | intersection |
 |---|---|
 | I × II | every push from every worktree is judged by that worktree's copy of the rules (I2), so II's rules are per branch until the branch merges `main`; old branches get none (I3) |
-| I × III | none structural: `merge-pr` is not a git hook and runs from whatever checkout calls it — its own I5 analogue (a PR branch can weaken the copy that merges it) is §8 Q2 |
+| I × III | `merge-pr` is not a git hook and may run from any checkout; I5's analogue (a PR branch weakening the copy that merges it) is closed by step 1a, which runs only `origin/main`'s bytes |
 | I × IV | in a worktree with I4's override, only the Claude hooks decide during migration, and nothing after cut-over |
 | I × V | the installer writes one file per hook name into the shared hooks dir, so installation is all-worktrees-at-once; there is no per-worktree rollout |
 | I × F | "script absent → pass" (I3) is the one fail-open on the reject-side checks, and it is decided by checkout, not by error |
@@ -227,8 +262,9 @@ re-fetched for this memo).
 | gh §FLAGS (gh api) | `--paginate --slurp` | pages as an array of arrays | `merge-pr` step 4 | ✓ | no |
 | GitHub GraphQL §OBJECTS (PullRequest) | `mergeStateStatus` | `CLEAN` only | `merge-pr` step 5 | allow-list, so completeness of the enum is not relied on | no |
 | GitHub GraphQL §OBJECTS (PullRequest) | `headRefOid`, `state`, `isDraft` | `OPEN` before, `MERGED` after | `merge-pr` steps 2, 7 | ✓ | no |
+| GitHub GraphQL §OBJECTS (PullRequest) | `statusCheckRollup` | every entry complete with `SUCCESS` / `NEUTRAL` / `SKIPPED`; at least one entry | `merge-pr` step 5a | allow-list, so the enum's completeness is not relied on | no |
 
-**Breadth**: K=3 (git, gh, GitHub GraphQL), M=17. Single PR.
+**Breadth**: K=3 (git, gh, GitHub GraphQL), M=18. Single PR.
 
 ### §3.1 User-input touch audit
 
@@ -274,9 +310,12 @@ stdin passes through `exec`. A bare repository has no top level and passes.
    repository).
 2. For each of `pre-push`, `pre-commit`: if a file exists there and its second line is not the shim marker, refuse
    and name it; else write the shim and `chmod 755`. Re-running is a no-op apart from rewriting the same bytes.
-3. For each worktree in `git worktree list --porcelain`, print any whose `git -C <wt> rev-parse --git-path hooks`
-   differs from `hooks` (I4).
+3. For each worktree in `git worktree list --porcelain`, print any whose effective
+   `git -C <wt> config --get core.hooksPath` is not `hooks` (I4); any such worktree makes the exit non-zero.
 4. Print what was written. Exit 0 / 1.
+
+`install.sh --check` does step 1 and step 3 only, plus "each shim present and carrying the marker", and writes
+nothing. `mise run install-githooks -- --check` passes the flag through.
 
 ### §4.2 pre-push
 
@@ -298,7 +337,9 @@ main: "open a PR"). Current branch: `git symbolic-ref --short -q HEAD` (empty = 
 ### §4.4 merge-pr
 
 As §2 III, steps 1–8. The repository for `-R` is `gh repo view --json nameWithOwner` in the caller's cwd, read once.
-The PM dir comes from the environment (§8 Q1). The Codex-head logic is written once, here; the copy in the global
+The PM dir comes from `ELIDEX_PM_DIR` (step 1b). Because of step 1a, a PR that changes `merge-pr` is merged with
+`origin/main`'s copy (run from any checkout of `main`); this PR itself, before which `origin/main` has no copy, is
+merged by hand — the last raw merge. The Codex-head logic is written once, here; the copy in the global
 `gh-pr-merge-head-guard.sh` goes away at cut-over (§7 step 5), so after cut-over there is one implementation.
 
 ### §4.5 Tests
@@ -309,7 +350,8 @@ Two members (T1), both `unittest` modules, each kept under 1000 lines (split by 
   ratchet (exit code chosen per test, records that it ran) are put on `PATH` / at the ratchet's path in the scratch
   checkout; a fake `python3` that exits 1 covers the interpreter-cannot-start path.
 - `test_merge_pr.py`: a fake `gh` on `PATH` serving fixture responses by argv and recording every argv; a fake
-  `HOME` with stub post-merge scripts that record their stdin and cwd; a temp PM dir for tokens.
+  `HOME` with stub post-merge scripts that record their stdin and cwd; a temp PM dir for tokens; a scratch
+  repository whose `origin` is a local bare repository holding the script on `main`, so step 1a's fetch is local.
 - Mutants: each mutant is a one-line text replacement in a temp copy of the script. The harness asserts the
   replaced text occurs exactly once before applying it (so a later edit of the script cannot turn a mutant into a
   no-op), runs the case named in §6 against the mutated copy, and asserts the case's verdict flips.
@@ -349,6 +391,12 @@ gh documents of §3, and "incident" means a recorded incident in an existing hoo
 | D17 | `--delete-branch=false` written out | incident lexime #354 (`gh-pr-merge-delete-branch-worktree-guard.sh` header) |
 | D18 | post-merge: the existing scripts, once, with the JSON and the caller's cwd | PM scope; the scripts' own interface (sync lines 18–28, cleanup lines 32–47, 70–79) |
 | D19 | the Codex-head logic lives once, in `merge-pr`; the global copy goes at cut-over | One issue, one way |
+| D21 | PLAN.md is the approved program memo (Q0) | PM 873 (user approved the whole plan), PM 874 (ordered this memo) |
+| D22 | `ELIDEX_PM_DIR` required; unset or missing → refuse (Q1) | principle: the merge is irreversible, so an unknown falls to refuse |
+| D23 | `merge-pr` refuses unless byte-identical to `origin/main`'s copy, after a fetch (Q2) | Security by structure: a PR must not be able to weaken its own merge gate |
+| D24 | every CI check complete and green, besides `CLEAN` (Q3) | CLAUDE.md Workflow "CI 全 pass を目視確認してから squash merge", made mechanical |
+| D25 | `--dry-run` runs every check and prints the merge command (Q4) | the PM's E2E needs the good path on a real PR without an irreversible act |
+| D26 | a tag moved forward passes (Q5) | tags are not part of the PR / merge flow; stated limit |
 | D20 | tests: real git, stub rustfmt, fake gh | the `tools` job boundary comment (T3); the user rule that fixtures take the real shape (the stubs copy the measured CLI shape and the recorded response shapes) |
 
 ## §6 Control / mutant table
@@ -375,6 +423,7 @@ case must kill.
 | shim stdin | — | bad push through the installed shim | shim runs the script with `</dev/null` |
 | shim exec bit | tracked script with mode 644 still runs | — | `exec "$s"` instead of `exec bash "$s"` |
 | D12 installer | install into a fresh scratch repo; re-install is a no-op | existing foreign `pre-push`; hooks path outside the common dir | overwrite unconditionally; drop the inside-common-dir test |
+| I4 `--check` | every worktree's effective `core.hooksPath` is the shim dir, shims present → exit 0, nothing written | one linked worktree with `git config --worktree core.hooksPath <other>` → listed, exit 1; a shim missing → exit 1 | read the key with `git config --local` from the main worktree only (misses the worktree-level value); print the divergence but exit 0 |
 | D6 index | blob formatted, working-tree copy not | blob not formatted, working-tree copy formatted | read `$top/<path>` instead of `git show :<path>` |
 | D6 temp index | real index holds an unformatted `b.rs`; `git commit -m x a.rs` (formatted) passes | — | `unset GIT_INDEX_FILE` |
 | D7 stdin check | — | unformatted blob (stub mirrors rustfmt: `--check` on stdin prints a diff, exits 0) | decide on `rustfmt --check` exit code |
@@ -383,7 +432,10 @@ case must kill.
 | D10 env | `rustfmt --version` fails → pass with warning | blob rustfmt cannot parse | treat every rustfmt non-zero as an environment error (bad case passes) |
 | III1 usage | — | `merge-pr abc`, `merge-pr` → exit 2, fake `gh` saw no `pr merge` | accept any argument |
 | III3 token | token `<PR>-<H>` present | none; token for an older sha; token named with a 7-char sha | glob `<PR>-*`; prefix compare |
-| Q1 PM dir | — | PM dir variable unset | default to a path |
+| III1b PM dir | `ELIDEX_PM_DIR` set to an existing dir | unset; set to a missing dir | default to a path; test only "set" |
+| III1a self check | running copy equals `origin/main`'s blob | running copy differs by one byte; `origin/main` has no copy; the fetch fails | drop the comparison; compare against the working-tree file instead of `origin/main` |
+| III5a CI | every rollup entry `SUCCESS` / `NEUTRAL` / `SKIPPED` | `CLEAN` with one pending entry; `CLEAN` with one `FAILURE`; empty rollup; unrecognised conclusion | check only failed entries (pending passes); allow an empty rollup |
+| III5b dry run | `--dry-run` with every check passing prints the step 6 argv, exit 0, fake `gh` saw no `pr merge`, no post-merge run | `--dry-run` with a failing check → exit 1 | `--dry-run` handled before the checks (prints "would merge" with a failing check) |
 | III4 Codex | head review only on page 2 (#487 shape); clean auto-review only as a `Completed` summary row (lexime #332 shape) | latest assessment on an older sha; no Codex assessment at all; `gh api` exits non-zero | drop `--paginate` (fake serves page 1 only without it); drop the summary-row source; empty assessment → allow |
 | III5 state | `CLEAN` | `UNSTABLE`, `BLOCKED`, `DIRTY`, `BEHIND`, `DRAFT`, `UNKNOWN`, `HAS_HOOKS`, `FOO` | deny-list `DIRTY\|BLOCKED` |
 | III6 argv | merge argv exactly `pr merge <PR> -R <repo> --squash --match-head-commit <H> --delete-branch=false` | — | drop `--match-head-commit` |
@@ -401,10 +453,11 @@ case must kill.
 |---|---|---|---|
 | 0 | this PR merges | scripts on `main`, nothing installed | nothing runs them; Claude hooks unchanged |
 | 1 | E2E in a scratch clone (cases below) | unchanged | scratch only |
-| 2 | user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; check its I4 report is empty | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow |
+| 2 | user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0 (no I4 worktree) | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow |
+| 2a | prerequisites for step 5, global, PM / user: extend `~/.claude/hooks/git-hook-bypass-guard.py` to deny `git config [--worktree\|--local\|--global\|--system] core.hooksPath …` (it already denies `-c`, `--config-env`, `GIT_CONFIG_KEY_<n>`); add `mise run install-githooks -- --check` to every PM pass until P2's Codex adapter (PLAN row 4) lands | same | I4 is prevented for Claude, detected for everyone |
 | 3 | one good push and one good commit in a real lane worktree on a branch that has the scripts; list branches without them: `for b in $(git for-each-ref --format='%(refname:short)' refs/heads); do git cat-file -e "$b:.claude/tools/githooks/pre-push" 2>/dev/null \|\| echo "$b"; done` | same | listed branches are I3 (unguarded by git hooks); they keep the Claude hooks until step 5 |
 | 4 | the PM starts writing go tokens; drivers merge with `merge-pr` | wrapper path live; raw `gh pr merge` still possible (IV5) | the raw path keeps its Claude guards |
-| 5 | user approval (PLAN §6 item 3), then in `~/.claude/settings.json`: replace the head guard (line 36) with a deny of raw `gh pr merge` that names `merge-pr`; then remove lines 24, 30, 13 (or its force half), 42, 136, 142 | one way per guard | V2: git hooks were installed at step 2; V3: raw merges are denied before their post-merge hooks go; V4: the scripts stay |
+| 5 | after 2a; user approval (PLAN §6 item 3), then in `~/.claude/settings.json`: replace the head guard (line 36) with a deny of raw `gh pr merge` that names `merge-pr`; then remove lines 24, 30, 13 (or its force half), 42, 136, 142 | one way per guard | V2: git hooks were installed at step 2; V3: raw merges are denied before their post-merge hooks go; V4: the scripts stay |
 | 6 | P3 updates the repo docs that name the old guards (CLAUDE.md Workflow names `git-push-branch-guard.sh`; drive skill §6 step 4 names raw `gh pr merge`) | docs match | — |
 
 Unsafe orders: step 5 before step 2 (no push guard); removing lines 136 / 142 before raw merges are denied (raw
@@ -438,32 +491,37 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E14 | real index holds an unformatted `b.rs`; `git commit -m x a.rs` with `a.rs` formatted | committed |
 | E15 | E12 with `ELIDEX_FMT_OK=1` | committed, note |
 | E16 | E12 with `PATH` not holding a working `rustfmt` (the untrusted mise shim) | committed, warning |
-| E17 | after step 2, in the shared repo: `git worktree list --porcelain` × `git -C <wt> rev-parse --git-path hooks` | every worktree answers the shared path |
+| E17 | in the scratch clone: `git -C $S/wt config --worktree core.hooksPath $S/alt`, then `bash .claude/tools/githooks/install.sh --check` | lists `$S/wt`, exits 1; after `--unset`, exits 0 |
+| E18 | after step 2, in the shared repo: `mise run install-githooks -- --check` | exit 0 |
 | M1 | `merge-pr <open PR>` with no token | exit 1, "no go token"; PR still open |
 | M2 | token for an older sha of that PR | exit 1, names both shas |
 | M3 | token for head, Codex latest on an older sha | exit 1, Codex stale |
-| M4 | token for head, `mergeStateStatus` not `CLEAN` | exit 1, names the state |
-| M5 | the first real merge the PM approves after step 4 | merged; sync and cleanup notes printed once; no PostToolUse notes in the Claude transcript for that command |
+| M4 | token for head, `mergeStateStatus` not `CLEAN`, or a check pending | exit 1, names the state or the check |
+| M5 | a copy of `merge-pr` with one byte changed, saved under `$S` and run from the main worktree | exit 1, self check |
+| M6 | `merge-pr --dry-run <PR>` on a PR the PM has approved (token written) | exit 0, prints the `gh pr merge … --match-head-commit <H> --delete-branch=false` command; the PR is still open |
+| M7 | the first real merge the PM approves after step 4 | merged; sync and cleanup notes printed once; no PostToolUse notes in the Claude transcript for that command |
 
-M1–M4 refuse before step 6 of §2 III, so they are safe on a real open PR. The head-moves race (III1) is not
+M1–M6 stop before step 6 of §2 III, so they are safe on a real open PR. The head-moves race (III1) is not
 reproducible by hand; it is covered by the test with the fake server.
 
-## §8 Open questions
+## §8 Decided (formerly open questions)
 
-- **Q0 (PM)** Does PM 873/874 count as the approved umbrella for the edge-dense base case, while PLAN.md is a draft?
-  Recommendation: yes, recorded by the PM's decision number in this memo's §0 before plan-review.
-- **Q1** Where `merge-pr` finds the PM dir. Recommendation: environment variable `ELIDEX_PM_DIR`, required; unset →
-  refuse (a tracked file must not carry a user path, and a default would fail open).
-- **Q2** A PR branch can edit the `merge-pr` that merges it (I5's analogue). Recommendation: refuse unless the
-  running file's blob equals `git show origin/main:.claude/tools/agent/merge-pr` (after a fetch). This PR itself is
-  then merged by hand, the last raw merge.
-- **Q3** `CLEAN` is not known here to imply "every check finished green" (the ruleset has no required status check;
-  whether pending or failed non-required checks give `UNSTABLE` was not measured). Recommendation: also require every
-  entry of `statusCheckRollup` to be completed with `SUCCESS`, `NEUTRAL` or `SKIPPED`, which turns CLAUDE.md's "CI
-  全 pass を目視確認" into a check. The PM's visual check stays.
-- **Q4** A `--dry-run` flag (steps 1–5, print "would merge `<H>`", exit 0) for E2E on a real PR without merging.
-  Recommendation: add it; it is the only way to run the good path of steps 2–5 without an irreversible act.
-- **Q5** Tags moved forward pass II5. Recommendation: accept as a stated limit; the lane workflow does not push tags.
+No question is open. Each former question was decided by the driver (lens converged) or the PM; ground in one line.
+
+- **Q0** PLAN.md is the ratified program memo (driver memo) — PM 873 (the user approved the whole Codex-lane plan;
+  PM confirmed) and PM 874 (ordered this per-PR memo). PLAN §6 decision 5 (Codex driver sandbox) was revised by
+  PM 877/878; this PR does not depend on it. PLAN.md's header still says "draft"; the PM is asked to update it.
+- **Q1** `ELIDEX_PM_DIR` is required; unset or a missing directory refuses (§2 III step 1b). Ground: the merge is
+  irreversible, so an unknown falls to refuse.
+- **Q2** `merge-pr` refuses unless the running file is byte-identical to `origin/main`'s copy, after a fetch (step
+  1a). Ground: Security by structure — a PR must not be able to weaken its own merge gate.
+- **Q3** Every CI check must be complete and green, besides `mergeStateStatus == CLEAN` (step 5a). Ground: CLAUDE.md
+  Workflow "CI 全 pass を目視確認してから squash merge", made mechanical. Unmeasured assumption kept: that pending
+  or failed non-required checks give `UNSTABLE`; step 5a does not rely on it and §6 tests `CLEAN` + pending.
+- **Q4** `--dry-run` runs every check and prints the merge command without running it (step 5b); the PM's E2E uses
+  it on a real PR (§7 M6). Ground: the good path needs a check that is not an irreversible act.
+- **Q5** A tag moved forward passes II5: accepted as a stated limit, named in §1 non-goals. Ground: tags are not
+  part of the PR / merge flow.
 
 ## §9 Layering and what is not touched
 
@@ -471,7 +529,11 @@ No engine code. The scripts live under `.claude/tools/` next to the ratchet they
 `tools` job's member glob. `~/.claude/**`, `~/.codex/**`, `.github/workflows/ci.yml` (apart from the
 `timeout-minutes` re-derivation in §4.5) and every `.git/hooks` are untouched by this PR.
 
-## §10 PLAN.md claims re-checked
+## §10 For the PM: PLAN.md corrections
+
+PLAN.md is the PM's file; this section is addressed to the PM, who applies (or rejects) each item there.
+Besides the eight items below: its header still says "draft (未 ratify)" although PM 873 ratified it.
+
 
 Every cited line in PLAN §0, §1 rows 1, 2, 3, 5, 6, 7, 8, 17, §3, §5 P1, §6, §7 that points into this repository or
 `~/.claude` was re-read at `origin/main` 3cbd5b88 (PLAN cites 1b727d18; `git diff --stat 1b727d18 3cbd5b88 --
