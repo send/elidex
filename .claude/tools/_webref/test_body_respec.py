@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline tests: the ReSpec ED render/TR-fallback path of `webref body`
-(candidates, body loop, fetch errors, lazy catalog, outcome record). No
+(candidates, body loop, fetch errors, lazy catalog, outcome record, ReSpec
+page classification, fetched-copy date). No
 network: fetches are injected / patched, HTML is a fixture."""
 from __future__ import annotations
 
