@@ -37,6 +37,8 @@ census count was re-measured at `bfc63658` with the same result (§8). Drafts 1 
 [2026-11-tree-model-census.md](2026-11-tree-model-census.md) (commands, counts, per-file tables, scripts, spec
 lookups; §6 here says what each population is for).
 
+**Changelog.** Erratum §7.4 (D13 (b) landing item), no rev bump, PM 882 (2) (2026-11-21; carried by the tq plan PR, branch `tree-model-tq-plan`; the item is under "At `tq`").
+
 **Rulings this memo implements (decided, not reopened here).**
 
 - **PM 730**: (X) is canonical (a shadow root is a tree root; the host relation is held only by the link pair); a
