@@ -10,6 +10,9 @@ here instead of restating. Section numbers are those of the single memo the pair
 table row absent here is in the P1b memo, and a reference into it names that memo. Ids (the items of the axes
 I–VI, F and T, D1–D42, Q0–Q5, E1–E24, M1–M7, the steps A0–A4 and B0–B3) are unique across the pair; an id not
 defined in one memo is defined in the other.
+§4.8 (the bypass-guard patch) is a third file since PM 916,
+`docs/plans/2026-11-agent-neutral-git-guards-p1a-bypass-guard.md` (the **bypass-guard memo**); it keeps its section
+number, and a reference to it here names that memo.
 
 **Program**: the Codex-lane program. Its driver memo lives **outside this repository**:
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/PLAN.md` (PM 872). It is the ratified program
@@ -17,19 +20,19 @@ memo (its line 3: ratified by the user, PM 873; it points at §10 of this memo f
 this per-PR memo. This memo and the P1b memo are the plan for its phase **P1** (PLAN §5 P1, rows 1, 2, 3, 5, 6, 7, 8 and 17 of
 PLAN §1).
 **Scope source**: PM 873 / 874, restructured by PM 893; plan-review round 2 added PM 900 (the bypass-guard extension
-of §4.8, approved by the user) and the PM's A2-scope decision. The scope is not re-opened here; §8 records the
+of bypass-guard memo §4.8, approved by the user) and the PM's A2-scope decision. The scope is not re-opened here; §8 records the
 decisions.
 **Slices (PM 893, overturning PM 874's "single PR")**: two PRs, one memo each since PM 908, **P1a first**.
 - **P1a — git hooks**: `pre-push`, `pre-commit`, the shim, the installer (`install-githooks`, `--check`), the
   ratchet's `--rev` mode, their tests, and the one-row `--check` standing item in the PM skill (D33, §4.9). Cut-over §7.1,
-  which also applies the global bypass-guard patch this memo carries (§4.8; the PM applies it, it is not in the PR).
+  which also applies the global bypass-guard patch this memo carries (bypass-guard memo §4.8; the PM applies it, it is not in the PR).
 - **P1b — merge wrapper**: `merge-pr` and its tests. Cut-over P1b memo §7.2.
 - **The seam**: this memo's own II × III intersection is empty — `merge-pr` pushes nothing, so no pre-push
   decision meets a merge decision (§2 pair table). The two slices share only the test-isolation helper (T4), which
   P1a adds and P1b imports. §2 stays one section; each invariant is tagged **[P1a]**, **[P1b]** or **[both]**.
 **Nature**: repo tooling. New tracked files under `.claude/tools/githooks/` and `.claude/tools/agent/`, their
 tests, one `mise` task; one modified tool (`.claude/tools/ecs_mission_ratchet.py` gains `--rev`, with its test); one
-line in `.claude/skills/pm/SKILL.md`. Zero `crates/**` diff. Nothing under `~/.claude` is edited by the PRs (§4.8 is
+line in `.claude/skills/pm/SKILL.md`. Zero `crates/**` diff. Nothing under `~/.claude` is edited by the PRs (bypass-guard memo §4.8 is
 a patch the PM applies at cut-over), and nothing is installed into any `.git/hooks`:
 installing the shim and changing the matching Claude hooks is the **cut-over**, done by the PM / user after each
 merge (§7).
@@ -121,7 +124,7 @@ branch.
   worktree only (measured in a scratch clone). A git hook cannot close this: once the hooks path points elsewhere,
   the shim never runs. Which layer closes it (driver decision):
   - **Prevention, for direct commands = the agent adapter layer.** Claude: the global `git-hook-bypass-guard.py`
-    gains the patch of §4.8 (PM 900, approved by the user; scope = the whole write grammar of the key, PM's A2-scope
+    gains the patch of bypass-guard memo §4.8 (PM 900, approved by the user; scope = the whole write grammar of the key, PM's A2-scope
     decision). Read on 2026-11-21: it already denies `-c core.hooksPath=…` / `-c core.hooksPath …` /
     `-ccore.hooksPath=…`, `--config-env=core.hooksPath=…`, a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment and
     `--no-verify` (its docstring lines 4–14); it has no rule for `git config … core.hooksPath` nor for
@@ -252,7 +255,7 @@ only for elidex).
 - V2 [P1a]. The shim goes in before any Claude hook stops deciding. For `:24` / `:30` this holds by construction:
   their pass-through defers only where `installed(wt)` is true (§4.1, §7.1 step A4).
 - V3, V4 [P1b]: P1b memo §2.
-- V5 [P1a]. The adapter-layer prevention of I4 (the §4.8 patch: prevented for direct commands, detected by
+- V5 [P1a]. The adapter-layer prevention of I4 (the bypass-guard memo §4.8 patch: prevented for direct commands, detected by
   `--check`) is in place before `:24` / `:30` pass through; the `--check` PM-pass item runs from shim install on.
   Without both, the pass-through makes I4 an unwatched hole for agents.
 - V6 [P1a]. `:30` passes through only after pre-commit is installed — by construction, as V2.
@@ -363,9 +366,9 @@ memo).
 | git §ENVIRONMENT VARIABLES (git(1)) | `GIT_ALLOW_PROTOCOL` | colon-separated allow-list of transports | T4 (`file` only) | measured: `ssh` refused with exit 128; local path and `file://` allowed | no |
 | git §OPTIONS (git-read-tree(1), git-checkout-index(1)); §OUTPUT FORMAT (git-ls-tree(1)) | `read-tree <sha>` into a temp `GIT_INDEX_FILE`, `checkout-index -a --prefix=<dir>/`; `ls-tree -r -z --name-only <sha>` | materialise `<sha>`'s tree; list its tracked paths | ratchet `--rev` (§4.5) | measured: the real index is untouched, symlinks are written as symlinks, and the path list equals `ls-files` of a checkout of `<sha>` | no |
 | git §FIELD NAMES (git-for-each-ref(1)); §OUTPUT FORMAT (git-ls-tree(1)) | `for-each-ref --format=…`, `ls-tree <commit> -- <path>` | an absent ref or path prints nothing | shim absence vs error (I3) | measured: absent ref / path → no output, exit 0; `ls-tree` on an absent ref → exit 128 | no |
-| git §COMMANDS, §DEPRECATED MODES, §OPTIONS (git-config(1)) | writes of `core.hooksPath` | `set` / `unset` / `rename-section` / `remove-section` / `edit`, and the legacy `<name> <value>`, `--add`, `--replace-all`, `--unset[-all]`, `--rename-section`, `--remove-section`, `-e`; `--local` / `--worktree` / `--global` / `--system` / `-f` / `--file`; variable names case-insensitive (§CONFIGURATION FILE) | §4.8 patch (global, PM) | measured: every form reroutes `--git-path hooks` or puts it back, options also after the positionals | yes |
-| git §ENVIRONMENT (git-config(1)) | `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>`; `GIT_CONFIG_PARAMETERS` | per-process configuration | §4.8 patch (`GIT_CONFIG_PARAMETERS` new; `GIT_CONFIG_KEY_<n>` already denied) | `GIT_CONFIG_PARAMETERS` is in neither git(1) nor git-config(1): measured, `'core.hooksPath'='<d>'` and `'core.hookspath=<d>'` reroute one command | yes |
-| git §CONFIGURATION FILE (git-config(1), "Includes") | `include.path` | an included file's `core.hooksPath` applies | I4 detection (`--check`), §4.8 blind spot | measured: a `--worktree include.path` and a `-c include.path=` both reroute; `--git-path hooks` follows the include | yes |
+| git §COMMANDS, §DEPRECATED MODES, §OPTIONS (git-config(1)) | writes of `core.hooksPath` | `set` / `unset` / `rename-section` / `remove-section` / `edit`, and the legacy `<name> <value>`, `--add`, `--replace-all`, `--unset[-all]`, `--rename-section`, `--remove-section`, `-e`; `--local` / `--worktree` / `--global` / `--system` / `-f` / `--file`; variable names case-insensitive (§CONFIGURATION FILE) | bypass-guard memo §4.8 patch (global, PM) | measured: every form reroutes `--git-path hooks` or puts it back, options also after the positionals | yes |
+| git §ENVIRONMENT (git-config(1)) | `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_<n>`; `GIT_CONFIG_PARAMETERS` | per-process configuration | bypass-guard memo §4.8 patch (`GIT_CONFIG_PARAMETERS` new; `GIT_CONFIG_KEY_<n>` already denied) | `GIT_CONFIG_PARAMETERS` is in neither git(1) nor git-config(1): measured, `'core.hooksPath'='<d>'` and `'core.hookspath=<d>'` reroute one command | yes |
+| git §CONFIGURATION FILE (git-config(1), "Includes") | `include.path` | an included file's `core.hooksPath` applies | I4 detection (`--check`), bypass-guard memo §4.8 blind spot | measured: a `--worktree include.path` and a `-c include.path=` both reroute; `--git-path hooks` follows the include | yes |
 | rustfmt §OPTIONS (`rustfmt --help`, 1.10.0) | `--check` | the help says it exits 1 when formatting is required | **not used on stdin**: measured exit 0 with a diff on stdin (§3.2) — the help says the opposite of the stdin behaviour | measured | yes |
 | rustfmt §OPTIONS (`rustfmt --help`, 1.10.0) | `--config-path` | "Recursively searches the given path for the rustfmt.toml config file" | VI4: a temp dir holding the staged `.rustfmt.toml` | measured: finds `.rustfmt.toml` in the dir on stdin input | yes |
 
@@ -373,7 +376,7 @@ The gh and GitHub GraphQL rows: P1b memo §3.
 
 **Breadth**: K=4 (git, gh, rustfmt, GitHub GraphQL), M=30. The preflight's SPLIT-DEFAULT (K≥6 or M≥30; reached by
 M=30 since round 2's rows) is answered by the two slices and the separate global patch — no single PR carries more
-than 19 rows: P1a holds 17 git and 2 rustfmt rows (K=2, M=19), the §4.8
+than 19 rows: P1a holds 17 git and 2 rustfmt rows (K=2, M=19), the bypass-guard memo §4.8
 patch (applied by the PM, in neither PR's diff) the 3 `git-config(1)` rows (K=1, M=3), P1b the 3 gh and 5 GitHub
 GraphQL rows (K=2, M=8).
 
@@ -585,233 +588,7 @@ The same form is the one the §7.1 pass-through runs.
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
-PM 900: the user approved extending `~/.claude/hooks/git-hook-bypass-guard.py`; the PM's A2-scope decision sets the
-scope to the whole write grammar of `core.hooksPath` — the legacy options and the `config set` / `unset`
-subcommands, `--add` / `--replace-all` / `--file`, a case-insensitive key, and `GIT_CONFIG_PARAMETERS`. The patch is
-written here, against the file as read on 2026-11-21 (`shasum -a 256` =
-`9902fe77ac1ebbf9912315265b4f93e24b70a7603d91d5945bcca7469e1a0438`; if the file differs when the PM applies it, the
-patch is re-derived, not forced). It follows the file's own structure: one more case in `check_git` (by
-subcommand), the env rule widened inside `env_hooks_assign`, the same `in_scope` (no copy of its roots), the same
-fail-open on an internal error, and tests in the existing `git-hook-bypass-guard.test.py` lists.
-
-**No silent overlap with the existing rules.** `-c core.hooksPath=…` (and `-c core.hooksPath …`,
-`-ccore.hooksPath=…`), `--config-env=core.hooksPath=…` and a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment are
-already denied — they are git's global options and environment, read before the subcommand. The new rule reads only
-what follows the `config` subcommand, plus one more variable name in the env rule; a command carrying both kinds is
-denied once, with the first hit's name.
-
-**Scope of the new rule.** A write is denied when the git segment's effective cwd is in scope (as every rule of the
-file), or when `--file` names a path in scope (an elidex `.git/config` written from outside). `--global` /
-`--system` from outside the scope stay allowed: the shared repository's local `core.hooksPath` (I1) outranks them.
-The docstring names what the rule cannot see (indirect `include.path`, a swapped `GIT_CONFIG_GLOBAL` / `HOME`, a
-direct file write, `--git-dir` from outside); the persistent ones are detected by `--check` (I4).
-
-```diff
---- a/git-hook-bypass-guard.py
-+++ b/git-hook-bypass-guard.py
-@@ -6,13 +6,23 @@
-     `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
-   - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
-     `git commit -n` (-an / -nm のような束ね形も)
-+  - `git config` で core.hooksPath を書く形すべて: 旧形式 (`git config [--local|--worktree|--global|--system|
-+    -f <file>|--file[=]<file>] core.hooksPath <dir>`、option は位置引数の後ろでもよい)、`--add` / `--replace-all` /
-+    `--unset` / `--unset-all`、subcommand `set` / `unset`、section ごとの `--remove-section` / `--rename-section` /
-+    `remove-section` / `rename-section` (section `core`)、editor で開く `-e` / `--edit` / `edit` (どの key も書ける)。
-+    読む形 (`--get` 系、`-l` / `--list`、`get` / `list`、key だけの旧形式 `git config core.hooksPath`) は通す。
-+    `--file` の先が elidex の中なら、cwd が外でも deny
- 対象は実効 cwd (hook JSON の cwd、先行する `cd`、`git -C <dir>`) が elidex の checkout / worktree の中にある時だけ。
- 範囲の考え方は ecs-mission-guard.py の in_scope と同じ (SCOPE_ROOTS / SCOPE_PARENT)。外では何も出さず exit 0。
- 
- shell の字句は shlex で quote を考慮して分け、`&& ; | ( )` と改行で区切った各 command を見る。
- `bash -c '...'` / `sh -c` / `eval` の引数は再帰して見る。引数の文字列の中身 (grep の pattern、commit message) は見ない。
--`GIT_CONFIG_KEY_<n>=core.hooksPath` の env 代入も deny (command 先頭の `VAR=x`、`env VAR=x`、同じ command 内で先行する `export VAR=x`)。
--見えない所 (blind spot): `$(...)` / バッククォート内、変数展開で組み立てた git、git alias。
-+`GIT_CONFIG_KEY_<n>=core.hooksPath` と、値に core.hooksPath を含む `GIT_CONFIG_PARAMETERS=...` の env 代入も deny
-+(command 先頭の `VAR=x`、`env VAR=x`、同じ command 内で先行する `export VAR=x`)。
-+見えない所 (blind spot): `$(...)` / バッククォート内、変数展開で組み立てた git、git alias。core.hooksPath を間接に
-+変える形 (`include.path` / `includeIf.*.path` の書き込み、`-c include.path=...`、`GIT_CONFIG_GLOBAL` / `HOME` を
-+差し替えた file)、`.git/config` / `config.worktree` への直接の file 書き込み、cwd の外から `--git-dir` で elidex を
-+指す形。永続する迂回は `mise run install-githooks -- --check` (elidex の P1 plan memo の installed(wt)) が見つける。
- 
- Fails OPEN: どんな内部エラーでも no output, exit 0。
- Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -35,6 +45,15 @@
- COMMIT_VALUE_SHORT = set("mFCctSu")
- COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
-                      "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
-+# git config (git-config(1) COMMANDS / DEPRECATED MODES / OPTIONS, git 2.56.1)
-+CONFIG_SUBCMDS = {"list", "get", "set", "unset", "rename-section", "remove-section", "edit"}
-+CONFIG_READ_SUBCMDS = {"list", "get"}
-+CONFIG_READ_ACTIONS = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color", "--get-colorbool",
-+                       "-l", "--list"}
-+CONFIG_WRITE_ACTIONS = {"--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section",
-+                        "-e", "--edit"}
-+# long options that take a separate value (`--opt=value` is one token); `-f` is handled with the short clusters
-+CONFIG_VALUE_LONG = {"--file", "--blob", "--type", "--default", "--comment", "--value", "--url"}
- 
- 
- def state_dir():
-@@ -95,9 +114,16 @@
- 
- 
- def env_hooks_assign(tok):
-+    """env 代入 1 つ -> 拾った形の名前、または ""。"""
-     k, eq, v = tok.partition("=")
--    return bool(eq) and k.upper().startswith("GIT_CONFIG_KEY_") and k[len("GIT_CONFIG_KEY_"):].isdigit() \
--        and v.strip().lower() == "core.hookspath"
-+    if not eq:
-+        return ""
-+    if k.upper().startswith("GIT_CONFIG_KEY_") and k[len("GIT_CONFIG_KEY_"):].isdigit() \
-+            and v.strip().lower() == "core.hookspath":
-+        return "GIT_CONFIG_KEY_n=core.hooksPath"
-+    if k.upper() == "GIT_CONFIG_PARAMETERS" and "core.hookspath" in v.lower():
-+        return "GIT_CONFIG_PARAMETERS=core.hooksPath"
-+    return ""
- 
- 
- def hookspath_key(s):
-@@ -138,6 +164,58 @@
-             if ch in COMMIT_VALUE_SHORT:
-                 break
-     return False
-+
-+
-+def config_hookspath_write(args, cwd):
-+    """`git config` の後ろの token -> (violation or None, `--file` の先 or None)。
-+    位置引数は option とその値を除いた全部 (git は option を位置引数の後ろにも置ける)。未知の option が値を取って
-+    位置がずれても、core.hooksPath が位置引数のどこかにあり読む形でなければ書く形として拾う (未知は deny 側)。"""
-+    pos, acts, target, i = [], set(), None, 0
-+    while i < len(args):
-+        a = args[i]
-+        if a == "--":
-+            pos.extend(args[i + 1:])
-+            break
-+        if a in CONFIG_VALUE_LONG and i + 1 < len(args):
-+            if a == "--file":
-+                target = args[i + 1]
-+            i += 2
-+            continue
-+        if a.startswith("--file="):
-+            target = a[len("--file="):]
-+        elif a.startswith("--"):
-+            acts.add(a.split("=", 1)[0])
-+        elif a.startswith("-") and len(a) > 1:
-+            for k, ch in enumerate(a[1:], 1):
-+                if ch == "f":
-+                    if k < len(a) - 1:
-+                        target = a[k + 1:]
-+                    elif i + 1 < len(args):
-+                        target = args[i + 1]
-+                        i += 1
-+                    break
-+                acts.add("-" + ch)
-+        else:
-+            pos.append(a)
-+        i += 1
-+    if target is not None:
-+        target = os.path.join(cwd, os.path.expanduser(target))
-+    sub = pos[0] if pos and pos[0] in CONFIG_SUBCMDS else None
-+    names = pos[1:] if sub else pos
-+    if sub == "edit" or acts & {"-e", "--edit"}:
-+        return "git config --edit", target
-+    if sub in ("rename-section", "remove-section") or acts & {"--rename-section", "--remove-section"}:
-+        if names and names[0].lower() == "core":
-+            return "git config remove/rename-section core", target
-+        return None, target
-+    if not any(n.lower() == "core.hookspath" for n in names):
-+        return None, target
-+    reads = sub in CONFIG_READ_SUBCMDS or bool(acts & CONFIG_READ_ACTIONS)
-+    if reads and not acts & CONFIG_WRITE_ACTIONS:
-+        return None, target
-+    if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:
-+        return None, target  # `git config core.hooksPath` = 旧形式の読み
-+    return "git config core.hooksPath", target
- 
- 
- def check_git(args, cwd):
-@@ -173,6 +251,12 @@
-             break
-     sub = args[i] if i < len(args) else None
-     rest = args[i + 1:] if sub else []
-+    if sub == "config":
-+        v, target = config_hookspath_write(rest, eff)
-+        if v:
-+            hits.append(v)
-+            if target and not in_scope(eff) and in_scope(target):
-+                eff = target
-     if sub in HOOKED_SUBCMDS:
-         skip = commit_value_skips(rest) if sub == "commit" else set()
-         for k, r in enumerate(rest):
-@@ -190,10 +274,10 @@
-     """-> (violation, effective_cwd_of_the_violating_git) or (None, None)。cd を追跡する。"""
-     if depth > 3:
-         return None, None
--    exported = False  # `export GIT_CONFIG_KEY_n=core.hooksPath` seen earlier in this command
-+    exported = ""  # `export GIT_CONFIG_KEY_n=core.hooksPath` / `GIT_CONFIG_PARAMETERS=...` seen earlier in this command
-     for seg in segments(cmd):
-         j = 0
--        seg_env = any(env_hooks_assign(t) for t in seg[:next((n for n, t in enumerate(seg) if not (is_assign(t) or os.path.basename(t) in WRAPPERS)), len(seg))])
-+        seg_env = next(filter(None, map(env_hooks_assign, seg[:next((n for n, t in enumerate(seg) if not (is_assign(t) or os.path.basename(t) in WRAPPERS)), len(seg))])), "")
-         while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
-             j += 1
-         if j >= len(seg):
-@@ -204,11 +288,11 @@
-             if d:
-                 cwd = os.path.join(cwd, os.path.expanduser(d))
-         elif prog == "export":
--            exported = exported or any(env_hooks_assign(t) for t in rest)
-+            exported = exported or next(filter(None, map(env_hooks_assign, rest)), "")
-         elif prog == "git":
-             v, eff = check_git(rest, cwd)
-             if not v and (seg_env or exported):
--                v = "GIT_CONFIG_KEY_n=core.hooksPath"
-+                v = seg_env or exported
-             if v and in_scope(eff):
-                 return v, eff
-         elif prog in SHELLS or prog == "eval":
-```
-
-**Tests** (added to the `DENY` / `ALLOW` lists and as two methods of `git-hook-bypass-guard.test.py`; written and
-run against a scratch copy of the patched file on 2026-11-21: 14 tests OK; the same tests against the unpatched
-file fail, 39 subtests). Each positive form was measured to reroute, or to write, the key (§3.2):
-
-| kind | commands (cwd in scope unless stated) | expected |
-|---|---|---|
-| legacy write | `git config core.hooksPath /alt`; with `--local`, `--worktree`, `--global`, `--system`; `git config core.hooksPath /alt --worktree`; `--worktree core.HOOKSPATH`, `--worktree CORE.hookspath`; `--add --worktree`; `--replace-all`; `--type=path --worktree`, `--type path --worktree`; `--comment x`; `--worktree -- core.hooksPath /alt` | deny |
-| legacy unset / section | `--unset`, `--unset-all core.hooksPath`; `--remove-section core`; `--rename-section core zz` | deny |
-| subcommands | `config set --worktree`, `set --all`, `set --append`; `config unset`, `unset --all`; `remove-section core`; `rename-section Core zz` | deny |
-| file target | `--file .git/config.worktree`, `-f …`, `-f.git/…`, `--file=…`; from outside: `--file <elidex>/.git/config core.hooksPath /alt`, `-f <elidex>/.git/config --unset core.hooksPath` | deny |
-| editor | `git config --edit --worktree`, `-e`, `config edit` | deny (an editor can write any key) |
-| reach | `git -C <elidex> config --worktree …`; `cd <elidex> && git config --worktree …` from outside; `bash -c '…'`; `git status && git config …` | deny |
-| env | `GIT_CONFIG_PARAMETERS="'core.hooksPath'='/alt'" git commit -m x`; `env GIT_CONFIG_PARAMETERS="'core.hookspath=/alt'" git push origin HEAD`; `export GIT_CONFIG_PARAMETERS="'CORE.HOOKSPATH'='/alt'"; git commit -m x` | deny |
-| reads (negative) | `git config core.hooksPath`, `--get`, `--get-all`, `--show-origin --get`, `--worktree core.hooksPath`, `--get-regexp core.hooks`, `--list`, `-l --show-scope`, `config get`, `config get --all`, `config list` | allow |
-| other keys (negative) | `--worktree user.name a`; `config set core.editor vim`; `--unset user.email`; `--remove-section alias`; `--worktree core.hooks /alt`; `--worktree core.hooksPathX /alt`; `GIT_CONFIG_PARAMETERS="'user.name'='a'" git commit -m x` | allow |
-| text, not a command (negative) | `git commit -m 'git config core.hooksPath /alt'`; `git log --grep 'git config --worktree core.hooksPath'` | allow |
-| out of scope (negative) | every `DENY` entry from `/private/tmp` (the existing loop); `git config --file /private/tmp/x core.hooksPath /alt` from `/private/tmp` | allow |
-
-**Mutants** (each a one-line replacement in a temp copy, run through the file's own `GIT_BYPASS_GUARD_SCRIPT`
-override; all nine were killed by the tests above on 2026-11-21):
-
-| replaced line | → | killed by |
-|---|---|---|
-| `if not any(n.lower() == "core.hookspath" for n in names):` | exact-case compare | `core.HOOKSPATH` forms |
-| `if k.upper() == "GIT_CONFIG_PARAMETERS" and` | `if False and` | the env rows |
-| `if target and not in_scope(eff) and in_scope(target):` | `if False:` | the from-outside `--file` rows |
-| `if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:` | drop `len(names) == 1` | every legacy write |
-| `CONFIG_READ_SUBCMDS = {"list", "get"}` | add `"set"` | the `set` rows |
-| `    if sub == "config":` | another name | every config row |
-| `        if names and names[0].lower() == "core":` | exact-case compare | `rename-section Core zz` |
-| `    if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
-| `            pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
-
-**The PM's application and E2E line** (global: it acts on every session on this machine at once, other
-repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
-(`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log), apply the
-diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the nine
-mutants above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
-`git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
-`git rev-parse --git-path hooks` unchanged afterwards; `git config --get core.hooksPath` → runs. If the hook files
-are dotfiles-managed, the edit goes through the dotfiles session.
+Bypass-guard memo §4.8 (PM 916); this memo's §7.1 step A2 applies it.
 
 ### §4.9 The PM-skill row [P1a]
 
@@ -851,7 +628,7 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D28 | P1a | the ratchet reads the pushed tree (`--rev`), once per distinct pushed sha; every verdict input is `<sha>`'s (its whole module on its materialised tree), the running copy only orchestrates; a ratchet deleted on the branch rejects | PM 893 (C6); round 2 A2-1 (driver decision: one source for every verdict input); fail-safe direction (A3 MIN) |
 | D29 | P1a | `ELIDEX_FMT_OK` must equal the staged tree | PM 893 (E22): an opt-out covers one commit |
 | D33 | P1a | `--check` is a standing PM-pass item, through the PM's own invocation; its row in `.claude/skills/pm/SKILL.md` §2 (§4.9) lands in P1a's diff | PM 893 (C9): hand-run git stays possible after P2; round 2 A5 MIN (in the PM procedure before P3); PM 908 (in P1a's diff) |
-| D38 | P1a | the §4.8 bypass-guard patch: the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
+| D38 | P1a | the bypass-guard patch (bypass-guard memo §4.8): the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
 | D39 | P1a | P1a break-glass: `--no-verify`, run by the user (own terminal, or `! <command>` in the PM session) from the commands and record line the PM prepares; recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
 | D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it imports the bypass guard's derivation and `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots) |
@@ -919,7 +696,7 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 |---|---|---|---|
 | A0 | P1a merges | scripts on `origin/main`, nothing installed; the §4.9 PM-pass row is in the PM skill and reads `not installed yet` | nothing runs them; Claude hooks unchanged |
 | A1 | E2E E1–E18 in a scratch clone (§7.5), then user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0; then E19 in the shared repository; from here on the §4.9 row runs `--check` in every PM pass | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow; every branch is judged by `origin/main`'s rules (I2), so no list of unguarded branches is needed |
-| A2 | prerequisites for A4, global, PM / user: apply the §4.8 patch to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants, then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
+| A2 | prerequisites for A4, global, PM / user: apply the patch of bypass-guard memo §4.8 to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants, then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
 | A3 | one good push and one good commit in a real lane worktree | same | real use, both layers deciding |
 | A4 | after A2; user approval of PLAN §6 item 3 (its text: 「git hook 移行後に Claude hook (`set:24,30`) を撤去するか (global)」), then **`:24` and `:30` only**: an elidex-scoped pass-through (below) instead of removal — narrower than that text (PM 893 (2)) | in an installed elidex worktree only the git hooks decide push-branch and fmt; everywhere else unchanged | V2 / V5 / V6 |
 
@@ -972,7 +749,7 @@ acts is stated per kind: the push / commit kind below, the merge kind in the P1b
 
 **Push / commit (P1a, D39).** A broken pre-push, pre-commit or ratchet on `origin/main` rejects the push (or the
 commit) of its own fix branch, and `--no-verify` is denied to every Claude session (`git-hook-bypass-guard.py`, the
-file §4.8 patches, already denies it). **The actor is the user** (PM 908): the PM is a Claude session, so the guard
+file bypass-guard memo §4.8 patches, already denies it). **The actor is the user** (PM 908): the PM is a Claude session, so the guard
 denies it `--no-verify` too, and it cannot run the bypass. The user runs it in their own terminal, or as
 `! <command>` in the PM session. The PM prepares the exact commands — in the fix branch's worktree,
 `git commit --no-verify` if pre-commit is the broken part, then `git push --no-verify origin <branch>` — and the
@@ -1029,7 +806,7 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E21 | P1a | E20 with `cwd` = `$S/wt` after `git -C $S/wt config --worktree core.hooksPath $S/alt` (I4); and a compound `cd $S/repo && git push origin HEAD:x; cd $S/wt && git push origin HEAD:y` from `$S/repo` | deny from the Claude hook (as before A4) in both: one segment's worktree is not installed |
 | E22 | P1a | E20 without `GIT_BYPASS_GUARD_EXTRA_SCOPE`, from a repository outside the scope (a scratch `git init` under `$S`, or a lexime worktree, read only) | deny, as before A4 |
 | E23 | P1a | E20 after `git -C $S/repo update-ref refs/remotes/origin/main <a commit before P1a>` (the read of `install.sh` fails) | deny, as before A4 |
-| E24 | P1a | after A2, in the shared repository: the §4.8 E2E line | as §4.8 states |
+| E24 | P1a | after A2, in the shared repository: the bypass-guard memo §4.8 E2E line | as that section states |
 
 M1–M7 [P1b]: P1b memo §7.5.
 
@@ -1054,7 +831,7 @@ No question is open. Each former question was decided by the driver (lens conver
 - **PM 900 and the PM's A2-scope decision** (plan-review round 2): the user approved the bypass-guard extension; its
   scope is the whole write grammar of `core.hooksPath` plus `GIT_CONFIG_PARAMETERS`, with tests per form, negative
   controls and a mutant; the memo notes the existing `-c` / `--config-env` / `GIT_CONFIG_KEY_<n>` rules so the new
-  rule does not overlap them silently; the PM applies it at P1a cut-over with the shim (§4.8, D38).
+  rule does not overlap them silently; the PM applies it at P1a cut-over with the shim (bypass-guard memo §4.8, D38).
 - **Round 2 driver decisions** (the open choices of the round-2 findings): A3-1 the raw-merge gap until `:36` is
   stated with owner and trigger, `:36` not pulled into scope (IV5, D40); A3-2 the P1a break-glass (§7.4, D39); A5-1
   the assessed-sha derivation and the no-sha item as a finding (`merge-pr` step 8c, D30); A2-1 every `--rev` verdict input
@@ -1069,7 +846,7 @@ No question is open. Each former question was decided by the driver (lens conver
 
 No engine code. The scripts live under `.claude/tools/` next to the ratchet they call, and enter CI only through the
 `tools` job's member glob. `~/.claude/**`, `~/.codex/**`, `.github/workflows/ci.yml` (apart from the
-`timeout-minutes` re-derivation in §4.6) and every `.git/hooks` are untouched by these PRs (§4.8 is applied by the
+`timeout-minutes` re-derivation in §4.6) and every `.git/hooks` are untouched by these PRs (bypass-guard memo §4.8 is applied by the
 PM, outside them). The one modified tool is `.claude/tools/ecs_mission_ratchet.py` (P1a, `--rev`; its working-tree
 mode is unchanged).
 
@@ -1161,9 +938,9 @@ re-pointed to a scratch bare repository, and `git init` repositories with `HOME`
 - `git log --follow -- .claude/tools/ecs_mission_ratchet.py` (69fbe61f, 1b727d18) and, per commit, the `def main`,
   `def repo_root_of`, `def tracked_files` and `DEFAULT_ALLOWLIST` lines; `git ls-tree -r -l HEAD` (1957 blobs,
   42.9 MB at fca1f6cd).
-- §4.8: the hook and its test copied into the scratchpad, patched, `python3 git-hook-bypass-guard.test.py` (patched:
+- bypass-guard memo §4.8: the hook and its test copied into the scratchpad, patched, `python3 git-hook-bypass-guard.test.py` (patched:
   OK, 14 tests; with `GIT_BYPASS_GUARD_SCRIPT` = the unpatched file: 39 subtest failures), and the nine mutants
-  through `GIT_BYPASS_GUARD_SCRIPT` (all killed); `diff -u` of the two hook files is the block in §4.8.
+  through `GIT_BYPASS_GUARD_SCRIPT` (all killed); `diff -u` of the two hook files is the block in bypass-guard memo §4.8.
 - `~/.claude/hooks/gh-pr-merge-head-guard.sh` header lines 1–19; `.claude/skills/external-converge/project.md`
   § reviewer and `external-review/project.md` § reviewer; `~/.claude/skills/external-review/SKILL.md` Step 1
   resolver; `.claude/skills/pm/SKILL.md:222-224`; `~/.codex/rules/default.rules` (`prefix_rule(pattern=[…])`);
