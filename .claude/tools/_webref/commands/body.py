@@ -7,6 +7,7 @@ import sys
 
 from ..cache import NotFound, cached_fetch_url
 from ..extractor import extract_section_body
+from ..respec import resolve_respec_body
 from ..resolver import (
     lookup_aoid_first,
     resolve_body_source,
@@ -90,7 +91,19 @@ def cmd_body(args: argparse.Namespace) -> None:
                 sys.exit(f"webref: fetch failed: {fetch_url}")
         else:
             sys.exit(f"webref: fetch failed: {fetch_url}")
-    found, text = extract_section_body(html_bytes, file_anchor)
+    source_line: str | None = None
+    if args.shortname in TC39_FAMILY:
+        found, text = extract_section_body(html_bytes, file_anchor)
+    else:
+        # ReSpec nightly EDs are served unrendered (no ids): render via the
+        # spec-generator, else fall back to the TR. None = not a ReSpec spec.
+        rs = resolve_respec_body(args.shortname, fetch_url, file_anchor, html_bytes)
+        if rs is None:
+            found, text = extract_section_body(html_bytes, file_anchor)
+        else:
+            found, text, fetch_url, source_line = rs
+    if source_line:
+        print(source_line)
     if not found:
         sys.exit(
             f"webref: anchor #{file_anchor} not encountered in {fetch_url} "
