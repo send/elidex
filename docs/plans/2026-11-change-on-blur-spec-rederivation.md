@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.8, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.9, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -35,10 +35,11 @@ comes from the spec, then from elidex's own principles where the spec is silent;
 ### §0.1 Coordinate frame
 
 Every code `file:line` is read at `origin/main` **`29edf6fc`**, this branch's original base. The premise code is the
-same at the branch's merge base with `origin/main`:
+same at the branch's merge base with `origin/main` (`6cbe39e3`, #655, since the merge `bf647c4c`) but for one tag:
 ``/usr/bin/grep -o 'crates/[a-z][^`:) ]*\.rs' docs/plans/2026-11-change-on-blur-spec-rederivation.md | sort -u | xargs git diff --stat 29edf6fc $(git merge-base origin/main HEAD) --``
-(every `.rs` file this memo cites) → empty (run 2026-11-21; control: the same `git diff --stat` with `-- .claude/tools/ecs-mission-allowlist.tsv` →
-1 file changed). The allowlist and ratchet figures (LR-1, §9) are measured on this revision. Spec text is quoted
+(every `.rs` file this memo cites) → `content_change_on_blur_tests.rs | 2 +-`, C24's doc comment (`:648`) with the
+inline tag `` `[contrast]` `` added by #655; no line moved (run 2026-11-21; control: the same `git diff --stat` with
+`-- .claude/tools/ecs-mission-allowlist.tsv` → 1 file changed). The allowlist and ratchet figures (LR-1, §9) are measured on this revision. Spec text is quoted
 from `.claude/tools/webref body …` (commands in §3).
 
 ### §0.2 Premises — H as landed
@@ -480,8 +481,8 @@ value from it (§0.4); their "Today" already equals it.
 *Code comments the code PR rewrites* (read at `29edf6fc`; each was checked there by `git show 29edf6fc:<path>`).
 The code PR rewrites each with the requirement of LR-2 that replaces it:
 
-- *The measurement named as the ground* (each with an ECS-mission allowlist class-E row, pruned with the rewrite,
-  except the first, which has none; LR-2's allowlist rows):
+- *The measurement named as the ground* (the second and third each have an ECS-mission allowlist row, pruned with
+  the rewrite; the first and C24's have none; LR-2's allowlist rows):
   - `crates/dom/elidex-form/src/focus_snapshot.rs:4-5`, the module doc (the `<textarea>` rule grounded on the
     measurement; no row);
   - `focus_snapshot.rs:69-73`, the doc of `note_user_value_change` (the re-baseline grounded on the measured model);
@@ -514,7 +515,7 @@ and are cited by C-id; C6's expectation flips (DF-1 (a)). These existing tests a
   that assertion). The test helper it reads, `test_support::snap` / `Snap` (`crates/dom/elidex-form/src/test_support.rs`,
   over `FocusValueSnapshot::baseline`, the `Option<String>`), is re-defined with requirement 1's representation.
 - C24's doc comment names PM 307's accepted divergence as its ground, which LR-6 withdraws, so the comment is
-  rewritten (expected value unchanged; the allowlist's class-E row for it is pruned with it).
+  rewritten (expected value unchanged; it has no allowlist row, as #655 tagged it `` `[contrast]` `` inline).
 - `record_clears_stale_snapshot_when_no_longer_text_control` (`focus_snapshot.rs:223`) asserts the removal at a
   non-text re-seed that requirement 5 deletes, so it is replaced by a cell for the population rule (DF-2).
 - `no_snapshot_for_non_text_control` (`focus_snapshot.rs:246`) asserts that the seed of an `<input>` of kind Button
@@ -674,9 +675,9 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
     return candidate."). So during `blur` the spec's `activeElement` is still the old control. The comment's second
     use of the early clear (an exact re-entrancy signal for the step-4 gate) is a device and does not ground the
     observable. *Home:* `#11-blur-focus-cleared-before-blur-event` (owner Layout, registered by PM 861 from this
-    memo's draft, re-eval 2026-12-31). After the merge of #652 the ECS-mission allowlist has 1 row
+    memo's draft, re-eval 2026-12-31). After the merges of #652 and #655 the ECS-mission allowlist has 1 row
     under `crates/dom/elidex-dom-api/src/focus/`, class T for that slot (`update_steps.rs`, the comment at `:282`;
-    control: `elidex-dom-api` → 22 rows).
+    control: `elidex-dom-api` → 8 rows, 22 before #655's reclassification).
   - **(ii) Why the ratchet did not list the comment.** At `29edf6fc` it was a gap in the ratchet's vocabulary. #652
     (`1b727d18`) widened the classifier, and the comment is now listed (the row above). No tool is changed by this
     PR.
@@ -720,12 +721,13 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
   principle except two, which differ: the baseline (E-5) and the snapshot's population (E-19, and E-18 in the cases
   DF-2 names) →
   `#11-change-on-blur-baseline-first-focus-value` (LR-2); the measurement is `[history]` and a ground for nothing.
-  The PR deleted 18 allowlist rows (`git diff origin/main...HEAD -- .claude/tools/ecs-mission-allowlist.tsv`): 17
-  class T — this slot's 14 (13 in plan (1), 1 in the umbrella) and the 3 that #652 added for
+  The PR deleted 17 allowlist rows, all class T (`git diff origin/main...HEAD -- .claude/tools/ecs-mission-allowlist.tsv`):
+  this slot's 14 (13 in plan (1), 1 in the umbrella) and the 3 that #652 added for
   `#11-change-on-blur-baseline-first-focus-value` (PM 855) on lines this PR rewrote (plan (1)'s §3 textarea row,
-  the umbrella's DC2 textarea sentence and its §3 textarea row) — and 1 class E (slot `-`) for plan (1) §8's line
-  recording W6 as a divergence from one engine, which the PR tagged `[history]`. A rewritten or tagged line's row is
-  stale, and the allowlist only shrinks."
+  the umbrella's DC2 textarea sentence and its §3 textarea row). It relabelled 1 row E → T for that slot, row kept:
+  the doc comment of `note_user_value_change` (LR-2). Before #655 landed first the count was 18 (17 T + 1 E): the E
+  row was plan (1) §8's line recording W6 as a divergence from one engine, which #655 tagged inline and this PR
+  retagged `[history]` (PM 888). A rewritten or tagged line's row is stale, and the allowlist only shrinks."
 - **LR-2 → `#11-change-on-blur-baseline-first-focus-value`: amend the registered row** (registered by PM 861 from
   this memo's draft, with DF-2 made a facet of the DF-1 slot). Owner Layout and Re-eval-date 2026-12-15 are
   unchanged. The fix is a per-PR slice of the focus-fixup umbrella; until the slice's own plan memo exists, the slot
@@ -775,11 +777,14 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
        event applies to the element, and the element does not have a defined activation behavior", under reading R-2
        (memo §0.5); a `<textarea>` takes the same predicate (memo D-4)."
   - *Allowlist rows*: replace "`focus_snapshot.rs:71` (E, reclassified by the code PR), `change-on-blur-user-provenance.md:199`,
-    `focus-fixup-program.md:44` / `:163`" with "three class-E rows (slot `-`), each a code comment that names the
-    measurement as the ground (memo §6.1): the doc comment of `note_user_value_change` in `focus_snapshot.rs`, and in
-    `content_change_on_blur_tests.rs` the doc comment of C24 (W6 as PM 307's accepted divergence) and the doc
-    comment of `focus_with_caret_at_end` (the measured N1 / M5 cases); the code PR
-    rewrites each comment and prunes its row". The three plan-memo rows are deleted by this docs PR (LR-1).
+    `focus-fixup-program.md:44` / `:163`" with "two rows, each a code comment that names the measurement as the
+    ground (memo §6.1): the doc comment of `note_user_value_change` in `focus_snapshot.rs`, class T for this slot
+    (relabelled E → T by the re-derivation PR's `--relabel`), and in `content_change_on_blur_tests.rs` the doc
+    comment of `focus_with_caret_at_end` (the measured N1 / M5 cases), class E (slot `-`). The code PR rewrites each
+    comment and prunes its row. C24's doc comment (W6 as PM 307's accepted divergence) is rewritten too and has no
+    row (#655 tagged it `` `[contrast]` `` inline)". The three plan-memo rows are deleted by this docs PR (LR-1). Before #655
+    landed first the list was three class-E rows; #655's inline tag removed C24's, and the relabel moved
+    `note_user_value_change`'s to T.
   - *Add Trigger*: "the focus-fixup umbrella's per-PR slice for this slot starts" (before the Re-eval-date).
   - *Add Why-deferred*: "PM 842: docs and code are separate PRs; the re-derivation memo is docs only."
 - **LR-3 → `#11-implicit-submission-commits-change`: close as not a core defect.** Record: "The current order conforms:
@@ -886,7 +891,8 @@ section and by a quoted fragment.
 | plan (1) | §1 (b) ("settled by measurement") | `[history]` tag; erratum pointing to D-3 (§0.4) |
 | plan (1) | D-3 ("they carry no snapshot (P2)"); I3 ("reconciler type-flip clear, non-text re-seed"); I7 ("only `is_text_control` kinds carry a snapshot"); I7 × I1 ("a non-text control passed to it has no snapshot to mark") | erratum pointer at each: the population by kind is DF-2 (§6.2); LR-2 known requirement 5 |
 | plan (1) | §7 "Seed gap" ("recorded as a known property, not a defect") | erratum pointer: a defect, DF-2 (i) (§6.2), under reading R-3 |
-| plan (1) | §6 N6 ("not run; PM 393, to run later") | **no edit**; the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
+| plan (1) | §6 N6 ("not run; PM 393, to run later") | **no edit** but the merge's tag (next row); the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
+| plan (1) | §6 N6's continuation ("Chromium recorded the baseline"); §6 pre-step run 1 ("**Pre-step run 1 (2026-11-03, observed).**", "Chrome 156.0.8078.80 (macOS)"); §6 pre-step run 3 ("**W6 fails**"); §6 W6 record ("**Measured divergence, accepted (PM 307).**"); §8 W6 bullet ("a recorded Chromium divergence") | #655 (`6cbe39e3`) tagged these 6 lines `[evidence]` inline; the merge `bf647c4c` retags them `[history]` (PM 888), one tag per line |
 | plan (1) | changelog | one dated erratum line pointing to this memo's changelog |
 | plan (2) | P9 ("a `type` flip to a non-text kind clears it at the `set_attribute` chokepoint") | erratum: the clear and the kind-gated seed are DF-2 (§6.2), removed by LR-2 known requirement 5; the outcomes plan (2) derives from P9 stand (Hidden and button kinds are excluded by step 2.1's predicate at focus loss) |
 | plan (2) | E5; §3 row for §4.10.5.5; §5 item 1 | pointer "mechanism corrected, P9 erratum" |
@@ -895,18 +901,28 @@ section and by a quoted fragment.
 ## §9. Definition of done
 
 1. `python3 .claude/skills/elidex-plan-review/preflight.py <memo>` exits 0 for this memo, the umbrella and plan (1).
-2. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (495 allowlisted, 0 new, 0 stale)` (run 2026-11-21 on this
-   revision, rev 3.8), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
-   `#11-change-on-blur-baseline-first-focus-value`
+2. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (295 allowlisted, 0 new, 0 stale)` (run 2026-11-21 on this
+   revision, rev 3.9; 495 before #655's reclassification), with no row left for
+   `#11-change-on-blur-model-spec-rederivation` and one for `#11-change-on-blur-baseline-first-focus-value`, the
+   `note_user_value_change` doc comment that the code PR prunes (LR-2)
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation\|change-on-blur-baseline-first-focus-value' .claude/tools/ecs-mission-allowlist.tsv`
-   → 0; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
+   → 1; the same command at `origin/main` → 17; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
 3. `git diff --stat origin/main...HEAD` lists the four `docs/plans/` memos and the allowlist (verified 2026-11-21 on
-   this revision: "5 files changed"); the allowlist's change is row deletions only, the rows LR-1 names.
+   this revision: "5 files changed"); the allowlist's change is the 17 row deletions and the one relabel (E → T,
+   row kept) that LR-1 names.
 4. D-3 is decided by the PM (PM 866, as corrected by PM 870) and recorded in §0.4 (LR-7). Satisfied when PM 866 and PM 870 are recorded in PORTFOLIO.
 5. The PM applies LR-1 to LR-6 at landing.
 
 ## Changelog
 
+- *Rev 3.9* (2026-11-21): figures re-measured on the merge `bf647c4c` of `origin/main` `6cbe39e3` (#655, which
+  landed first; PM 888); no decision, expected value or cell changes. §0.1: the merge base is `6cbe39e3`, and the
+  premise code differs only by #655's `[contrast]` tag on C24's doc comment. LR-1: 17 rows deleted (all T) and 1
+  relabelled E → T (the `note_user_value_change` doc comment); 18 (17 T + 1 E) before #655. LR-2's allowlist rows
+  and §6.1's comment list: one T row, one E row (`focus_with_caret_at_end`), C24's comment without a row. §8: a
+  plan (1) row for the 6 lines #655 tagged `[evidence]`, retagged `[history]` in the merge; the N6 row notes it.
+  O-2 (i): the `elidex-dom-api` control count. DoD 2: 295 allowlisted, the slot grep → 1. DoD 3: deletions and one
+  relabel.
 - *Rev 3.8* (2026-11-21): /pre-push Stage 5 (`/elidex-review`) MIN fixes; no decision, expected value or cell
   changes. LR-2: the slot row is the fix slice's record until its plan memo exists (umbrella §7 points to it); the
   Population is defined once (every `input` and `<textarea>` element, by element; no write to the other
