@@ -441,3 +441,74 @@ fn to_string_concatenates_text() {
     assert_eq!(eval_str(&mut vm, "r.toString()"), "hello");
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// tq — `Range.prototype.toString` skips a closed shadow tree's text (the
+// contained-node walk takes tree children; WHATWG DOM §5.6 stringification).
+// ---------------------------------------------------------------------------
+
+/// Which stored order the host's light child and its shadow root take.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum LightShape {
+    /// No light child.
+    NoLight,
+    /// `light` appended before `attachShadow`.
+    LightBefore,
+    /// `attachShadow` then `light` appended.
+    LightAfter,
+}
+
+/// JS building the host tree under an existing `root`: children `pre` "pre",
+/// `h`, `post` "post"; `h` has a closed shadow root `sr` holding `sp` >
+/// "SHADOW"; the light child (if any) is Text "LIGHT".
+pub(super) fn host_tree_script(shape: LightShape) -> String {
+    let before = matches!(shape, LightShape::LightBefore);
+    let after = matches!(shape, LightShape::LightAfter);
+    format!(
+        "globalThis.pre = document.createTextNode('pre'); \
+         globalThis.h = document.createElement('div'); \
+         globalThis.post = document.createTextNode('post'); \
+         root.appendChild(pre); root.appendChild(h); root.appendChild(post); \
+         globalThis.light = document.createTextNode('LIGHT'); \
+         if ({before}) h.appendChild(light); \
+         globalThis.sr = h.attachShadow({{mode: 'closed'}}); \
+         globalThis.sp = document.createElement('span'); \
+         sp.appendChild(document.createTextNode('SHADOW')); sr.appendChild(sp); \
+         if ({after}) h.appendChild(light); "
+    )
+}
+
+/// `host_tree_script` under a fresh document-attached `root`.
+pub(super) fn host_tree_in_document_script(shape: LightShape) -> String {
+    format!(
+        "globalThis.root = document.createElement('div'); document.appendChild(root); {}",
+        host_tree_script(shape)
+    )
+}
+
+fn range_to_string_over_host(shape: LightShape, want: &str) {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{} globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2);",
+        host_tree_in_document_script(shape)
+    ))
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "rg.toString()"), want, "shape={shape:?}");
+    vm.unbind();
+}
+
+#[test]
+fn range_to_string_skips_shadow_tree_text_p3a() {
+    range_to_string_over_host(LightShape::NoLight, "repo");
+}
+
+#[test]
+fn range_to_string_skips_shadow_tree_text_p3b() {
+    range_to_string_over_host(LightShape::LightBefore, "reLIGHTpo");
+}
+
+#[test]
+fn range_to_string_skips_shadow_tree_text_p3c() {
+    range_to_string_over_host(LightShape::LightAfter, "reLIGHTpo");
+}

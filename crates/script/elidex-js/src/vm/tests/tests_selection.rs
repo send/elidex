@@ -15,6 +15,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::{bind_vm, eval_num, eval_str};
 use super::super::Vm;
+use super::tests_range::{host_tree_in_document_script, LightShape};
 
 fn setup() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let vm = Vm::new();
@@ -835,5 +836,69 @@ fn add_range_unregistered_range_after_rebind_throws_invalid_state() {
         message,
         "Failed to execute 'addRange' on 'Selection': the Range has been detached"
     );
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// tq — `Selection.prototype.toString` skips a closed shadow tree's text (it
+// stringifies the one Range string, so the contained-node walk's tree
+// children decide it). Rank (2), plan §3.
+// ---------------------------------------------------------------------------
+
+fn selection_to_string_over_host(shape: LightShape, want: &str) {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{} globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2); \
+         window.getSelection().addRange(rg);",
+        host_tree_in_document_script(shape)
+    ))
+    .unwrap();
+    assert_eq!(
+        eval_str(&mut vm, "window.getSelection().toString()"),
+        want,
+        "shape={shape:?}"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4a() {
+    selection_to_string_over_host(LightShape::NoLight, "repo");
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4b() {
+    selection_to_string_over_host(LightShape::LightBefore, "reLIGHTpo");
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4c() {
+    selection_to_string_over_host(LightShape::LightAfter, "reLIGHTpo");
+}
+
+/// Plan §11 P-5's tree: a cross-root `setBaseAndExtent` collapses the range
+/// (DOM *set the start or end* step 4), so the string is `""` whichever
+/// boundary it collapses at. Depends on `tsel` being in the base.
+#[test]
+fn selection_cross_root_set_base_and_extent_to_string_is_empty() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div'); document.appendChild(root); \
+         globalThis.pre = document.createTextNode('pre'); \
+         globalThis.h = document.createElement('div'); \
+         globalThis.post = document.createTextNode('post'); \
+         globalThis.p = document.createElement('p'); \
+         p.appendChild(document.createTextNode('TAIL')); \
+         root.appendChild(pre); root.appendChild(h); root.appendChild(post); root.appendChild(p); \
+         globalThis.sr = h.attachShadow({mode: 'closed'}); \
+         globalThis.sp = document.createElement('span'); \
+         globalThis.st = document.createTextNode('SHADOW'); \
+         sp.appendChild(st); sr.appendChild(sp); \
+         window.getSelection().setBaseAndExtent(pre, 1, st, 3);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "window.getSelection().toString()"), "");
     vm.unbind();
 }
