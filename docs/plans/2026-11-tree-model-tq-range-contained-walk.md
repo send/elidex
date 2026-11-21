@@ -5,6 +5,23 @@ P-5 → precondition on tsel (PM 884/885). R1.3: final re-check fixes H1–H8 (0
 tree preconditions; P-6 probe before the code PR). R1.4: R1.3 re-check MINs (A2 ×3, A5 ×1) + orphan splitText
 probe DoD (PM 11-21); raw-cache marker on every Selection API quote (PM 896).
 
+**Changelog.** *Erratum: the code PR's measurements (PM 943)* (2026-11-22; no rev bump; carried by the tq code PR,
+branch `tree-model-tq`, on `origin/main` `bf113e6c` (which contains `tsel`, #668); code `e9bf15bd`, per-shape test
+split `9f3a229e`). Five places, each edited in place with its earlier wording kept where it still holds:
+(1) §11 P-6: `finalize_pending`'s one-ended re-home was probed from page script at `bf113e6c` and **not reached**;
+the despawn census at `9f3a229e` (27 hits, classified there) finds no despawn of a node a page script can hold a
+Range boundary in, except one defensive-only rollback in `split_text_at_offset` that the probe could not construct.
+What would stop a future despawn caller is not named, so it is "not reached", not "unreachable". PM 943: no slot
+(§4.2's `finalize_pending` row and its two hits, §10 item 8 follow). (2) §4.2's split-text row and §10 item 9: the
+orphan-Text `splitText` finding is measured at `bf113e6c` (two cases red, a connected control as the spec) and
+goes to the new slot `#11-split-text-orphan-live-range-migration` (PM 943), a small standalone PR after `tq`; it is
+outside `tq`'s declared change. (3) §7: the cells are one test per shape at `9f3a229e` (V2 also has the P5-light
+and P5c shapes, V5 also P4c); the mutant lines gain the kills measured on them (M1 and M3 on V2 P1c and V5 P4c, M2 on
+V2 P1-light), and the per-shape table follows the mutant list. (4) §7.1: the `wc -l` counts re-measured at the code
+PR's base `bf113e6c` and head `9f3a229e` (`tests_selection.rs` was 839 on that base, not the plan's 787; 913 after).
+(5) §10 item 5 and §11 P-3: the two inline `//` comments in `contained_top_level_nodes`' body still say "§5.5";
+§10 item 1 limits `mutation.rs` to `///` lines, so `tq` leaves them to the §5.5 renumber sweep (not missed).
+
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (ratified at `4918a6c7`, PR #648; slice placed by D3, approved PM 820; order tp → tq → ta, and with the
@@ -259,8 +276,8 @@ boundaries at once; those are rows of their own below (`git grep -n -P '\bclone_
 | Range natives `setStart` / `setEnd` (`range_proto.rs:552`, `:567`) → `set_start_to_boundary` / `set_end_to_boundary` (`range/boundary.rs:52`, `:67`); `setStartBefore` / `-After`, `setEndBefore` / `-After`, `selectNode` (`boundary.rs:82-128`) through the same two | yes | the two collapse the other boundary when the new one's `find_tree_root` differs, and `find_tree_root` stops at the `ShadowRoot` marker (`walkers.rs:408-426`) |
 | `selectNodeContents`, `collapse` (`boundary.rs:114-137`) | yes | both boundaries are set to one node |
 | the live-range hooks (`LiveRangeBridge`, `range/live.rs:112-325`: removal, insertion, text change, replace data, split text, normalize merge incl. `after_normalize_merge` `:278-324`) | yes, read from the code (not probed), except split text on an orphan Text (next row) | each hook keeps a boundary in its node, moves it within its node's tree (`splitText`'s new node when the Text has a parent, `normalize`'s merge target, a sibling of the merged child), or moves a boundary inside a removed subtree to `(parent, index)` of the removed node, whose root is the root the other boundary already had |
-| split text on an orphan Text (`after_split_text`, `live.rs:229-276` → `adjust_ranges_for_split_text`, `range/mod.rs:380-387`) | **no**, read from the code (not probed) | the node-side migration (`off > offset` → `(new_node, off - offset)`) runs whether or not the Text has a parent (`live.rs:266-275` passes `None` parent args only to skip the parent-side rule; `split_text.rs:194` fires the event unconditionally), so a range `(t, 2)`-`(t, 8)` on an orphan `t` split at 5 gets its end on `new_node`, a second orphan: two roots. DOM §4.11 *split a Text node* runs the migration only under step 7 "If parent is non-null" (`webref body dom concept-text-split`). Neither root holds a shadow root, so `tq`'s climb row is not reached by it; the defect is not `tq`'s (found in R1.3 while classifying the hits below; reported to the PM, its placement is the PM's). Probed from page script when the code PR is cut, result to the PM, who decides the slot (§10 item 9) |
-| `LiveRangeRegistry::finalize_pending` (`range/live.rs:434-450`, run by every `with_range` / `with_range_mut`) | **not shown** | it re-homes start and end to the owner document **separately**, each when its own container is no longer in the `EcsDom` (`!dom.contains`), so a range whose start container is gone and whose end container is alive in a shadow tree becomes `(document, 0)`-`(end in the shadow tree)`. Whether a page script can reach that one-ended re-home (a range container despawned without the removal hook having moved the boundary) is **not measured**; §11 P-6 |
+| split text on an orphan Text (`after_split_text`, `live.rs:229-276` → `adjust_ranges_for_split_text`, `range/mod.rs:380-387`) | **no**, measured (erratum 2026-11-22, PM 943; below the table) | the node-side migration (`off > offset` → `(new_node, off - offset)`) runs whether or not the Text has a parent (`live.rs:266-275` passes `None` parent args only to skip the parent-side rule; `split_text.rs:194` fires the event unconditionally), so a range `(t, 2)`-`(t, 8)` on an orphan `t` split at 5 gets its end on `new_node`, a second orphan: two roots. DOM §4.11 *split a Text node* runs the migration only under step 7 "If parent is non-null" (`webref body dom concept-text-split`). Neither root holds a shadow root, so `tq`'s climb row is not reached by it; the defect is not `tq`'s (found in R1.3 while classifying the hits below; reported to the PM, its placement is the PM's). Probed from page script when the code PR is cut, result to the PM, who decides the slot (§10 item 9). Measured: slot `#11-split-text-orphan-live-range-migration` (PM 943; below the table) |
+| `LiveRangeRegistry::finalize_pending` (`range/live.rs:434-450`, run by every `with_range` / `with_range_mut`) | **not shown** (probed: not reached, §11 P-6) | it re-homes start and end to the owner document **separately**, each when its own container is no longer in the `EcsDom` (`!dom.contains`), so a range whose start container is gone and whose end container is alive in a shadow tree becomes `(document, 0)`-`(end in the shadow tree)`. Whether a page script can reach that one-ended re-home (a range container despawned without the removal hook having moved the boundary) was **not measured** at the plan; probed at `bf113e6c`, not reached, with a despawn census (§11 P-6, PM 943: no slot) |
 | Selection setters `extend` (`selection.rs:357-361`) and `set_base_and_extent` (`:408-412`) → raw `set_start` / `set_end` (`boundary.rs:35`, `:42`) with two different nodes, after a node-document check only (`same_document`, `selection.rs:613-618`) | **no** (measured, §11 P-5) | a Selection range can have its start in the light tree and its end in a shadow tree; `tq` changes that shape's output. Precondition: `tsel` (§11 P-5) |
 | Selection setters `collapse` (`selection.rs:278-279`) and `select_all_children` (`:439-440`) → the same raw pair | yes | both boundaries are written with one node (`node` / `parent`), so one root |
 | `Range::new` / `Range::new_with_owner` (`range/mod.rs:89-111`; callers `selection.rs:277`, `:355`, `:406`, `:438`, `:631`, `:634`, `:664`, `document_traversal.rs:40`, `range_proto.rs:287`, `range_proto_mutation.rs:158`, `static_range_proto.rs:415`) | yes | both boundaries at `(node, 0)` |
@@ -273,6 +290,28 @@ boundaries at once; those are rows of their own below (`git grep -n -P '\bclone_
 | the `insertNode` collapsed-end commit (`range_proto_mutation.rs:190-196`, the write at `:194`) | yes, read from the code (not probed) | the end becomes `(parent, newOffset)`, where `parent` is the start container or, for a Text, its stored parent (`range/mutation.rs:447-454`); the start stayed on the start container, so one root |
 | the StaticRange transient (`build_static_range`, `static_range_proto.rs:414-421`, writes `:416`, `:418`; its one caller `:403`, `isValid`) | yes | a StaticRange's fields can span two roots, but `isValid` returns `false` before building the transient when they do (`static_range_proto.rs:382`, `find_tree_root` of both containers); the transient is passed to `compare_boundary_points` only (`:410`) and never reaches `contained_top_level_nodes` or `to_string` (`build_static_range`'s one caller, `git grep -n -w build_static_range 3cbd5b88 -- crates` → 2 hits, definition and `:403`) |
 
+**Split text on an orphan Text, measured (erratum 2026-11-22, PM 943).** WHATWG DOM §4.11 *split a Text node*
+(`#concept-text-split`; `webref body dom concept-text-split`) step 7 reads "If parent is non-null:", and its live-range
+moves of the node side are inside it, step 7.2 "For each live range whose start node is node and start offset is
+greater than offset, set its start node to newNode and decrease its start offset by offset." and step 7.3 "For each
+live range whose end node is node and end offset is greater than offset, set its end node to newNode and decrease its
+end offset by offset." With a null parent the only step that touches a range is step 8, "Replace data of node with
+offset, count, and the empty string." (*replace data*, §4.10 `#concept-cd-replace` steps 8 / 9: a boundary on node
+with offset in (offset, offset + count] is set to offset). Measured from page script at `bf113e6c` (the driver's
+probe; `document.createTextNode('0123456789')`, since the VM has no `Text` constructor):
+
+| Case | Observed at `bf113e6c` | Spec value |
+|---|---|---|
+| orphan `t`, range `(t, 2)`-`(t, 8)`, `t.splitText(5)` | start `(t, 2)`, end `(n, 3)` on the new orphan `n`: two roots; `toString()` "234567" | `(t, 2)`-`(t, 5)` |
+| orphan `t`, range `(t, 6)`-`(t, 8)`, `t.splitText(5)` | `(n, 1)`-`(n, 3)` | collapsed at `(t, 5)` |
+| control: `t` a child of a connected `div`, the same two ranges | as the spec | steps 7.1-7.5, then 8 |
+
+Cause: `after_split_text` (`LiveRangeBridge`'s hook, `range/live.rs`) calls `adjust_ranges_for_split_text` (`range/mod.rs`)
+with `None` for the parent and the index; that skips only the helper's parent-side rule, so the node-side migration
+runs for an orphan too, and `split_text_at_offset` (`char_data/split_text.rs`) calls `EcsDom::fire_split_text`
+whether or not the Text has a parent. Outside `tq`'s declared change (§0.3); its slot is
+`#11-split-text-orphan-live-range-migration` (PM 943), fixed by a small standalone PR after `tq` (§10 item 9).
+
 The 57 hits of the grep, each classified (one root: the write cannot give a one-root range a second root; can be
 two roots; not verified: the code was not traced far enough to say):
 
@@ -284,7 +323,7 @@ two roots; not verified: the code was not traced far enough to say):
 | `range/boundary.rs:116`, `:119` | `collapse` | one root (2) |
 | `range/boundary.rs:132`, `:134` | `select_node_contents` | one root (2) |
 | `range/live.rs:305`, `:309` | `after_normalize_merge` parent-side migration to `prev`, a child of that parent | one root (2) |
-| `range/live.rs:439`, `:445` | `finalize_pending`'s separate re-homes | not verified (2): two roots if one container is gone and the other is alive in another tree; reachability from page script not measured (§11 P-6) |
+| `range/live.rs:439`, `:445` | `finalize_pending`'s separate re-homes | not verified (2): two roots if one container is gone and the other is alive in another tree; reachability from page script not measured at the plan (probed at `bf113e6c`: not reached, §11 P-6) |
 | `range/mod.rs:189`, `:197` | `adjust_ranges_for_removal` (callers only in `range/tests_adjust.rs` at base) | one root (2) |
 | `range/mod.rs:233`, `:240` | `adjust_ranges_for_removal_snapshot` (the live removal hook) | one root (2) |
 | `range/mod.rs:381`, `:385` | `adjust_ranges_for_split_text` node-side migration | can be two roots (2): an orphan Text (the split-text row above) |
@@ -489,12 +528,14 @@ shape is predicted: at base the shadow root is a candidate and `apply_append_chi
   `h.childNodes.length` 0; P1c → 1 record, `target === h`, `removedNodes` = [`light`], `sp.isConnected` true,
   `sr.host === h`.
 - V2 `selection_delete_from_document_over_closed_host_reports_no_shadow_root` (NEW), same file: P5 → as V1's P1.
+  At `9f3a229e` (erratum 2026-11-22) V2 also has the P5-light and P5c shapes (`_p1_light`, `_p1c`), each as V1's.
 - V3 `extract_contents_over_closed_host_reports_no_shadow_root` (NEW), same file: P2 → fragment empty, 0 records,
   `sp.isConnected` true.
 - V4 `range_to_string_skips_shadow_tree_text` (NEW), in `crates/script/elidex-js/src/vm/tests/tests_range.rs`: P3a
   → `"repo"`, P3b → `"reLIGHTpo"`, P3c → `"reLIGHTpo"`.
 - V5 `selection_to_string_skips_shadow_tree_text` (NEW), in
   `crates/script/elidex-js/src/vm/tests/tests_selection.rs`: P4a → `"repo"`, P4b → `"reLIGHTpo"` (rank (2), §3).
+  At `9f3a229e` (erratum 2026-11-22) V5 also has P4c → `"reLIGHTpo"` (`_p4c`, rank (2)).
 - V6 `selection_cross_root_set_base_and_extent_to_string_is_empty` (NEW), same file: §11 P-5's tree (`body` =
   [`pre` "pre", `h`, `post` "post", `p` "TAIL"], `h` closed shadow root holding `sp` > `st` "SHADOW");
   `getSelection().setBaseAndExtent(pre, 1, st, 3); getSelection().toString()` → `""`. This is the post-`tsel`
@@ -509,18 +550,40 @@ the MO cells read records in a second `eval` after the first one's microtask che
 
 **Mutants** (run at the final head only, at most 2 in parallel):
 - M1 `range/mod.rs:574` back to `dom.get_first_child(current)` → red: U1 (a) and (d), U2 / V1 / V2 P1 shape, U2 /
-  V1 P1c shape, U4 / V4 / V5 no-light shape, U4 / V4 P3c shape.
-- M2 `range/mod.rs:579` back to `dom.get_next_sibling(node)` → red: U1 (b), U2 / V1 P1-light shape, U4 / V4 / V5
-  light shape.
+  V1 / V2 P1c shape, U4 / V4 / V5 no-light shape, U4 / V4 / V5 P3c / P4c shape (V2 P1c and V5 P4c: erratum
+  2026-11-22, measured at `9f3a229e`).
+- M2 `range/mod.rs:579` back to `dom.get_next_sibling(node)` → red: U1 (b), U2 / V1 / V2 P1-light shape, U4 / V4 / V5
+  light shape (V2 P1-light: erratum 2026-11-22, measured at `9f3a229e`).
 - M3 `range/mod.rs:574` = `dom.get_first_child(current).filter(|c| !dom.is_shadow_root(*c))` ("`None` if the first
-  stored child is a shadow root") → red: U1 (d), U2 P1c shape, U4 P3c shape, V1 P1c, V4 P3c. Green on every other
-  shape (it equals `tq` there, §6.1).
+  stored child is a shadow root") → red: U1 (d), U2 P1c shape, U4 P3c shape, V1 P1c, V2 P1c, V4 P3c, V5 P4c (V2 P1c
+  and V5 P4c: erratum 2026-11-22, measured at `9f3a229e`; both are after-shape cells, as §6.1's M3 kills on P5c /
+  P4c). Green on every other shape (it equals `tq` there, §6.1).
 
 Observed in the plan's run (§6, §6.1): M1 on the P1, P3a, P1c, P3c, P4c and P5c shapes, M2 on the P3b shape, M3 on
 P1c, P2c, P3c, P4c and P5c. The other kills listed are
 predicted from the same walk (the P1-light shape under M2: the raw sibling of `l` is the shadow root, which then passes
 the `compare_points` filter as in P1) and are checked at the final head (§10). U3 / V3 are not mutant killers (green
 at base); they pin that `extract` no longer depends on `apply_append_child`'s refusal.
+
+**Per-shape table (erratum 2026-11-22; one test per shape at `9f3a229e`; mutants run there by the driver, PM 943).**
+For §10 item 2: ✗ = red under the mutant, · = green. Test names are the cell's name with the shape suffix; list them
+with `git diff bf113e6c 9f3a229e | /usr/bin/grep -E '^\+\s*fn [a-z_0-9]+\(\)'` → 26 lines, one per column entry below.
+
+| Cell | Test (shape suffix) | M1 | M2 | M3 |
+|---|---|---|---|---|
+| U1 (a) / (b) / (c) / (d) | `next_in_preorder_global_does_not_enter_shadow_root_{a,b,c,d}` | ✗ / · / · / ✗ | · / ✗ / · / · | · / · / · / ✗ |
+| U2 P1 / P1-light / P1c | `delete_contents_over_host_leaves_shadow_root_linked_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| U3 P2 / P2-light | `extract_contents_over_host_leaves_shadow_root_linked_{p2,p2_light}` | · / · | · / · | · / · |
+| U4 P3a / P3b / P3c | `to_string_over_host_skips_shadow_tree_text_{p3a,p3b,p3c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| V1 P1 / P1-light / P1c | `delete_contents_over_closed_host_reports_no_shadow_root_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| V2 P5 / P5-light / P5c | `selection_delete_from_document_over_closed_host_reports_no_shadow_root_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| V3 P2 | `extract_contents_over_closed_host_reports_no_shadow_root` | · | · | · |
+| V4 P3a / P3b / P3c | `range_to_string_skips_shadow_tree_text_{p3a,p3b,p3c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| V5 P4a / P4b / P4c | `selection_to_string_skips_shadow_tree_text_{p4a,p4b,p4c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
+| V6 | `selection_cross_root_set_base_and_extent_to_string_is_empty` | · | · | · |
+
+Files: U1-U4 `crates/dom/elidex-dom-api/src/range/tests.rs`; V1-V3 `tests_mutation_observer/range_ops.rs`; V4
+`tests_range.rs`; V5, V6 `tests_selection.rs` (all under `crates/script/elidex-js/src/vm/tests/` for V).
 
 ### §7.1 1000-line re-count at `3cbd5b88`
 
@@ -537,6 +600,13 @@ its §7.1 *1000-line re-count at `3cbd5b88`*; landed #658 `f9acca16`), `tsel`'s 
 a fixture edit (+1 line). The counts and the anchors cited in this memo are still re-measured on the code PR's base
 (§10 item 7); if a file is already at or over 1000 there, or would cross 1000 with `tq`'s cells, those cells go in a
 new test file.
+
+**Re-measured on the code PR (erratum 2026-11-22).** `for c in bf113e6c 9f3a229e; do for f in <the six files
+above>; do git show $c:$f | wc -l; done; done` → at the code PR's base `bf113e6c`: 453, 586, 443, **839**, 589, 651;
+at the head `9f3a229e`: 649, 726, 485, 913, 599, 657. `tests_selection.rs` was 839 on that base, not 787: `tsel`
+(#668) added +59 / −7 to it (`git diff --numstat bf113e6c^ bf113e6c -- <file>`), not the one fixture line its plan
+predicted (#655 is ±2). After `tq` the largest is 913, so no file is at or
+over 1000 on either commit and no new test file is needed (§10 item 7).
 
 ## §8. Landing items
 
@@ -600,6 +670,10 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    names `#11-shadow-root-is-a-tree-root` for the unchanged upward step; the rewritten `contained_top_level_nodes`
    comment (rewritten as a whole) cites WHATWG DOM §5.6 for *contained* and for the `nodesToRemove` paragraph it
    keeps, holds no "§5.5", and states the three clauses of *contained* and which part enforces which (§0.1).
+   Not missed (erratum 2026-11-22): the two inline `//` comments in `contained_top_level_nodes`' body, `// DOM §5.5
+   "contained": …` and `// §5.5 omit-nested: …`, still say §5.5. They are not the doc comment, and item 1 limits the
+   `mutation.rs` diff to `///` lines, so `tq` leaves them to the §5.5 renumber sweep (§11 P-3). measure: `git grep -n
+   -F '§5.5' 9f3a229e -- crates/dom/elidex-dom-api/src/range/mutation.rs`.
 6. Prereq landed: `tsel` (`#11-selection-boundary-setter-skips-root-check`; "Selection operations check the spec's
    tree preconditions", PM 890) is in the code PR's base (§9 item 3), and V6 is green there.
 7. On the code PR's base (which contains `tsel`), the anchors this memo cites (`range/mod.rs:572-584`, the
@@ -608,8 +682,12 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    cross 1000 with `tq`'s cells, `tq`'s cells for it go in a new test file.
 8. P-6 reachability probed from page script before the code PR; if reachable, report to the PM, who decides a slot
    or scope before the code PR is cut (§11 P-6). No slot is opened on the unmeasured claim.
+   Done (erratum 2026-11-22): probed at `bf113e6c`, not reached; PM 943: no slot (§11 P-6, *Measured*).
 9. (PM 11-21) The orphan-Text `splitText` live-range finding (§4.2, the split-text row) is probed from page script
    when the code PR is cut (or earlier if cheap); the result is reported to the PM, who decides the slot.
+   Done (erratum 2026-11-22): measured at `bf113e6c`, the finding is real (§4.2, *Split text on an orphan Text,
+   measured*); PM 943 places it in the new slot `#11-split-text-orphan-live-range-migration`, fixed by a small
+   standalone PR after `tq`, not in `tq`.
 
 ## §11. Premises found wrong or not foreseen
 
@@ -626,7 +704,10 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   crates/dom/elidex-dom-api/src/range | wc -l` → 47; `§5.6` → 1); `webref heading dom 5.5` → Interface StaticRange,
   `5.6` → Interface Range. Pre-existing and not `tq`'s; `tq`'s own new comments use §5.6, and its rewrite of the
   `contained_top_level_nodes` comment takes two of the 47 (`mutation.rs:72`, `:77`), so the count after `tq` is 47 − the lines `tq` rewrites
-  (45 expected, measured at the code PR). Placed by PM 882 (3) under
+  (45 expected, measured at the code PR; measured (erratum 2026-11-22): `git grep -n -F '§5.5' <sha> --
+  crates/dom/elidex-dom-api/src/range | wc -l` → 36 at the code PR's base `bf113e6c`, which already carries Layout's
+  11 rewrites (#659 `1f81fdc2`: 47 → 36), and 34 at `9f3a229e`: `tq` takes 2, as expected; the two left in `contained_top_level_nodes`' body are
+  the sweep's, §10 item 5). Placed by PM 882 (3) under
   the sweep `project_dom-events-section-renumber-sweep`. Three facts for the PM's sweep record (the record is the
   PM's): its pattern `§\s?5\.5(?![.0-9])` misses a sentence-final "§5.5." (`git grep -n -P` with it on
   `crates/script/elidex-js/src/vm/host/range_proto_mutation.rs` → 5 hits of the file's 7 `§5.5`; the two missed are
@@ -682,3 +763,29 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   same-root claim for that path. PM 890: its reachability is probed from page script before the code PR (§10 item
   8); if it is reachable, the PM decides a slot or scope before the code PR is cut. No slot is opened on the
   unmeasured claim.
+
+  **Measured (erratum 2026-11-22; PM 943: no slot).** Probed from page script at `bf113e6c` (the driver's probe): a
+  range on a shadow-tree Text node, the node's parent then removed, every script reference dropped, the GC run
+  twice. The container was kept and the range kept one root, so the one-ended re-home was **not reached**. The
+  re-home needs a range container despawned; the despawn census says which nodes are despawned at all.
+  measure: `git grep -n 'destroy_entity(\|despawn_subtree(\|\.despawn(' -- crates ':!*tests*'` → 27 lines at
+  `9f3a229e` (and 27 at `bf113e6c`), by enclosing symbol:
+
+  | Lines | Where (file, symbol) | Can page script hold a Range boundary in the despawned node? |
+  |---|---|---|
+  | 7 | not calls: the definitions of `EcsDom::destroy_entity` and `EcsDom::despawn_subtree` (`elidex-ecs` `dom/tree/teardown.rs`), two doc lines in the same file, two in `LiveRangeRegistry::finalize_pending`'s doc (`range/live.rs`), one comment in `TreeBuilder`'s `run_fragment` (`elidex-html-parser-strict` `tree_builder/mod.rs`) | n/a |
+  | 4 | inside inline `#[cfg(test)]` modules, which the pathspec does not exclude: `elidex-api-canvas` `offscreen.rs`, `elidex-api-observers` `resize.rs` (2), `elidex-ecs` `dom/geometry.rs` | n/a (tests) |
+  | 3 | inside the two primitives: `destroy_entity` (its `world.despawn`, and its destroy of a template's inert content document) and `despawn_subtree` (its per-entity `destroy_entity`) | reached only through the callers below |
+  | 2 | internal temporary fragments: `destroy_temp_fragment` (`elidex-dom-api` `child_node/mutations.rs`, destroys an emptied temporary fragment), `OptionsSetLength`'s `invoke` (`element/select.rs`, the emptied transient fragment) | no: created and emptied inside the one algorithm, never handed to script |
+  | 4 | fresh nodes on an error path: `InsertAdjacentText`'s `invoke` (`element/tree.rs`, 2: the new Text after a validity or insertion failure), `EcsDom::attach_shadow_with_init` (`elidex-ecs` `dom/shadow.rs`, the new shadow root when `append_child` fails), `split_text_at_offset`'s insertion-failure rollback (`char_data/split_text.rs`, before `fire_split_text`) | no: the node was never returned to script and no hook has moved a boundary onto it |
+  | 5 | parser throwaways: `EcsDom::finish_detached_fragment` (`elidex-ecs` `dom/tree/teardown.rs`, 2: the throwaway root and document; called by both parsers, `elidex-html-parser` `lib.rs` and `elidex-html-parser-strict` `TreeBuilder`), `TreeBuilder`'s `run_fragment` error rollback (2: the stack-only declarative-shadow templates and the throwaway document), `TreeBuilder`'s `template_end_tag` (`tree_builder/shadow.rs`, a consumed declarative-shadow template, stack-only) | no: built by the parser with no script running, and not in any tree script can reach |
+  | 1 | pseudo-elements: `remove_pseudo_entities` (`elidex-style` `pseudo.rs`) | no: a pseudo-element entity is not a node script can name |
+  | 1 | **the candidate**: `split_text_at_offset`'s second rollback (`char_data/split_text.rs`), which destroys `new_node` after `EcsDom::fire_split_text` has migrated boundaries onto it | only if `EcsDom::set_text_data` returns `None` after the brand check, which the code marks defensive-only ("TextContent disappeared after the brand check"); the probe could not construct it |
+
+  Two facts close the other routes the probe tried: the VM's `collect_garbage` frees wrappers only (measure: `git
+  grep -n -e 'destroy_entity(' -e 'despawn_subtree(' -e '\.despawn(' -- crates/script ':!*tests*'` → 0; control: `git
+  grep -n live_range_registry -- crates/script/elidex-js/src/vm/gc` → 2, the sweep's Range block), and `innerHTML` /
+  `textContent` replacement removes the old children and leaves them as orphans, despawning nothing (the driver's
+  reading for PM 943; none of the 13 calls above is a replace-all path). **What would stop a future despawn caller from reaching a held boundary is not
+  named**, so the result is "not reached", not "unreachable": a new caller of the census commands re-opens it. PM
+  943: no slot; the §4.2 row stays "not shown".
