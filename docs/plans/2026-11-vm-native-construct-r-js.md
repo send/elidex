@@ -12,7 +12,7 @@ says otherwise; line numbers appear only as "at `<sha>`". `git diff --stat 7af70
 files, only `vm/interpreter_call.rs` and `vm/natives_generator.rs`; `git diff --stat 378633f6 3cbd5b88` touches none
 of them (the `data_transfer` split, `events_modern/mod.rs`, `tests_events_modern.rs` and the umbrella); §6.1 and the
 umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). The R-0b per-PR plan is
-`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md` (Rev 2.3; this memo read it as a claim at Rev 2.1 `c2e3dd5f`,
+`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md` (this memo read it as a claim at Rev 2.1 `c2e3dd5f`,
 before it landed, and R-0b's plan PR re-points this cite; PM 899 / PM 904: no repo cite to a local path).
 Each child re-reads its anchors at its own base; where a child's base must contain one of them, the child says so (§8).
 

@@ -29,10 +29,17 @@ absolute.
 - Both enumerate `this_value`, `upvalue_ids`, `local_upvalue_ids`, `actual_args`, `new_instance`, `mode`,
   `home_class`, `pending_completion`; only `generator` differs (live `roots.rs:300-302`, suspended none). Measured in §2.
 - `CallFrame` is **stored** in exactly two places: `VmInner::frames` (`vm/mod.rs`, read by `GcRoots`'s `frames`,
-  `vm/gc/roots.rs`) and `SuspendedFrame`'s `frame` (`vm/coroutine_types.rs`). Command, at `f9acca16` (same result at
-  `84fee8fa`): `git grep -n -w CallFrame f9acca16 -- crates/script/elidex-js/src` (every other hit is a doc mention, an
-  import, a struct literal, `CallFrame::tdz_init`, or `create_coroutine`'s by-value parameter, next bullet). So the two
-  blocks are the whole population of the frame's **storage residencies**, and R-0b's one function serves both.
+  `vm/gc/roots.rs`) and `SuspendedFrame`'s `frame` (`vm/coroutine_types.rs`). Command, at `f9acca16`:
+  `git grep -n -w CallFrame f9acca16 -- crates/script/elidex-js/src` prints 41 lines, classified completely: the two
+  storage residencies, 2 (`VmInner::frames`, `SuspendedFrame::frame`); the residency read, 1 (`GcRoots`'s `frames`
+  field, `roots.rs`); the struct definition, 1 (`frame.rs`); the impl, 1 (`frame.rs`); imports, 5 (`coroutine_types.rs`,
+  `gc/roots.rs`, `interpreter_call.rs`, `mod.rs`, `natives_generator.rs`); struct literals, 4 (three in
+  `interpreter_call.rs`, one in `forged_frame`, `vm/tests/tests_with_call_mode.rs`); `CallFrame::tdz_init` calls, 2
+  (`interpreter_call.rs`); `create_coroutine`'s by-value parameter, 1 (next bullet); `forged_frame`'s return type, 1
+  (`vm/tests/tests_with_call_mode.rs`); doc and comment mentions, 23. Sum 2+1+1+1+5+4+2+1+1+23 = 41. Positive control:
+  the same command must print `vm/frame.rs:70:pub struct CallFrame {` (the definition) and
+  `vm/mod.rs:192:    pub(crate) frames: Vec<CallFrame>,` (a residency); it does. So the two blocks are the whole
+  population of the frame's **storage residencies**, and R-0b's one function serves both.
 - A frame being created for a generator or async call is in neither residency until it is installed, and needs no
   third one. Since #650 (`7af70b68`, `#11-vm-coroutine-creation-frame-rooting`) every generator and async call ends in
   `VmInner::create_coroutine` (`vm/natives_generator.rs`; callers `call_internal` and `push_js_call_frame`,
@@ -74,6 +81,7 @@ So there is no third storage site, nothing for R-0b to fold and no ordering ques
 | 2.1 | Plan-review R2 Axis 2 re-check (IMP 1, MIN 4). **IMP-1** a field bound as `field: _` could be retyped to a handle type and still compile: every untraced field of `CallFrame` and `HandlerEntry` is now bound to a name and its type pinned at the binding site; the residual narrowed to what a pinned type means to the GC and new handle-carrying variants of shared primitives (§4); a mechanical pin listing and a local retype control added (§8). MIN: the narrowing slot's draft name and its ID cited once registered (§1.3); the pre-existing VM-P4 family anchor drift homed by a proposed slot (§5.5); `:81` and `:768` added to the abort-signal memo's moved cites (§5.5); the suspended `upvalue_slots` cell's observable named (§6). | PM 811 |
 | 2.2 | Cites re-anchored to `f9acca16` (drift findings reported to the driver). Code cites whose line only locates a symbol now name the symbol; ranges that are the claim (the two blocks, §2's census, §8's control) are re-measured at `f9acca16`; the §2 census re-run gives the same 17 rows. Cites of facts that #650 (`7af70b68`) or #644 (`4d7b41dd`) changed are marked `84fee8fa` and kept as written (§0.1's creation-window sites and `CallFrame` command, §1.2's four store sites, §5.5's L3 branch and abort-signal memo lines). | — |
 | 2.3 | Stale tree statements folded (#650 / #643 / #644 landed), no plan decision changed. #650: the coroutine-creation window is closed on the stack-rooting branch, no third residency (§0.1, §0.2, §0.3, §1 Out, §3, §8); `SuspendedFrame` store sites 4 → 2, D-2 and the `upvalue_slots` subset re-checked at both (§1.2). #643: the umbrella is ratified and on main at Rev 1.7, its cites re-pointed by § (§0, §5.4, §8), and R-JS plan's cite of this memo re-pointed when this memo lands (§5.4). #644: L3's branch landed, the rebase coupling removed, the abort memo's cite lines re-measured at `f9acca16` (§5.5). | — |
+| 2.4 | Focused re-check of Rev 2.2–2.3 (CRIT 0 / IMP 0 / MIN 5 + 1 pre-existing) folded; no plan decision changed. §0.1's `CallFrame` census classified completely with per-class counts and a positive control; §1.1's module-doc cite located; §5.4's R-JS cite paragraph put in the past tense; §5.5's abort-signal memo cites read against its `69fbe61f` pin, the PR-body listing dropped; §2's `CallMode` range `:628-641`. | — |
 
 ## §1. Scope
 
@@ -89,7 +97,7 @@ reaction-target arms are not touched (§5.3). `vm/gc/collect.rs` (2064 lines at 
 ### §1.1 D-1: location — `vm/gc/mod.rs`, beside the mark primitives
 
 `vm/gc/mod.rs` already homes, by its own stated rule, the code "both halves of the mark phase consume"
-(`vm/gc/mod.rs`'s module doc, last paragraph: `mark_value`, `mark_object`, `mark_upvalue`). `mark_frame` is exactly that: a
+(`vm/gc/mod.rs`'s module doc, the `## Module layout` section, last paragraph: `mark_value`, `mark_object`, `mark_upvalue`). `mark_frame` is exactly that: a
 composite primitive called by the root walker (`roots.rs`) and the work-list tracer (`trace.rs`). It is a free function
 taking split borrows like its siblings (`vm/gc/mod.rs`'s module doc, "split borrow — mark bits are `&mut` while
 objects/upvalues/stack/frames are `&`"):
@@ -190,7 +198,7 @@ shapes and compiled functions are permanent (`vm/gc/mod.rs`'s module doc). `Obje
 | 10 | `actual_args` `:93` | `Option<Vec<JsValue>>` | **yes** | `:286-290` | `:346-350` |
 | 11 | `cleanup_base` `:96` | `usize` | no | — | — |
 | 12 | `new_instance` `:100` | `Option<ObjectId>` | **yes** | `:291-293` | `:351-353` |
-| 13 | `mode` `:111` | `CallMode` (`Construct { new_target: ObjectId }`, `vm/value.rs:628-640`) | **yes** | `:294-296` | `:354-357` |
+| 13 | `mode` `:111` | `CallMode` (`Construct { new_target: ObjectId }`, `vm/value.rs:628-641`) | **yes** | `:294-296` | `:354-357` |
 | 14 | `home_class` `:121` | `Option<ObjectId>` | **yes** | `:297-299` | `:358-360` |
 | 15 | `kind` `:134` | `FrameKind` (fieldless, `:58-67`) | no | — | — |
 | 16 | `generator` `:138` | `Option<ObjectId>` | **yes** | `:300-302` | **none** (F-1) |
@@ -362,11 +370,11 @@ on main records the same item with its trigger and due date (`docs/plans/2026-11
 "Umbrella items left for a later revision"). R-0b's PR body and its landing report to the PM name this obligation;
 this section is its durable statement.
 
-**The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) reads
-this memo as an in-flight claim, "branch `vm-r0b-frame-roots` @ `c2e3dd5f`, Rev 2.1, not on main", with its landing
-order: this plan lands before R-JS-1 starts, or the cite is re-pointed to its main path when it lands (PM 899 / PM 904:
-no repo cite to a local path). The PR that lands this memo on main re-points that cite to
-`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md`.
+**The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) read
+this memo as an in-flight claim at Rev 2.1 (`c2e3dd5f`, branch `vm-r0b-frame-roots`, not on main), with its landing
+order: this plan lands before R-JS-1 starts, and the cite is re-pointed to its main path when it lands (PM 899 / PM 904:
+no repo cite to a local path). This plan PR re-pointed that cite (R-JS memo `:14-16`) to
+`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md`, still recording that it was read as a claim at Rev 2.1.
 
 ### §5.5 Other line-shift sites (not R-0b's to edit)
 
@@ -377,9 +385,13 @@ Removing the two blocks shifts every later line of `vm/gc/roots.rs` (after `:277
   branch is in flight over these files) cites, at `f9acca16`, lines after the blocks: `trace.rs:385-398` (`:89`,
   `:781`, `:818`, `:966`), `trace.rs:387` (`:320`, `:529`), `trace.rs:540` (`:189`), note (k) `roots.rs:600-618`
   (`:87`, `:776`, `:817`) and the line counts `roots.rs` 619 (`:817`; 618 at `f9acca16`) and `trace.rs` 1255 (`:818`,
-  `:966`; 1265 at `f9acca16`), both changed again by R-0b (§7). R-0b moves them; they are L3's memo, and R-0b does not
-  edit it. Its `roots.rs:257-261` (`:86`, `:776`, `:817`), `roots.rs:100-101` and `trace.rs:32-35` (`:113`) precede the
-  blocks and do not move. R-0b's PR body lists the moved ones, with their new lines measured at the PR's head.
+  `:966`; 1265 at `f9acca16`), both changed again by R-0b (§7). That memo pins every code fact at `69fbe61f` ("line numbers move, the
+  commands do not", its header at `:4-5` on main), so R-0b makes none of its cites false: each stays true at its pinned sha. They are
+  L3's memo, and R-0b does not edit it. L3's next PR in that program re-measures them at its own base, the owner Rev
+  2.1 named (L3's implementation). Its `roots.rs:257-261` (`:86`, `:776`, `:817`), `roots.rs:100-101` and
+  `trace.rs:32-35` (`:113`) precede the blocks and do not move. Rev 2.1's obligation that R-0b's PR body list the moved
+  lines is dropped: the pin makes it moot, since no cite becomes false, and lines measured at R-0b's head would be stale
+  again at L3's base, where the re-measurement belongs.
 - **VM-P4 family memos whose frame-block cites are already stale at `84fee8fa`** (R-0b did not make them stale):
   `docs/plans/2026-07-vm-p4-slot-ledger.md:286` (`roots.rs:294-295`, `trace.rs:353-355`), `2026-07-vm-p4-slice-plan.md:943`
   and `2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:470` (`trace.rs:345-370`). They are pre-existing and
