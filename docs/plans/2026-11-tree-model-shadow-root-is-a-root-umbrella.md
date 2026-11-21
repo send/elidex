@@ -37,7 +37,7 @@ census count was re-measured at `bfc63658` with the same result (§8). Drafts 1 
 [2026-11-tree-model-census.md](2026-11-tree-model-census.md) (commands, counts, per-file tables, scripts, spec
 lookups; §6 here says what each population is for).
 
-**Changelog.** erratum: Status ratified (PM 848, #648 `4918a6c7`); §5.1 slice order tsel before tq and the "`tq` first" sentence; §5 `tq` row Deps — no rev bump, PM 884, PM 891.
+**Changelog.** *Erratum: tsel before tq (PM 884, PM 891)* (2026-11-21; no rev bump; carried by the tsel plan PR, branch `tree-model-tsel-plan`). Status ratified (PM 848, #648 `4918a6c7`); §5.1 slice order tsel before tq and the "`tq` first" sentence; §5 `tq` row Deps.
 
 **Rulings this memo implements (decided, not reopened here).**
 
