@@ -159,7 +159,7 @@ fn parse_ui_members(
         .vm
         .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.detail))?;
     // `detail` is WebIDL `long` (UI Events §3.2) — ToInt32 per WebIDL
-    // §3.10.9 (NaN / ±Infinity / ±0 → 0; otherwise truncate + mod 2^32
+    // §3.2.4.9 (NaN / ±Infinity / ±0 → 0; otherwise truncate + mod 2^32
     // with two's-complement reinterpret).  Browsers surface 0 for
     // `new UIEvent('x', {detail: NaN}).detail`; preserving NaN was the
     // pre-R3.4 behaviour.

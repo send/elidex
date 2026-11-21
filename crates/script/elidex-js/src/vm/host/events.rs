@@ -711,7 +711,7 @@ fn native_custom_event_constructor(
     let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "CustomEvent")?;
-    // Read `detail` separately.  Missing key also yields
+    // Read `detail` separately.  A missing key yields
     // `Undefined` from `get_property_value`; the WHATWG default is
     // `null`.  Both collapse to `null`: WebIDL §3.2.17 step 4.1.5 applies
     // the `= null` default when Get returns `undefined`, so an explicit

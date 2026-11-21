@@ -161,7 +161,7 @@ fn mutation_observer_observe_target_must_be_node() {
 
 #[test]
 fn mutation_observer_observe_requires_two_arguments() {
-    // WebIDL: `observe(Node target, MutationObserverInit options)` —
+    // Deviation: the IDL has `optional MutationObserverInit options = {}`, but
     // both required.  Match Chrome/Firefox arg-count error message
     // before falling through to per-argument coercion errors.
     let err_zero = run_throws("var mo = new MutationObserver(function(){}); mo.observe();");

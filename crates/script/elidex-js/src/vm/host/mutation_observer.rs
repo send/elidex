@@ -226,7 +226,7 @@ fn native_mutation_observer_observe(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // WebIDL signature: `observe(Node target, MutationObserverInit options)` —
+    // Deviation: the IDL is `observe(Node target, optional MutationObserverInit options = {})`, but
     // both arguments required.  Match Chrome/Firefox arg-count error
     // message before falling through to the per-argument coercion errors.
     if args.len() < 2 {

@@ -556,9 +556,9 @@ pub(crate) fn parse_blob_options_endings(
 }
 
 /// Parse the optional `options` dict's `type` member into a
-/// lowercased `StringId`.  Spec §3.2 step 4 lower-cases the
-/// provided MIME type after an ASCII validity check; Phase 2
-/// lower-cases unconditionally (no validity check yet).
+/// lowercased `StringId`.  FileAPI §3.1 Blob() constructor step 3
+/// lower-cases the provided type after its validity check (step 3.1);
+/// this code checks ASCII only (see below).
 pub(crate) fn parse_blob_options_type(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
