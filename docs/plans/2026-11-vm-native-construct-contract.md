@@ -721,7 +721,7 @@ Slot ids are exact matches in the repo ledger (`docs/plans/2026-07-vm-p4-slot-le
   - **O-1 (closed: the user retracted D-17b §6, 11-18, PM 789).** *Upgrade an element* reads no `prototype`
     (HTML §3.2.3 step 14 changes it); §6's pre-push wrapper write (#232 `e30722f4`, R5) goes at R-JS.
 - **S-3 `DataTransfer` / `Touch` ignore the subclass prototype.** Both allocate with the fixed interface
-  prototype (`vm/host/events_modern/data_transfer.rs:332-341`, `vm/host/events_modern/touch.rs:327-335`),
+  prototype (`vm/host/events_modern/data_transfer/mod.rs` `native_data_transfer_constructor`, `vm/host/events_modern/touch.rs:327-335`),
   so `class T extends Touch {}; new T(init) instanceof T` is false. Home: R-NAT host chapter.
 
 ### §5.4 Ledger edits (listed, not made here)

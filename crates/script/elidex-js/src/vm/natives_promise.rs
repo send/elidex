@@ -584,7 +584,9 @@ fn dispatch_unhandled_rejection_event(
             PropertyAttrs::WEBIDL_RO,
         );
 
-        // Root + invoke + sync flags back into DispatchEvent.
+        // Root + invoke + sync flags back into DispatchEvent (the root
+        // outlives the call, whose own `args` rooting ends on return:
+        // the flag sync reads the event object after it).
         let mut g = vm.push_temp_root(JsValue::Object(event_obj_id));
         // Errors swallowed — dispatch is a fire-and-forget host hook.
         let _ = g.call(
