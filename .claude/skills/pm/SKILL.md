@@ -111,7 +111,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 - Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出したら helper はそこで止まり、driver が当てた後の新しい head の依頼では Stage 4–5 だけを回す (`/pre-push`「Fix → re-verify」、PM 924)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。
-- Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912)。
+- Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
 
@@ -226,7 +226,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
 - Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (driver 側は `/drive` の `codex.md` の merge 行、PM 911 / 918)。
-- PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
+- PM が起こした PR も、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
 
