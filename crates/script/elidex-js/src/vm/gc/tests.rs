@@ -9,10 +9,12 @@
 
 #![cfg(test)]
 
-use super::super::frame::{Upvalue, UpvalueState};
+use super::super::coroutine_types::{FrameCompletion, GeneratorStatus, SuspendedFrame};
+use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
 use super::super::shape;
 use super::super::value::{
-    FunctionObject, JsValue, Object, ObjectKind, Property, PropertyStorage, PropertyValue,
+    CallMode, FuncId, FunctionObject, GeneratorState, JsValue, Object, ObjectId, ObjectKind,
+    Property, PropertyStorage, PropertyValue, UpvalueId,
 };
 use super::super::Vm;
 
@@ -404,4 +406,237 @@ fn gc_correctness_under_stress() {
     );
     // 0 + 1 + 2 + ... + 20 = 210
     assert_eq!(result.unwrap(), JsValue::Number(210.0));
+}
+
+// ── Frame-root neutrality cells (R-0b) ────────────────
+//
+// Each cell hand-builds a `CallFrame` (the way `forged_frame` in
+// `vm/tests/tests_with_call_mode.rs` does) whose only reference to a fresh
+// object is one handle field, runs a collection, and asks whether the object
+// is still allocated.  Two residencies: a live frame on `VmInner::frames`,
+// and a frame stored in a rooted `Generator`'s `SuspendedFrame`.  The
+// negative controls clear the handle: the object must then be collected, so
+// the cells can see a collection.
+
+/// The frame handles under test (one per GC-relevant `CallFrame` field, with
+/// `pending_completion` split by variant).
+#[derive(Clone, Copy, Debug)]
+enum Handle {
+    This,
+    UpvalueIds,
+    LocalUpvalueIds,
+    ActualArgs,
+    NewInstance,
+    ModeConstruct,
+    HomeClass,
+    Generator,
+    PendingReturn,
+    PendingThrow,
+}
+
+/// A frame with no handle set.
+fn blank_frame() -> CallFrame {
+    CallFrame {
+        func_id: FuncId(0),
+        ip: 0,
+        base: 0,
+        upvalue_ids: std::sync::Arc::from([] as [UpvalueId; 0]),
+        local_upvalue_ids: Vec::new(),
+        this_value: JsValue::Undefined,
+        exception_handlers: Vec::new(),
+        tdz_bits: 0,
+        tdz_overflow: Box::default(),
+        actual_args: None,
+        cleanup_base: 0,
+        new_instance: None,
+        mode: CallMode::Call,
+        home_class: None,
+        kind: FrameKind::Function,
+        generator: None,
+        pending_completion: None,
+    }
+}
+
+/// A `Generator` object holding `suspended`.
+fn alloc_generator(vm: &mut Vm, suspended: Option<SuspendedFrame>) -> ObjectId {
+    vm.inner.alloc_object(Object {
+        kind: ObjectKind::Generator(Box::new(GeneratorState {
+            status: GeneratorStatus::SuspendedYield,
+            suspended,
+            wrapper: None,
+        })),
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: None,
+        extensible: true,
+    })
+}
+
+/// A closed upvalue holding `obj`.
+fn closed_upvalue(vm: &mut Vm, obj: ObjectId) -> UpvalueId {
+    vm.inner.alloc_upvalue(Upvalue {
+        state: UpvalueState::Closed(JsValue::Object(obj)),
+    })
+}
+
+/// A fresh object plus a frame whose only reference to it is `handle`
+/// (set iff `place`).  For `Handle::Generator` the object is a generator.
+fn frame_holding(vm: &mut Vm, handle: Handle, place: bool) -> (ObjectId, CallFrame) {
+    let obj = if matches!(handle, Handle::Generator) {
+        alloc_generator(vm, None)
+    } else {
+        vm.inner.alloc_object(ordinary(None))
+    };
+    let mut f = blank_frame();
+    if place {
+        match handle {
+            Handle::This => f.this_value = JsValue::Object(obj),
+            Handle::UpvalueIds => {
+                let uv = closed_upvalue(vm, obj);
+                f.upvalue_ids = std::sync::Arc::from([uv]);
+            }
+            Handle::LocalUpvalueIds => {
+                let uv = closed_upvalue(vm, obj);
+                f.local_upvalue_ids = vec![uv];
+            }
+            Handle::ActualArgs => f.actual_args = Some(vec![JsValue::Object(obj)]),
+            Handle::NewInstance => f.new_instance = Some(obj),
+            Handle::ModeConstruct => f.mode = CallMode::Construct { new_target: obj },
+            Handle::HomeClass => f.home_class = Some(obj),
+            Handle::Generator => f.generator = Some(obj),
+            Handle::PendingReturn => {
+                f.pending_completion =
+                    Some(Box::new(FrameCompletion::Return(JsValue::Object(obj))));
+            }
+            Handle::PendingThrow => {
+                f.pending_completion = Some(Box::new(FrameCompletion::Throw(JsValue::Object(obj))));
+            }
+        }
+    }
+    (obj, f)
+}
+
+/// Root `gen_id` through a global.
+fn root_via_global(vm: &mut Vm, gen_id: ObjectId) {
+    let key = vm.inner.strings.intern("frame_root_cell_generator");
+    vm.inner.globals.insert(key, JsValue::Object(gen_id));
+}
+
+/// Collect and report whether `obj` is still allocated.
+fn collect_and_alive(vm: &mut Vm, obj: ObjectId) -> bool {
+    vm.inner.gc_enabled = true;
+    vm.inner.collect_garbage();
+    vm.inner.objects[obj.0 as usize].is_some()
+}
+
+/// Live residency: the frame is pushed on `VmInner::frames`.
+fn live_frame_keeps(handle: Handle, place: bool) -> bool {
+    let mut vm = test_vm();
+    let (obj, f) = frame_holding(&mut vm, handle, place);
+    vm.inner.frames.push(f);
+    let alive = collect_and_alive(&mut vm, obj);
+    vm.inner.frames.pop();
+    alive
+}
+
+/// Suspended residency: the frame sits in a `Generator`'s `SuspendedFrame`,
+/// the generator rooted through a global.
+fn suspended_frame_keeps(handle: Handle, place: bool) -> bool {
+    let mut vm = test_vm();
+    let (obj, f) = frame_holding(&mut vm, handle, place);
+    let gen_id = alloc_generator(
+        &mut vm,
+        Some(SuspendedFrame {
+            frame: f,
+            stack_slice: Vec::new(),
+            upvalue_slots: Vec::new(),
+        }),
+    );
+    root_via_global(&mut vm, gen_id);
+    collect_and_alive(&mut vm, obj)
+}
+
+const LIVE_HANDLES: [Handle; 10] = [
+    Handle::This,
+    Handle::UpvalueIds,
+    Handle::LocalUpvalueIds,
+    Handle::ActualArgs,
+    Handle::NewInstance,
+    Handle::ModeConstruct,
+    Handle::HomeClass,
+    Handle::Generator,
+    Handle::PendingReturn,
+    Handle::PendingThrow,
+];
+
+/// The suspended column: `generator` is the smoke check below (the owner
+/// survives whether or not the field is marked), so it is not in this list.
+const SUSPENDED_HANDLES: [Handle; 9] = [
+    Handle::This,
+    Handle::UpvalueIds,
+    Handle::LocalUpvalueIds,
+    Handle::ActualArgs,
+    Handle::NewInstance,
+    Handle::ModeConstruct,
+    Handle::HomeClass,
+    Handle::PendingReturn,
+    Handle::PendingThrow,
+];
+
+#[test]
+fn live_frame_handles_survive_collection() {
+    for h in LIVE_HANDLES {
+        assert!(live_frame_keeps(h, true), "live frame {h:?} must be rooted");
+    }
+}
+
+#[test]
+fn live_frame_negative_control_collects() {
+    for h in LIVE_HANDLES {
+        assert!(
+            !live_frame_keeps(h, false),
+            "live frame {h:?} cleared: the object must be collected"
+        );
+    }
+}
+
+#[test]
+fn suspended_frame_handles_survive_collection() {
+    for h in SUSPENDED_HANDLES {
+        assert!(
+            suspended_frame_keeps(h, true),
+            "suspended frame {h:?} must be rooted"
+        );
+    }
+}
+
+#[test]
+fn suspended_frame_negative_control_collects() {
+    for h in SUSPENDED_HANDLES {
+        assert!(
+            !suspended_frame_keeps(h, false),
+            "suspended frame {h:?} cleared: the object must be collected"
+        );
+    }
+}
+
+/// Smoke check, not a neutrality cell: the suspended frame's `generator` is
+/// its owner, which survives through the global whether or not the field is
+/// marked.  Proves only that marking the owner from inside its own arm
+/// neither panics nor loops.
+#[test]
+fn suspended_frame_owner_generator_smoke() {
+    let mut vm = test_vm();
+    let gen_id = alloc_generator(&mut vm, None);
+    let mut f = blank_frame();
+    f.generator = Some(gen_id);
+    let ObjectKind::Generator(state) = &mut vm.inner.get_object_mut(gen_id).kind else {
+        unreachable!("alloc_generator allocates a Generator");
+    };
+    state.suspended = Some(SuspendedFrame {
+        frame: f,
+        stack_slice: Vec::new(),
+        upvalue_slots: Vec::new(),
+    });
+    root_via_global(&mut vm, gen_id);
+    assert!(collect_and_alive(&mut vm, gen_id));
 }
