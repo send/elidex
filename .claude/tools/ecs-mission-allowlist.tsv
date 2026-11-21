@@ -39,7 +39,6 @@ T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/u
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
 N	-	crates/dom/elidex-dom-api/src/style.rs	/// (accepted divergence: Firefox preserves existing declarations on
 N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at defer slot
-T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs	/// establishment site (the interoperable behavior every browser ships): the
 T	#11-change-on-blur-baseline-first-focus-value	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form/src/select/mod.rs	/// Stops at the first/last option (no wraparound, per native browser behavior).
 T	#11-core-browser-parity-deviations	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.

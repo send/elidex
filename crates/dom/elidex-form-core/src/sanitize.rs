@@ -160,15 +160,20 @@ fn sanitize_range(state: &FormControlState) -> Option<String> {
 /// 4. serialize as `#rrggbb` lowercase (steps 4 + 6 — the HTML-compatible
 ///    serialization), via [`CssColor`]'s opaque `Display` branch.
 ///
-/// **Dirty-value-flag source (spec step 2.1)**: the spec sources from the
-/// `value` *content attribute* when the dirty flag is set, else from the live
-/// value.  This engine deliberately sanitizes the **live value** at every
-/// establishment site (the interoperable behavior every browser ships): the
-/// content-attr branch, combined with the value-mode IDL setter — which sets
-/// the dirty flag *before* invoking sanitization (HTML §4.10.5.4) — would make
-/// `input.value = "#ff0000"` (no `value` attribute) serialize to `#000000`,
-/// breaking the universal `value` round-trip.  Re-evaluate that literalism only
-/// if the spec is clarified upstream or browsers adopt it.
+/// **Dirty-value-flag source (spec step 2.1)**: the spec's step 2.1 sources the
+/// color from the `value` *content attribute* when the element's dirty value
+/// flag is **false**, and step 2.2 from the element's value (the live value)
+/// otherwise. The value IDL setter sets the dirty flag *before* it invokes
+/// sanitization (HTML §4.10.5.4, `dom-input-value`), so `input.value =
+/// "#ff0000"` reads the live value (step 2.2) and round-trips.
+///
+/// **Known defect** (slot `#11-color-well-update-reads-live-value`): this
+/// function and `sanitize_value`'s Color arm read the live value at every
+/// establishment site, which differs from step 2.1 wherever the dirty value
+/// flag is false and the live value differs from the content attribute. For
+/// example `<input type=number value=red>` then `type = "color"`: the spec reads
+/// the attribute `"red"` and yields `#ff0000`; this engine reads the live
+/// value `""` and yields `#000000`.
 ///
 /// **Scope**: `alpha` (alpha channel + `color()` form), `colorspace`
 /// (Display P3), and exact toward-+∞ component rounding require the CSS Color 4
