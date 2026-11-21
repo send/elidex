@@ -110,6 +110,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。
+- 行 6 の lane が Codex driver なら、読んだ verdict を Orca で driver に渡す (PM 912)。
 
 ## 3. 役割の境界
 
@@ -222,7 +224,7 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
-- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (PM 911)。
+- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する。landing report の項目は merge の依頼に同梱される (PM 911 / 918)。
 - PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
@@ -350,6 +352,8 @@ merge の分担、PR body の ratchet の行、landing report、handoff、止ま
 - その lane だけの連絡先 (関係する lane の session 名)。PM の名は MEMORY Active state 冒頭にあるので書かない
 
 brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
+
+Codex driver の lane では、lane SSoT は lane dir の `ssot.md` (`/drive` の `codex.md`)。`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
 
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 
