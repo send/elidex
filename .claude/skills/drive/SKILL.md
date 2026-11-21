@@ -27,6 +27,7 @@ lane 固有の事実 (lane 名、持つ PR / branch / memo、最初の成果物�
 | edge-dense の規則 (umbrella + per-PR plan、実装前 plan-review) | repo `CLAUDE.md`「Edge-dense work」 |
 | PM の merge 検証の checklist、比例性の閾値、着地後の台帳の更新 | `/pm` §4 / §2 行 7 / §5 |
 | 台帳・PORTFOLIO・MEMORY Active state の書き方 | `~/.claude/agents/pmo.md` (書くのは pmo、渡すのは PM) |
+| Codex CLI で driver を務める時の道具の差分 (Codex の driver は本 skill と併せて読む) | `.claude/skills/drive/codex.md` |
 | repo に依らない判断・確認・検証・測定・止まり方・引き継ぎの一般則 (lens block と `lens-attest.sh`、根拠の段、規則の読みの先例、relay の本文、承認前の全文読み、claim の確かめ、0 件の control、時刻の変換、測定の作法、PID での停止、`止まる理由`、引き継ぎの繰り越し照合) | `~/.claude/CLAUDE.md`「判断と確認」「検証の作法」「並行セッション」「止まり方と引き継ぎ」(PM 736 で `/pm` §12 と `/drive` §8 / §10 から移した) |
 
 ## 0. 置き場所 (固定値)
