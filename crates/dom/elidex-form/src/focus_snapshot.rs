@@ -101,6 +101,9 @@ pub(crate) fn note_user_value_change(dom: &mut EcsDom, entity: Entity, before: S
 ///
 /// Per group, the state's "The input and change events apply" (QB-2) / "do not
 /// apply" (QB-1) line of HTML §4.10.5.1.x, and the activation half (R-2).
+// The groups share a result but not a ground: each is the spec's own state line
+// (QB-1 / QB-2, R-2, D-4), kept as its own documented arm.
+#[allow(clippy::match_same_arms)]
 fn change_on_blur_kind_applies(kind: FormControlKind) -> bool {
     match kind {
         // Text/Search (§4.10.5.1.2), Telephone, URL, Email, Password, Date,
@@ -318,6 +321,7 @@ mod tests {
     /// The plan §4.4 truth table, restated from the spec's per-state lines
     /// (QB-1 / QB-2 and R-2; D-4 for `TextArea`) independently of
     /// `change_on_blur_kind_applies`.
+    #[allow(clippy::match_same_arms)] // one arm per spec ground, as in the predicate
     fn expected_applies(kind: FormControlKind) -> bool {
         use FormControlKind as K;
         match kind {
