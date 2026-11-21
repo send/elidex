@@ -597,7 +597,7 @@ the collapsed check, not the records.
 `SelectionError::WrongDocument` (`:125`) has no producer left and is deleted (CLAUDE.md: dead code is deleted).
 `same_document` (`:613`) loses its last caller when `contains_node` (`:564`) takes `root_is_document` (facet 5,
 PM 891), so it is deleted too. `range_at` reuses `SelectionError::OutOfRange` (`:132`), which `map_selection_error`
-already maps to "IndexSizeError". The module doc comment's "validity gates" paragraph and the doc comments of
+already maps to "IndexSizeError". The module doc comment's "validity gates" paragraph and its single-range-disposition bullet (`selection.rs:21-23` at `3cbd5b88`: `add_range` "is a spec-correct no-op when a range is already set", false after facet 7 for a selection outside the document tree), and the doc comments of
 `collapse`, `collapse_to_start`, `collapse_to_end`, `extend`, `set_base_and_extent`, `select_all_children`,
 `add_range`, `remove_range`, `remove_all_ranges`, `empty`, `delete_from_document`, `contains_node`, `range_count`,
 `selection_type` and `anchor` are rewritten to the new order, the new return value and the new clause; the
