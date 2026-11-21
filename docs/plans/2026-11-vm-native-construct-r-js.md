@@ -1,13 +1,15 @@
 # R-JS — ECMAScript `[[Construct]]`, the this-binding and SuperCall (per-PR plan, native-construct umbrella §4.2)
-Status: **plan (pre-implementation), Rev 1**, for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4. Umbrella:
+Status: **plan (pre-implementation), Rev 2** (PM 880 folded: §0.3, §8, §11), for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4. Umbrella:
 `docs/plans/2026-11-vm-native-construct-contract.md` (ratified at #643 `b46a030c`, PM 811 / PM 818). This memo is the
 derivation the repo ledger row `#11-vm-derived-constructor-this-binding` (`docs/plans/2026-07-vm-p4-slot-ledger.md`,
 the row keyed by that id) asks for (umbrella §4.2: "R-JS's per-PR plan is that derivation"). It yields three children
 (§1.2); each is planned here, and this memo's plan-review is each child's plan-review (§1.2, last bullet).
 
-**Base.** Code anchors are at `7af70b68` (origin/main, #650) unless a row says otherwise; line numbers appear only as
-"at `<sha>`". Two in-flight branches are read as claims: #653 (D, `#11-vm-call-internal-callee-this-rooting`, branch
-`vm-bound-call-fallback-rooting`, head `f1f6d42e`, **open, not landed** at this writing) and R-0b's memo (branch
+**Base.** Code anchors were measured at `7af70b68` (#650) and re-checked at `378633f6` (origin/main, #653 landed:
+`#11-vm-call-internal-callee-this-rooting` closed) unless a row says otherwise; line numbers appear only as "at
+`<sha>`". `git diff --stat 7af70b68 378633f6` touches, of this memo's files, only `vm/interpreter_call.rs` and
+`vm/natives_generator.rs` (§5 re-measured; §6.1 read at `378633f6`); every M-2 count is identical at both shas
+(§12 M-2). One in-flight branch is read as a claim: R-0b's memo (branch
 `vm-r0b-frame-roots`, head `c2e3dd5f`, Rev 2.1, `docs/plans/2026-11-vm-r0b-frame-root-enumeration.md`, not pushed).
 Each child re-reads its anchors at its own base; where a child's base must contain one of them, the child says so (§8).
 
@@ -27,16 +29,16 @@ ecma262 <n>` (§12 M-1), step prose by `webref body`. Rows are keyed by AO name.
   (`#11-ce-upgrade-returned-object-typeerror` keeps two facets in `elidex-custom-elements`, L3's: the 11 crate cites
   and the state after a failed upgrade). Verified: PORTFOLIO `PM 805` / `PM 808` lines; umbrella §4.2 "Upgrade".
 - **PM 832 / PM 837 (4) / PM 845 (2) / PM 875 (1)** — the `do_new` rest-constructor window is R-JS's DoD; PM 875 (1)
-  gives it its own slot, drafted as **`#11-vm-do-new-instance-rooting` (proposed; registered at D's landing, not yet
-  in the PM ledger: `grep -c -F '#11-vm-do-new-instance-rooting'` on `project_open-defer-slots.md` → 0)**, draft
-  `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/pending-at-landing/call-internal-callee-this-rooting.md` §1. Its
-  second item, the custom-element upgrade path, is measured here (§4.3.5).
-- **PM 851 / PM 875 (2)** — Rust-side `[[Call]]` is rooted at `call_dispatch`'s entry (#653: `call_dispatch` becomes
-  a rooting wrapper, the arms move to `call_dispatch_rooted`; `call_internal` becomes `pub(super)` with the precondition
-  "reached only from `call_dispatch` / `run_function`"). R-JS enters Rust-side calls through `call_dispatch` /
-  `VmInner::call`. **Umbrella §8.3 stands for R-JS-2 and R-JS-3; R-JS-1 must change one expression in the Function arm
-  (§0.2 C-1)** — the per-arm table is §6.1 (PM 642 (c), PM 875: the `call_dispatch_rooted` split counts as a
-  `call_dispatch` change).
+  gives it its own slot, **`#11-vm-do-new-instance-rooting` (registered 2026-11-21 at #653's landing, Re-eval 12-05;
+  `grep -n -F` on `project_open-defer-slots.md` → its open row)**, the slot R-JS's DoD closes (R-JS-3, §4.3 DoD). Its
+  second item, the custom-element upgrade path, is measured here (§4.3.5). The row's clause "umbrella §8.3 stands,
+  PM 875" predates PM 880's correction (§0.3 RS-1; restated in §9).
+- **PM 851 / PM 875 (2) / PM 880** — Rust-side `[[Call]]` is rooted at `call_dispatch`'s entry (#653, landed
+  `378633f6`: `call_dispatch` is a rooting wrapper, the arms are in `call_dispatch_rooted`; `call_internal` is
+  `pub(super)` with the precondition "reached only from `call_dispatch` / `run_function`"). R-JS enters Rust-side calls
+  through `call_dispatch` / `VmInner::call`. PM 875 (2)'s premise ("umbrella §8.3 stands") is **corrected by the PM
+  (PM 880)**: §8.3 stands for R-NAT, R-JS-2 and R-JS-3; R-JS-1 changes one expression in the Function arm (§0.2 C-1),
+  with the PM 642 (c) per-arm table (§6.1); the umbrella erratum is written in this PR (§0.3 RS-1).
 - **#651** (`5550c0b6`) — `VmStackScope` / `VmTempRoot` unwind the frames above them on panic and assert a clean exit
   has none. Consequence used in §4.3.2: **no stack guard is held across an inline frame push** (the frame outlives the
   guard on the `Op::New` path).
@@ -44,15 +46,26 @@ ecma262 <n>` (§12 M-1), step prose by `webref body`. Rows are keyed by AO name.
   reach it (admission refuses generator and async kinds); R-JS-1 renames a frame field it moves (§6.1).
 
 ### §0.2 Premise corrections (brief and umbrella claims checked)
-| # | Claim (source) | Measured at `7af70b68` |
+| # | Claim (source) | Measured at `7af70b68`, re-checked at `378633f6` |
 |---|---|---|
-| C-1 | "R-JS and R-NAT do not touch `call_dispatch`" (umbrella §8.3, §1.2 "Unchanged"; restated by PM 875 (2)) | **False for R-JS-1.** The umbrella's own §1.2 lists `vm/interpreter_call.rs:39` (at `4b723d4b`) among the `captured_this` readers R-JS changes; that line is inside `call_dispatch`'s `ObjectKind::Function` arm (`Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this)`, read with `git show 4b723d4b:…/interpreter_call.rs`). Removing the by-value snapshot (§1.3) changes that expression. `call_internal` takes no callee `ObjectId`, so the change cannot move below the arm. One expression, one arm; §6.1 gives the per-arm table. For the PM (§11 Q-2) |
-| C-2 | "§10.4.1.2 … newTarget remapped when it is the bound function — `admit_construct` (unchanged)" (umbrella §3) | `admit_construct` returns `(target, prepended)` and never sees newTarget; the remap exists only implicitly in `do_new` (`CallMode::Construct { new_target: ctor_id }` after unwrapping, right because `new` passes newTarget = callee). The entry, which takes any newTarget, applies §10.4.1.2 step 5 itself (§4.3.1) |
-| C-3 | `class X extends null {}` has a base default constructor (`compiler/expr_class.rs` `ClassHeritage` doc; test `extends_null_default_ctor_is_base` in `vm/tests/tests_class_machinery.rs`, D-17b R4 G4-2) | ClassDefinitionEvaluation (§15.7.14) step 18: "If ClassHeritage is present, set ctorFunc.[[ConstructorKind]] to derived"; step 14.a.4 runs the derived default branch, so `new X()` throws a TypeError (`%Function.prototype%` is not a constructor). Today the literal-`null` path is base and the `(null)` expression path is derived: two answers for one ClassHeritage. R-JS-2 makes the kind derived for both and re-expects that test (§4.2). Spec rung 1, so not a question; reported (§11 Q-3) because it reverses a reviewed test |
-| C-4 | the return substitution has two copies (umbrella E-3, A1×A4) | Two copies, and the sync copy reads the **caller's** pre-allocation: `construct_synchronous`'s tail substitutes `pre_alloc_instance`, which `dispatch_super_inner` takes from the derived frame before the call. So in `class A { constructor(){ return {tag:1} } } class B extends A {} class C extends B {}`, B's frame is rebound to `{tag:1}` by its `super()`, B returns `undefined`, and the tail returns C's pre-allocated object: `new C().tag` reads `undefined` where §10.2.2 step 15 gives B's this-binding, `1` (code read; red-before expected, cell C2-6). A defect the umbrella does not list; R-JS-2's (§4.2) |
-| C-5 | #653 "may or may not have landed" (brief) | Open at `f1f6d42e`; its slot's hard edge is "lands before R-JS's implementation (11-28)" (PM ledger row). R-JS-1's base must contain it (§8) |
+| C-1 | "R-JS and R-NAT do not touch `call_dispatch`" (umbrella §8.3, §1.2 "Unchanged"; restated by PM 875 (2)) | **False for R-JS-1.** The umbrella's own §1.2 lists `vm/interpreter_call.rs:39` (at `4b723d4b`) among the `captured_this` readers R-JS changes; that line is inside `call_dispatch`'s `ObjectKind::Function` arm (`Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this)`, read with `git show 4b723d4b:…/interpreter_call.rs`). Removing the by-value snapshot (§1.3) changes that expression. `call_internal` takes no callee `ObjectId`, so the change cannot move below the arm. One expression, one arm; §6.1 gives the per-arm table. **Decided (PM 880, Q-2):** allowed with that table; at `378633f6` the arm is in `call_dispatch_rooted` (`git grep -n 'compute_this_for_call(' 378633f6 -- crates/script/elidex-js/src/vm/interpreter_call.rs` → 1 line); umbrella erratum §0.3 RS-1 |
+| C-2 | "§10.4.1.2 … newTarget remapped when it is the bound function — `admit_construct` (unchanged)" (umbrella §3) | `admit_construct` returns `(target, prepended)` and never sees newTarget; the remap exists only implicitly in `do_new` (`CallMode::Construct { new_target: ctor_id }` after unwrapping, right because `new` passes newTarget = callee). The entry, which takes any newTarget, applies the bound function exotic object [[Construct]] (§10.4.1.2, `webref aoid`/`heading ecma262 10.4.1.2`) step 5 itself, "If SameValue(func, newTarget) is true, set newTarget to target" (`webref body ecma262 sec-bound-function-exotic-objects-construct-argumentslist-newtarget`), iterated over the chain (§4.3.1). Kept (PM 880 item 7); umbrella erratum §0.3 RS-2 |
+| C-3 | `class X extends null {}` has a base default constructor (`compiler/expr_class.rs` `ClassHeritage` doc; test `extends_null_default_ctor_is_base` in `vm/tests/tests_class_machinery.rs`, D-17b R4 G4-2) | ClassDefinitionEvaluation (§15.7.14, `webref aoid ecma262 ClassDefinitionEvaluation`) step 18: "If ClassHeritage is present, set ctorFunc.[[ConstructorKind]] to derived"; step 14.a.4 runs the derived default branch, so `new X()` throws a TypeError (`%Function.prototype%` is not a constructor). Today the literal-`null` path is base and the `(null)` expression path is derived: two answers for one ClassHeritage. R-JS-2 makes the kind derived for both and re-expects that test (§4.2). **The test whose expectation reverses:** `extends_null_default_ctor_is_base` (`vm/tests/tests_class_machinery.rs`; `git grep -n 'extends null' -- crates/script/elidex-js/src/vm/tests` → its source line among 7 hits) asserts `new X() instanceof X`; its new expectation, a TypeError, comes from the spec (step 18 makes the kind derived; step 14.a.4's derived branch, "If IsConstructor(func) is false, throw a TypeError exception", with func = `%Function.prototype%`), not from any engine's behaviour. Its siblings `extends_null_prototype_proto_is_null`, `extends_null_ctor_proto_is_function_prototype`, `extends_null_user_super_call_throws` keep theirs. Spec rung 1 (PM 880, Q-3); §0.3 RS-4 |
+| C-4 | the return substitution has two copies (umbrella E-3, A1×A4) | Two copies, and the sync copy reads the **caller's** pre-allocation: `construct_synchronous`'s tail (`vm/dispatch_class.rs` `VmInner::construct_synchronous`, called by `dispatch_super_inner` and by `invoke_upgrade` in `vm/host/custom_elements/upgrade.rs`) substitutes `pre_alloc_instance`, which `dispatch_super_inner` takes from the derived frame before the call. So in `class A { constructor(){ return {tag:1} } } class B extends A {} class C extends B {}`, B's frame is rebound to `{tag:1}` by its `super()`, B returns `undefined`, and the tail returns C's pre-allocated object: `new C().tag` reads `undefined` where §10.2.2 step 15 gives B's this-binding, `1`. **Measured** (driver, a temporary test on origin/main `378633f6`, rustc 1.99.1, removed after; PM 880 item 6): `class A { constructor() { return {tag: 1} } } class B extends A {} class C extends B {} new C().tag` → `undefined`; the same with an explicit `constructor() { super() }` in B and C → `undefined`; the two-level `new B().tag` → `1` (cell C2-6). A defect the umbrella does not list; R-JS-2's (§4.2) |
+| C-5 | #653 "may or may not have landed" (brief) | **Landed** `378633f6` (11-21); `#11-vm-call-internal-callee-this-rooting` closed (PM ledger row, PM 880). Every child's base contains it (§8) |
 | C-6 | `[[ConstructorKind]]` is on the frame or the function (umbrella §4.2 "JS base / JS derived") | Nowhere. `CompiledFunction::is_class_ctor` covers base and derived alike (`bytecode/compiled.rs`); `push_js_call_frame` cannot tell them apart. R-JS-2 adds it (§4.2) |
 | C-7 | umbrella S-3's `data_transfer.rs:332-341` | L3's #654 splits the file; the site is `native_data_transfer_constructor` in `vm/host/events_modern/data_transfer/mod.rs` after the split (driver note). This memo cites it by symbol only (E-4 cell C1-2) |
+
+### §0.3 Ratified-surface changes in this PR (reviewed here)
+Each row changes a ratified surface, so it is a design change under this memo's `/elidex-plan-review`, not a clerical
+edit (PM 880). The reviewer checks the row's text against the code at `378633f6` and the spec cites named.
+
+| # | Surface (file, heading) | Change | Grounds |
+|---|---|---|---|
+| RS-1 | umbrella `docs/plans/2026-11-vm-native-construct-contract.md` §1.2 "Unchanged", §8.1 row `call_dispatch`, §8.3 "The PM 642 rule"; history §0.2 Rev 1.7 (1) | "R-JS and R-NAT do not touch `call_dispatch`" → R-NAT, R-JS-2, R-JS-3 do not; R-JS-1 changes one expression of the `ObjectKind::Function` arm, which since #653 is in `call_dispatch_rooted` behind the rooting wrapper `call_dispatch`; §8.1's row names the later of PR-1b / R-JS-1 as the rebaser (different arms) | C-1; PM 880 Q-2; per-arm table §6.1 |
+| RS-2 | umbrella §3, row "ECMA-262 §10.4.1.2 [[Construct]]"; §0.2 Rev 1.7 (2) | Touch "`admit_construct` (unchanged)" → `admit_construct` (steps 1-4) + the single entry (step 5) | C-2; PM 880 item 7; `webref body ecma262 sec-bound-function-exotic-objects-construct-argumentslist-newtarget` |
+| RS-3 | entry memo `docs/plans/2026-07-vm-p4-es-language-completeness.md`, cited-sections table, rows [C11] / [C13], "Used by" cells; umbrella §5.4's last paragraph marked done | adds "R-JS (…): steps 3, 6.a, 9-17" to [C11] and "R-JS (…): SuperCall steps 6-9, the step-12 call point" to [C13]; backticked path, no link | umbrella §5.4, §4.2; PM 880 Q-5; checker and family-layout test (§12 M-6) |
+| RS-4 | the reviewed test expectation `extends_null_default_ctor_is_base` (D-17b R4 G4-2), changed by R-JS-2's code, decided here | `new X() instanceof X` → TypeError | C-3; spec rung 1, ClassDefinitionEvaluation steps 18 / 14.a.4 (PM 880 Q-3) |
 
 ## §1. Derivation
 
@@ -76,7 +89,7 @@ conforming case into a ReferenceError) and is what removes pre-allocation (axis 
 |---|---|---|---|
 | **R-JS-1** this-environment | 1 | the this-environment record and its one capture route for arrows (§1.3); `captured_this` deleted; `dispatch_super_inner`'s rebind writes through the record (pre-allocation unchanged) | E-4 for every parent that returns an object other than the pre-allocation (C1-1, C1-2, C1-10); the representation the S / N rows wait on |
 | **R-JS-2** return step | 3 | `[[ConstructorKind]]` on `CompiledFunction`; one §10.2.2 steps 9-17 implementation for both drivers, reading the callee frame's binding; `CallFrame::new_instance` and `construct_synchronous`'s `pre_alloc_instance` deleted; wire #5 born | E-3's fourth regression and its base control; C-3; C-4 |
-| **R-JS-3** construct entry | 2 (+ the entry) | the single `Construct` entry; derived `this` uninitialized; GetThisBinding / BindThisValue; JS base allocation callee-side; frame-first frame push; the native arm centralised; the upgrade without a receiver, S-2, step 11.4's TypeError; the E-10 seam; wire #5 extended | E-1 (JS facet), E-2, E-3 regressions 1-3, E-6, E-9; `#11-vm-do-new-instance-rooting` (proposed); the umbrella row `#11-vm-derived-constructor-this-binding` retires at R-JS-3's landing |
+| **R-JS-3** construct entry | 2 (+ the entry) | the single `Construct` entry; derived `this` uninitialized; GetThisBinding / BindThisValue; JS base allocation callee-side; frame-first frame push; the native arm centralised; the upgrade without a receiver, S-2, step 11.4's TypeError; the E-10 seam; wire #5 extended | E-1 (JS facet), E-2, E-3 regressions 1-3, E-6, E-9; `#11-vm-do-new-instance-rooting` (registered); the umbrella row `#11-vm-derived-constructor-this-binding` retires at R-JS-3's landing |
 
 - **Order R-JS-1 → R-JS-2 → R-JS-3**, each from main after the previous lands. R-JS-3 needs R-JS-1 (without the
   record, derived `this` = uninitialized would break E-4's conforming case) and R-JS-2's kind and return step (§10.2.2
@@ -132,6 +145,13 @@ derivation, which (U) would either block on or pre-empt (One issue, one way). Th
     `this_value`). A non-arrow frame starts `Inline`; it becomes `Cell` when an arrow that observes it is created in the
     frame (§1.3.3); an arrow frame is `Cell(<its closure's this_env>)`, or `Unobserved` when the arrow's body has no
     §9.4.3 consumer (the compiler guarantees no reader then; a read is `VmError::internal`).
+- **Why not an ECS component or a HostData side-store** (CLAUDE.md "Side-store→component 判定ルール"; PM 880 Q-4,
+  checked in plan-review): the rule's subject is *per-entity* state kept in an entity-keyed side-store. The record is
+  neither: it is keyed by no entity (it belongs to a call frame and the arrows that close over it — a JS binding, like
+  an upvalue), and its content is a `JsValue` that may be an `ObjectId`, i.e. a per-VM identity handle, the class the
+  rule's exception (a) keeps out of components. With no entity there is no component to attach (and no despawn to
+  clean it up); with no host-side fact there is nothing for `HostData` to hold. It is per-VM object-arena state, so it
+  lives in the object arena and is collected by the object GC, as upvalues and `PromiseCombinatorState` are.
 - **Why inline-until-observed, not a cell per call:** a cell per non-arrow call is one allocation on every call for
   state almost always unshared. The inline and the cell form are one type behind one accessor pair (§1.3.3), and the
   only site that converts is `create_closure` (one site, one direction). It is the record's storage, not a second
@@ -164,7 +184,7 @@ derivation, which (U) would either block on or pre-empt (One issue, one way). Th
   the function object's allocation follows with the cell held by the frame.
 - **Call:** `compute_this_for_call` (`vm/dispatch_ic.rs`) becomes `this_env_for_call(this_mode, receiver, this_env) ->
   FrameThisEnv` (`Strict` → `Inline(Initialized(receiver))`; `Lexical` → `Cell(id)` or `Unobserved`). Its five callers
-  (`ic_call` ×2, `ic_call_method` ×2, `call_dispatch`'s Function arm; `git grep -n 'compute_this_for_call(' 7af70b68`
+  (`ic_call` ×2, `ic_call_method` ×2, the Function arm, in `call_dispatch_rooted` since #653; `git grep -n 'compute_this_for_call(' 7af70b68`
   → 6 lines: these 5 and the definition) pass the result to `push_js_call_frame` / `call_internal`, whose `this`
   parameter becomes `FrameThisEnv`.
 - **Accessors (`VmInner`, NEW):** `this_binding(frame_idx) -> ThisBinding` and `bind_this(frame_idx, v) ->
@@ -244,12 +264,12 @@ child (the #650 practice).
 | E-8 step position | stated: the native arm's pre-allocation stays before argument conversion (umbrella E-8); no cell | R-JS-3 |
 | E-9 CP-1 | C3-18 (P0a-1's `rl_cp1_entry_failure_no_callee_effect` through the entry: no callee effect, no allocation) | R-JS-3 |
 | E-10 seam | the call points (base: after the frame push; derived: after BindThisValue); acceptance by the two-call-site count (§4.3 DoD) — the body is Slice 2ab's | R-JS-3 |
-| R-1 `do_new` window (`#11-vm-do-new-instance-rooting`, proposed) | C3-9 (red at k = 1 today, green at k = 1, 2 after) | R-JS-3 |
-| R-2 sync return reads the caller's pre-allocation (C-4) | C2-6 (red → green), C2-7 (the error surfaces at the caller's `super()`) | R-JS-2 |
+| R-1 `do_new` window (`#11-vm-do-new-instance-rooting`, registered) | C3-9 (red at k = 1 today, green at k = 1, 2 after) | R-JS-3 |
+| R-2 sync return reads the caller's pre-allocation (C-4) | C2-6 (red measured at `378633f6` → green), C2-7 (the error surfaces at the caller's `super()`) | R-JS-2 |
 | R-3 `[[ConstructorKind]]` for `extends null` (C-3) | C2-8 (red: instance → green: TypeError), C2-9 (literal / parenthesised parity), C3-3b (`extends null` with an empty user constructor: ReferenceError after R-JS-3) | R-JS-2, R-JS-3 |
 | R-4 §10.4.1.2 newTarget remap (C-2) | C3-21 (`new BF()` keeps today's target, control), C3-7b (Rust `Construct(BF, [], X)` keeps X; `Construct(BF, [], BF)` gives the target) | R-JS-3 |
 | R-5 return-step errors are the caller's (§10.2.2 step 9 before 14 / 15) | C2-5 (a `try` inside the constructor does not catch step 14's TypeError) | R-JS-2 |
-| R-6 upgrade under GC (the proposed slot's second item) | C3-17 | R-JS-3 |
+| R-6 upgrade under GC (the slot's second item) | C3-17 | R-JS-3 |
 | R-7 frame-first push | C3-22 (ordinary rest call under GC; guard, green both) | R-JS-3 |
 | R-8 record sharing | C1-11 (two arrows share one cell after `super()`) | R-JS-1 |
 
@@ -381,7 +401,8 @@ site, `create_closure`, the trace arm and the tests); `mise run ci` green.
 - C2-5 `class B extends A { constructor(){ super(); try { return 1 } finally { this.f = 1 } } }`: `new B()` throws
   TypeError at the caller, and a `try`/`catch` around `return 1` inside the constructor catches nothing — red →
   green (R-5).
-- C2-6 the C-4 chain, `new C().tag === 1` — red → green.
+- C2-6 the C-4 chain, `new C().tag === 1`, with and without explicit `constructor() { super() }` in B and C — red
+  (measured `undefined` at `378633f6`, C-4) → green; control: the two-level `new B().tag === 1` — both (measured).
 - C2-7 the sync driver: `class C extends B { constructor(){ try { super() } catch (e) { return { te: e instanceof
   TypeError } } } }` with C2-1's B → `new C().te` — red → green.
 - C2-8 `class X extends null {}; new X()` → TypeError — red (instance) → green; C2-9 parity: `let h = null; class Y
@@ -455,7 +476,7 @@ array while the instance is only in Rust locals (`this`, `new_instance`).
 - Comments stating the retracted D-17b §6 invariant are rewritten (umbrella §4.2 "Scope", 13 lines by its command at
   `4b723d4b`, re-run at the child's base), and R-JS's 8 P-11 cites (umbrella §1.4 P-11, re-anchored by symbol).
 
-#### §4.3.5 The upgrade path's rooting (the proposed slot's second item)
+#### §4.3.5 The upgrade path's rooting (`#11-vm-do-new-instance-rooting`'s second item)
 Measured by code read at `7af70b68`: the definition's constructor is rooted through `HostData::ce_constructors` (in
 `gc_root_object_ids`); the element wrapper is a `StrongRoot` in `wrapper_store` (`mark_roots` (e)). After R-JS-3 the
 entry roots its operands itself (§4.3.2), so the remaining question is the wrapper across the constructor body, which
@@ -510,7 +531,7 @@ in the 1321-line `tests_custom_elements.rs`):
 D-3 row has no site (reported to its owner); `mise run ci` green.
 
 ## §5. Files and 1000-line verdicts
-`wc -l` at `7af70b68` (§12 M-3). Files over 1000:
+`wc -l` at `7af70b68`, the two files #653 changed re-measured at `378633f6` (§12 M-3). Files over 1000:
 
 | File | Lines | Touch | Verdict |
 |---|---|---|---|
@@ -521,7 +542,7 @@ D-3 row has no site (reported to its owner); `mise run ci` green.
 | `vm/tests/tests_custom_elements.rs` | 1321 | R-JS-3: comment lines only | no seam for this touch; new cells go to `tests_construct_upgrade.rs` |
 
 Under 1000 and touched: `vm/value.rs` 968 (field renames, net 0), `vm/ops.rs` 939, `scope/visitor.rs` 675,
-`vm/natives_generator.rs` 674, `compiler/expr_class.rs` 653, `vm/gc/roots.rs` 618, `vm/interpreter_call.rs` 580,
+`vm/natives_generator.rs` 671 (at `378633f6`), `compiler/expr_class.rs` 653, `vm/gc/roots.rs` 618, `vm/interpreter_call.rs` 613 (at `378633f6`, after #653),
 `vm/ops_property.rs` 572, `compiler/function.rs` 473, `vm/host/custom_elements/upgrade.rs` 461, `scope/mod.rs` 431,
 `vm/dispatch_class.rs` 391, `vm/tests/tests_class_machinery.rs` 391, `vm/host/custom_elements/html_element.rs` 344
 (docstrings), `vm/dispatch_ic.rs` 342, `compiler/expr_function.rs` 338, `vm/interpreter.rs` 311, `bytecode/compiled.rs`
@@ -531,7 +552,7 @@ child's own measure, which each PR re-runs.
 
 ## §6. Overlaps
 ### §6.1 PM 642 (c): `vm/interpreter_call.rs`, per function (per arm for `call_dispatch`)
-Read against #653's head `f1f6d42e` (R-JS-1's base must contain #653, §8).
+Read at `378633f6` (#653 landed; every child's base contains it, §8). Decided: PM 880 Q-2; umbrella erratum §0.3 RS-1.
 
 | Function | R-JS-1 | R-JS-2 | R-JS-3 |
 |---|---|---|---|
@@ -564,7 +585,7 @@ caller). The `ObjectKind::HostObject` definition is untouched by all three.
 | Slot | Ledger | Closed by | Note |
 |---|---|---|---|
 | `#11-vm-derived-constructor-this-binding` | repo ledger (row by id); PM pointer row | R-JS-3's landing, after R-JS-1 / R-JS-2 | the derivation is this memo; its four regressions and base controls are placed: C3-1, C3-2, C3-3, C2-1, C2-2, C3-4 |
-| `#11-vm-do-new-instance-rooting` (**proposed**, registration at D's landing, PM 875 (1)) | PM (pending) | R-JS-3 | C3-9; its upgrade item answered by C3-17 |
+| `#11-vm-do-new-instance-rooting` (registered 2026-11-21, PM 875 (1); Re-eval 12-05) | PM ledger (open row) | R-JS-3 | C3-9; its upgrade item answered by C3-17 |
 
 ### §7.2 Edges changed
 | Slot | Change |
@@ -577,7 +598,7 @@ caller). The `ObjectKind::HostObject` definition is untouched by all three.
 | `#11-vm-upvalue-tdz-check`, umbrella C | **the edge does not arise**: (E) is chosen, the record uses no upvalue state (umbrella §5.2's row asked the plan to record this) |
 | `#11-vm-generator-instance-prototype-from-function` (PM 850) | its fix (EvaluateGeneratorBody step 2's OrdinaryCreateFromConstructor) calls R-JS-3's phase-1 helper; it lands after R-JS-3 or carries its own `? Get` and rebases |
 | `#11-vm-ecma262-ao-section-renumber-sweep` | fires on `vm/ops.rs` (2 sites) in R-JS-1 |
-| `#11-vm-call-internal-callee-this-rooting` (D, #653) | R-JS-1's base contains it; R-JS adds no `call_internal` caller |
+| `#11-vm-call-internal-callee-this-rooting` (D, #653) | closed by #653 (`378633f6`); every child's base contains it; R-JS adds no `call_internal` caller |
 
 ### §7.3 What must not ship
 - Pre-allocation removed for derived callees while arrows still snapshot (`this` uninitialized in a by-value copy).
@@ -591,23 +612,39 @@ The rule (§9.1 step 6): R-JS's implementation starts at the later of P0a-1's la
 this plan's review (seven days after the umbrella's ratification); 11-28 holds while the umbrella was ratified by
 11-20; each day past 11-20 moves step 6 and its dependants. **The umbrella was ratified on 11-18 (PM 818), so nothing
 moves**: this plan 11-21 … 11-23, its plan-review 11-24 … 11-27, implementation 11-28 … 12-04, R-JS (= R-JS-3's
-landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (11-24, step 3), #653 (its slot's
-hard edge, 11-28), P0a-1 (11-28). The children land in order inside 11-28 … 12-04; their individual dates are the
-PM's to set (§11 Q-1). A slip of R-JS-3 past 12-05 is reported with the §9.1 step 6 consequences (steps 10-15 and
-§5.4's R-JS-keyed Re-eval proposals).
+landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (11-24, step 3), #653 (landed
+`378633f6`, 11-21), P0a-1 (11-28, step 5).
 
-## §9. Ledger / erratum edits (listed, not made)
-- **Entry memo `docs/plans/2026-07-vm-p4-es-language-completeness.md`, [C11] / [C13] "Used by" cells**: umbrella §5.4
-  says R-JS's plan PR adds R-JS there (a VM-P4 family edit; checker run on the entry memo; backticked path, no link).
-  Proposed cell additions: [C11] "· R-JS (`docs/plans/2026-11-vm-native-construct-r-js.md`): steps 3, 6.a, 9-17";
-  [C13] "· R-JS (same): SuperCall steps 6-9, the step-12 call point". Not made: this memo's brief forbids edits
-  outside it (§11 Q-5).
-- **Umbrella** (next revision, owner VM P4): §8.3 / §1.2 "do not touch `call_dispatch`" → the Function-arm exception
-  (C-1); §3 row §10.4.1.2 "(unchanged)" → the entry's remap (C-2); R-0b §5.4's re-pointing of the two-site cells to
-  `mark_frame`; S-3's cite → `native_data_transfer_constructor` (C-7); §4.2 / §9.1 "R-JS" = three children (§1.2).
+**Child dates (PM 880 Q-1: set here, inside 11-28 … 12-04).**
+
+| Child | Implementation | Lands | Base |
+|---|---|---|---|
+| R-JS-1 | 11-28 … 11-29 | 11-30 | main with R-0b, #653, P0a-1 |
+| R-JS-2 | 11-30 … 12-01 | 12-02 | main with R-JS-1 |
+| R-JS-3 | 12-02 … 12-04 | **12-05** (= R-JS) | main with R-JS-2 |
+
+Rules the dates follow: **(a)** R-JS-1 starts on §9.1 step 6's start day (11-28: after P0a-1, step 5; R-0b, step
+3, is on main from 11-24); **(b)** each child is cut from main on the day its predecessor lands and starts then
+(§1.2 order, no stacked branches), so a child's landing day is its successor's start; **(c)** the last child's
+landing is R-JS's 12-05 (§9.1 step 6); **(d)** the window is split by size: R-JS-3 (the entry, rooting, the upgrade)
+gets three days, R-JS-1 and R-JS-2 two each, and each child's days include its `/pre-push` and single-pass Codex
+(§1.2). A child that slips moves its successors day for day; when that would move R-JS-3 past 12-05, the slip is
+reported to the PM with the §9.1 step 6 consequences (steps 10-15 and §5.4's R-JS-keyed Re-eval proposals). A slip
+of P0a-1 past 11-28 moves all three (rule (a)).
+
+## §9. Ledger / erratum edits
+**Made in this PR** (PM 880; each is a reviewed item, §0.3):
+- **Entry memo**, [C11] / [C13] "Used by" cells (RS-3), with the umbrella §5.4 paragraph marked done.
+- **Umbrella Rev 1.7** (RS-1, RS-2): §1.2 "Unchanged", §3's §10.4.1.2 row, §8.1's `call_dispatch` row, §8.3, and the
+  §0.2 history row.
+
+**Listed, not made:**
+- **Umbrella** (next revision, owner VM P4): R-0b §5.4's re-pointing of the two-site cells to `mark_frame`; S-3's cite
+  → `native_data_transfer_constructor` (C-7); §4.2 / §9.1 "R-JS" = three children (§1.2, §8).
 - **Repo ledger row `#11-vm-derived-constructor-this-binding`**: at R-JS-3's landing, retired, naming the three child
   PRs.
-- **PM ledger**: register `#11-vm-do-new-instance-rooting` (D's landing, PM 875 (1)); its Trigger becomes "R-JS-3";
+- **PM ledger**: `#11-vm-do-new-instance-rooting` (registered): its Trigger becomes "R-JS-3", and its clause "umbrella
+  §8.3 stands, PM 875" reads "§8.3 stands except R-JS-1's Function-arm expression (PM 880)";
   S / N pointer rows: "the record is R-JS-1's" (§7.2); `#11-vm-generator-instance-prototype-from-function`: the
   helper edge (§7.2).
 - **D-17b R4 G4-2** (`extends_null_default_ctor_is_base`): superseded by C-3 at R-JS-2.
@@ -617,21 +654,23 @@ PM's to set (§11 Q-1). A slip of R-JS-3 past 12-05 is reported with the §9.1 s
   command and a control hit.
 - S-2 Every struct literal of `CallFrame`, `FunctionObject`, `JsCalleeInfo`, `CallIC`, `CompiledFunction` (tests
   included): `git grep -n -P '<Type> \{'` at the child's base (at `7af70b68`: 7 / 3 / — / — / 11 lines).
-- S-3 E-4's red at base for `HTMLElement`, `DataTransfer`, `Touch` and C1-10; C-4's red (C2-6); R-1's red (C3-9).
+- S-3 E-4's red at base for `HTMLElement`, `DataTransfer`, `Touch` and C1-10; R-1's red (C3-9). (C-4's red, C2-6, is
+  measured: C-4.)
 - S-4 Whether any reader of `this_value` outside `vm/` exists (`git grep -n -w this_value -- crates`), and every
   `captured_this` reader at the child's base.
 - S-5 The upgrade path under forced GC (C3-17) at R-JS-3's base.
 
-## §11. Open questions for the PM (lean for each)
-- **Q-1 Three children, one plan-review** (§1.2). Lean: yes; the PM sets the children's dates inside 11-28 … 12-04,
-  R-JS-3 = 12-05.
-- **Q-2 R-JS-1 changes `call_dispatch_rooted`'s Function arm** (C-1; umbrella §8.3 / PM 875 (2) read as "no touch").
-  Lean: accept the one-expression change with §6.1's table; the umbrella erratum in §9.
-- **Q-3 `extends null` becomes derived** (C-3), reversing a reviewed test. Lean: spec (§15.7.14 step 18), in R-JS-2.
-- **Q-4 The representation (E) and its storage as an internal `ObjectKind`** (§1.3, §1.3.1), decided "once, with S
-  and N". Lean: (E) in the object arena; S / N / umbrella 3 owners told at ratification.
-- **Q-5 The entry memo's "Used by" cells** (§9): umbrella §5.4 puts them in R-JS's plan PR. Lean: add them in this
-  plan PR before push (the driver authorises the edit).
+## §11. PM questions (answered, PM 880)
+- **Q-1 Three children, one plan-review** (§1.2): confirmed; each child is its own PR implementing this plan. Dates set
+  in §8 (R-JS-3 = 12-05).
+- **Q-2 R-JS-1 changes `call_dispatch_rooted`'s Function arm** (C-1): allowed with §6.1's PM 642 (c) table; the
+  umbrella erratum is written in this PR (§0.3 RS-1); PM 875 (2)'s premise recorded as corrected by the PM.
+- **Q-3 `extends null` becomes derived** (C-3): spec-decided (ClassDefinitionEvaluation step 18), in R-JS-2;
+  `extends_null_default_ctor_is_base` re-expected from the spec (§0.3 RS-4).
+- **Q-4 The representation (E) as an internal `ObjectKind::ThisEnvironment`** (§1.3, §1.3.1): confirmed as the plan's
+  proposal, to be checked in plan-review; the Side-store→component reasoning is §1.3.1. S / N / umbrella 3 owners are
+  told at ratification.
+- **Q-5 The entry memo's "Used by" cells**: added in this PR (§0.3 RS-3).
 
 ## §12. Measurements (provenance)
 - **M-1 spec.** `.claude/tools/webref aoid ecma262` on EvaluateNew, Construct, PrepareForOrdinaryCall,
@@ -646,9 +685,16 @@ PM's to set (§11 Q-1). A slip of R-JS-3 past 12-05 is reported with the §9.1 s
 - **M-2 counts** at `7af70b68` under `crates/script/elidex-js/src`: `git grep -n -P '<pattern>' 7af70b68` →
   `CallFrame \{` 7, `CompiledFunction \{` 11, `FunctionObject \{` 3, `captured_this` 18, `new_instance` 19,
   `pre_alloc` 7, `construct_synchronous\(` 3, `complete_inline_frame\(` 5, `push_js_call_frame\(` 7,
-  `compute_this_for_call\(` 6.
-- **M-3 lines.** `wc -l` in the worktree at `7af70b68` (§5).
+  `compute_this_for_call\(` 6. Re-run at `378633f6` (2026-11-21): every count identical.
+- **M-3 lines.** `wc -l` in the worktree at `7af70b68` (§5); `vm/interpreter_call.rs` and `vm/natives_generator.rs`
+  re-measured at `378633f6` (`git diff --stat 7af70b68 378633f6`: of §5's files, the only ones #653 changed).
 - **M-4 roots.** `vm/gc/roots.rs` `mark_roots` (frame loop; (e) host data and `wrapper_store`),
   `vm/host_data/engine_feature/object_roots.rs` `gc_root_object_ids` (`ce_constructors`), read 2026-11-21.
 - **M-5 ledgers.** `grep -n -F` on `project_open-defer-slots.md` for each slot id (2026-11-21); PORTFOLIO lines of PM
-  805, 808, 832, 837, 845, 851, 875 read 2026-11-21; #653 state by `gh pr view 653` (OPEN, head `f1f6d42e`).
+  805, 808, 832, 837, 845, 851, 875 read 2026-11-21; #653 landed as `378633f6` (`git log origin/main`), its slot's row
+  closed and `#11-vm-do-new-instance-rooting`'s row open (`grep -n -F`, 2026-11-21).
+- **M-6 family.** After RS-3: `python3 .claude/tools/plan-memo-umbrella-check.py
+  docs/plans/2026-07-vm-p4-es-language-completeness.md` → exit 0 (0 mechanical findings);
+  `python3 docs/plans/test_vm_p4_family_layout.py` → OK (2 tests).
+- **M-7 C2-6.** The driver's temporary test on origin/main `378633f6`, rustc 1.99.1, removed after (PM 880 item 6);
+  results in C-4.
