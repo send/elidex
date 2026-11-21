@@ -842,7 +842,8 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
 
 ## §8. Edits to the landed memos (this PR)
 
-Both memos are landed records (PM 511). Each edit keeps the landed words, marks the measurement `[history]`, and adds
+The three memos are landed records (PM 511): the umbrella, plan (1) and plan (2)
+(`docs/plans/2026-11-focus-fixup-canonical-steps.md`). Each edit keeps the landed words, marks the measurement `[history]`, and adds
 a dated correction. No decision of either memo is rewritten in place. Each erratum is one line of factual correction
 and a pointer to this memo's section for the substance (§6.3); the substance is stated here only. Sites are named by
 section and by a quoted fragment.
@@ -865,6 +866,9 @@ section and by a quoted fragment.
 | plan (1) | §7 "Seed gap" ("recorded as a known property, not a defect") | erratum pointer: a defect, DF-2 (i) (§6.2), under reading R-3 |
 | plan (1) | §6 N6 ("not run; PM 393, to run later") | **no edit**; the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
 | plan (1) | changelog | one dated erratum line pointing to this memo's changelog |
+| plan (2) | P9 ("a `type` flip to a non-text kind clears it at the `set_attribute` chokepoint") | erratum: the clear and the kind-gated seed are DF-2 (§6.2), removed by LR-2 known requirement 5; the outcomes plan (2) derives from P9 stand (Hidden and button kinds are excluded by step 2.1's predicate at focus loss) |
+| plan (2) | E5; §3 row for §4.10.5.5; §5 item 1 | pointer "mechanism corrected, P9 erratum" |
+| plan (2) | changelog | one dated erratum line |
 
 ## §9. Definition of done
 
@@ -874,13 +878,16 @@ section and by a quoted fragment.
    `#11-change-on-blur-baseline-first-focus-value`
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation\|change-on-blur-baseline-first-focus-value' .claude/tools/ecs-mission-allowlist.tsv`
    → 0; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
-3. `git diff --stat origin/main...HEAD` lists the three `docs/plans/` memos and the allowlist (verified 2026-11-21 on
-   this revision: "4 files changed"); the allowlist's change is row deletions only, the rows LR-1 names.
+3. `git diff --stat origin/main...HEAD` lists the four `docs/plans/` memos and the allowlist (verified 2026-11-21 on
+   this revision: "5 files changed"); the allowlist's change is row deletions only, the rows LR-1 names.
 4. D-3 is decided by the PM (PM 866, as corrected by PM 870) and recorded in §0.4 (LR-7). Satisfied when PM 866 and PM 870 are recorded in PORTFOLIO.
 5. The PM applies LR-1 to LR-6 at landing.
 
 ## Changelog
 
+- *Rev 3.7a* (2026-11-21): plan (2) (`2026-11-focus-fixup-canonical-steps.md`) gets the same erratum as plan (1)'s
+  I3 / I7: its P9 states the type-flip clear as structure; pointers at P9, E5, the §3 row and §5 item 1; outcomes
+  unchanged. §8 and DoD 3 (5 files) updated.
 - *Rev 3.7* (2026-11-21): /pre-push Stage 4 (`/code-review high`) fixes; no decision, expected value or cell
   changes, and slot content changes only in LR-2's allowlist-row list.
   - The landed statements that choose the population by kind get erratum pointers: umbrella X2 (and §7, which said
