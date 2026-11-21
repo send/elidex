@@ -2,7 +2,8 @@
 
 **Revision log.** R1 fixes F1–F12 (plan-review R1, 0/5/9/8). R1.2: Step 4.5 re-check fixes G1–G8, G11 (0/2/10/0);
 P-5 → precondition on tsel (PM 884/885). R1.3: final re-check fixes H1–H8 (0/2/8/0), PM 890 (tsel scope = Selection
-tree preconditions; P-6 probe before the code PR).
+tree preconditions; P-6 probe before the code PR). R1.4: R1.3 re-check MINs (A2 ×3, A5 ×1) + orphan splitText
+probe DoD (PM 11-21).
 
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
@@ -177,8 +178,11 @@ the 至上命題 bullet, verbatim):
      it. It rests on the discipline *One issue, one way* (CLAUDE.md *Design discipline*), applied: Selection's
      stringification delegates to the one Range stringification (`selection.rs:585`, `with_range(id, dom,
      Range::to_string)`), so a selection over a range has that range's §5.6 string (in which the light child is a
-     contained Text node) and no second computation exists; and on the ratified umbrella decision (N6) above, which
-     fixes the Selection string to the Range string. No other principle is claimed for this half.
+     contained Text node) and no second computation exists. The ratified umbrella decision (N6) above supports it
+     only by inference: N6's text decides the tree-children walk and that `toString` (Range and Selection) stops
+     including a shadow tree's text, i.e. the SHADOW half; it does not mention the light child. That the unslotted
+     light child's text is included follows from the shared walk taking tree children (the light child is one), which
+     is this memo's inference, not N6's wording. No other principle is claimed for this half.
 3. **Re-derivation trigger.** If Selection API defines "rendered text" (or links a definition), V5's expectation
    (and P4a/b/c's spec column) is re-derived from that definition.
 
@@ -253,7 +257,7 @@ boundaries at once; those are rows of their own below (`git grep -n -P '\bclone_
 | Range natives `setStart` / `setEnd` (`range_proto.rs:552`, `:567`) → `set_start_to_boundary` / `set_end_to_boundary` (`range/boundary.rs:52`, `:67`); `setStartBefore` / `-After`, `setEndBefore` / `-After`, `selectNode` (`boundary.rs:82-128`) through the same two | yes | the two collapse the other boundary when the new one's `find_tree_root` differs, and `find_tree_root` stops at the `ShadowRoot` marker (`walkers.rs:408-426`) |
 | `selectNodeContents`, `collapse` (`boundary.rs:114-137`) | yes | both boundaries are set to one node |
 | the live-range hooks (`LiveRangeBridge`, `range/live.rs:112-325`: removal, insertion, text change, replace data, split text, normalize merge incl. `after_normalize_merge` `:278-324`) | yes, read from the code (not probed), except split text on an orphan Text (next row) | each hook keeps a boundary in its node, moves it within its node's tree (`splitText`'s new node when the Text has a parent, `normalize`'s merge target, a sibling of the merged child), or moves a boundary inside a removed subtree to `(parent, index)` of the removed node, whose root is the root the other boundary already had |
-| split text on an orphan Text (`after_split_text`, `live.rs:229-276` → `adjust_ranges_for_split_text`, `range/mod.rs:380-387`) | **no**, read from the code (not probed) | the node-side migration (`off > offset` → `(new_node, off - offset)`) runs whether or not the Text has a parent (`live.rs:266-275` passes `None` parent args only to skip the parent-side rule; `split_text.rs:194` fires the event unconditionally), so a range `(t, 2)`-`(t, 8)` on an orphan `t` split at 5 gets its end on `new_node`, a second orphan: two roots. DOM §4.11 *split a Text node* runs the migration only under step 7 "If parent is non-null" (`webref body dom concept-text-split`). Neither root holds a shadow root, so `tq`'s climb row is not reached by it; the defect is not `tq`'s (found in R1.3 while classifying the hits below; reported to the PM, its placement is the PM's) |
+| split text on an orphan Text (`after_split_text`, `live.rs:229-276` → `adjust_ranges_for_split_text`, `range/mod.rs:380-387`) | **no**, read from the code (not probed) | the node-side migration (`off > offset` → `(new_node, off - offset)`) runs whether or not the Text has a parent (`live.rs:266-275` passes `None` parent args only to skip the parent-side rule; `split_text.rs:194` fires the event unconditionally), so a range `(t, 2)`-`(t, 8)` on an orphan `t` split at 5 gets its end on `new_node`, a second orphan: two roots. DOM §4.11 *split a Text node* runs the migration only under step 7 "If parent is non-null" (`webref body dom concept-text-split`). Neither root holds a shadow root, so `tq`'s climb row is not reached by it; the defect is not `tq`'s (found in R1.3 while classifying the hits below; reported to the PM, its placement is the PM's). Probed from page script when the code PR is cut, result to the PM, who decides the slot (§10 item 9) |
 | `LiveRangeRegistry::finalize_pending` (`range/live.rs:434-450`, run by every `with_range` / `with_range_mut`) | **not shown** | it re-homes start and end to the owner document **separately**, each when its own container is no longer in the `EcsDom` (`!dom.contains`), so a range whose start container is gone and whose end container is alive in a shadow tree becomes `(document, 0)`-`(end in the shadow tree)`. Whether a page script can reach that one-ended re-home (a range container despawned without the removal hook having moved the boundary) is **not measured**; §11 P-6 |
 | Selection setters `extend` (`selection.rs:357-361`) and `set_base_and_extent` (`:408-412`) → raw `set_start` / `set_end` (`boundary.rs:35`, `:42`) with two different nodes, after a node-document check only (`same_document`, `selection.rs:613-618`) | **no** (measured, §11 P-5) | a Selection range can have its start in the light tree and its end in a shadow tree; `tq` changes that shape's output. Precondition: `tsel` (§11 P-5) |
 | Selection setters `collapse` (`selection.rs:278-279`) and `select_all_children` (`:439-440`) → the same raw pair | yes | both boundaries are written with one node (`node` / `parent`), so one root |
@@ -304,8 +308,9 @@ Counts: one root 43, can be two roots 12 (`boundary.rs` 2, `selection.rs` 8, `ra
 `dom_selection_proto.rs:600-626`, `wrap_range_id(ctx, rid)` `:625`). So a range written cross-root by `extend` /
 `set_base_and_extent` reaches the Range natives too: `getSelection().getRangeAt(0).toString()` and
 `.deleteContents()` read the same registered range through `Range::to_string` / `Range::delete_contents` (read from
-the code, not probed; a row of §11 P-5's table). It is moot after `tsel`: once the setters apply the spec's
-precondition, no Selection range has two roots for the Range natives to read.
+the code, not probed; a row of §11 P-5's table). It is moot after `tsel` for the shape `tsel` removes: once the
+setters apply the spec's precondition, no Selection range has two roots *through the Selection setters' write path*
+for the Range natives to read. `finalize_pending` stays §11 P-6 (not shown).
 
 So the claim this memo makes is scoped: on the Range natives' own setters, the constructors, the collapses and
 copy-backs, the transients and the live-range hooks a range keeps one root and the climb row is unchanged by `tq`,
@@ -436,9 +441,6 @@ Where each cell's expected value comes from:
 - **Spec values** (§3, rank (1)): the Range cells U2, U3, U4, V1, V3, V4 (DOM §5.6 *contained*, `deleteContents()`,
   *extract*, stringification), and V2 (Selection API §3 `deleteFromDocument()` runs `deleteContents()` on the range,
   so its value is DOM §5.6's `deleteContents()`).
-- **An elidex design value, not a spec value**: U1. It asserts what the private walk returns, which is §0.1's
-  design (the root clause of *contained* is held by the walk's descent: its two child steps stay in the node tree);
-  the spec has no such function.
   V6 (NEW) is in this group too: its `""` is the string of a collapsed range under any reading. On the post-`tsel`
   base, `setBaseAndExtent` step 5 (Selection API §3) sets the boundaries through DOM's *set the start or end*
   (WHATWG DOM §5.6 `#concept-range-bp-set`), whose step 4 collapses the range when the new boundary point's node has
@@ -449,6 +451,9 @@ Where each cell's expected value comes from:
   a boundary point asserts the two nodes have the same root (WHATWG DOM §5.2 `#concept-range-bp-position` step 1),
   so it is undefined across roots; the "before" branch collapses at `(st, 3)`, the other at `(pre, 1)`. The
   asserted `""` holds on either branch. Which branch elidex takes is `tsel`'s, not this memo's.
+- **An elidex design value, not a spec value**: U1. It asserts what the private walk returns, which is §0.1's
+  design (the root clause of *contained* is held by the walk's descent: its two child steps stay in the node tree);
+  the spec has no such function.
 - **Rank (2)**: V5 (§3, *Rank of the Selection string values*).
 
 None is any engine's. Each shape below is the probe's of §6, §6.1 or §11 P-5.
@@ -524,9 +529,12 @@ crates/dom/elidex-dom-api/src/range/mod.rs crates/dom/elidex-dom-api/src/range/m
 is at or over 1000, and the largest after the cells (`tests_selection.rs`, about +50 with V5 and V6) stays under
 1000, so CLAUDE.md's
 *1000-line debt* rule asks for no split and no new test file at this base. The code PR's base is not this one: it
-contains `tsel` (§9 item 3), whose cells may land in the same test files (`tests_selection.rs` most likely), so the
-counts and the anchors cited in this memo are re-measured there (§10 item 7); if a file would cross 1000 with
-`tq`'s cells, those cells go in a new test file.
+contains `tsel` (§9 item 3). Per the `tsel` plan on its branch (not yet on main; `git show
+tree-model-tsel-plan:docs/plans/2026-11-tree-model-tsel-selection-boundary-preconditions.md`, its §7.1 at
+`6a4912de`), `tsel`'s VM cells go in a new file `tests_selection_preconditions.rs` and `tests_selection.rs` gets only
+a fixture edit (+1 line). The counts and the anchors cited in this memo are still re-measured on the code PR's base
+(§10 item 7); if a file is already at or over 1000 there, or would cross 1000 with `tq`'s cells, those cells go in a
+new test file.
 
 ## §8. Landing items
 
@@ -594,10 +602,12 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    tree preconditions", PM 890) is in the code PR's base (§9 item 3), and V6 is green there.
 7. On the code PR's base (which contains `tsel`), the anchors this memo cites (`range/mod.rs:572-584`, the
    `mutation.rs` doc comment `:70-88`, the natives of §3.1, the write paths of §4.2) and the 1000-line counts of
-   §7.1 (`tests_selection.rs` especially) are re-measured before the cells are written; if a file would cross 1000,
-   `tq`'s cells for it go in a new test file.
+   §7.1 are re-measured before the cells are written; if a file is already at or over 1000 on that base, or would
+   cross 1000 with `tq`'s cells, `tq`'s cells for it go in a new test file.
 8. P-6 reachability probed from page script before the code PR; if reachable, report to the PM, who decides a slot
    or scope before the code PR is cut (§11 P-6). No slot is opened on the unmeasured claim.
+9. (PM 11-21) The orphan-Text `splitText` live-range finding (§4.2, the split-text row) is probed from page script
+   when the code PR is cut (or earlier if cheap); the result is reported to the PM, who decides the slot.
 
 ## §11. Premises found wrong or not foreseen
 
