@@ -104,7 +104,7 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   decision 264 (M3).
 - **D-3 The routed paths** (§4.2 Q7 table): text key edits, cut, paste, IME commit, the four user writers. Checkbox, radio
   and select keep their own state-change events (`form_input.rs:80-85`, `event_handlers.rs:604-632`); they carry no
-  snapshot (P2), so they are outside this predicate.
+  snapshot (P2), so they are outside this predicate. [corrected 2026-11-21, PM 842: the population by kind is the re-derivation's DF-2 (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.2; step 2.1 decides by the kind at focus loss); its LR-2 known requirement 5 puts the component on every `input` and `<textarea>`]
 - **D-4 Non-user writers are not touched** (W1–W8, §5.2). H's re-baseline is taken once, at the first user value change,
   inside `apply_user_edit` (§4.3), so no writer calls anything and an unlisted or future writer cannot skip it.
 - **D-5 The dirty value flag is not moved.** It has a different predicate: its set rules (§4.10.5 for `<input>`, §4.10.11 for `<textarea>`; dfn §4.10.18.1)
@@ -165,7 +165,9 @@ E3's wrong `change`. Breadth: K = 1, M = 9 (§3) → preflight "single PR scope"
 - **I3 Provenance lifetime = snapshot lifetime** — every seed (UA step 4.1, VM `focus()`) starts unmarked (no
   baseline); the first user value change stores the value just before it as the baseline, which is the mark; later
   changes of either kind leave it (D-1). The mark goes away with the snapshot (take at step 2.1, reconciler
-  type-flip clear, non-text re-seed, despawn).
+  type-flip clear, non-text re-seed, despawn). [corrected 2026-11-21, PM 842: the type-flip clear and the non-text
+  re-seed are the re-derivation's DF-2 (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.2); its LR-2
+  known requirement 5 removes both]
 - **I4 Non-user writers never mark** — no §5.2 writer calls `apply_user_edit`.
 - **I5 One judgement, called by every sink** (umbrella X1) — `take_change_on_blur` is the only consumer of the snapshot
   and the only place the predicate is computed; every sink calls it from `commit_change_on_blur` and only dispatches
@@ -174,7 +176,7 @@ E3's wrong `change`. Breadth: K = 1, M = 9 (§3) → preflight "single PR scope"
 - **I6 Mark before `input`** — the mark is set inside `apply_user_edit`, before the shell builds the `input` event, so
   any blur caused by an `input` listener sees it.
 - **I7 Kind boundary** — only `is_text_control` kinds carry a snapshot; checkbox / radio / select fire their own
-  state-change `input` / `change` and do not use the funnel.
+  state-change `input` / `change` and do not use the funnel. [corrected 2026-11-21, PM 842: the population by kind is the re-derivation's DF-2 (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.2; step 2.1 decides by the kind at focus loss); its LR-2 known requirement 5 puts the component on every `input` and `<textarea>`, and decides the kind inside `take_change_on_blur`]
 
 ECS-native check: the provenance lives as fields of the existing `FocusValueSnapshot` component on the control entity;
 no side-store is added, despawn removes it, and no per-VM handle is involved.
@@ -201,7 +203,7 @@ Pairs:
   becomes observable at A2c. No cell; §8 records it for A2c.
 - **I2 × I6** — no `input` means no mark, so no listener can observe a half-applied edit.
 - **I7 × I1** — the funnel is called only from text-control paths (D-3); a non-text control passed to it has no
-  snapshot to mark (C7 (c)).
+  snapshot to mark (C7 (c)). [corrected 2026-11-21, PM 842: the second half falls with I7's correction]
 - **I1 × I4**, **I2 × I3**, **I2 × I4**, **I3 × I6**, **I4 × I6**, **I6 × I7** — none beyond the above.
 
 ## §3. Spec coverage map
@@ -574,7 +576,9 @@ the WPT runner does not drive.
 - Seed gap (existed before this PR): a focused control that script switches from a non-text kind to a text kind holds no
   snapshot (the seed runs at focus only, P1), so a later user edit fires no `change`. The spec compares with the value
   "when the control was first focused", which a control that was not then a text control does not define, so this is
-  recorded as a known property, not a defect.
+  recorded as a known property, not a defect. [corrected 2026-11-21, PM 842: a defect, the re-derivation's DF-2 (i)
+  (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.2, cell DC-14): the value at first focus is the
+  control's value whatever its state then (its reading R-3)]
 - The renderer's direct system clipboard access (`event_handlers.rs:669`, `:681`) → `#11-renderer-clipboard-broker` (PM 312).
 - `ime.rs:158` ("No-op for now.", IME enable / disable) is unrelated to provenance; left as is.
 
@@ -673,6 +677,7 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
 
 - *Erratum* (2026-11-20 to 2026-11-21; no rev bump; added after landing; PM 432, PM 842): errata per
   `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
+- *Erratum* (2026-11-21; no rev bump; PM 842): D-3, I3, I7, I7 × I1 and §7's seed gap corrected by the re-derivation's DF-2 (in-line pointers).
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.

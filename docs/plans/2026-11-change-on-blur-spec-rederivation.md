@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.6, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.7, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -11,10 +11,10 @@ comes from the spec, then from elidex's own principles where the spec is silent;
 
 **Result.**
 
-- Every row of §4 holds except E-5 and E-19; E-16 (user validity) is not an element of H. A holding row rests on spec
-  text, on spec text plus an elidex principle (E-15), or on an elidex principle alone where the spec is silent (E-13,
-  `<textarea>`); E-14 and E-18 hold under reading R-2 (§0.5). No measurement is a ground for any of them. E-18 is
-  counted as holding: it holds where the kind at focus loss is one step 2.1 excludes, and its other part is DF-2.
+- Every row of §4 holds except E-5 and E-19, and E-18 in the cases DF-2 names ((ii) and (iii)); E-16 (user
+  validity) is not an element of H. A holding row rests on spec text, on spec text plus an elidex principle (E-15),
+  or on an elidex principle alone where the spec is silent (E-13, `<textarea>`); E-14, and E-18 where the kind at
+  focus loss is one step 2.1 excludes, hold under reading R-2 (§0.5). No measurement is a ground for any of them.
 - **The baseline** (E-5) differs from the spec. HTML compares with the value "when the control was first focused"; H
   compares with the value just before the first user value change. They differ only when a non-user write lands
   between focus and the first user value change. Defect **DF-1** (§6) is class (a); class (b) is examined with it:
@@ -25,8 +25,8 @@ comes from the spec, then from elidex's own principles where the spec is silent;
     outcome there too.
 - **The snapshot's population** (E-19) differs from the spec: elidex chooses it by the kind at each write (the seed
   and each `type` change), step 2.1 by its conjuncts at focus loss. Defect **DF-2** (§6.2, whose sequences (i)–(iii)
-  are its cells). **[spec] under R-2 (§0.5)**; where the sanitization of the kind passed through changes the value,
-  the comparison also rests on D-3 (DC-19).
+  are its cells). **[spec] under R-2 (§0.5)**; where a non-user write in the round trip (a sanitization, or a write
+  of the value by type-change step 2 or 3) changes the value, the comparison also rests on D-3 (DC-19).
 - Both fixes are a separate code PR (PM 842).
 - Implicit submission: the current order (`submit`, then `change` at a later focus loss) **conforms** (§5).
 
@@ -89,7 +89,8 @@ because plan (1) has a D-3 of its own). The outcomes D-3 gives are the K-first c
 
 - **D-1 The mark, the funnel, the provenance rule, the commit point, the event order and the kind boundary hold on spec
   text** — [spec]: §4.10.5.5, §6.6.4 step 2.1, §2.1.4, UI Events §3.3.2 (table §4, E-1 to E-4, E-6 to E-12, E-14, E-17,
-  E-18). E-14 and E-18 hold under reading R-2 (§0.5); across a `type` change the kind boundary differs (DF-2).
+  and E-18 where the kind at focus loss is one step 2.1 excludes). E-14 and that part of E-18 hold under reading R-2
+  (§0.5); across a `type` change the kind boundary differs: E-19 and E-18's other cases (DF-2).
 - **D-2 No `change` fires at step 2.1 when the value equals the value at first focus** — [spec]: §6.6.4 step 2.1's
   parenthetical (Q1), under every reading of it (§4.1). H's baseline (the value before the first user value change)
   fires one in class (a). It has no ground in spec text or in an elidex principle; its only source is the #597
@@ -98,8 +99,8 @@ because plan (1) has a D-3 of its own). The outcomes D-3 gives are the K-first c
   PM 870, 2026-11-21); no step label (above). When a non-user write and a user value change both happened while the
   control was focused, the value differs from the first-focus value, and the readings of §4.1 split, `change` fires
   iff the user changed the value, `V ≠ F0`, and `V` differs from the value just before the first user value change.
-  So class (b) fires no `change`; M1, M6, S* and DF-2 (iii) where the sanitization of the kind passed through
-  changes the value (DC-19) fire `change`. §4.10.5.5 (Q5: "These events are not fired in response to changes made
+  So class (b) fires no `change`; M1, M6, S* and DF-2 (iii) where a non-user write in the round trip (a
+  sanitization, or a write of the value by type-change step 2 or 3) changes the value (DC-19) fire `change`. §4.10.5.5 (Q5: "These events are not fired in response to changes made
   to the values of form controls by scripts.") stays a lean: K-first applies it only to the value before the first
   user edit, not to later script writes. K-last and L are rejected (§4.1). "K-first is closest to what landed" is
   not a ground (後方互換性は維持しない). The readings not chosen (L, K-last) go to the compat layer only on a content
@@ -157,12 +158,17 @@ because it changes a ratified ground (D-2) and records behaviour differences (DF
 
 ## §2. Coupled invariants
 
-None new. The memo touches two existing ones and leaves both intact.
+None new. The memo touches existing ones: it leaves two pairs intact, and DF-2 corrects three statements.
 
 - **Plan (1) I3 (provenance lifetime = snapshot lifetime) × D-5.** A commit at Enter would need a second consumer of
-  the snapshot and a re-seed outside a focus transition. D-5 keeps I3 as landed.
+  the snapshot and a re-seed outside a focus transition. D-5 keeps I3's lifetime rule as landed.
 - **Umbrella X1 (one judgement, every sink) × DF-1.** DF-1 is a defect in what the one judgement compares with, not in
-  where it is computed. X1, plan (1) I1, I2, I4, I5, I6 and I7 are untouched by DF-1.
+  where it is computed. X1, plan (1) I1, I2, I4, I5 and I6 are untouched by DF-1.
+- **Corrected by DF-2**: plan (1) I7 ("only `is_text_control` kinds carry a snapshot"), the type-flip clear and the
+  non-text re-seed in plan (1) I3's list of what removes the snapshot, and umbrella X2 ("a type flip to a non-text
+  kind clears snapshot and mark together"). Each chooses the population by the kind at a write; step 2.1 decides by
+  its conjuncts at focus loss (§6.2), and LR-2's known requirement 5 removes those writes. The landed memos carry an
+  erratum pointer at each (§8).
 
 ## §3. Spec coverage map
 
@@ -468,17 +474,59 @@ value from it (§0.4); their "Today" already equals it.
 | DC-13 (control, unchanged) | C4 (M1), C17 (M6) of plan (1) | `change` (as today) | D-3: `V` differs from the value just before the first user edit (§4.1) | `change` |
 | DC-17 (new; S*), both kinds | UA focus `b` (value `""`); script `b.value = "x"`; user types `a` (value `"xa"`); user Backspace (value `"x"`); script `b.value = "y"`; UA blur | `change` | D-3: `"y"` ≠ `""` and `"y"` differs from the value just before the first user edit (`"x"`); the user's net edit is zero (§4.1) | `change` |
 
-The code PR also rewrites the two code comments that name the measurement as the ground
-(`focus_snapshot.rs:4-5`, `:69-71`; the second is the ECS-mission allowlist's class-E row for that file, LR-2).
+*Code comments the code PR rewrites* (read at `29edf6fc`; each was checked there by `git show 29edf6fc:<path>`).
+The code PR rewrites each with the requirement of LR-2 that replaces it:
+
+- *The measurement named as the ground* (each with an ECS-mission allowlist class-E row, pruned with the rewrite,
+  except the first, which has none; LR-2's allowlist rows):
+  - `crates/dom/elidex-form/src/focus_snapshot.rs:4-5`, the module doc (the `<textarea>` rule grounded on the
+    measurement; no row);
+  - `focus_snapshot.rs:69-73`, the doc of `note_user_value_change` (the re-baseline grounded on the measured model);
+  - `crates/shell/elidex-shell/src/content_change_on_blur_tests.rs:324`, the doc of `focus_with_caret_at_end` (its
+    setup named as that of the measured N1 / M5 cases);
+  - `content_change_on_blur_tests.rs:648`, C24's doc comment (below).
+- *H's baseline stated as a rule* (requirement 1): `focus_snapshot.rs:13-16` (module doc: the snapshot "holds one
+  thing", `None` until the first user value change), `:29-31` (doc of `FocusValueSnapshot`: "No focus-time copy of
+  the value is kept", PM 393), `:69-73`; `crates/dom/elidex-form/src/reconciler.rs:161` (`type` arm: "baseline =
+  value before the first user change, plan D-1"); `crates/core/elidex-ecs/src/dom/tree_clone.rs:30` (the
+  clone-policy table's `FocusValueSnapshot` entry: "the value before the first user value change, plan D-1");
+  `crates/dom/elidex-dom-api/src/focus/update_steps.rs:89-92` (trait doc of `seed_focus_snapshot`) and `:305-307`;
+  `crates/shell/elidex-shell/src/content/focus.rs:143-145` (the shell sink's `seed_focus_snapshot`).
+- *The seed after the listeners* (requirement 2): `update_steps.rs:89-92` ("after the `focus`/`focusin` listeners";
+  "Seed timing does not decide whether a non-user write fires `change`", which DC-10 contradicts under R-1),
+  `:305-307` ("Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners"), `focus.rs:143` ("After
+  §6.6.4 focus update steps step 4.4"), `focus_snapshot.rs:44-45` (doc of `record_focus_snapshot`: "after §6.6.4
+  focus update steps step 4.4").
+- *The population chosen by kind* (requirement 5): `focus_snapshot.rs:25-26` (doc of `FocusValueSnapshot`: "Only
+  text controls carry it"), `:43` and `:48-52` (doc of `record_focus_snapshot`: the seed "**if** it is a text
+  control", and the removal for a non-text control), `:97-104` (doc of `clear_focus_snapshot`, which requirement 5
+  deletes with its call), `reconciler.rs:159-164` (the `type` arm's clear).
 
 *What happens to the existing cells.* The behaviour-level shell cells (C20–C26, C4, C17) keep their expected values
-and are cited by C-id; C6's expectation flips (DF-1 (a)). Three existing tests change for other reasons: C7 (l)
-(`c7l_first_mark_rebaselines_once`) asserts the snapshot's internal representation, which LR-2 known requirement 1
-re-decides, so it is rewritten at the judgement level (DC-11 is that assertion); C24's doc comment names PM 307's
-accepted divergence as its ground, which LR-6 withdraws, so the comment is rewritten (expected value unchanged; the
-allowlist's class-E row for it is pruned with it); and the unit test
-`record_clears_stale_snapshot_when_no_longer_text_control` asserts the clear that LR-2 known requirement 5 removes,
-so it is replaced by a cell for the population rule (DF-2).
+and are cited by C-id; C6's expectation flips (DF-1 (a)). These existing tests and guards change for other reasons
+(each found at `29edf6fc` by `git grep -n <name> 29edf6fc -- crates`):
+
+- C7 (l) (`c7l_first_mark_rebaselines_once`, `focus_snapshot.rs:211`) asserts the snapshot's internal
+  representation, which LR-2 known requirement 1 re-decides, so it is rewritten at the judgement level (DC-11 is
+  that assertion). The test helper it reads, `test_support::snap` / `Snap` (`crates/dom/elidex-form/src/test_support.rs`,
+  over `FocusValueSnapshot::baseline`, the `Option<String>`), is re-defined with requirement 1's representation.
+- C24's doc comment names PM 307's accepted divergence as its ground, which LR-6 withdraws, so the comment is
+  rewritten (expected value unchanged; the allowlist's class-E row for it is pruned with it).
+- `record_clears_stale_snapshot_when_no_longer_text_control` (`focus_snapshot.rs:223`) asserts the removal at a
+  non-text re-seed that requirement 5 deletes, so it is replaced by a cell for the population rule (DF-2).
+- `no_snapshot_for_non_text_control` (`focus_snapshot.rs:246`) asserts that the seed of a Button leaves no snapshot
+  (`Snap::Absent`). Under requirement 5 the seed does not test the kind, so that assertion inverts; the test is
+  rewritten to assert the judgement: `take_change_on_blur` is `false` because the predicate at focus loss excludes
+  the kind, not because no component exists.
+- `e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot` (`crates/dom/elidex-form/src/reconciler_tests.rs:212`)
+  asserts the `type`-arm clear that requirement 5 deletes, so it is rewritten: the component survives the flip, and
+  at focus loss the Checkbox state is excluded (no `change`, as DC-16).
+- `e2d_type_flip_between_text_kinds_preserves_focus_snapshot` (`reconciler_tests.rs:235`): its assertion holds (a
+  text → text flip keeps the mark); its comment ("only a non-text destination clears the snapshot") is rewritten,
+  since no destination clears it.
+- Plan (1) MG1 and MG6 are defined on the `Option<String>` representation (MG1: "the seed stores `Some(value)`";
+  MG6: "Since D-1 there is no seed value"). Requirement 1 puts the first-focus value in the component, so the slice's
+  plan re-defines both against that representation.
 
 ### §6.2 DF-2 The snapshot's population follows the kind at each write, not step 2.1's conjuncts at focus loss
 
@@ -513,7 +561,15 @@ at the seed and at each `type` change (P4, P14, P16). Three sequences where the 
     `crates/dom/elidex-form/src/value_mode.rs:64` and `:88-89`, called from `reconciler.rs:150`). No non-user write
     changes the value, so every difference from `F0` (`""`; the control was first focused in the Text state, so
     R-3 is not needed) is the user's: K is complete (§4.1), and every reading fires `change`. The expected value is
-    [spec] under R-2 and does not rest on D-3, as for DC-14 and DC-15.
+    [spec] under R-2 and does not rest on D-3, as for DC-14 and DC-15. When the value is empty at the first flip,
+    step 1 does not run, and step 2 on the way back sets the value to the `value` content attribute: a non-user
+    write that changes the value when the attribute is not empty. Example: `<input id=b value=p>`; a script sets
+    `b.value = "q"` before focus (`F0` = `"q"`); the user deletes it to `""`; `b.type = "checkbox"` (step 1 does not
+    run, the value being empty; step 2 does not apply, the old state being in the value mode, nor step 3, the new
+    one not being in the filename mode; the Checkbox state defines no value sanitization algorithm); `b.type = "text"` (step 2: the value becomes `"p"`; the Text
+    sanitization leaves it). `V` = `"p"` ≠ `F0` = `"q"`, and the step-2 write changed the value, so the sequence is in
+    §4.1's mixed class: L and K-first (the value just before the first user edit, `"q"`) fire, K-last (`"p"`) fires
+    none. The expected value `change` is K-first's, decided by D-3, as for DC-19; the example adds no cell.
   - *Through Color* (DC-19). Text → color is value mode to value mode: steps 1–3 do not apply, and step 6 runs the
     Color sanitization (Q16). The user's edit set the dirty value flag (Q17), so the value read is `"a"`; it does not
     parse as a CSS color, so the color is opaque black, and with no `alpha` attribute and the default Limited sRGB
@@ -525,8 +581,10 @@ at the seed and at each `type` change (P4, P14, P16). Three sequences where the 
     first user edit (`""`).
   - *Through File Upload*: a defect only when the control was dirty at first focus (its value then differed from
     its `value` content attribute). Step 3 empties the value and step 2 on the way back sets it to the content
-    attribute, so otherwise `V` = `F0` and no reading fires; when it was dirty, the step-2 write changes the value
-    and the sequence is in the mixed class, as DC-19.
+    attribute, or to the empty string without one, so otherwise `V` = `F0` and no reading fires. When it was dirty,
+    `V` ≠ `F0`: where the step-3 or the step-2 write changed the value, the sequence is in the mixed class, as DC-19;
+    where neither did (the user emptied the value and there is no content attribute), the difference is the user's
+    and every reading fires `change`, as DC-18.
   - *Through a value mode non-text kind* (Number, Range, the date / time kinds). Text → that kind and back are value
     mode to value mode: steps 1–3 do not apply, and step 6 runs the new kind's sanitization at each flip (Q15; for
     Number and Range, Q18). Where neither sanitization changes the value (e.g. the user's `1` through Number), no
@@ -652,7 +710,8 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
 
 - **LR-1 → `#11-change-on-blur-model-spec-rederivation`: close** (D-3 is decided; LR-7). Record: "Re-derived in
   `docs/plans/2026-11-change-on-blur-spec-rederivation.md`. Every element of H holds on spec text or an elidex
-  principle except two, the baseline and the snapshot's population, which differ →
+  principle except two, which differ: the baseline (E-5) and the snapshot's population (E-19, and E-18 in the cases
+  DF-2 names) →
   `#11-change-on-blur-baseline-first-focus-value` (LR-2); the measurement is `[history]` and a ground for nothing.
   The PR deleted 18 allowlist rows (`git diff origin/main...HEAD -- .claude/tools/ecs-mission-allowlist.tsv`): 17
   class T — this slot's 14 (13 in plan (1), 1 in the umbrella) and the 3 that #652 added for
@@ -675,8 +734,9 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
     (`reconciler.rs` :165-167 clears, never seeds), (ii) an edited text control switched to Number / Range /
     date-time loses its mark (cells DC-14..DC-16)" with: "the population is chosen by the kind at each write (the
     seed and each `type` change), not by step 2.1's conjuncts at focus loss, under reading R-2 (memo §0.5). Its cells
-    are the sequences (i)–(iii) of memo §6.2: DC-14 to DC-16, DC-18, DC-19. Where the sanitization of the kind passed
-    through changes the value, the comparison also rests on D-3 (DC-19)."
+    are the sequences (i)–(iii) of memo §6.2: DC-14 to DC-16, DC-18, DC-19. Where a non-user write in the round trip
+    (a sanitization, or a write of the value by type-change step 2 or 3) changes the value, the comparison also rests
+    on D-3 (DC-19)."
   - *Fix*: after "/elidex-plan-review mandatory", add: "That slice's plan-review decides whether DF-1 and DF-2 are
     separate per-PR slices." Then replace "known requirements: one component holds the first-focus value and the
     user-change mark (re-decides PM 393), the seed before `focus` / `focusin` listeners, the VM `focus()` seed
@@ -701,9 +761,11 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
        applies to the element, and the element does not have a defined activation behavior", under reading R-2
        (memo §0.5), with `<textarea>` included (memo D-4)."
   - *Allowlist rows*: replace "`focus_snapshot.rs:71` (E, reclassified by the code PR), `change-on-blur-user-provenance.md:199`,
-    `focus-fixup-program.md:44` / `:163`" with "the doc comment of `note_user_value_change` in `focus_snapshot.rs`
-    (E; the code PR rewrites the comment and prunes the row)". The three plan-memo rows are deleted by this docs PR
-    (LR-1).
+    `focus-fixup-program.md:44` / `:163`" with "three class-E rows (slot `-`), each a code comment that names the
+    measurement as the ground (memo §6.1): the doc comment of `note_user_value_change` in `focus_snapshot.rs`, and in
+    `content_change_on_blur_tests.rs` the doc comment of C24 (W6 as PM 307's accepted divergence) and the doc
+    comment of `focus_with_caret_at_end` (the measured N1 / M5 cases); the code PR
+    rewrites each comment and prunes its row". The three plan-memo rows are deleted by this docs PR (LR-1).
   - *Add Trigger*: "the focus-fixup umbrella's per-PR slice for this slot starts" (before the Re-eval-date).
   - *Add Why-deferred*: "PM 842: docs and code are separate PRs; the re-derivation memo is docs only."
 - **LR-3 → `#11-implicit-submission-commits-change`: close as not a core defect.** Record: "The current order conforms:
@@ -791,13 +853,16 @@ section and by a quoted fragment.
 | umbrella | §1.1 (b) ("the mixed case is measured") | `[history]`; the sentence fixes the reference point, the value at first focus (§4.1) |
 | umbrella | §1.2 row (1) ("design H") | ground: re-derived here; the baseline differs (DF-1) |
 | umbrella | §3 rows for step 2.1 and textarea | pointers to E-5 / DF-1 (class (a) contradicts the text; class (b): D-3, §0.4) and E-13 |
-| umbrella | §7; changelog | erratum section: what differs is a pointer to §6 and §6.3; changelog: one dated line pointing to this memo's changelog |
+| umbrella | §2 X2 ("a type flip to a non-text kind clears snapshot and mark together") | erratum pointer: corrected by DF-2 (§6.2), LR-2 known requirement 5 |
+| umbrella | §7; changelog | erratum section: what differs is a pointer to §6 and §6.3; X2 is corrected by DF-2 (LR-2 known requirement 5), the other X rows are not affected; changelog: one dated line pointing to this memo's changelog |
 | plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M1 and M9 → the re-derivation's D-3 (its §0.4), with K-first's comparison (`V` against the value just before the first user edit) |
 | plan (1) | E1 | textarea ground (§4.2); the correction line is tagged `[contrast]` ("the ground is not browser behaviour [contrast]"): it states that the ground is *not* browser behaviour |
 | plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3 and LR-6 |
 | plan (1) | §3 textarea row; §4.3 opening and table header; §4.4 | grounds corrected (PE-4, PE-5, §4.2) |
-| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags, read through one banner at the memo's head; W6 erratum: the cited ground does not hold, LR-6 for PM 307, C24's outcome by D-3 (DC-9) |
+| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags, read through one banner at the memo's head; W6 erratum: the cited ground does not hold, LR-6 for PM 307, C24's outcome by D-3 (DC-9) |
 | plan (1) | §1 (b) ("settled by measurement") | `[history]` tag; erratum pointing to D-3 (§0.4) |
+| plan (1) | D-3 ("they carry no snapshot (P2)"); I3 ("reconciler type-flip clear, non-text re-seed"); I7 ("only `is_text_control` kinds carry a snapshot"); I7 × I1 ("a non-text control passed to it has no snapshot to mark") | erratum pointer at each: the population by kind is DF-2 (§6.2); LR-2 known requirement 5 |
+| plan (1) | §7 "Seed gap" ("recorded as a known property, not a defect") | erratum pointer: a defect, DF-2 (i) (§6.2), under reading R-3 |
 | plan (1) | §6 N6 ("not run; PM 393, to run later") | **no edit**; the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
 | plan (1) | changelog | one dated erratum line pointing to this memo's changelog |
 
@@ -805,7 +870,7 @@ section and by a quoted fragment.
 
 1. `python3 .claude/skills/elidex-plan-review/preflight.py <memo>` exits 0 for this memo, the umbrella and plan (1).
 2. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (495 allowlisted, 0 new, 0 stale)` (run 2026-11-21 on this
-   revision, rev 3.6), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
+   revision, rev 3.7), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
    `#11-change-on-blur-baseline-first-focus-value`
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation\|change-on-blur-baseline-first-focus-value' .claude/tools/ecs-mission-allowlist.tsv`
    → 0; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
@@ -816,6 +881,21 @@ section and by a quoted fragment.
 
 ## Changelog
 
+- *Rev 3.7* (2026-11-21): /pre-push Stage 4 (`/code-review high`) fixes; no decision, expected value or cell
+  changes, and slot content changes only in LR-2's allowlist-row list.
+  - The landed statements that choose the population by kind get erratum pointers: umbrella X2 (and §7, which said
+    X1–X8 were not affected), plan (1) D-3, I3, I7, I7 × I1, and its §7 seed gap (a defect: DF-2 (i)). §2 names
+    them; §8 lists the sites.
+  - §6.1: the code comments the code PR rewrites, by the requirement that replaces each (the measurement as ground,
+    the baseline, the seed instant, the population by kind); the existing tests and guards that change
+    (`no_snapshot_for_non_text_control`, e2c, e2d's comment, the `test_support::snap` helper, plan (1) MG1 / MG6).
+  - The D-3 part of DF-2 (iii) stated by its property, a non-user write in the round trip (a sanitization, or a
+    write of the value by type-change step 2 or 3) that changes the value, in the summary, D-3, LR-2 and §6.2; §6.2's
+    Checkbox case gains the empty-value example (step 1 skipped, step 2 writes the content attribute) and the File
+    Upload case is stated for both writes. No cell added.
+  - E-18 counted as the table states it (holds where the kind at focus loss is one step 2.1 excludes, differs in
+    DF-2 (ii) and (iii)) in the summary, D-1 and LR-1. LR-2's allowlist rows add the two class-E rows of
+    `content_change_on_blur_tests.rs`. §8: N6 is not in the `[history]` row (it has no edit).
 - *Rev 3.6* (2026-11-21): /simplify: restatements collapsed; no decision, expected value or slot content changes
   except LR-2's known requirement 5 (below).
   - LR-2's known requirement 5 narrowed (driver's decision): the component is on every `input` and `<textarea>`; the

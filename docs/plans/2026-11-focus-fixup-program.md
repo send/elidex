@@ -127,7 +127,7 @@ Only pairs that span two slices. "(1) I5" = plan (1)'s invariant I5.
   `vm/host`, computes the predicate. Pinned by plan (1)'s `take_change_on_blur` cells and plan (1) MG1 (PM 298); the fixup path
   reaches the same sink (plan (1) I4 × I5); A2c's cells are A2c's.
 - **X2 Snapshot consumed once, mark dies with it** — (1) I3 × (2) I3: (2)'s snapshot-reading cells are re-derived at its
-  rebase onto (1); a type flip to a non-text kind clears snapshot and mark together.
+  rebase onto (1); a type flip to a non-text kind clears snapshot and mark together [corrected 2026-11-21, PM 842: not a requirement; step 2.1 decides by the kind at focus loss, `docs/plans/2026-11-change-on-blur-spec-rederivation.md` DF-2 (its §6.2), and its LR-2 known requirement 5 removes the clear].
 - **X3 (2)'s user-edit step goes through (1)'s funnel** — (1) I1 / I2 × (2) C6: after (1), `input` fires iff the value
   changed, so C6 uses a value-changing key; its cites are re-derived at the rebased head (264 (M2) drops the move).
 - **X4 Fixup listeners never mark** — (1) I4 × (2) I4: a listener run by the fixup that writes `value` is a script
@@ -247,8 +247,8 @@ its trigger or scope.
 
 ## §7. Erratum (PM 432, PM 842; 2026-11-20; added after landing) — the grounds of design H
 
-Sections §0–§6 are as ratified and landed, except the dated in-line corrections of DC2, §1.1 (b), §1.2 row (1) and two
-§3 rows. This section states what changed and why.
+Sections §0–§6 are as ratified and landed, except the dated in-line corrections of DC2, §1.1 (b), §1.2 row (1), X2 and
+two §3 rows. This section states what changed and why.
 
 - **What was wrong.** DC2, §1.2 row (1) and §3 gave a measurement of one engine as the ground of design H and of the
   `<textarea>` rule. A core requirement's ground is the spec, then elidex's principles where the spec is silent; a
@@ -256,18 +256,21 @@ Sections §0–§6 are as ratified and landed, except the dated in-line correcti
 - **The re-derivation** is `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (slot
   `#11-change-on-blur-model-spec-rederivation`). Its §4 table gives the spec or principle ground of each element of H.
 - **What holds.** The funnel, the mark, `input`, the commit point, the event order and the kind boundary hold on spec
-  text (the kind boundary across a `type` change: DF-2 there); X1–X8 are not affected. The `<textarea>` rule holds on an elidex principle (one text-control class; the spec is silent). Implicit
+  text (the kind boundary across a `type` change: DF-2 there). X2 is corrected by DF-2 (the re-derivation's LR-2,
+  known requirement 5: a `type` change does not clear the snapshot); X1 and X3–X8 are not affected. The `<textarea>` rule holds on an elidex principle (one text-control class; the spec is silent). Implicit
   submission is not a commit point; the current order conforms (the re-derivation's §5).
 - **What differs.** Stated once, in the re-derivation's §6: DF-1 (the baseline: its class (a) is decided by the
   spec text; its class (b) is decided by D-3 there, §0.4, and is not a defect) and DF-2 (the
   snapshot's population across a `type` change). The fix is a separate code PR, planned as a slice of this
   umbrella. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
-- **The measurements** of plan (1) §6 stay as `[history]`. No invariant, edge or DoD item of this umbrella changes.
+- **The measurements** of plan (1) §6 stay as `[history]`. Apart from X2, no invariant, edge or DoD item of this
+  umbrella changes.
 
 ## Changelog
 
 - *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections; errata per
   `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
+- *Erratum* (2026-11-21; no rev bump; PM 842): X2 corrected by the re-derivation's DF-2 (in-line pointer; §7).
 - *Rev 2.2* (2026-11-03): aligned to plan (1) design H (rev 3.1) and plan (2) rev 5.1 (C19 ordering only, PM 298):
   row (1), e1, X1, §3, PR-1, DoD 2, nested revs; stall contingency deleted (its STOP row is gone); CP-3 / CP-4 owner and x4 (PM 312).
 - *Rev 2.1* (2026-11-03): removals per PM 282 (X6 sentence; FS-1, x6, FU-4 assignment, display repro); e4/e5 pointer; PR-1 list + update_steps.rs:72-76.
