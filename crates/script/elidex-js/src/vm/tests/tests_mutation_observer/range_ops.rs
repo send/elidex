@@ -708,3 +708,33 @@ fn extract_contents_over_closed_host_reports_no_shadow_root() {
         },
     );
 }
+
+#[test]
+fn extract_contents_over_closed_host_reports_no_shadow_root_p2c() {
+    // Light child stored after the shadow root: only it is extracted.
+    run_over_closed_host(
+        LightShape::LightAfter,
+        "globalThis.frag = rg.extractContents();",
+        |vm| {
+            assert_eq!(
+                vm.eval(
+                    "frag.childNodes.length === 1 && frag.childNodes[0] === light \
+                     && h.childNodes.length === 0"
+                )
+                .unwrap(),
+                JsValue::Boolean(true)
+            );
+            assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+            assert_eq!(
+                vm.eval(
+                    "records[0].target === h && records[0].removedNodes.length === 1 \
+                     && records[0].removedNodes[0] === light"
+                )
+                .unwrap(),
+                JsValue::Boolean(true)
+            );
+            assert_eq!(vm.eval("sp.isConnected").unwrap(), JsValue::Boolean(true));
+            assert_eq!(vm.eval("sr.host === h").unwrap(), JsValue::Boolean(true));
+        },
+    );
+}

@@ -76,12 +76,16 @@ impl Range {
     ///
     /// A node is **contained** (DOM §5.6 [`#contained`]) iff its root is the
     /// range's root, AND `(node, 0)` is after the range start, AND
-    /// `(node, node's length)` is before the range end. Each clause has one
+    /// `(node, node's length)` is before the range end. Each clause has its
     /// enforcer:
     ///
-    /// - root clause: the preorder candidate walk's two child steps
-    ///   (`next_in_preorder_global`) stay in the node tree, so a shadow tree's
-    ///   nodes are never candidates reached by descent;
+    /// - root clause: for a walk that starts in the light tree, the preorder
+    ///   candidate walk's two child steps (`next_in_preorder_global`) stay in
+    ///   the node tree, so a shadow tree's nodes are never candidates reached
+    ///   by descent. The walk's upward step is unchanged (it climbs from a
+    ///   shadow root to its host: `#11-shadow-root-is-a-tree-root`), so a walk
+    ///   that starts inside a shadow tree is not covered by the walk; the
+    ///   root clause is held for it only by the `compare_points` test below;
     /// - position clauses: the canonical `compare_points` test below. The walk
     ///   is only an over-approximation of these — it includes nodes *outside*
     ///   the range (e.g. children before an element `start_offset`, Codex

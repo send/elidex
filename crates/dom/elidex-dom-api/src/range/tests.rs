@@ -620,6 +620,25 @@ fn extract_contents_over_host_leaves_shadow_root_linked_p2_light() {
     }
 }
 
+#[test]
+fn extract_contents_over_host_leaves_shadow_root_linked_p2c() {
+    // Light child after the root: the host's first stored child is the root.
+    let mut t = build_host_tree(LightShape::After);
+    let mut range = host_range(&t);
+    let (out, records) = range.extract_contents(&mut t.dom);
+    assert_eq!(
+        t.dom.children_iter(out).collect::<Vec<_>>(),
+        vec![t.light.unwrap()]
+    );
+    assert_eq!(t.dom.get_parent(t.sr), Some(t.host));
+    assert_eq!(t.dom.get_shadow_root(t.host), Some(t.sr));
+    assert_eq!(t.dom.shadow_host(t.sr), Some(t.host));
+    for r in &records {
+        assert!(!r.removed_nodes.contains(&t.sr));
+        assert!(!r.removed_nodes.contains(&t.sp_text));
+    }
+}
+
 fn to_string_over_host(shape: LightShape, want: &str) {
     let t = build_host_tree(shape);
     let mut range = Range::new(t.pre);
