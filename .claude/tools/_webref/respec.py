@@ -6,7 +6,7 @@ the browser, so they are absent from the HTML we fetch. The body path therefore
 tries, in order (the candidate list is built by `resolver.resolve_body_candidates`,
 the loop is `commands.body.cmd_body`; this module holds the ReSpec specifics):
 
-  1. the nightly URL as fetched (works when the author pre-renders it);
+  1. the resolved page as fetched (the nightly; works when pre-rendered);
   2. the W3C spec-generator's rendering of that nightly URL;
   3. the release (TR) URL — a dated snapshot, possibly older than the ED.
 
@@ -67,18 +67,24 @@ def is_rendered_respec(html: bytes) -> bool:
     return _RENDERED_MARKER in html
 
 
+def is_unrendered_respec(html: bytes) -> bool:
+    """True when `html` is ReSpec *source* (carries `respecConfig`, lacks the
+    rendered marker): its hand-written markup is not what a reader sees."""
+    return b"respecConfig" in html and not is_rendered_respec(html)
+
+
 def miss_is_final(label: str | None, html: bytes) -> bool:
     """True when a miss on this candidate's text rules out the later ones:
-    the nightly was already rendered, so the spec-generator would return the
-    same ids and the TR is only an older snapshot of it."""
-    return label == "nightly" and is_rendered_respec(html)
+    the first (unlabelled) page was already rendered ReSpec, so the
+    spec-generator would return the same ids and the TR is only an older
+    snapshot of it."""
+    return label is None and is_rendered_respec(html)
 
 
 def source_line(label: str, html: bytes, today: datetime.date | None = None) -> str:
-    """The `# source:` provenance line for a candidate `label` that hit."""
+    """The `# source:` provenance line for a fallback candidate `label` that hit
+    (a first-candidate hit prints none: its `# <url>` header is the source)."""
     today = today or datetime.date.today()
-    if label == "nightly":
-        return f"# source: ED nightly as served ({today})"
     if label == "generator":
         return f"# source: ED rendered via spec-generator ({today})"
     if label == "tr":

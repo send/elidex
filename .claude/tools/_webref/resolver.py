@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 from .cache import FetchError, NotFound
 from .respec import generator_url, respec_entry
@@ -216,20 +216,43 @@ def _tc39_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate
     return anchor, cands
 
 
-def _respec_entry_if_relevant(shortname: str, url: str):
-    """`respec_entry` only when it can matter, and failing soft.
+class CandidateChain:
+    """Iterable of candidates whose tail is computed only when iteration
+    reaches it. `cmd_body` asks for a second candidate only after the first
+    missed, failed to fetch, or was an unrendered ReSpec source — so the
+    webref catalog (`index.json`, ~1.5 MB), which the tail needs, is fetched
+    only then."""
 
-    A multipage chapter file (`.../x.html`) is never a ReSpec nightly root, so
-    the catalog (`index.json`, fetched lazily) is not consulted for it. When
-    the catalog is needed but unreachable, the spec is treated as not-ReSpec
-    (one candidate): the plain `body` path must not die on the catalog.
-    """
-    if url.split("?", 1)[0].endswith(".html"):
-        return None
+    def __init__(self, first: Candidate, tail: Callable[[], list[Candidate]]):
+        self.first = first
+        self._tail = tail
+
+    def __iter__(self):
+        yield self.first
+        yield from self._tail()
+
+
+def _respec_fallbacks(shortname: str, url: str) -> list[Candidate]:
+    """[spec-generator rendering, TR release] when `url` is the nightly ED of
+    a ReSpec spec, else []. Consults the catalog and fails soft: an
+    unreachable catalog yields no extra candidates, so the plain `body` path
+    does not die on it (the first candidate's own result is reported).
+
+    A ReSpec spec's other pages (multipage `href`s) are not the nightly, so
+    rendering "the nightly" would answer a different page: only the nightly
+    itself gets the generator -> TR chain. A nightly root may end in `.html`
+    (9 catalog specs), so the URL shape is not a filter."""
     try:
-        return respec_entry(shortname)
+        ent = respec_entry(shortname)
     except FetchError:
-        return None
+        return []
+    if ent is None or url.rstrip("/") != ent[0].rstrip("/"):
+        return []
+    nightly, release = ent
+    cands = [Candidate(generator_url(nightly), "generator", cite=url)]
+    if release:
+        cands.append(Candidate(release, "tr"))
+    return cands
 
 
 def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate]]:
@@ -238,11 +261,11 @@ def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candida
     text comes from.
 
       - tc39: [multipage chapter, single-page `location`]
-      - ReSpec spec whose resolved page is its nightly ED: [nightly as served,
-        the spec-generator's rendering of it, the release (TR)] — an ED is
-        served unrendered (no ids), so the rendering or the dated TR may be
-        what carries the anchor
-      - otherwise (WHATWG/W3C multipage `href` from webref): one candidate.
+      - otherwise: [the resolved page, then — only if the loop gets past it
+        (miss / fetch failure / unrendered ReSpec source) and the catalog says
+        it is a ReSpec spec's nightly ED — the spec-generator's rendering of
+        it, the release (TR)]. An ED may be served unrendered (no ids), so the
+        rendering or the dated TR may be what carries the anchor.
 
     Single-page non-tc39 fallback is intentionally NOT supported: webref
     `href` is universal across WHATWG/W3C specs that webref tracks, and
@@ -260,20 +283,7 @@ def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candida
             f"or dfns/{shortname}.json)"
         )
     url, anchor = mp
-    ent = _respec_entry_if_relevant(shortname, url)
-    # A ReSpec spec's other pages (multipage `href`s) are not the nightly, so
-    # rendering "the nightly" would answer a different page: only the nightly
-    # itself gets the ED -> generator -> TR chain.
-    if ent is not None and url.rstrip("/") == ent[0].rstrip("/"):
-        nightly, release = ent
-        cands = [
-            Candidate(url, "nightly"),
-            Candidate(generator_url(nightly), "generator", cite=url),
-        ]
-        if release:
-            cands.append(Candidate(release, "tr"))
-        return anchor, cands
-    return anchor, [Candidate(url)]
+    return anchor, CandidateChain(Candidate(url), lambda: _respec_fallbacks(shortname, url))
 
 
 def lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:

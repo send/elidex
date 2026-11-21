@@ -31,8 +31,9 @@ def fetch_json(path: str) -> dict:
 
 # Process-local memo of the webref catalog (`ed/index.json`). The catalog is
 # ~1.5 MB / 700+ specs, so we fetch it lazily — when a direct data-file
-# fetch misses (see `fetch_data`), or when `body` must decide whether a
-# directory-like page is a ReSpec nightly (fail-soft there) — and parse it once per invocation.
+# fetch misses (see `fetch_data`), or when `body`'s first page missed or was
+# an unrendered ReSpec source and `body` must decide whether that page is a
+# ReSpec nightly (fail-soft there) — and parse it once per invocation.
 _INDEX: dict[str, dict] | None = None
 
 

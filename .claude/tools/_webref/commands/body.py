@@ -6,7 +6,7 @@ import sys
 
 from ..cache import FetchError, cached_fetch_url
 from ..extractor import extract_section_body
-from ..respec import SOURCE_NONE_LINE, is_rendered_respec, miss_is_final, source_line
+from ..respec import SOURCE_NONE_LINE, is_unrendered_respec, miss_is_final, source_line
 from ..resolver import resolve_body_candidates
 
 
@@ -23,8 +23,10 @@ def cmd_body(args: argparse.Namespace) -> None:
     # lacking the anchor moves on to the next candidate.
     first_error: FetchError | None = None
     last = None  # last candidate fetched, named in the not-found error
+    labelled = False  # a fallback (generator / TR) candidate was reached
     found = False
     for cand in candidates:
+        labelled = labelled or cand.label is not None
         try:
             data = cached_fetch_url(cand.url)
         except FetchError as e:
@@ -32,10 +34,10 @@ def cmd_body(args: argparse.Namespace) -> None:
             continue
         last = cand
         found, text = extract_section_body(data, anchor)
-        # An unrendered nightly's hand-written `<section id=...>` would print
-        # raw ReSpec markup; only a rendered nightly may answer, else go on
-        # to the generator.
-        if found and cand.label == "nightly" and not is_rendered_respec(data):
+        # An unrendered ReSpec source's hand-written `<section id=...>` would
+        # print raw markup; only rendered text may answer, else go on to the
+        # generator (the catalog is consulted only when the loop gets here).
+        if found and is_unrendered_respec(data):
             found = False
         if found:
             if cand.label:
@@ -52,7 +54,7 @@ def cmd_body(args: argparse.Namespace) -> None:
                  f"that were reachable; a source above was unreachable, so "
                  f"absence is unverified)")
     if not found:
-        if candidates[0].label:  # a ReSpec ED chain
+        if labelled:  # a ReSpec ED fallback chain was tried
             print(SOURCE_NONE_LINE)
         sys.exit(
             f"webref: anchor #{anchor} not encountered in {last.cite or last.url} "

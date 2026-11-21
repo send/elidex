@@ -10,6 +10,7 @@ import datetime
 import functools
 import inspect
 import io
+import json
 import re
 import sys
 import tempfile
@@ -195,7 +196,8 @@ class IdlExtAttrTests(unittest.TestCase):
 NIGHTLY = "https://w3c.github.io/x-spec/"
 RELEASE = "https://www.w3.org/TR/x-spec/"
 GEN = respec_mod.generator_url(NIGHTLY)
-UNRENDERED = b"<html><body><section><h2>Source</h2><p>respec source, no ids</p></section></body></html>"
+UNRENDERED = (b"<html><head><script>var respecConfig = {};</script></head><body><section>"
+              b"<h2>Source</h2><p>respec source, no ids</p></section></body></html>")
 RENDERED = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
             b'<body><section id="sec"><h2 id="dom-x-foo">foo()</h2>'
             b"<p>Rendered steps.</p></section></body></html>")
@@ -203,6 +205,7 @@ RENDERED = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
 RENDERED_NO_ANCHOR = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
                       b'<body><section id="other"><h2 id="dom-x-bar">bar()</h2>'
                       b"<p>x</p></section></body></html>")
+RENDERED_PLAIN = (b'<html><body><h2 id="dom-x-foo">foo</h2><p>Plain steps.</p></body></html>')
 TR = (b'<html><body><time class="dt-published" datetime="2026-06-11">11 June 2026</time>'
       b'<section id="sec"><h2 id="dom-x-foo">foo()</h2><p>TR steps.</p></section></body></html>')
 TODAY = datetime.date.today()
@@ -232,29 +235,30 @@ class CandidateTests(unittest.TestCase):
                                lambda s: entry(generator, release)), \
              mock.patch.object(resolver_mod, "webref_resolve_body_url",
                                lambda s, a: (href, a)):
-            return resolver_mod.resolve_body_candidates("x-spec", "dom-x-foo")
+            anchor, c = resolver_mod.resolve_body_candidates("x-spec", "dom-x-foo")
+            return anchor, list(c)  # the tail consults the catalog: stay patched
 
     def test_respec_order_nightly_generator_release(self):
         anchor, c = self.cands()
         self.assertEqual(anchor, "dom-x-foo")
         self.assertEqual([x.url for x in c], [NIGHTLY, GEN, RELEASE])
-        self.assertEqual([x.label for x in c], ["nightly", "generator", "tr"])
+        self.assertEqual([x.label for x in c], [None, "generator", "tr"])
         # the rendering is cited as the nightly it renders
         self.assertEqual(c[1].cite, NIGHTLY)
         self.assertIn("type=respec&url=https%3A%2F%2Fw3c.github.io%2Fx-spec%2F", GEN)
 
     def test_respec_without_release_has_no_tr(self):
         _, c = self.cands(release=False)
-        self.assertEqual([x.label for x in c], ["nightly", "generator"])
+        self.assertEqual([x.label for x in list(c)], [None, "generator"])
 
     def test_bikeshed_is_one_unlabelled_candidate(self):
         _, c = self.cands(generator="bikeshed")
-        self.assertEqual(c, [resolver_mod.Candidate(NIGHTLY)])
+        self.assertEqual(list(c), [resolver_mod.Candidate(NIGHTLY)])
 
     def test_respec_subpage_href_is_one_unlabelled_candidate(self):
         # href is not the nightly: rendering "the nightly" would be another page
         _, c = self.cands(href=NIGHTLY + "sub.html")
-        self.assertEqual(c, [resolver_mod.Candidate(NIGHTLY + "sub.html")])
+        self.assertEqual(list(c), [resolver_mod.Candidate(NIGHTLY + "sub.html")])
 
     def test_tc39_multipage_then_single_page(self):
         with mock.patch.object(resolver_mod, "tc39_biblio", lambda s: BIBLIO):
@@ -289,14 +293,15 @@ class BodyLoopTests(unittest.TestCase):
                 exit_msg = str(e)
         return buf.getvalue(), calls, exit_msg
 
-    RESPEC = [resolver_mod.Candidate(NIGHTLY, "nightly"),
+    RESPEC = [resolver_mod.Candidate(NIGHTLY),
               resolver_mod.Candidate(GEN, "generator", cite=NIGHTLY),
               resolver_mod.Candidate(RELEASE, "tr")]
 
     def test_first_hit_wins(self):
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: RENDERED, GEN: TR})
         self.assertEqual(calls, [NIGHTLY])
-        self.assertEqual(out.splitlines()[0], f"# source: ED nightly as served ({TODAY})")
+        self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
+        self.assertNotIn("# source:", out)
         self.assertIn("Rendered steps.", out)
 
     def test_unrendered_nightly_picks_spec_generator(self):
@@ -364,17 +369,17 @@ class BodyLoopTests(unittest.TestCase):
         self.assertIn("not encountered", msg)
 
     def test_unrendered_nightly_hit_is_not_accepted(self):
-        raw = (b'<html><body><section id="dom-x-foo"><p>RAW respec markup.</p>'
-               b"</section></body></html>")
+        raw = (b'<html><head><script>var respecConfig = {};</script></head><body>'
+               b'<section id="dom-x-foo"><p>RAW respec markup.</p></section></body></html>')
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED})
         self.assertEqual(calls, [NIGHTLY, GEN])
         self.assertNotIn("RAW respec", out)
         self.assertIn("Rendered steps.", out)
 
     def test_mutant_unrendered_nightly_hit_accepted(self):
-        raw = (b'<html><body><section id="dom-x-foo"><p>RAW respec markup.</p>'
-               b"</section></body></html>")
-        mutant = mutate(body_mod, "if found and cand.label == \"nightly\" and not is_rendered_respec(data):",
+        raw = (b'<html><head><script>var respecConfig = {};</script></head><body>'
+               b'<section id="dom-x-foo"><p>RAW respec markup.</p></section></body></html>')
+        mutant = mutate(body_mod, "if found and is_unrendered_respec(data):",
                         "if False:")
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED},
                                           module=mutant)
@@ -395,7 +400,7 @@ class BodyLoopTests(unittest.TestCase):
         out, calls, msg = self.run_cmd_body(
             self.RESPEC, {NIGHTLY: RENDERED_NO_ANCHOR, GEN: RENDERED, RELEASE: TR})
         self.assertEqual(calls, [NIGHTLY])
-        self.assertTrue(out.startswith("# source: none"))
+        self.assertEqual(out, "")  # no fallback reached: no provenance line
         self.assertIn(f"not encountered in {NIGHTLY}", msg)
 
     def test_mutant_without_skip_would_fetch_the_fallbacks(self):
@@ -485,7 +490,7 @@ class FetchErrorEdgeTests(unittest.TestCase):
                     self.assertIn(f"network error fetching {self.URL}", str(cm.exception))
 
     def test_timeout_moves_body_to_next_candidate(self):
-        cands = [resolver_mod.Candidate(NIGHTLY, "nightly"),
+        cands = [resolver_mod.Candidate(NIGHTLY),
                  resolver_mod.Candidate(GEN, "generator", cite=NIGHTLY)]
 
         def urlopen(req, timeout=None):
@@ -523,45 +528,147 @@ class FetchErrorEdgeTests(unittest.TestCase):
 
 
 class LazyCatalogTests(unittest.TestCase):
-    """`body` must not die on, or needlessly fetch, webref's index.json."""
+    """The catalog (`index.json`) is consulted only when the first candidate
+    missed, failed, or was an unrendered ReSpec source."""
 
-    def resolve(self, href, entry_fn):
-        with mock.patch.object(respec_mod, "spec_entry", entry_fn), \
-             mock.patch.object(resolver_mod, "webref_resolve_body_url",
-                               lambda s, a: (href, a)):
-            return resolver_mod.resolve_body_candidates("x-spec", "a")
+    # A real catalog case: a ReSpec spec whose nightly root ends in `.html`.
+    HTML_NIGHTLY = "https://w3c.github.io/encrypted-media/eme-initdata-cenc.html"
+    HTML_RELEASE = "https://www.w3.org/TR/eme-initdata-cenc/"
 
     def boom(self, shortname):
         raise FetchError("webref: HTTP 503 fetching index.json")
 
-    def test_catalog_outage_degrades_to_single_candidate(self):
-        _, c = self.resolve("https://spec.example/x/", self.boom)
-        self.assertEqual(c, [resolver_mod.Candidate("https://spec.example/x/")])
+    def index_fetch(self, pages, calls, index=None, index_error=None):
+        def fetch(url):
+            calls.append(url)
+            if url.endswith("/index.json"):
+                if index_error:
+                    raise index_error
+                return json.dumps({"results": index}).encode()
+            v = pages.get(url, NotFound(url))
+            if isinstance(v, BaseException):
+                raise v
+            return v
+        return fetch
 
-    def test_chapter_html_never_consults_the_catalog(self):
-        called = []
-        self.resolve("https://spec.example/multipage/x.html",
-                     lambda s: called.append(s))
-        self.assertEqual(called, [])
+    def run_body(self, href, pages, index=None, index_error=None, name="x-spec"):
+        calls: list[str] = []
+        fetch = self.index_fetch(pages, calls, index, index_error)
+        buf = io.StringIO()
+        msg = None
+        webref_data = sys.modules["_webref.sources.webref_data"]
+        with mock.patch.object(body_mod, "cached_fetch_url", fetch), \
+             mock.patch.object(webref_data, "cached_fetch_url", fetch), \
+             mock.patch.object(webref_data, "_INDEX", None), \
+             mock.patch.object(resolver_mod, "webref_resolve_body_url",
+                               lambda s, a: (href, a)), \
+             contextlib.redirect_stdout(buf):
+            try:
+                body_mod.cmd_body(argparse.Namespace(shortname=name, anchor="dom-x-foo"))
+            except SystemExit as e:
+                msg = str(e)
+        return buf.getvalue(), calls, msg
+
+    def respec_index(self, name="eme-initdata-cenc"):
+        return [{"shortname": name, "generator": "respec",
+                 "nightly": {"url": self.HTML_NIGHTLY},
+                 "release": {"url": self.HTML_RELEASE}}]
+
+    def gen(self):
+        return respec_mod.generator_url(self.HTML_NIGHTLY)
+
+    def catalog_calls(self, calls):
+        return [c for c in calls if c.endswith("/index.json")]
+
+    def test_first_hit_never_fetches_the_catalog(self):
+        # (a) a plain `body html ...` hit: headings-style page, no ReSpec
+        out, calls, _ = self.run_body("https://html.spec.whatwg.org/",
+                                      {"https://html.spec.whatwg.org/": RENDERED_PLAIN},
+                                      index=[], name="html")
+        self.assertEqual(calls, ["https://html.spec.whatwg.org/"])
+        self.assertIn("Plain steps.", out)
+
+    def test_rendered_respec_first_hit_no_catalog_no_source_line(self):
+        out, calls, _ = self.run_body(NIGHTLY, {NIGHTLY: RENDERED}, index=[])
+        self.assertEqual(self.catalog_calls(calls), [])
+        self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
+        self.assertNotIn("# source:", out)
+
+    def test_rendered_respec_first_miss_no_catalog(self):
+        out, calls, _ = self.run_body(NIGHTLY, {NIGHTLY: RENDERED_NO_ANCHOR}, index=[])
+        self.assertEqual(calls, [NIGHTLY])
+
+    def test_html_nightly_unrendered_hit_tries_generator(self):
+        # (b) the nightly root ends in `.html`: the chain must still apply
+        out, calls, _ = self.run_body(
+            self.HTML_NIGHTLY, {self.HTML_NIGHTLY: UNRENDERED, self.gen(): RENDERED},
+            index=self.respec_index(), name="eme-initdata-cenc")
+        self.assertEqual(calls[0], self.HTML_NIGHTLY)
+        self.assertIn(self.gen(), calls)
+        self.assertEqual(out.splitlines()[0],
+                         f"# source: ED rendered via spec-generator ({TODAY})")
+        self.assertIn("Rendered steps.", out)
+
+    def test_html_nightly_miss_falls_back_to_tr(self):
+        out, calls, _ = self.run_body(
+            self.HTML_NIGHTLY, {self.HTML_RELEASE: TR}, index=self.respec_index(),
+            name="eme-initdata-cenc")
+        self.assertEqual([c for c in calls if not c.endswith("/index.json")],
+                         [self.HTML_NIGHTLY, self.gen(), self.HTML_RELEASE])
+        self.assertIn("TR steps.", out)
+
+    def test_mutant_html_guard_restored_loses_the_chain(self):
+        m = mutate(resolver_mod, "    try:\n        ent = respec_entry(shortname)",
+                   '    if url.split("?", 1)[0].endswith(".html"):\n        return []\n'
+                   "    try:\n        ent = respec_entry(shortname)")
+        with mock.patch.object(resolver_mod, "_respec_fallbacks", m._respec_fallbacks):
+            _, calls, _ = self.run_body(
+                self.HTML_NIGHTLY,
+                {self.HTML_NIGHTLY: UNRENDERED, self.gen(): RENDERED},
+                index=self.respec_index(), name="eme-initdata-cenc")
+        self.assertNotIn(self.gen(), calls)
+
+    def test_mutant_eager_catalog_fetches_it_on_a_hit(self):
+        m = mutate(resolver_mod,
+                   "    return anchor, CandidateChain(Candidate(url), lambda: _respec_fallbacks(shortname, url))",
+                   "    _pre = _respec_fallbacks(shortname, url)\n"
+                   "    return anchor, CandidateChain(Candidate(url), lambda: _pre)")
+        calls: list[str] = []
+        fetch = self.index_fetch({NIGHTLY: RENDERED}, calls, index=[])
+        webref_data = sys.modules["_webref.sources.webref_data"]
+        buf = io.StringIO()
+        with mock.patch.object(body_mod, "cached_fetch_url", fetch), \
+             mock.patch.object(webref_data, "cached_fetch_url", fetch), \
+             mock.patch.object(webref_data, "_INDEX", None), \
+             mock.patch.object(body_mod, "resolve_body_candidates", m.resolve_body_candidates), \
+             mock.patch.object(m, "webref_resolve_body_url", lambda s, a: (NIGHTLY, a)), \
+             contextlib.redirect_stdout(buf):
+            body_mod.cmd_body(argparse.Namespace(shortname="x-spec", anchor="dom-x-foo"))
+        self.assertEqual(len(self.catalog_calls(calls)), 1)
+
+    def test_catalog_outage_on_a_miss_reports_the_miss(self):
+        # (c) catalog unreachable: no extra candidates, reported as a plain miss
+        out, calls, msg = self.run_body(
+            NIGHTLY, {NIGHTLY: UNRENDERED},
+            index_error=FetchError("webref: HTTP 503 fetching index.json"))
+        self.assertEqual(self.catalog_calls(calls) and len(self.catalog_calls(calls)), 1)
+        self.assertIn(f"not encountered in {NIGHTLY}", msg)
+        self.assertEqual(out, "")
+
+    def test_catalog_outage_with_unreachable_first_surfaces_first_error(self):
+        err = FetchError("webref: HTTP 500 fetching " + NIGHTLY)
+        with self.assertRaises(FetchError) as cm:
+            self.run_body(NIGHTLY, {NIGHTLY: err},
+                          index_error=FetchError("webref: HTTP 503 fetching index.json"))
+        self.assertIs(cm.exception, err)
 
     def test_mutant_unguarded_catalog_outage_dies(self):
-        m = mutate(resolver_mod, "    except FetchError:\n        return None\n",
-                   "    except ZeroDivisionError:\n        return None\n")
+        m = mutate(resolver_mod, "    except FetchError:\n        return []\n",
+                   "    except ZeroDivisionError:\n        return []\n")
         with mock.patch.object(respec_mod, "spec_entry", self.boom), \
-             mock.patch.object(m, "respec_entry", respec_mod.respec_entry), \
-             mock.patch.object(m, "webref_resolve_body_url",
-                               lambda s, a: ("https://spec.example/x/", a)):
+             mock.patch.object(m, "respec_entry", respec_mod.respec_entry):
             with self.assertRaises(FetchError):
-                m.resolve_body_candidates("x-spec", "a")
-
-    def test_mutant_html_guard_removed_consults_catalog(self):
-        m = mutate(resolver_mod, 'if url.split("?", 1)[0].endswith(".html"):', "if False:")
-        called = []
-        with mock.patch.object(m, "respec_entry", lambda s: called.append(s)), \
-             mock.patch.object(m, "webref_resolve_body_url",
-                               lambda s, a: ("https://spec.example/m/x.html", a)):
-            m.resolve_body_candidates("x-spec", "a")
-        self.assertEqual(called, ["x-spec"])
+                m._respec_fallbacks("x-spec", NIGHTLY)
 
 
 if __name__ == "__main__":
