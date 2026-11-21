@@ -7,9 +7,9 @@ memo is plan-reviewed (PM 933, §1). Slot **`#11-change-on-blur-baseline-first-f
 registered PM 861, amended at #656 per the re-derivation's LR-2, PM 909). The slot row is the requirement; this memo
 plans it and changes none of its decisions. The inputs are the re-derivation
 `docs/plans/2026-11-change-on-blur-spec-rederivation.md` ("the re-derivation"): its §0.4 D-3 / D-4, §0.5 R-1 / R-2 /
-R-3, §4.1, §6 (DF-1, DF-2, cells DC-1 to DC-19), §6.4 and §7 LR-2. Rev 2, 2026-11-22. Branch
-`layout-change-on-blur-baseline-plan`, worktree `wt-cob2`. **Docs only**: this PR adds this memo and a one-line
-pointer in the umbrella's §7; the two code PRs it plans are separate.
+R-3, §4.1, §6 (DF-1, DF-2, cells DC-1 to DC-19), §6.4 and §7 LR-2. Rev 3, 2026-11-22. Branch
+`layout-change-on-blur-baseline-plan`, worktree `wt-cob2`. **Docs only**: this PR adds this memo and, in the
+umbrella, an in-line pointer in §7 and a changelog entry; the two code PRs it plans are separate.
 
 File name: plan (2) of the same umbrella is `2026-11-focus-fixup-canonical-steps.md`; this memo takes the same
 `focus-fixup-` prefix. Plan (1) (`2026-11-change-on-blur-user-provenance.md`) predates the prefix; no other convention
@@ -98,7 +98,7 @@ The brief's premises held at rev 1 (each re-verified above). Findings it did not
 - **F-3 (a test the re-derivation's §6.1 did not list).** B-P13's assertion inverts under R-1; PR-β flips it (DC-10u).
 - **F-4 (stale names).** The test names `writer_rebaselines`, `c21_…_rebaselines` to `c26_…_rebaselines` and
   `c7l_first_mark_rebaselines_once` name H's model ("the first mark re-baselines"); their outcomes hold under D-3 but the
-  model they name is gone. PR-β renames them (OQ-3, decided).
+  model they name is gone. PR-β renames them (OQ-3, PM 931).
 - **F-5 (B-5 reverses a converged fix).** Seeding at designation reverses #357's R2 fix (B-P18). R2's failure mode —
   a `focus`-listener write with no user edit fires `change` — is prevented after PR-β by B-4's user-mark conjunct
   (I-B5): an unmarked component never fires. PR-β pins it with DC-10n (red under MG-B1).
@@ -156,8 +156,10 @@ not collide with the re-derivation's D-n.
   after its designation). The shell sink and the VM host only call it.
 - **B-9 Lifetime** (both) — [ECS-native first; B-P10]. §4.7. The component is written only by the seed (insert,
   overwriting), the mark (in place) and the take (remove); despawn removes it. A component left by VM `blur()`, VM
-  `focus()` away, or removal (§2.1.4, no `change`) is never read: the only read is the take at the holder's focus loss,
-  and every designation of a Population element re-seeds first (B-P10).
+  `focus()` away, or removal (§2.1.4, no `change`) is never read: the only read is the take at the holder's focus loss.
+  After PR-β, every designation of a Population element re-seeds first (B-P10, B-5). In PR-α's state the seed still
+  runs after the `focus` / `focusin` listeners behind the "still focused" guard, so that sentence does not hold there;
+  the argument for PR-α's state is §1.1.1.
 - **B-10 `sanitize_color`: comment only** (PR-α) — PM 932 (OQ-2). The "Dirty-value-flag source" paragraph states step 2.1
   correctly (dirty value flag false → the `value` content attribute; else the live value), then states the remaining
   difference as a defect with slot `#11-color-well-update-reads-live-value` (LR-B2), by its property (flag false, live
@@ -165,8 +167,12 @@ not collide with the re-derivation's D-n.
   re-evaluation sentence are removed; allowlist row 43 is pruned. The `sanitize_tests.rs` comment at B-P16 is regrounded
   on QB-6 (the setter sets the dirty flag before sanitizing, so step 2.2 reads the live value). History: rev 1's
   option (B) (read `FormControlState::default_value` in the Color arm) was dropped because `default_value` is not an
-  invariant mirror of the attribute (Q-S3, §8.3).
-- **B-11 Test renames** (PR-β) — OQ-3, decided: rename (F-4; a name is a claim).
+  invariant mirror of the attribute (Q-S3, §8.3). The ledger already records this comment as facet (g) of
+  `#11-core-browser-parity-deviations` (added at #656, PM 909; owner L3; it names the `sanitize.rs` interop line and
+  allowlist row 43, "Fix with the slot's code PR"). At PR-α's landing the PM closes facet (g) and re-points it to
+  `#11-color-well-update-reads-live-value`, so the defect has one home (owner Layout) (LR-B7).
+- **B-11 Test renames** (PR-β) — OQ-3, PM 931 ("OQ-1、OQ-3 は報告のとおりでかまいません"): rename (F-4; a name is a
+  claim).
 
 ### §0.5 OO idioms translated (ECS-native first)
 
@@ -209,6 +215,34 @@ DC-14u, DC-15, DC-16, DC-16u, DC-18, DC-19, PB-1α to PB-8, SC-1, and every cont
 `c7l_*`, DC-12, DC-13, DC-17, E17); red — DC-1, DC-1v, DC-8, DC-10, DC-10u, DC-10r, E17v, PB-1β (DF-1's, not added
 until PR-β). PR-α adds none of the red ones.
 
+#### §1.1.1 Why a stale component is unreachable in PR-α's state
+
+In PR-α's state the seed still runs after the `focus` / `focusin` listeners, behind the "`new` is still focused" guard
+(B-P6), so "every designation re-seeds first" (B-9, I-B2, §4.7) does not hold yet. During the listener window, `new`
+carries whatever component an earlier focus session left (or none), and if a listener moves focus away, the guard skips
+the seed. The argument that such a component is never read:
+
+- The only read is the take, and only a canonical transition (`focusing_steps`, `unfocusing_steps`,
+  `focus_fixup_steps`) runs it. Every production caller of the shell's `set_focus` / `blur_current` / `focus_fixup` and of
+  `focusing_steps` / `focus_fixup_steps` is a UA path: the shell's input handlers (`content/event_handlers.rs`,
+  `app/events.rs`, `content/form_input.rs`, `content/iframe/thread.rs`), the shell's wrappers themselves
+  (`content/focus.rs`), and the rendering step-17 fixup (`lib.rs`, the `focus_fixup` call in the `re_render` path).
+  Command (run 2026-11-22 at `47cb4834`, the same code as `1f81fdc2`):
+  `git grep -n -P '\b(set_focus|blur_current|focus_fixup|focusing_steps|unfocusing_steps|focus_fixup_steps|take_change_on_blur)\(' -- 'crates/*.rs' ':!*tests*' ':!*test_support*'`.
+  The known-hit control is `app/events.rs:44` (`crate::content::focus::set_focus`). The remaining hits are definitions,
+  `update_steps.rs`'s and `focus_snapshot.rs`'s in-file `mod tests`, and the one production take, the shell sink's
+  `dispatch_change_on_blur` (`content/focus.rs`); `crates/script/elidex-js` has no call to any of them. A script can
+  reach focus only through VM `focus()` (bit plus seed, no take) and VM `blur()` (no take). So no take runs inside a
+  listener window.
+- A take reads `new`'s component only while `new` is the holder. When `new` is the holder, its latest designation
+  either completed its seed or came from VM `focus()`, which seeds right after its `set_focus_bit`. A canonical
+  designation whose seed the guard skipped left `new` not focused. `new` becomes the holder again only through a later
+  designation, which seeds or, if its own seed is skipped, again leaves `new` not focused.
+
+PR-α widens what such a stale component can be. Without the `type`-change clear (B-7), a component can survive on an
+`input` of any kind. Reachability is unchanged, and a kind without step 2.1 is judged `false` at focus loss (B-3). PR-β
+replaces this argument with B-5's: nothing runs between the designation and the seed.
+
 ## §2. Coupled invariants
 
 Each names the PR that establishes it.
@@ -217,7 +251,8 @@ Each names the PR that establishes it.
   only in `take_change_on_blur`; the kind conjuncts only in `change_on_blur_kind_applies`; every sink only dispatches.
 - **I-B2 Every designation seeds** (both; B-P10 × B-5 × B-6 × B-9): each production writer of `set_focus_bit(Some(e))`
   calls `record_focus_snapshot(e)`; after PR-β, before anything else can run. This is what makes a stale component
-  unreachable (§4.7). A new designation writer must seed; each PR's DoD re-runs §0.2.1.
+  unreachable (§4.7); in PR-α's state the seed runs after the listeners, and the argument is §1.1.1. A new designation
+  writer must seed; each PR's DoD re-runs §0.2.1.
 - **I-B3 One population, two sites** (PR-α; B-2 × B-4): the seed's element test is the only population test; the take
   has no population test of its own (it reads what the seed wrote). No write and no read tests an `input`'s kind for
   population.
@@ -241,8 +276,8 @@ Each names the PR that establishes it.
 | WHATWG HTML §6.6.4 Processing model | *focus update steps* step 2.1 | all four conjuncts at focus loss (PR-α: the kind conjuncts); the reference value "when the control was first focused" (R-1, PR-β); D-3's completion | `take_change_on_blur`, `change_on_blur_kind_applies` (NEW); DC-1 to DC-19 | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | *focus update steps* step 4.1, before step 4.4 | the seed at designation, before `focus` (PR-β) | `focus_update_steps`; DC-10 | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | *focusing steps* step 5 | redundant focus returns | `focusing_steps`; VM `focus()` early return; E-17 cells | ✓ | yes |
-| WHATWG HTML §4.10.5.1 States of the type attribute | each state's "The input and change events (do not) apply"; the Text state as missing / invalid value default | B-3's table; F-2 | `change_on_blur_kind_applies` (NEW) | ✓ | no |
-| WHATWG HTML §4.10.5 The input element | activation behavior (R-2); *update an input element's type* steps 1–3, 6 | the `type` arm writes no component (PR-α) | reconciler `type` arm; DC-14 to DC-16, DC-18, DC-19 | ✗ | yes |
+| WHATWG HTML §4.10.5.1 States of the type attribute | each state's "The input and change events (do not) apply" | B-3's table | `change_on_blur_kind_applies` (NEW) | ✓ | no |
+| WHATWG HTML §4.10.5 The input element | activation behavior (R-2); *update an input element's type* steps 1–3, 6; the `type` attribute's missing / invalid value default is the Text state (QB-3) | the `type` arm writes no component (PR-α); F-2 | reconciler `type` arm; DC-14 to DC-16, DC-18, DC-19, PB-5 to PB-7; `from_type_str` (O-B1, LR-B3) | ✗ | yes |
 | WHATWG HTML §4.10.5.1.14 Color state (type=color) | *update a color well control color* step 2 | dirty → live value; not dirty → content attribute | `sanitize_color` doc (PR-α, B-10); LR-B2 | ✗ | no |
 | WHATWG HTML §4.10.5.4 Common input element APIs | `value` setter, mode value, steps 3–4 | dirty flag set before sanitization | B-10's test comment; F-1 | ✗ | no |
 | WHATWG HTML §4.10.5.5 Common event behaviors | "not fired in response to changes made … by scripts" | non-user writers do not mark | unchanged (I-B5) | ✗ | yes |
@@ -264,7 +299,7 @@ Breadth K = 1, M = 10.
 |---|---|---|
 | QB-1 | `the-input-element`, §4.10.5.1.1 Hidden, §4.10.5.1.18 Submit Button, §4.10.5.1.19 Image Button, §4.10.5.1.20 Reset Button, §4.10.5.1.21 Button | "The input and change events do not apply." |
 | QB-2 | `the-input-element`, §4.10.5.1.2 to §4.10.5.1.17 (Text/Search, Telephone, URL, Email, Password, Date, Month, Week, Time, Local Date and Time, Number, Range, Color, Checkbox, Radio Button, File Upload) | "The input and change events apply." |
-| QB-3 | `the-input-element` (the `type` attribute) | "The attribute's missing value default and invalid value default are both the Text state." |
+| QB-3 | `the-input-element`, §4.10.5 The input element (the `type` attribute; before §4.10.5.1) | "The attribute's missing value default and invalid value default are both the Text state." |
 | QB-4 | `focus-update-steps` step 4.1 | "If entry is a focusable area, and the focused area of the document is not entry: 1. Set document's relevant global object's navigation API's focus changed during ongoing navigation to true. 2. Designate entry as the focused area of the document." (step 4.4 fires `focus`) |
 | QB-5 | `focusing-steps` step 5 | "If new focus target is the currently focused area of a top-level traversable, then return." |
 | QB-6 | `dom-input-value` (mode value, on setting) | "1. Let oldValue be the element's value. 2. Set the element's value to the new value. 3. Set the element's dirty value flag to true. 4. Invoke the value sanitization algorithm, if the element's type attribute's current state defines one." |
@@ -330,16 +365,21 @@ on an `input` only through `from_type_str`'s mapping, the slot of LR-B3). No arm
 The reconciler's `type` arm keeps steps 1–3 and 6 and loses the clear. The comment block above the clear is deleted
 with it.
 
-### §4.6 VM `focus()` (B-6, PR-β)
+### §4.6 VM `focus()` (B-6, PR-β; one comment phrase in PR-α)
 
-Code unchanged but for the call it already makes; the comment "Seed the change-on-blur snapshot for text controls,
+PR-α: the inline comment at the seed says "for text controls", which names the population wrongly once B-2 lands; PR-α
+replaces that phrase with a population-neutral one ("Seed the change-on-blur snapshot (the one seed rule,
+`elidex_form::record_focus_snapshot`, which decides the population)"), and the doc's "for a user-edited text control —
+the §4.10.5.5 change-on-blur event" becomes "the change-on-blur event (whose verdict is `take_change_on_blur`'s)". PR-α
+changes no code in this file.
+
+PR-β: code unchanged but for the call it already makes; the comment "Seed the change-on-blur snapshot for text controls,
 just like the shell `set_focus` reconciler" becomes "seed the value at first focus (the one seed rule,
 `elidex_form::record_focus_snapshot`) at the designation, as the canonical transition does at focus update steps step
 4.1". The doc paragraph on the old holder's component ("its user-edit baseline") is re-worded to "its first-focus value
-and mark". PR-α leaves this file alone: after PR-α its comment's "for text controls" names the population wrongly, and
-PR-β rewrites the whole comment once (recorded so PR-α's review does not flag it).
+and mark". The early-return inline comment is rewritten too (§6.2).
 
-### §4.7 Lifetime (after PR-β; PR-α differs only in what the seed writes and in the seed's instant)
+### §4.7 Lifetime (after PR-β; PR-α differs only in what the seed writes and in the seed's instant, and its reachability argument is §1.1.1)
 
 | Event | Write | Reader consequence |
 |---|---|---|
@@ -392,12 +432,12 @@ green-able within its PR.
 | DC-18 | T round trip through Checkbox | `dc18_round_trip_through_checkbox` | §6.2 DC-18 | `change` | [spec] under R-2 | red |
 | DC-19 | T round trip through Color | `dc19_round_trip_through_color` | §6.2 DC-19 | `change` | [spec] under R-2; D-3 | red |
 | PB-1α | P every `input` kind | `focus_snapshot` `seed_writes_every_input_kind` (a loop over every `FormControlKind` an `input` can carry, on an `input` element) | seed | component present and unmarked (`Snap::Unmarked`, the old shape) | slot Population; B-2 | red (non-text kinds absent) |
-| PB-2 | P textarea | `seed_writes_textarea` (a `textarea` element) | seed | present | D-4 | green |
-| PB-3 | P other `FormControlState` elements | `seed_writes_nothing_for_non_population` (`select`, `button`, `output`, `meter`, `progress` elements, one set with a component pre-inserted by the test, one without) | seed | no insert; a pre-existing component is untouched (no write at all) | slot Population ("get no write") | red for the untouched half (today the seed removes it) |
+| PB-2 | P textarea | `seed_writes_textarea` (a `textarea` element, `FormControlState` attached by production attach, §5.3) | seed | present | D-4 | green |
+| PB-3 | P other `FormControlState` elements | `seed_writes_nothing_for_non_population` (`select`, `button`, `output`, `meter`, `progress` elements, each given `FormControlState` by production attach, `create_form_control_state`, asserted to return `true` (§5.3); one set with a component pre-inserted by the test, one without) | seed | no insert; a pre-existing component is untouched (no write at all) | slot Population ("get no write") | red for the untouched half (today the seed removes it) |
 | PB-4 | predicate | `kind_predicate_truth_table` (every `FormControlKind`, §4.4) | — | §4.4's column | QB-1, QB-2, R-2, D-4 | n/a (new fn; does not compile at base) |
-| PB-5 | T to Hidden after U | `take_false_after_flip_to_hidden` (unit) | seed text, edit, `type=hidden`, take | `false` | QB-1 | green |
-| PB-6 | T to File after U | `take_false_after_flip_to_file` (unit) | seed text, edit, `type=file`, take | `false` | R-2 | green |
-| PB-7 | T to Color, still Color at focus loss | `take_false_at_color` (unit) | seed text, edit, `type=color`, take | `false` | R-2 | green |
+| PB-5 | T to Hidden after U | `reconciler_tests` `take_false_after_flip_to_hidden` | `<input value="x">` (value `"x"`); seed; `apply_user_edit` appends `a` (`"xa"`, mark `"x"`); `set_attribute("type","hidden")`: step 1 writes the content attribute `"xa"`, Hidden defines no sanitization, so `V` stays `"xa"`; take | `false` | QB-1 | green |
+| PB-6 | T to File after U | `reconciler_tests` `take_false_after_flip_to_file` | as PB-5 to `"xa"`, mark `"x"`; `set_attribute("type","file")`: step 3 (filename mode) sets `V` to `""`, File defines no sanitization; take | `false` | R-2 | green |
+| PB-7 | T to Color, still Color at focus loss | `reconciler_tests` `take_false_at_color` | as PB-5 to `"xa"`, mark `"x"`; `set_attribute("type","color")`: value mode to value mode, so steps 1–3 do nothing; step 6 sanitizes `"xa"` to `"#000000"`; take | `false` | R-2 | green |
 | PB-8 | `no_snapshot_for_non_text_control` rewritten | `button_kind_input_is_seeded_and_judged_false` (`control` makes an `input`) | seed on `<input type=button>`; script value `x`; take | component present after the seed; take `false` | B-2, B-3 (QB-1) | red (absent) |
 | SC-1 | `sanitize_color` round trip | existing `color_idl_value_set_round_trips_valid_color`, comment regrounded (B-10) | as today | as today | [spec] QB-6, step 2.2 | green |
 
@@ -405,13 +445,21 @@ Controls that stay green in PR-α (unchanged tests): DC-2 to DC-7, DC-9 (C20–C
 (C1, C3, C5, C9, C14, C16, C18, C19), DC-13 (`c4_*`, `c17_*`), DC-17, E17, the `sanitize_color_*` cells, plan (2)'s
 fixup cells (I-B8).
 
+In PB-5 to PB-7 and DC-16 the value at focus loss differs from the mark after the flip (PB-5 `"xa"`, PB-6 `""`, PB-7
+`"#000000"`, each against `"x"`; DC-16: the user types `a` from `""`, step 1 writes the content attribute `"a"`, and
+Checkbox defines no sanitization, so `V` = `"a"` against the mark `""`), so H's comparison alone gives `true`. The kind
+predicate is the only thing that makes the result `false`, and MG-A3 turns each of them red. The type-change steps are
+from `.claude/tools/webref body html the-input-element` (*update an input element's type*, steps 1–3 and 6), and the
+code is `elidex-form` `value_mode.rs` `apply_type_change_value_migration` and the reconciler's `type` arm
+(`sanitize_for_type_change`).
+
 PR-α mutation guards (run on PR-α's final head only; each must turn the named cells red, then reverted):
 
 | Guard | Mutation | Red cells |
 |---|---|---|
 | MG-A1 | the seed tests `is_text_control` again | DC-14, DC-14u, PB-1α, PB-8 |
 | MG-A2 | the reconciler's `type` arm removes the component for non-text kinds | DC-15, DC-16u, DC-18, DC-19 |
-| MG-A3 | `change_on_blur_kind_applies` returns `true` for every kind | PB-4, PB-7 (must); DC-16, PB-5 where the flip leaves `V` ≠ the mark (the PR records which) |
+| MG-A3 | `change_on_blur_kind_applies` returns `true` for every kind | PB-4, PB-5, PB-6, PB-7, DC-16 |
 | MG-A4 | the seed writes every element with `FormControlState` | PB-3 |
 
 ### §5.2 PR-β cells (base = PR-α's merge)
@@ -456,8 +504,13 @@ PR-α:
   B-7 deletes. PB-1α / PB-8 cover the population.
 - `e2d_type_flip_between_text_kinds_preserves_focus_snapshot`: assertion holds; its comment ("only a non-text
   destination clears the snapshot") is rewritten.
-- `test_support`: PR-α does not touch `Snap` (the old shape serves PB-1α). It may add a fixture that takes a tag name
-  (`textarea`, `select`, …) for PB-2 / PB-3; `control` keeps making an `input`.
+- `test_support`: PR-α does not touch `Snap` (the old shape serves PB-1α). It adds a fixture that takes a tag name
+  (`textarea`, `select`, `button`, `output`, `meter`, `progress`) for PB-2 / PB-3 and attaches `FormControlState`
+  through the production single-entity attach `elidex_form::create_form_control_state` (asserting `true`), as parse,
+  insert and `createElement` do. An element from `create_element_ownerless_fixture` alone carries no
+  `FormControlState` (it runs no attach). The seed's `FormControlState` conjunct, not its tag conjunct, would then
+  exclude PB-3's elements, and MG-A4 could not turn PB-3 red. `control` (a hand-built state, inserted by the test) keeps
+  making an `input`.
 
 PR-β:
 - `test_support::Snap` / `snap`: re-defined on B-1 (`Absent`, `Unmarked { first_focus }`, `Marked { first_focus,
@@ -489,8 +542,30 @@ comparison, so PR-β does not rewrite PR-α's comments.
 - **`reconciler.rs`**: the comment block of the deleted clear; the `type` arm's opening comment keeps its spec text.
 - **`update_steps.rs`**: `commit_change_on_blur`'s doc ("a focused text control's value was user-edited since focus" →
   "the Population element's verdict from `take_change_on_blur`").
-- **`content/focus.rs`**: `dispatch_change_on_blur`'s doc ("on text-control blur" → the Population and the verdict).
+- **`content/focus.rs`**: the module doc ("and change-on-blur for text controls" → "and the change-on-blur dispatch of
+  `take_change_on_blur`'s verdict"); `dispatch_change_on_blur`'s doc ("on text-control blur" → the Population and the
+  verdict).
+- **`html_element_proto.rs`** (comment only, §4.6): the seed's inline comment's "for text controls"; the doc's "for a
+  user-edited text control — the §4.10.5.5 change-on-blur event".
+- **`content_change_on_blur_tests.rs`**: the module doc line "`change` fires at a blurred text control" → "at a blurred
+  `input` / `textarea` element" (the rest of the module doc is PR-β's, §6.2).
+- **`reconciler_tests.rs`**: `e2c_*`'s comment (rewritten with the cell, DC-16u) and `e2d_*`'s ("keeps the control a
+  text control … only a non-text destination clears the snapshot", §5.3).
+- **`focus_snapshot.rs` test module**: `record_clears_stale_snapshot_when_no_longer_text_control` (deleted) and
+  `no_snapshot_for_non_text_control` (rewritten as PB-8) take their "non-text control" comments with them.
 - **Umbrella** (`docs/plans/2026-11-focus-fixup-program.md`): LR-B6's PR-α part.
+
+**"text control" sweep.** `/usr/bin/grep -n -i 'text control\|text-control'` over every file either PR touches (§7)
+(run 2026-11-22 at `47cb4834`) gives the hits in `focus_snapshot.rs` (:5, :25, :43, :48, :99; tests :225–:253),
+`reconciler_tests.rs` (:213, :237), `update_steps.rs` (:77), `content/focus.rs` (:2, :188, :232),
+`content_change_on_blur_tests.rs` (:3, :326), `user_edit.rs` (:33) and `html_element_proto.rs` (:262, :306). The control
+for the command is `focus_snapshot.rs:25` ("Only text controls"). Each population claim is listed above under PR-α,
+where B-2 makes it stale. Three hits stay, because they are about `is_text_control`'s own meaning or are not claims:
+
+- `content/focus.rs:232`, the `text_input` test helper: a default `<input>` is a `TextInput`.
+- `user_edit.rs:33`: the funnel's callers are the paths by which the user edits a text-entry value, and the key router
+  gates them on `is_text_control`.
+- `content_change_on_blur_tests.rs:326`: a slot ID.
 
 ### §6.2 PR-β
 
@@ -510,7 +585,14 @@ comparison, so PR-β does not rewrite PR-α's comments.
   baseline" → "must not re-seed the first-focus value").
 - **`content/focus.rs`**: `seed_focus_snapshot`'s comment ("After §6.6.4 focus update steps step 4.4"; "the baseline is
   the value before the first user value change, plan D-1").
-- **`html_element_proto.rs`**: §4.6.
+- **`html_element_proto.rs`**: §4.6. Three more pieces:
+  - The whole seed comment.
+  - The doc's "its user-edit baseline".
+  - The early-return inline comment. "would otherwise refresh the snapshot baseline to the edited value" becomes "a
+    re-seed would replace the first-focus value and drop the mark". "Mirrors the shell `set_focus` reconciler's
+    `old == Some(entity)` early return" was already stale at `1f81fdc2`: shell `set_focus` routes through
+    `focusing_steps`, whose step-5 return is the `old == Some(target)` (B-P7). It becomes "the VM's copy of focusing
+    steps step 5 (`focusing_steps`) until A2c (LR-B4)".
 - **`tree_clone.rs`**: the `FocusValueSnapshot` entry's parenthetical ("the value before the first user value change,
   plan D-1" → "the first-focus value and the user-change mark of the current focus session").
 - **Umbrella**: LR-B6's PR-β part.
@@ -527,12 +609,13 @@ comparison, so PR-β does not rewrite PR-α's comments.
 | `crates/dom/elidex-form/src/test_support.rs` | 42 | optional tag-taking fixture | < 1000 |
 | `crates/dom/elidex-form/src/lib.rs` | 69 | `clear_focus_snapshot` re-export removed | < 1000 |
 | `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | 773 | `commit_change_on_blur` doc | < 1000 |
-| `crates/shell/elidex-shell/src/content/focus.rs` | 404 | `dispatch_change_on_blur` doc | < 1000 |
-| `crates/shell/elidex-shell/src/content_change_on_blur_tests.rs` | 679 | DC-14, DC-15, DC-16, DC-18, DC-19 | < 1000 (about +90) |
+| `crates/shell/elidex-shell/src/content/focus.rs` | 404 | module doc, `dispatch_change_on_blur` doc | < 1000 |
+| `crates/script/elidex-js/src/vm/host/html_element_proto.rs` | 909 | comments only (§4.6's PR-α phrases) | < 1000 (±0) |
+| `crates/shell/elidex-shell/src/content_change_on_blur_tests.rs` | 679 | DC-14, DC-15, DC-16, DC-18, DC-19; module doc line | < 1000 (about +90) |
 | `crates/dom/elidex-form-core/src/sanitize.rs` | 308 | doc (B-10) | < 1000 |
 | `crates/dom/elidex-form-core/src/sanitize_tests.rs` | 451 | one comment (B-10) | < 1000 |
 | `.claude/tools/ecs-mission-allowlist.tsv` | 303 | row 43 pruned | data |
-| `docs/plans/2026-11-focus-fixup-program.md` | 287 | LR-B6 PR-α pointer | doc |
+| `docs/plans/2026-11-focus-fixup-program.md` | 285 (287 after this docs PR) | LR-B6 PR-α pointer | doc |
 
 **PR-β**
 
@@ -543,12 +626,12 @@ comparison, so PR-β does not rewrite PR-α's comments.
 | `crates/dom/elidex-form/src/user_edit.rs` | 145 | test module's `marked` helper (§5.3) | < 1000 |
 | `crates/dom/elidex-dom-api/src/focus/update_steps.rs` | 773 + PR-α | B-5; docs; DC-10u, DC-10r, `TestSink.reentrant_on_focus` | < 1000 (about +25) |
 | `crates/shell/elidex-shell/src/content/focus.rs` | 404 + PR-α | comments | < 1000 |
-| `crates/script/elidex-js/src/vm/host/html_element_proto.rs` | 909 | comments only (B-6) | < 1000 (±0) |
+| `crates/script/elidex-js/src/vm/host/html_element_proto.rs` | 909 + PR-α | comments only (B-6) | < 1000 (±0) |
 | `crates/script/elidex-js/src/vm/tests/tests_html_element_proto.rs` | 658 | E17v | < 1000 |
 | `crates/shell/elidex-shell/src/content_change_on_blur_tests.rs` | 679 + PR-α | DC-1, DC-1v, DC-8, DC-10, DC-10n, DC-17, renames, comments | < 1000 expected (about +100 over PR-α's); PR-β re-runs `wc -l` at its base and applies the touch-time split rule if the file is past 1000 |
 | `crates/core/elidex-ecs/src/dom/tree_clone.rs` | 418 | one table cell | < 1000 |
 | `.claude/tools/ecs-mission-allowlist.tsv` | 303 − 1 | rows 44 and 141 pruned | data |
-| `docs/plans/2026-11-focus-fixup-program.md` | 287 + PR-α | LR-B6 PR-β pointer | doc |
+| `docs/plans/2026-11-focus-fixup-program.md` | 287 (after this docs PR) + PR-α | LR-B6 PR-β pointer | doc |
 
 No touched file is over 1000 lines at `1f81fdc2`, so neither PR needs a prereq split as planned. Not touched by either:
 `elidex-form-core/src/lib.rs` (B-3 keeps the predicate private to `focus_snapshot.rs` on the design ground),
@@ -572,7 +655,7 @@ pointer. Each commit builds and is green; red-first results per cell in the PR b
 - **OQ-1 One slice or two** — PM 933: two (§1).
 - **OQ-2 `sanitize_color` behaviour** — PM 932: comment only (B-10); new slot LR-B2. PM 931 had approved the behaviour
   fix conditional on Q-S3; Q-S3 failed (§8.3).
-- **OQ-3 Test renames** — decided: rename (B-11).
+- **OQ-3 Test renames** — PM 931 ("OQ-1、OQ-3 は報告のとおりでかまいません"): rename (B-11).
 
 ### §8.3 Scout answers (R1)
 
@@ -585,10 +668,18 @@ pointer. Each commit builds and is green; red-first results per cell in the PR b
   expected value holds under either reading (re-derivation §6.2).
 - **Q-S3** (does `FormControlState::default_value` equal the `value` content attribute after every write): **no** — this
   answer changed a decision (OQ-2, PM 932). (1) `EcsDom::dispatch_event` does nothing while the mutation dispatcher is
-  Absent / Taken (teardown, `inert_document.rs`), so a `value` write then skips the reconciler; (2) the reconciler's
-  `value` arm gate leaves `default_value` stale for a dirty TextArea / Select / Output / Meter / Progress-kind control
-  (reachable on `<input>` only through `from_type_str`'s mapping, O-B1); (3) an absent and an empty attribute are
-  indistinguishable in a `String`.
+  Absent / Taken (teardown, `inert_document.rs`), so a `value` write then skips the reconciler. (2) The reconciler's
+  `value` arm (`reconciler.rs` `handle_attribute_change`) leaves `default_value` wrong in two distinct cases (both
+  verified at `47cb4834`):
+  - (2a) A **dirty** control of kind TextArea / Select / Output / Meter / Progress: the arm's gate
+    (`!fcs.dirty_value || !matches!(fcs.kind, TextArea | Select | Output | Meter | Progress)`) skips the mirror update,
+    so `default_value` keeps the old attribute value. This is reachable on `<input>` only through `from_type_str`'s
+    mapping (O-B1).
+  - (2b) A **non-dirty** `<textarea>`: the gate passes, and the arm overwrites `default_value` (and, in its
+    `!dirty_value` branch, the live value) with the `value` attribute. A textarea's default value is its child text
+    content, not a `value` attribute.
+
+  (3) An absent and an empty attribute are indistinguishable in a `String`.
 
 ## §9. Ledger records (applied by the PM)
 
@@ -610,7 +701,11 @@ Slot text cites files and symbols, no line numbers.
     iff the kind at focus loss passes step 2.1's conjuncts, the user changed the value, and the value differs from both
     the first-focus value and the value just before the first user edit (D-3). Cells DC-1 to DC-19 green. Allowlist
     rows pruned: the `note_user_value_change` doc (T, this slot) and the `focus_with_caret_at_end` doc (E)."
-- **LR-B2 → the PM: new slot draft (PM 932; replaces rev 1's facet on `#11-core-browser-parity-deviations`)**:
+**Timing.** LR-B2 and LR-B3 are registered **at this memo's (the docs PR's) landing**, from its landing list (PM 931 /
+PM 932), not through PR-α's PR body. PR-α's code cites both slots, so they exist before PR-α opens, under the IDs the
+PM registers (PR-α DoD 6). The other records are applied at the landing each one names.
+
+- **LR-B2 → the PM: new slot draft (PM 932), registered at this memo's landing**:
   **`#11-color-well-update-reads-live-value`**, Owner Layout. "Defect [spec]: HTML *update a color well control color*
   step 2.1 reads the `value` content attribute when the dirty value flag is false; `sanitize_value`'s Color arm
   (`elidex-form-core` `sanitize.rs`) reads the live value. Example: `<input type=number value=red>` then `type =
@@ -618,24 +713,33 @@ Slot text cites files and symbols, no line numbers.
   precedents do (`elidex-form` `value_mode.rs` type-change step 2, `submit.rs`), not the `FormControlState::default_value`
   mirror. Why not the mirror: `default_value` is not an invariant mirror — (1) `EcsDom::dispatch_event` does nothing
   while the mutation dispatcher is Absent / Taken (teardown, `inert_document.rs`), so a `value` write then skips the
-  reconciler; (2) the reconciler's `value` arm gate leaves `default_value` stale for a dirty TextArea / Select / Output /
-  Meter / Progress-kind control (reachable on `<input>` only through `from_type_str`'s mapping,
-  `#11-input-type-keyword-state-mapping`); (3) an absent and an empty attribute are indistinguishable in a `String`.
+  reconciler; (2a) for a dirty control of kind TextArea / Select / Output / Meter / Progress, the gate of the
+  reconciler's `value` arm skips the mirror update and leaves `default_value` stale. That is reachable on `<input>` only
+  through `from_type_str`'s mapping, the slot of LR-B3 (O-B1) of the change-on-blur plan. (2b) For a non-dirty
+  `<textarea>`, the same arm overwrites `default_value` (and the live value) with the `value` attribute, although a
+  textarea's default value is its child text content. (3) An absent and an empty attribute are indistinguishable in a
+  `String`.
   Also: `value_mode.rs`'s comment at type-change step 2 gives as its reason that the buffered flush path
   (`SessionCore::flush` → `apply_set_attribute`) writes `Attributes` without the reconciler; that reason is stale (since
   #428 `apply_set_attribute` calls `dom.set_attribute`, which dispatches); the conclusion (read `Attributes`) stands on
   reasons (1)–(3), and rewording that comment is part of this slot's fix. Open design question (this slot's, not the
   change-on-blur plan's): what `sanitize_value` as a whole reads. Found by
   `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md` (F-1, Q-S3); `sanitize_color`'s doc names this slot after
-  PR-α." Trigger and re-eval date are the PM's.
-- **LR-B3 → the PM: slot draft for O-B1** (F-2), proposed ID `#11-input-type-keyword-state-mapping` (the PM accepts or
+  PR-α. **Why deferred**: PM 932: what `sanitize_value` reads is a design question for `sanitize_value` as a whole, kept
+  out of the change-on-blur slice. **Trigger** (proposed): the next PR that touches `sanitize_value` /
+  `sanitize_for_type_change`, or this slot's own fix PR. **Re-eval-date** (proposed): 2026-12-31." The PM may change the
+  trigger and date. The open design question of what `sanitize_value` as a whole reads belongs to this slot; no other
+  record carries it.
+- **LR-B3 → the PM: slot draft for O-B1** (F-2), registered at this memo's landing, proposed ID `#11-input-type-keyword-state-mapping` (the PM accepts or
   renames it): "Defect [spec]: `FormControlKind::from_type_str` (`elidex-form-core`) maps the `type` keyword `image` to
   `TextInput` (HTML has an Image Button state, to which the input and change events do not apply), and `select-one` /
   `textarea` to `Select` / `TextArea`, where HTML's invalid value default is the Text state. An `<input type=image>` is
   seeded, edited and judged as a text control. Through the mapping, a stale `default_value` is also reachable on an
   `<input>` (uncertain, found by plan-review R1): `<input type=textarea value="#111111">` → script `value = "abc"`
   (dirty) → `setAttribute("value", "#222222")` leaves `default_value` stale (the reconciler's `value` arm gate) →
-  `form.reset()` → `type = "color"`. **Trigger**: the next PR that touches `from_type_str` or adds the Image Button
+  `form.reset()` → `type = "color"`. Also, `from_type_str`'s doc cites "§4.10.5.1" for the Text fallback; the missing
+  value default and invalid value default are stated in §4.10.5 The input element, so the fix cites §4.10.5.
+  **Trigger**: the next PR that touches `from_type_str` or adds the Image Button
   state. **Why deferred**: found by the change-on-blur baseline plan, whose cells do not depend on it." Proposed owner
   L3 (form domain); proposed **Re-eval-date 2026-12-31** (the PM may change it). Ledger check: F-2.
 - **LR-B4 → `#11-vm-host-synthetic-dom-event-dispatch` (A2c)** — append: "When VM `focus()` routes through
@@ -654,6 +758,13 @@ Slot text cites files and symbols, no line numbers.
   get "[erratum: the comparison is with the first-focus value and the value just before the first user edit, same memo
   B-4]". Each adds a dated changelog line in the umbrella's order (newest first). X1's "one judgement, every sink" is
   unchanged.
+- **LR-B7 → `#11-core-browser-parity-deviations`, facet (g), at PR-α's landing.** Facet (g) was added at #656
+  (PM 909; owner L3). It names the `sanitize.rs` interop line of `sanitize_color`'s doc and allowlist row 43 (class T),
+  with "Fix with the slot's code PR". At PR-α's landing the PM closes facet (g) with: "Closed by #NNN (PR-α of
+  `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`): the comment states step 2.1 as the spec does, names no
+  engine, and allowlist row 43 is pruned. The remaining code defect (the Color arm reads the live value when the dirty
+  value flag is false) is `#11-color-well-update-reads-live-value` (owner Layout)." The PM also updates this slot's
+  statements of its allowlist row count (one class-T row fewer). The defect then has one home, the new slot.
 
 ## §10. Definition of done
 
@@ -667,12 +778,15 @@ Slot text cites files and symbols, no line numbers.
    crates/dom/elidex-form/src/focus_snapshot.rs` → 0 (control: the same over `crates/dom/elidex-form/src/init.rs` → ≥ 1).
 3. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (294 allowlisted, 0 new, 0 stale)` (295 at `1f81fdc2`, minus row
    43); `/usr/bin/grep -c 'interoperable behavior' crates/dom/elidex-form-core/src/sanitize.rs` → 0 (control: the same
-   at `1f81fdc2` → 1); `/usr/bin/grep -c 'color-well-update-reads-live-value' crates/dom/elidex-form-core/src/sanitize.rs`
-   → ≥ 1.
+   at `1f81fdc2` → 1); `/usr/bin/grep -c '<LR-B2's registered ID>' crates/dom/elidex-form-core/src/sanitize.rs` → ≥ 1
+   (proposed `color-well-update-reads-live-value`).
 4. §0.2.1's enumeration re-run on the final head: still two production designation writers, both seeding (I-B2).
 5. `cargo fmt --all`; `cargo test -p elidex-form -p elidex-form-core -p elidex-dom-api -p elidex-shell --all-features`;
    `mise run ci` green (`grep 'ERROR task failed'` on its log → none).
-6. PR body carries LR-B1's PR-α text and LR-B2 / LR-B3 for the PM.
+6. Before PR-α opens, LR-B2's and LR-B3's slots are registered in the ledger (at this memo's landing, §9 Timing). Every
+   slot ID PR-α's code cites (LR-B2's in `sanitize.rs`; LR-B3's in `change_on_blur_kind_applies`'s doc, §4.4) is the ID
+   as registered: if the PM renamed a slot at registration, PR-α uses the registered ID. Check: `/usr/bin/grep -c -F
+   '<ID>' <ledger>` → ≥ 1 for each. PR body carries LR-B1's PR-α text, LR-B6's PR-α part and LR-B7.
 
 **PR-β**
 
@@ -689,7 +803,8 @@ Slot text cites files and symbols, no line numbers.
    `mise run ci` green (`grep 'ERROR task failed'` on its log → none).
 6. PR body carries LR-B1's closing text and LR-B4.
 
-**This docs PR**: `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (295 allowlisted, 0 new, 0 stale)`;
+**This docs PR**: its landing list carries LR-B1's memo-landing text, LR-B2 and LR-B3 (both registered at this
+landing, §9 Timing); `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (295 allowlisted, 0 new, 0 stale)`;
 `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`
 exits 0. `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-11-focus-fixup-program.md` exits 2 at
 `1f81fdc2` and on this branch ("no table matched schema …"): the umbrella has none of the checker's table schemas, so
@@ -697,10 +812,28 @@ it is not scanned — a skip, not a clean run, and not changed by this PR.
 
 ## Changelog
 
+- **Rev 3 (2026-11-22)** — plan-review R2. Findings → where fixed:
+  R2-IMP-1 (Ax5; ledger facet (g) already exists) → B-10, §9 LR-B7 (new; facet (g) closed at PR-α's landing and
+  re-pointed to `#11-color-well-update-reads-live-value`), §10 PR-α DoD 6, rev 2's changelog wording. R2-IMP-2 (Ax5;
+  LR-B2 / LR-B3 timing) → §9 Timing, LR-B2, LR-B3, §10 "This docs PR" and PR-α DoD 6 (replaces its routing); also
+  resolves R2-Ax3-MIN-5 (PR-α uses the registered IDs; PR-α DoD 3). R2-Ax3-MIN-1 → §4.6, §6.1, §7 PR-α. R2-Ax1 note +
+  R2-Ax3-MIN-3 → §6.1 (`content/focus.rs` module doc, `html_element_proto.rs` doc and inline phrase,
+  `content_change_on_blur_tests.rs` module doc line, test-module comments, the "text control" sweep), §6.2
+  (`html_element_proto.rs` early-return comment). R2-Ax3-MIN-2 → LR-B2 (Why deferred, Trigger, Re-eval; the
+  `sanitize_value` design question is this slot's; R2-Ax5-MIN-6 resolved this way). R2-Ax3-MIN-4 → PB-5, PB-6, PB-7
+  sequences, the note under §5.1, MG-A3 (red set listed). R2-Ax4-MIN → §3 (QB-3 in the §4.10.5 row), §3.1 QB-3, LR-B3
+  (`from_type_str`'s doc cite). R2-Ax2-MIN-1 → PB-2, PB-3, §5.3 `test_support`. R2-Ax2-MIN-2 → §1.1.1 (new), B-9, I-B2,
+  §4.7. R2-Ax5-MIN-1 → umbrella §7 pointer and changelog entry (two per-PR slices, PM 933), this memo's header.
+  R2-Ax5-MIN-2 → §7 umbrella rows (285 at `1f81fdc2`). R2-Ax5-MIN-3 → F-4, B-11, §8.2 OQ-3 (PM 931). R2-Ax5-MIN-4 →
+  §8.3 Q-S3 (2a) / (2b), LR-B2. R2-Ax5-MIN-5 → LR-B2 ("the slot of LR-B3 (O-B1)"). R1 findings that R2 Ax5 could not
+  locate in rev 2's map: F1 → B-0, §1 (split, PM 933); F2 / F3 → B-10, F-1, §8.2 OQ-2 (option (B) dropped, PM 932);
+  F15 → LR-B3 (the O-B1 `<input type=textarea>` reset path to a stale `default_value`); F16 → B-P16, B-10, SC-1, §6.1
+  (`sanitize_tests.rs` interop comment).
 - **Rev 2 (2026-11-22)** — plan-review R1 and PM 932 / PM 933. Findings → where fixed:
   OQ-1 / PM 933 → B-0, §1 (decision; lens table corrected), §1.1 (post-PR-α state), per-PR §5.1 / §5.2, §6.1 / §6.2,
   §7, §8.1, §9 LR-B1, §10. OQ-2 / PM 932 → B-10, F-1 (history), §6.1, §8.2, §9 LR-B2 (new slot draft
-  `#11-color-well-update-reads-live-value`; the `#11-core-browser-parity-deviations` facet withdrawn); R1 Ax2 MIN
+  `#11-color-well-update-reads-live-value`; rev 2 called rev 1's facet "withdrawn", but the ledger already held it as
+  facet (g), which is closed at PR-α's landing, LR-B7 of rev 3); R1 Ax2 MIN
   (`sanitize_tests.rs` interop ground) → B-P16, B-10, SC-1, §6.1. OQ-3 → B-11. F4 → B-2, B-P17, §4.2, §4.8, §8.3
   Q-S1, PR-α DoD 2. F5 → PB-1α / PB-1β. F6 → LR-B3 (re-eval date, the R1 Ax2 path). F7 → §8.3 (scout answers replace
   the questions). F8 → B-3 (line-count ground dropped), §7. F9 → §4.4 lead. F10 → §4.4 doc requirement. F11 →

@@ -263,14 +263,14 @@ two §3 rows. This section states what changed and why.
   spec text; its class (b) is decided by D-3 there, §0.4, and is not a defect) and DF-2 (the
   snapshot's population across a `type` change). The fix is a separate code PR, planned as a slice of this
   umbrella (until the slice's plan memo exists, its record is the slot row, the re-derivation's LR-2; §1.2 is not
-  rewritten) [2026-11-22: the slice's plan is `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`]. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
+  rewritten) [2026-11-22: the fix is planned as two per-PR slices, PR-α and PR-β (PM 933), in `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`]. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
 - **The measurements** of plan (1) §6 stay as `[history]`. Apart from X2, no invariant, edge or DoD item of this
   umbrella changes.
 
 ## Changelog
 
-- *Pointer* (2026-11-22; no rev bump): §7 names the plan of the change-on-blur baseline slice
-  (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`).
+- *Pointer* (2026-11-22; no rev bump): §7 names the plan of the change-on-blur baseline fix, two per-PR slices
+  (PM 933; `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`).
 - *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections (§7 names the slot row as the
   fix slice's record); errata per `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
 - *Erratum* (2026-11-21; no rev bump; PM 842): X2 corrected by the re-derivation's DF-2 (in-line pointer; §7).
