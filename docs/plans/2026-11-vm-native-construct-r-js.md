@@ -1,5 +1,5 @@
 # R-JS — ECMAScript `[[Construct]]`, the this-binding and SuperCall (per-PR plan, native-construct umbrella §4.2)
-Status: **plan (pre-implementation), Rev 3.3** (re-check at `2dcce2e2` folded per PM 899, §12; Rev 3.2.1 moved §13's tables to a tracked companion, §13; re-check at `b8029ab9` folded per PM 892 with an additions ledger, §13; re-check at `58b666a6` folded per PM 886, §13; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
+Status: **plan (pre-implementation), Rev 3.4** (folds the targeted A3 MINs per PM 904; local cites re-pointed per PM 899 / PM 904, §13; Rev 3.3: re-check at `2dcce2e2` folded per PM 899, §12; Rev 3.2.1 moved §13's tables to a tracked companion, §13; re-check at `b8029ab9` folded per PM 892 with an additions ledger, §13; re-check at `58b666a6` folded per PM 886, §13; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
 for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4. Umbrella:
 `docs/plans/2026-11-vm-native-construct-contract.md` (ratified at #643 `b46a030c`, PM 811 / PM 818). This memo is the
 derivation the repo ledger row `#11-vm-derived-constructor-this-binding` (`docs/plans/2026-07-vm-p4-slot-ledger.md`,
@@ -11,8 +11,9 @@ the row keyed by that id) asks for (umbrella §4.2: "R-JS's per-PR plan is that 
 says otherwise; line numbers appear only as "at `<sha>`". `git diff --stat 7af70b68 378633f6` touches, of this memo's
 files, only `vm/interpreter_call.rs` and `vm/natives_generator.rs`; `git diff --stat 378633f6 3cbd5b88` touches none
 of them (the `data_transfer` split, `events_modern/mod.rs`, `tests_events_modern.rs` and the umbrella); §6.1 and the
-umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). One in-flight branch is read as a claim: R-0b's memo (branch
-`vm-r0b-frame-roots`, head `c2e3dd5f`, Rev 2.1, `docs/plans/2026-11-vm-r0b-frame-root-enumeration.md`, not pushed).
+umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). One in-flight plan is read as a claim: the R-0b per-PR plan
+(branch `vm-r0b-frame-roots` @ `c2e3dd5f`, Rev 2.1, not on main). Landing order: R-0b's plan lands before R-JS-1
+starts, or this cite is re-pointed to its main path when it lands (PM 899 / PM 904: no repo cite to a local path).
 Each child re-reads its anchors at its own base; where a child's base must contain one of them, the child says so (§8).
 
 **Spec numbers.** Every ECMA-262 number below is printed by `.claude/tools/webref aoid ecma262 <AO>` or `heading
@@ -29,10 +30,10 @@ ecma262 <n>` (§12 M-1), step prose by `webref body`. Rows are keyed by AO name.
   (`#11-vm-arrow-lexical-super`) and N (`#11-vm-arrow-lexical-new-target`).
 - **PM 805 / PM 808** — R-JS throws upgrade step 11.4's TypeError in `invoke_upgrade` and carries the slot's test
   (`#11-ce-upgrade-returned-object-typeerror` keeps two facets in `elidex-custom-elements`, L3's: the 11 crate cites
-  and the state after a failed upgrade). Verified: PORTFOLIO `PM 805` / `PM 808` lines; umbrella §4.2 "Upgrade".
+  and the state after a failed upgrade). Verified: PM 805 / PM 808 as the PM records them; umbrella §4.2 "Upgrade".
 - **PM 832 / PM 837 (4) / PM 845 (2) / PM 875 (1)** — the `do_new` rest-constructor window is R-JS's DoD; PM 875 (1)
   gives it its own slot, **`#11-vm-do-new-instance-rooting` (registered 2026-11-21 at #653's landing, Re-eval 12-05;
-  `grep -n -F` on `project_open-defer-slots.md` → its open row)**, the slot R-JS's DoD closes (R-JS-3, §4.3 DoD). Its
+  its row open in the PM's slot ledger, PM 875 (1))**, the slot R-JS's DoD closes (R-JS-3, §4.3 DoD). Its
   second item, the custom-element upgrade path, is measured here (§4.3.5). The row's clause "umbrella §8.3 stands,
   PM 875" predates PM 880's correction (§0.3 RS-1; restated in §9).
 - **PM 851 / PM 875 (2) / PM 880** — Rust-side `[[Call]]` is rooted at `call_dispatch`'s entry (#653, landed
@@ -188,6 +189,13 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
     that observes it is created in the frame (§1.3.3); an arrow frame is `Cell(<its closure's this_env>)`, or
     `Unobserved` when the arrow's body has no §9.4.3 consumer (by §1.3.3's emission rule no op of its body reads the
     record; a read is a VM invariant violation, §1.3.3).
+  - **Visibility** (re-check A3 MIN-3): `ThisEnvId`, `ThisEnvironment` and `FrameThisEnv` are **`pub` types with
+    private fields** — they appear in `pub` fields (`CallFrame::this_env`, `FunctionObject::this_env`,
+    `JsCalleeInfo::this_env`; `vm::frame` and `vm::value` are `pub mod`s) and in `ObjectKind`'s variant (re-exported `pub`
+    by `vm/value.rs`), and a less visible type there fails `private_interfaces` under `-D warnings`. The by-type
+    guarantee is the private fields, not the type's visibility. `ThisBinding` and `FrameThisEnv`'s representation enum
+    sit only in private fields and stay private to `vm/frame.rs`; `ThisEnvEdge` (its variants visible: `mark_frame`
+    matches them), `gc_edge` and `object_id` are `pub(in crate::vm)`.
 - **Why not an ECS component or a HostData side-store** (CLAUDE.md "Side-store→component 判定ルール"; PM 880 Q-4,
   checked in plan-review): the rule's subject is *per-entity* state kept in an entity-keyed side-store. The record is
   neither: it is keyed by no entity (it belongs to a call frame and the arrows that close over it — a JS binding, like
@@ -253,12 +261,14 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   - Bytes outside any `FunctionCompiler`: `synthesize_default_class_ctor`'s literal bytecode (`compiler/expr_class.rs`,
     `Op::SuperCallSpread as u8`) builds non-arrow functions only, whose flag is `false` by definition (§4.1 DoD).
 - **`create_closure` (`vm/ops.rs`):** for an arrow with the flag it calls `box_this_environment()` (`vm/frame.rs`,
-  §1.3.1): if the current frame's `this_env` is `Inline(r)`, allocate `ObjectKind::ThisEnvironment(r)` and set the
-  frame to `Cell(id)`; if it is `Cell(id)`, reuse `id`; `Unobserved` is impossible by the transitive flag
-  (`debug_assert!`, `VmError::internal` in release). The arrow's
-  `FunctionObject::this_env` (NEW) `= Some(id)`, replacing `captured_this`. Rooting: during the cell's allocation the
-  binding's value is still in the frame (`Inline`); between the cell's allocation and the frame write there is none;
-  the function object's allocation follows with the cell held by the frame.
+  §1.3.1): if the current frame's `this_env` is `Inline(r)`, copy `r`'s `JsValue` into a fresh `ThisEnvironment`
+  (built there; the type has no `Clone`), allocate `ObjectKind::ThisEnvironment(fresh)`, then set the frame to
+  `Cell(id)`; if it is `Cell(id)`, reuse `id`; `Unobserved` is impossible by the transitive flag (`debug_assert!`,
+  `VmError::internal` in release). The arrow's `FunctionObject::this_env` (NEW) `= Some(id)`, replacing
+  `captured_this`. **Rooting order** (re-check A3 MIN-4; `alloc_object` may collect *before* it inserts,
+  `vm/inner.rs`): (1) the copy — the frame stays `Inline` and roots the value through that collection (the fresh record
+  is in no root yet); (2) the insert yields `id`; (3) the frame write `Cell(id)`, no allocation between (2) and (3);
+  (4) the function object's allocation, with the cell held by the frame.
 - **Call:** `compute_this_for_call` (`vm/dispatch_ic.rs`) becomes `this_env_for_call(this_mode, receiver, this_env) ->
   FrameThisEnv` (`Strict` → `FrameThisEnv::bound(receiver)`; `Lexical` → `FrameThisEnv::lexical(this_env)`). Its five callers
   (`ic_call` ×2, `ic_call_method` ×2, the Function arm, in `call_dispatch_rooted` since #653; `git grep -n 'compute_this_for_call(' 7af70b68`
@@ -278,17 +288,21 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   Every reader of the frame's `this` goes through `this_binding` (`Op::PushThis`, `dispatch_super_inner`, the return
   step); `create_closure` reaches the record only through `box_this_environment`; outside `vm/frame.rs` no code
   matches `FrameThisEnv` (private representation; `mark_frame` matches `gc_edge()`'s `ThisEnvEdge`, §4.1).
-- **An `Unobserved` read is a VM invariant violation, never a script exception** (re-check A2 MIN-3). It is
-  `this_binding`'s **outer** `Err(VmError::internal)` (after a `debug_assert!`); **`Op::PushThis` propagates it with
-  `?`** and routes only the inner (spec) `Err` through `throw_error`, the shape of `Op::CheckTdz` beside `peek()?`.
-  Reason: `throw_error` → `vm_error_to_thrown` makes `InternalError` a catchable plain `Error` (`vm/ops.rs`, the `_ =>
-  "Error"` arm), so script could catch a broken emission invariant and run on; and the same invariant met in
-  `Op::Closure` (`box_this_environment`'s `Unobserved`) already propagates uncatchable (`self.create_closure(…)?` at
-  `3cbd5b88`): one invariant, one outcome. `do_new`'s convention (every `Err` through `vm_error_to_thrown`) is not
-  copied: it mixes the kinds only because its helpers return one `VmError`. The other callers read frames that are
-  never `Unobserved` — `complete_construct` a construct frame (arrows are not constructors), `dispatch_super_inner` a
+- **An `Unobserved` read is a VM invariant violation, not a spec exception; no handler of the run that meets it
+  catches it** (re-check A2 MIN-3; A3 MIN-5). It is `this_binding`'s **outer** `Err(VmError::internal)` (after a
+  `debug_assert!`); **`Op::PushThis` propagates it with `?`** and routes only the inner (spec) `Err` through
+  `throw_error`, the shape of `Op::CheckTdz` beside `peek()?`. Reason: `throw_error` → `vm_error_to_thrown` makes
+  `InternalError` a catchable plain `Error` (`vm/ops.rs`, the `_ => "Error"` arm), so script in the same run could
+  catch a broken emission invariant and run on; the same invariant met in `Op::Closure` (`box_this_environment`'s
+  `Unobserved`) already propagates with `?` (`self.create_closure(…)?` at `3cbd5b88`): one invariant, one outcome.
+  **Its reach is that run only:** where a native frame lies between it and an outer script frame (an arrow called back
+  by a native), the native returns the `Err` to the outer run's `Op::Call` / `Op::CallMethod` / `Op::New` arm, which
+  converts every `Err` with `vm_error_to_thrown` (`vm/dispatch.rs`, at `6cbe39e3`), so from there it is catchable, as
+  every `VmError::internal` is today; R-JS does not change that. The other callers read frames that are never
+  `Unobserved` — `complete_construct` a construct frame (arrows are not constructors), `dispatch_super_inner` a
   `SuperCall`'s frame (`Reads`, so an arrow holding one is `Cell`) — and `?` the outer into their own `Result`.
-  Whether `throw_error` should refuse `InternalError` VM-wide is not R-JS's (every helper's); reported to the PM (§9).
+  Whether `vm_error_to_thrown` should refuse `InternalError` VM-wide (in `throw_error` and in those arms) is not
+  R-JS's (every helper's); reported to the PM (§9).
 - **The transitional writer (R-JS-1 → R-JS-3).** Under R-JS-1 and R-JS-2 the pre-allocation contract stands, so
   `dispatch_super_inner` replaces `Initialized(pre_alloc)` with `Initialized(result)`, which BindThisValue refuses by
   design (step 2; R-JS-3's `bind_this`). That one write is `overwrite_this_for_pre_allocation(frame_idx, v)` (NEW, `VmInner`, doc: "today's swap,
@@ -445,7 +459,7 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
 ### §4.1 R-JS-1 — the this-environment record (axis 1)
 **Changes.**
 - `vm/frame.rs`: `ThisBinding` (one variant), `ThisEnvironment` (+ `traced_value`), `ThisEnvId` (+ `object_id`),
-  `FrameThisEnv` (+ `bound`, `lexical`, `gc_edge`), `ThisEnvEdge` (NEW, §1.3.1; private fields and representation);
+  `FrameThisEnv` (+ `bound`, `lexical`, `gc_edge`), `ThisEnvEdge` (NEW; visibility and fields as §1.3.1 states);
   `CallFrame::this_value` → `this_env`; the `impl VmInner` block with `box_this_environment`, `this_binding` and
   `overwrite_this_for_pre_allocation` (§1.3.1, §1.3.3).
 - `vm/object_kind.rs`: `ObjectKind::ThisEnvironment` (NEW) variant `ThisEnvironment(ThisEnvironment)` ( doc: internal, never a
@@ -470,10 +484,16 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
   `Inline(Initialized(v))` / `Cell` / `Unobserved` (R-JS-3 adds `Inline(Uninitialized)` → `Nothing` with the variant);
   `vm/gc/trace.rs`: the Function arm marks `this_env` instead of `captured_this`; a `ThisEnvironment` arm marks
   `traced_value()`.
-- `.claude/tools/native-ctor-guard-trip-wire.sh`: **wire #5 born** (umbrella §4.6), its record half (§1.3.1): no
-  `.object_id()` call under `crates/script/elidex-js/src` outside `vm/gc/` (comment lines stripped, as wires #1-#4);
-  fail-safe: another type's `object_id()` trips it too (0 hits at `3cbd5b88`); control mutant (a call in
-  `vm/dispatch.rs`) in the same commit.
+- `.claude/tools/native-ctor-guard-trip-wire.sh`: **wire #5 born** (umbrella §4.6). Its header names the property,
+  **the record half: the handle's one way out, `ThisEnvId::object_id`, is used by the collector (`vm/gc/`) only**
+  (§1.3.1). Scan (re-check A3 MIN-1): a word match, `git grep -n -w object_id -- crates/script/elidex-js/src
+  ':!crates/script/elidex-js/src/vm/gc/'`, minus the definition line (`fn object_id(`, `vm/frame.rs`) and comment lines
+  (as wires #1-#4) → 0, so a method call, a path and a fn pointer (`.map(ThisEnvId::object_id)`) all hit; fail-safe:
+  another type's `object_id` trips it too (0 hits at `3cbd5b88` and `6cbe39e3`; control: `-w alloc_object` hits).
+  **Standing positive control** (A3 MIN-2; the `ban_control` precedent, `.claude/tools/layout-box-reader-trip-wire.sh`):
+  every run first matches the scan's pattern and flags (`git grep --no-index -n -w`) against sample lines
+  `h.object_id()`, `.map(ThisEnvId::object_id)` and `ThisEnvId::object_id(&h)`, and fails if any misses (a wire that
+  cannot fire is not green). Control mutant (a call in `vm/dispatch.rs`) in the same commit.
 - `vm/natives_generator.rs`, `vm/tests/tests_with_call_mode.rs`, `vm/gc/tests.rs`: struct literals (§10 S-2).
 - Compiler (§1.3.3, the emission rule): `bytecode/opcode.rs` `Op::reads_this_environment` (exhaustive, no wildcard;
   precedent `Op::operand_size`, exhaustive at `3cbd5b88`); `compiler/function.rs` `push_op` (every `emit*` helper),
@@ -530,7 +550,7 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
 `git grep -n -w captured_this -- $R` → 0 (18 lines at `3cbd5b88`); `git grep -n -P '\bbox_this_environment\(' --
 $R` → its definition (`vm/frame.rs`) and `create_closure` only; the record, the handle and `FrameThisEnv` hold by
 type (§1.3.1: `ThisEnvironment`'s, `ThisEnvId`'s and `FrameThisEnv`'s fields have no visibility modifier, so no
-other module builds or matches them; reviewed on the diff); wire #5's record half and its mutant (§1.3.1) in CI;
+other module builds or matches them; reviewed on the diff); wire #5's record half, its standing control and its mutant (§4.1) in CI;
 `FunctionCompiler::bytecode` has no visibility modifier, so `git grep -n -P '\.bytecode\b' --
 crates/script/elidex-js/src/compiler ':!*/function.rs'` → 0 (control: the 13 lines at `3cbd5b88`, §1.3.3), and `git
 grep -n 'to_byte()' -- crates/script/elidex-js/src/compiler` → one write, in `push_op` (reads classified); the remaining raw op bytes in
@@ -646,7 +666,7 @@ The rule: **no `ObjectId` the entry holds crosses an allocation outside a root.*
    is pushed (#651: no guard spans an inline frame push).
 3. **`thisArg`** crosses no allocation before the frame owns it: **`push_js_call_frame` pushes the frame before its
    first allocation** (the rest array; the frame owns the stack slot the array is written to, and
-   `create_array_object` roots its elements, census `handoff/boundroot/census-2026-11-20.md`). This reorders its
+   `create_array_object` roots its elements, #653's census, PR body §Census). This reorders its
    non-coroutine path; the coroutine path is `create_coroutine`'s (#650), unreachable for constructors
    (`debug_assert`).
 4. After the push, the frame roots `thisArg` (`this_env`), newTarget (`mode`), the callee (cleanup region) and the
@@ -862,14 +882,13 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   marked done.
 - **Umbrella Rev 1.7** (RS-1, RS-2, RS-3, RS-5, RS-9): §1.2 "Unchanged", §3's §10.4.1.2 row, §4.2 (three children,
   the [C11] range with 6.c, 2ab's body), §8.1's four rows, §8.3, §7's and §9.1's R-0c, §9.1 step 6, the §0.2 history
-  row (with (4)'s step split and (6)'s sites, Rev 3.2) and order; the RS-9 sites. Line count held at 999: every
+  row (with (4)'s step split and (6)'s sites, Rev 3.2; (7), PM 904's re-cites, Rev 3.4) and order; the RS-9 sites. Line count held at 999: every
   erratum replaces text on its own line.
 - **Slice plan** (RS-6, RS-8): row C's classification, its S / N clause and its I-7 sentence; forward pointers in rows
   3 and N. **RS-9 sweep** (PM 886): slice-plan rows S, 1a, 2a, 2ab, 9a, the 2ab ordering paragraph (Rev 3.2: row S's
   wording, 1a's stack-layout pointer, 2ab's E-10 cite).
 
-**Listed, not made** — the recorder's list is
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/pending-at-landing/r-js-plan.md` (old → new text per line):
+**Listed, not made** — the landing list of this PR (old → new text per line; held and applied by the PM at landing):
 - **Repo ledger** (`docs/plans/2026-07-vm-p4-slot-ledger.md`, rows by id): `#11-vm-derived-constructor-this-binding`
   `:293` (A1 items 1-8, RS-7 / RS-9: the "on the call frame" phrasings, the [C11] range, 2ab's share, the kind's
   home, `construct_synchronous`'s callers; at R-JS-3's landing, retired naming the three child PRs);
@@ -890,7 +909,8 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   owner VM P4; due before R-JS-1 starts (11-28), since R-JS-1 edits `mark_frame`; a slip is reported to the PM.
   It cannot be made now: the tree it describes does not exist before R-0b lands.
 - None other: S-3's cite was re-made by #654 itself (C-7); "R-JS = three children" is made in Rev 1.7 (RS-5).
-**Reported to the PM** (Rev 3.3): whether `throw_error` should refuse `InternalError` VM-wide (§1.3.3; not R-JS's).
+**Reported to the PM** (Rev 3.3; Rev 3.4 names the converter): whether `vm_error_to_thrown` should refuse
+`InternalError` VM-wide — reached via `throw_error` and `Op::Call` / `Op::CallMethod` / `Op::New` (§1.3.3; not R-JS's).
 
 ## §10. Facts to measure before or at each child (scout questions)
 - S-1 Every exhaustive `match` over `ObjectKind` without a wildcard (each needs a `ThisEnvironment` arm); count with a
@@ -960,39 +980,21 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   re-measured at `378633f6` (`git diff --stat 7af70b68 378633f6`: of §5's files, the only ones #653 changed).
 - **M-4 roots.** `vm/gc/roots.rs` `mark_roots` (frame loop; (e) host data and `wrapper_store`),
   `vm/host_data/engine_feature/object_roots.rs` `gc_root_object_ids` (`ce_constructors`), read 2026-11-21.
-- **M-5 ledgers.** `grep -n -F` on `project_open-defer-slots.md` for each slot id (2026-11-21); PORTFOLIO lines of PM
-  805, 808, 832, 837, 845, 851, 875 read 2026-11-21; #653 landed as `378633f6` (`git log origin/main`), its slot's row
+- **M-5 ledgers.** The PM's slot-ledger row of each slot id (`grep -n -F`, 2026-11-21); PM 805, 808, 832, 837, 845,
+  851, 875 as the PM records them, read 2026-11-21; #653 landed as `378633f6` (`git log origin/main`), its slot's row
   closed and `#11-vm-do-new-instance-rooting`'s row open (`grep -n -F`, 2026-11-21).
 - **M-6 family.** After RS-3: `python3 .claude/tools/plan-memo-umbrella-check.py
   docs/plans/2026-07-vm-p4-es-language-completeness.md` → exit 0 (0 mechanical findings);
   `python3 docs/plans/test_vm_p4_family_layout.py` → OK (2 tests).
 - **M-7 C2-6.** The driver's temporary test on origin/main `378633f6`, rustc 1.99.1, removed after (PM 880 item 6);
   results in C-4.
-- **M-8 anchors at `3cbd5b88`** (`git grep -n` on that sha): `interpreter_call.rs` `call_dispatch` :29,
-  `call_dispatch_rooted` :46, Function arm :64, `compute_this_for_call(` :68, `WasmExportedFunction` arm :267,
-  `call_internal` :305 (literal :399, `new_instance: None` :415, coroutine branch :432), `push_js_call_frame` :474
-  (parameter :480, literal :569, field :581); `dispatch_class.rs` `construct_synchronous` :273, `with_call_mode` :323;
-  `gc/roots.rs` :350 / :386.
-- **M-9 code reads (Rev 3, at `3cbd5b88`).** `scope/visitor.rs` `visit_class_body` (no member-key visit; static block
-  scope); `compiler/expr_class.rs` (`Property` arm: static initializer and computed key in the enclosing frame,
-  instance initializers skipped; `StaticBlock` arm: a child non-arrow `FunctionCompiler`; default constructors as raw
-  bytes); `compiler/function.rs` emit helpers; `bytecode/opcode.rs` `Op::operand_size` (exhaustive);
-  `vm/dispatch_class.rs` `walk_bound_chain` (visitor gets `bound_args` only); `vm/construct_admission.rs`
-  `admit_construct`; `vm/frame.rs` `CallFrame::kind` doc (no JS-level `eval`); Rev 3.1: `bytecode/opcode.rs`
-  `GetSuperProp` / `SetSuperProp` / `GetSuperElem` and their stub arm (`vm/dispatch.rs`; reads no frame state), the
-  `emit*` helpers' operands (`compiler/function.rs`; `Op::Closure` via `emit_u16`), the frame-entry writers
-  (`git grep -n -P 'push_js_call_frame\(|call_internal\(' 3cbd5b88`: `do_new`, `construct_synchronous`, `run_function`, the IC
-  calls, the Function arm); PM ledger rows
-  `#11-vm-do-new-instance-rooting` and `#11-vm-generator-instance-prototype-from-function` (`grep -n -F`). Rev 3.2:
-  `mise.toml:19` (`cargo clippy --workspace -- -D warnings`); `vm/mod.rs:190` (`pub(crate) struct VmInner`);
-  `compiler/function.rs:19` (`pub bytecode`) and the 13 outside touches (§1.3.3's command); `vm/ops.rs:878-879`
-  (`create_closure` reads `this_value`); PM ledger `:248`, `:254`, `:257`, `:289`, `:1740`, `:1752` and repo ledger
-  `:23` (`grep -n -F` / `grep -c -F` on each landing-list old text → 1).
-- **M-10 Rev 3.2.1 / 3.3.** 3.2.1 (`2dcce2e2`, PM 899): §13's tables moved verbatim to the companion (`b13ea4c6`
-  :972-1071), no plan statement changed. 3.3 (re-check at `2dcce2e2`, at `3cbd5b88`): `Cargo.toml:312`, `lib.rs:37`;
-  `vm/ops.rs` `throw_error` / `vm_error_to_thrown` (`:187`), `vm/dispatch.rs:745`, `Op::CheckTdz`; `ObjectKind`
-  derives nothing (`vm/object_kind.rs:113`); `git grep -c -P '\bobject_id\(\)'` → 0; repo ledger `:321` (A6).
+- **M-8 – M-11** (anchors at `3cbd5b88`, code reads, Rev 3.2.1 – 3.4 provenance) are in the companion's §12: M-8 –
+  M-10 moved verbatim at Rev 3.4 (PM 904; this memo's 1000-line cap), M-11 new there. None is a plan statement.
 
 ## §13. Plan-review dispositions
 
 The per-finding disposition tables for plan-review R1 (at `bee45988`), the R1-fix re-check (at `58b666a6`) and the Rev 3.1 re-check (at `b8029ab9`), with the additions-ledger summary, are kept in the tracked companion `docs/plans/2026-11-vm-native-construct-r-js-dispositions.md` (verbatim from `b13ea4c6` lines 972-1071; PM 899). Nothing in them is a plan statement; every fix they record is in §0–§12 above.
+
+**Rev 3.4** (PM 904): the targeted A3 re-check of Rev 3.3 (at `f1db3ef8`; CRIT 0 / IMP 0 / MIN 6) folded — §1.3.1's
+visibility, §1.3.3's `create_closure` rooting order and the `Unobserved` error's reach, §4.1's wire #5 scan and
+standing control, §9's PM note; local-path cites re-pointed to stable ids (PM 899 / PM 904). Table: companion §13.3.

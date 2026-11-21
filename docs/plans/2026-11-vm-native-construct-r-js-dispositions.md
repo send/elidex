@@ -1,9 +1,9 @@
 # R-JS per-PR plan — plan-review disposition tables
 
-Companion of `docs/plans/2026-11-vm-native-construct-r-js.md` (its §13). Moved out of the memo at Rev 3.2.1 to keep the memo under 1000 lines; verbatim from `b13ea4c6` lines 972-1071 (PM 899: tracked in the repo, not a local handoff file).
+Companion of `docs/plans/2026-11-vm-native-construct-r-js.md` (its §13). Moved out of the memo at Rev 3.2.1 to keep the memo under 1000 lines; verbatim from `b13ea4c6` lines 972-1071 (PM 899: tracked in the repo, not a local handoff file). Rev 3.4 (PM 904) adds §13.3, the memo's §12 M-8 – M-10 (moved here verbatim for the memo's 1000-line cap) and M-11. Round records are cited by the PM decision that folded them (PM 899 / PM 904: no repo cite to a local path).
 
 ## §13. Plan-review R1 dispositions (at `bee45988`; CRIT 0 / IMP 5 / MIN 25 / FP 3)
-Record: `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-plan-review-r1-bee45988.md`. Each finding
+Record: the round's plan-review record (held by the PM; folded per PM 883). Each finding
 was checked against the code at `3cbd5b88` or `webref` before it was folded.
 
 | Finding | Disposition | Where |
@@ -44,7 +44,7 @@ was checked against the code at `3cbd5b88` or `webref` before it was folded.
 | A5 MIN R-JS-3 "single-axis" undersold | fixed: R-JS-3 carries four axes; why one PR | §1.2 |
 
 ### §13.1 Re-check of the R1 fix delta (at `58b666a6`; CRIT 0 / IMP 2 / MIN 10), folded per PM 886
-Record: `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-recheck-r1fix-58b666a6.md`. Each claim was
+Record: the re-check's round record (held by the PM; folded per PM 886). Each claim was
 checked against the files at `58b666a6`, main at `3cbd5b88`, or `webref` before it was folded.
 
 | Finding | Disposition | Where |
@@ -63,10 +63,10 @@ checked against the files at `58b666a6`, main at `3cbd5b88`, or `webref` before 
 | A2 MIN accessor for a popped frame | fixed: `this_binding(&FrameThisEnv)`, no allocation between pop and read | §1.3.3, §4.2 |
 
 ### §13.2 Re-check of the Rev 3.1 delta (at `b8029ab9`; CRIT 0 / IMP 1 / MIN 19 — A2 3, A5 7 + 1, A3 5, A4 3 — and a label note), folded per PM 892
-Record: `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-recheck-r31-b8029ab9.md`. Each claim was
+Record: the re-check's round record (held by the PM; folded per PM 892). Each claim was
 checked against `3cbd5b88`, the files at `b8029ab9`, or `webref` before it was folded (§12 M-1, M-9 Rev 3.2); none
-was false. **Additions ledger** (PM 892):
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-additions-ledger-rev3x.md` — 52 rows (21 for Rev
+was false. **Additions ledger** (PM 892;
+held by the PM) — 52 rows (21 for Rev
 3.1's additions, 31 for Rev 3.2's) over the memo, umbrella, slice plan, entry memo and landing list; **dead additions
 found 2, fixed 2**: `bind_this` (the IMP) and `ThisBinding::Uninitialized` (found by the ledger: no construction
 before R-JS-3's derived push, the same clippy ground); **contradictions found 9, resolved 9** (the `FrameThisEnv`
@@ -102,3 +102,53 @@ unread parameters.
 
 The Rev 3.1 dispositions in §13.1 that named `ThisEnvId::for_new_cell` and "three accessors" are superseded by the
 rows above (kept as the record of Rev 3.1).
+
+## §12 (moved from the memo at Rev 3.4). Measurements M-8 – M-11
+- **M-8 anchors at `3cbd5b88`** (`git grep -n` on that sha): `interpreter_call.rs` `call_dispatch` :29,
+  `call_dispatch_rooted` :46, Function arm :64, `compute_this_for_call(` :68, `WasmExportedFunction` arm :267,
+  `call_internal` :305 (literal :399, `new_instance: None` :415, coroutine branch :432), `push_js_call_frame` :474
+  (parameter :480, literal :569, field :581); `dispatch_class.rs` `construct_synchronous` :273, `with_call_mode` :323;
+  `gc/roots.rs` :350 / :386.
+- **M-9 code reads (Rev 3, at `3cbd5b88`).** `scope/visitor.rs` `visit_class_body` (no member-key visit; static block
+  scope); `compiler/expr_class.rs` (`Property` arm: static initializer and computed key in the enclosing frame,
+  instance initializers skipped; `StaticBlock` arm: a child non-arrow `FunctionCompiler`; default constructors as raw
+  bytes); `compiler/function.rs` emit helpers; `bytecode/opcode.rs` `Op::operand_size` (exhaustive);
+  `vm/dispatch_class.rs` `walk_bound_chain` (visitor gets `bound_args` only); `vm/construct_admission.rs`
+  `admit_construct`; `vm/frame.rs` `CallFrame::kind` doc (no JS-level `eval`); Rev 3.1: `bytecode/opcode.rs`
+  `GetSuperProp` / `SetSuperProp` / `GetSuperElem` and their stub arm (`vm/dispatch.rs`; reads no frame state), the
+  `emit*` helpers' operands (`compiler/function.rs`; `Op::Closure` via `emit_u16`), the frame-entry writers
+  (`git grep -n -P 'push_js_call_frame\(|call_internal\(' 3cbd5b88`: `do_new`, `construct_synchronous`, `run_function`, the IC
+  calls, the Function arm); PM ledger rows
+  `#11-vm-do-new-instance-rooting` and `#11-vm-generator-instance-prototype-from-function` (`grep -n -F`). Rev 3.2:
+  `mise.toml:19` (`cargo clippy --workspace -- -D warnings`); `vm/mod.rs:190` (`pub(crate) struct VmInner`);
+  `compiler/function.rs:19` (`pub bytecode`) and the 13 outside touches (§1.3.3's command); `vm/ops.rs:878-879`
+  (`create_closure` reads `this_value`); PM ledger `:248`, `:254`, `:257`, `:289`, `:1740`, `:1752` and repo ledger
+  `:23` (`grep -n -F` / `grep -c -F` on each landing-list old text → 1).
+- **M-10 Rev 3.2.1 / 3.3.** 3.2.1 (`2dcce2e2`, PM 899): §13's tables moved verbatim to the companion (`b13ea4c6`
+  :972-1071), no plan statement changed. 3.3 (re-check at `2dcce2e2`, at `3cbd5b88`): `Cargo.toml:312`, `lib.rs:37`;
+  `vm/ops.rs` `throw_error` / `vm_error_to_thrown` (`:187`), `vm/dispatch.rs:745`, `Op::CheckTdz`; `ObjectKind`
+  derives nothing (`vm/object_kind.rs:113`); `git grep -c -P '\bobject_id\(\)'` → 0; repo ledger `:321` (A6).
+- **M-11 Rev 3.4** (targeted A3 re-check of Rev 3.3 at `f1db3ef8`; code at origin/main `6cbe39e3`). `git grep -n -w
+  object_id 6cbe39e3 -- crates/script/elidex-js/src` → 0 (also 0 at `3cbd5b88`); control, same flags: `-w alloc_object`
+  → 419 lines. `vm/inner.rs:96` `alloc_object` (`:97`: "GC trigger BEFORE insertion"). `vm/dispatch.rs` `Op::Call` `:703`,
+  `Op::CallMethod` `:714`, `Op::New` `:729`: each `Err` through `vm_error_to_thrown` then `handle_exception`;
+  `Op::Closure` `:743` (`create_closure(…)?`); `vm/ops.rs:169` `vm_error_to_thrown`. Visibility: `lib.rs:38` `pub
+  mod vm`; `vm/mod.rs:23` `pub mod frame`, `:71` `pub mod value`; `CallFrame` (`vm/frame.rs:70`, `pub this_value`
+  `:82`), `FunctionObject` (`vm/value.rs:588`, `pub captured_this` `:598`), `JsCalleeInfo` (`:664`, `:668`);
+  `ObjectKind` re-exported by `vm/value.rs`. Probe (rustc 1.99.1, `--edition 2021 -D warnings`): a `pub(crate)`
+  type in a `pub` field and in a `pub use`d enum's variant → two `private_interfaces` errors. `ban_control`:
+  `.claude/tools/layout-box-reader-trip-wire.sh:276`. Local-path cites: PM 904's `grep -n -E` (the PM repo's name, the projects
+  memory dir, the PM-dir variable, the handoff dir) over this PR's five files → 11 lines at `c99b3a15` (control), 0 after.
+
+### §13.3 Targeted Axis 3 re-check of Rev 3.3 (at `f1db3ef8`; CRIT 0 / IMP 0 / MIN 6), folded per PM 904
+Record: the re-check's round record (held by the PM; PM 899 set the targeted pass, PM 904 the fold). Each claim was
+checked against origin/main `6cbe39e3` (§12 M-11) before it was folded; none was false.
+
+| Finding | Disposition | Where |
+|---|---|---|
+| MIN-1 wire #5's `\.object_id\(` misses a path / fn-pointer form | fixed: a word match, `git grep -n -w object_id` outside `vm/gc/`, minus the definition and comments | §4.1 |
+| MIN-2 no standing positive control; the property unnamed in the header | fixed: a `ban_control`-style control on every run (three sample lines, the scan's flags); the header names the record half | §4.1 |
+| MIN-3 types in `pub` fields / variants must be `pub` | fixed: `ThisEnvId` / `ThisEnvironment` / `FrameThisEnv` `pub` with private fields; `ThisBinding` and the representation private; `ThisEnvEdge` / `gc_edge` / `object_id` `pub(in crate::vm)` | §1.3.1, §4.1 |
+| MIN-4 `create_closure` moves the record out before `alloc_object` may collect | fixed: copy the value into a fresh record, the frame `Inline` until the frame write; the rooting order in four steps | §1.3.3 |
+| MIN-5 "never a script exception" overstated past a native frame | fixed: uncaught by its own run; past a native frame `Op::Call` / `Op::CallMethod` / `Op::New` convert it with `vm_error_to_thrown`; the PM note names `vm_error_to_thrown` | §1.3.3, §9 |
+| MIN-6 §13.2's A3 MIN (uncertain) row says the record half is "born in R-JS-2" | superseded (row kept as the Rev 3.2 record): Rev 3.3 moved wire #5's birth, record half included, to R-JS-1 (§4.1; R-JS-2 adds the `new_instance` half, §4.2) | §13.2, §4.1 |
