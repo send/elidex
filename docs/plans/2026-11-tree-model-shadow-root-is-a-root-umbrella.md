@@ -37,7 +37,8 @@ census count was re-measured at `bfc63658` with the same result (§8). Drafts 1 
 [2026-11-tree-model-census.md](2026-11-tree-model-census.md) (commands, counts, per-file tables, scripts, spec
 lookups; §6 here says what each population is for).
 
-**Changelog.** *Erratum: tsel before tq (PM 884, PM 891)* (2026-11-21; no rev bump; carried by the tsel plan PR, branch `tree-model-tsel-plan`). Status ratified (PM 848, #648 `4918a6c7`); §5.1 slice order tsel before tq and the "`tq` first" sentence; §5 `tq` row Deps.
+**Changelog.** *Erratum §7.4: D13 (b) landing item (PM 882 (2))* (2026-11-21; no rev bump; carried by the tq plan PR, branch `tree-model-tq-plan`; the item is under "At `tq`").
+*Erratum: tsel before tq (PM 884, PM 891)* (2026-11-21; no rev bump; carried by the tsel plan PR, branch `tree-model-tsel-plan`). Status ratified (PM 848, #648 `4918a6c7`); §5.1 slice order tsel before tq and the "`tq` first" sentence; §5 `tq` row Deps.
 
 **Rulings this memo implements (decided, not reopened here).**
 
@@ -1102,6 +1103,8 @@ Every "old" below is quoted from the current ledger row (re-read 2026-11-18 for 
   "Trigger: tq (Range path closed), then ta; closed by: ta."
 - **At `tq`.** `#11-shadow-root-accepted-as-ref-or-old-child`: gains "Range path closed by tq (<sha>, <date>)";
   the row stays open.
+  `#11-range-compare-points-shadow-index`: gains "D13 (b) (the walk) fixed by tq (<sha>, <date>); (a) stays tc's"; the
+  row stays open (erratum, tq plan PR, PM 882 (2)).
 - **At `ta`.** (1) `#11-vm-isconnected-bound-document`: "Re-eval: L3's next DOM node-surface touch; backstop
   2026-12-15." → "Re-eval: `ta`'s landing date" (the trigger fires at `ta`; PM 758 Q-14).
   (2) `#11-shadow-slot-assignment-flat-tree`, text: gains "owns the callers of `pending_flat_tree_parent` and
