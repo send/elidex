@@ -663,3 +663,33 @@ fn suspended_upvalue_slots_outside_local_ids_are_rooted() {
         "negative control: id removed from upvalue_slots, the object is collected"
     );
 }
+
+/// Pins `SuspendedFrame`'s own `stack_slice` loop in the `Generator` arm of
+/// `trace`; that loop stays outside `mark_frame` (plan §1 "Out").  Observable
+/// through an ordinary object referenced only from the slice.
+fn stack_slice_keeps(place: bool) -> bool {
+    let mut vm = test_vm();
+    let obj = vm.inner.alloc_object(ordinary(None));
+    let gen_id = alloc_generator(
+        &mut vm,
+        Some(SuspendedFrame {
+            stack_slice: if place {
+                vec![JsValue::Object(obj)]
+            } else {
+                Vec::new()
+            },
+            ..suspended(forged_frame(0, Vec::new()))
+        }),
+    );
+    root_via_global(&mut vm, gen_id);
+    collect_and_alive(&mut vm, obj)
+}
+
+#[test]
+fn suspended_stack_slice_is_rooted() {
+    assert!(stack_slice_keeps(true));
+    assert!(
+        !stack_slice_keeps(false),
+        "negative control: value removed from stack_slice, the object is collected"
+    );
+}

@@ -126,10 +126,15 @@ pub(super) fn mark_upvalue(
 /// Mark every GC handle a stored [`CallFrame`] holds.
 ///
 /// Implements no abstract operation; it answers to ECMA-262 §9.9.2 Liveness
-/// (with §9.9.1 Objectives): the spec does not require a field to be marked,
-/// and Note 6 says engines use conservative approximations such as
-/// reachability.  Marking every handle field of a frame is that
-/// approximation, so no object a frame can still read is swept.  This is the
+/// (with §9.9.1 Objectives): the spec does not require a field to be marked
+/// (Note 5: presence of an object or a symbol in a field, an internal slot,
+/// or a property does not imply that the value is live), and Note 6 says
+/// engines use conservative approximations such as reachability.  Marking
+/// every handle field of a frame is that approximation.  The hard requirement
+/// is the engine's own soundness, separate from the spec: sweeping an object
+/// a frame still holds frees its `ObjectId` for reuse while the frame still
+/// reads it, a use-after-free; so every handle a frame holds stays marked.
+/// This is the
 /// one enumeration for a frame in either storage residency: a live frame on
 /// `VmInner::frames` ([`roots`]'s step (b)) and a suspended frame inside a
 /// `Generator`'s `SuspendedFrame` ([`trace`]'s `Generator` arm).
