@@ -15,6 +15,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::{bind_vm, eval_num, eval_str};
 use super::super::Vm;
+use super::tests_range::{host_tree_in_document_script, LightShape};
 
 fn setup() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let vm = Vm::new();
@@ -844,46 +845,36 @@ fn add_range_unregistered_range_after_rebind_throws_invalid_state() {
 // children decide it). Rank (2), plan §3.
 // ---------------------------------------------------------------------------
 
-fn selection_to_string_over_host(light: &str, want: &str) {
+fn selection_to_string_over_host(shape: LightShape, want: &str) {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     vm.eval(&format!(
-        "globalThis.root = document.createElement('div'); document.appendChild(root); \
-         globalThis.pre = document.createTextNode('pre'); \
-         globalThis.h = document.createElement('div'); \
-         globalThis.post = document.createTextNode('post'); \
-         root.appendChild(pre); root.appendChild(h); root.appendChild(post); \
-         globalThis.light = document.createTextNode('LIGHT'); \
-         if ('{light}' === 'before') h.appendChild(light); \
-         globalThis.sr = h.attachShadow({{mode: 'closed'}}); \
-         globalThis.sp = document.createElement('span'); \
-         sp.appendChild(document.createTextNode('SHADOW')); sr.appendChild(sp); \
-         if ('{light}' === 'after') h.appendChild(light); \
-         globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2); \
-         window.getSelection().addRange(rg);"
+        "{} globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2); \
+         window.getSelection().addRange(rg);",
+        host_tree_in_document_script(shape)
     ))
     .unwrap();
     assert_eq!(
         eval_str(&mut vm, "window.getSelection().toString()"),
         want,
-        "light={light}"
+        "shape={shape:?}"
     );
     vm.unbind();
 }
 
 #[test]
 fn selection_to_string_skips_shadow_tree_text_p4a() {
-    selection_to_string_over_host("none", "repo");
+    selection_to_string_over_host(LightShape::NoLight, "repo");
 }
 
 #[test]
 fn selection_to_string_skips_shadow_tree_text_p4b() {
-    selection_to_string_over_host("before", "reLIGHTpo");
+    selection_to_string_over_host(LightShape::LightBefore, "reLIGHTpo");
 }
 
 #[test]
 fn selection_to_string_skips_shadow_tree_text_p4c() {
-    selection_to_string_over_host("after", "reLIGHTpo");
+    selection_to_string_over_host(LightShape::LightAfter, "reLIGHTpo");
 }
 
 /// Plan §11 P-5's tree: a cross-root `setBaseAndExtent` collapses the range

@@ -490,21 +490,17 @@ fn build_host_tree(shape: LightShape) -> HostTree {
     dom.append_child(body, pre);
     dom.append_child(body, host);
     dom.append_child(body, post);
-    let mut light = None;
-    if shape == LightShape::Before {
-        let l = dom.create_text_ownerless_fixture("LIGHT");
+    let light = (shape != LightShape::None).then(|| dom.create_text_ownerless_fixture("LIGHT"));
+    if let (LightShape::Before, Some(l)) = (shape, light) {
         dom.append_child(host, l);
-        light = Some(l);
     }
     let sr = dom.attach_shadow(host, ShadowRootMode::Closed).unwrap();
     let sp = dom.create_element_ownerless_fixture("span", Attributes::default());
     let sp_text = dom.create_text_ownerless_fixture("SHADOW");
     dom.append_child(sr, sp);
     dom.append_child(sp, sp_text);
-    if shape == LightShape::After {
-        let l = dom.create_text_ownerless_fixture("LIGHT");
+    if let (LightShape::After, Some(l)) = (shape, light) {
         dom.append_child(host, l);
-        light = Some(l);
     }
     HostTree {
         dom,
@@ -561,7 +557,6 @@ fn next_in_preorder_global_does_not_enter_shadow_root_d() {
 
 fn delete_contents_over_host(shape: LightShape) {
     let mut t = build_host_tree(shape);
-    let parent_before = t.dom.get_parent(t.sr);
     let mut range = host_range(&t);
     let records = range.delete_contents(&mut t.dom);
     match t.light {
@@ -576,7 +571,7 @@ fn delete_contents_over_host(shape: LightShape) {
         assert!(!r.removed_nodes.contains(&t.sr));
         assert!(!r.removed_nodes.contains(&t.sp_text));
     }
-    assert_eq!(t.dom.get_parent(t.sr), parent_before);
+    assert_eq!(t.dom.get_parent(t.sr), Some(t.host));
     assert_eq!(t.dom.get_shadow_root(t.host), Some(t.sr));
     assert_eq!(t.dom.shadow_host(t.sr), Some(t.host));
 }
