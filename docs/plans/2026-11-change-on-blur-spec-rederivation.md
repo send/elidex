@@ -791,7 +791,8 @@ means that grep only.
   does not count (`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §5)."
 - **LR-4 → the PM**: observations O-1 to O-4 (§6.4). For an observation that is a defect against the spec the only
   treatment is a home; the others may be homed or dismissed.
-  - *O-1 (defect: yes)* → **slot draft** (the PM draws the ID): "Defect [spec]: on Enter in a single-line text
+  - *O-1 (defect: yes)* → **slot draft**, proposed ID `#11-implicit-submission-default-button-and-field-count` (the
+    PM accepts or renames it at landing): "Defect [spec]: on Enter in a single-line text
     control the shell dispatches `submit` at the form ancestor (`crates/shell/elidex-shell/src/content/event_handlers.rs:574-577`
     → `crates/shell/elidex-shell/src/content/form_input.rs:129-143`) with no default-button lookup and no field
     count. HTML §4.10.22.2 Implicit submission fires a `click` at the default button when it has activation
@@ -885,6 +886,8 @@ The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit abov
 
 ## Changelog
 
+- *Rev 3.5a* (2026-11-21, clerical, PM 11-21): LR-4 O-1's slot draft proposes the ID
+  `#11-implicit-submission-default-button-and-field-count`; the PM accepts or renames it at landing.
 - *Rev 3.5* (2026-11-21): Step 4.5 second re-check of rev 3.4 (0 CRIT / 0 IMP / 4 MIN).
   - DF-2 (iii) gains a fourth case, the round trip through a value mode non-text kind (Number, Range, the date /
     time kinds): where no sanitization changes the value the expected value is [spec] (as DC-18); where one does,
