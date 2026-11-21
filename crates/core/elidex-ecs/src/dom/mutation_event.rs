@@ -184,7 +184,7 @@ pub enum MutationEvent<'a> {
     ///   the field via the `..` destructure. The Custom Elements
     ///   consumer in particular currently fires `connectedCallback`
     ///   whenever the post-insertion position is connected (matches
-    ///   Blink / Gecko within-tree-move semantics — see
+    ///   DOM §4.2.3 "insert" step 7.7.1.2, which runs on within-tree moves — see
     ///   `elidex_custom_elements::CustomElementReactionConsumer::
     ///   handle_insert`); the field is reserved for future consumers
     ///   that need a transition diff.

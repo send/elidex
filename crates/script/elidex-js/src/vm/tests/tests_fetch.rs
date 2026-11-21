@@ -104,7 +104,7 @@ fn fetch_get_with_body_rejects_type_error() {
 fn fetch_non_object_init_throws_type_error_synchronously() {
     // WebIDL `RequestInit` is a dictionary argument; converting a
     // non-object / non-undefined / non-null value to a dictionary
-    // fails at the binding layer and surfaces as a sync TypeError
+    // surfaces here as a sync TypeError (the spec rejects the promise; a T deviation)
     // — same shape as `new Request(url, 42)` / `new Response(null,
     // 42)`, verified against Chrome / Firefox / Safari (R20.1).
     let mut vm = no_handle_vm();

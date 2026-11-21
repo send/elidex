@@ -53,9 +53,8 @@
 //! parsed for the property and stored in canonical longhand-expanded
 //! form; an unsupported property name or unparseable value is a no-op
 //! (step 2.2 / 6), so `style.foo = "bar"` adds no declaration.
-//! (Supersedes the earlier IMP-1/2 verbatim-write reading: Chrome's
-//! `setProperty` also rejects unknown properties at step 2.2 — the
-//! `el.style.foo` readback Chrome exhibits is a JS expando on the
+//! (Supersedes the earlier IMP-1/2 verbatim-write reading: the
+//! `el.style.foo` readback (where present) is a JS expando on the
 //! wrapper object, not a CSS declaration, and our wrapper is
 //! non-extensible.)
 

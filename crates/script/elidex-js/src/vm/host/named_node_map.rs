@@ -410,7 +410,7 @@ fn native_nnm_set_named_item(
     // cache so reattachment keeps identity; if the source is
     // currently detached, clear its `detached_value` so subsequent
     // `value` reads track the live attribute again
-    // (Chrome / Firefox parity for the `removeAttribute(name)` →
+    // (for the `removeAttribute(name)` →
     // `setNamedItem(a)` revive cycle).  Cross-element sources can't
     // be retargeted and drop the entry instead.
     if source_owner == owner {
@@ -527,7 +527,7 @@ fn remove_named_item_impl(
     // detached `Attr` over the removed value (`DetachReturn::FreshNode`) — the
     // ONE point it differs from `removeAttributeNode` (which returns the passed
     // node). The shared helper freezes any cached wrapper at the removal-time
-    // value (Chrome / Firefox `attr.value` parity through a same-name re-add).
+    // value (so `attr.value` holds through a same-name re-add).
     // `key` is the resolved removal key (the single binding from above, §4.2).
     Ok(super::element_attrs::remove_attribute_via_node(
         ctx,

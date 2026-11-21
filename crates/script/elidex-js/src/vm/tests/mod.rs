@@ -20,6 +20,7 @@ mod tests_blob;
 mod tests_body_interface;
 mod tests_body_mixin;
 mod tests_bound_accessor;
+mod tests_bound_call_gc;
 #[cfg(feature = "engine")]
 mod tests_cache;
 mod tests_call_shape_sanity;

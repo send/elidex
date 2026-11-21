@@ -124,7 +124,7 @@ pub(crate) struct DataTransferState {
 
 impl DataTransferState {
     /// Fresh empty state — `new DataTransfer()` default.  Matches
-    /// HTML §6.2 + Chrome / Firefox shipping ctor behaviour.
+    /// HTML §6.11.3 `DataTransfer()` constructor steps.
     pub(in crate::vm) fn empty() -> Self {
         Self {
             drop_effect: DropEffect::None,
@@ -237,13 +237,12 @@ impl EffectAllowed {
     }
 }
 
-/// A single entry in the `DataTransfer.items` list (HTML §6.3).
-/// D-9 ships only String entries — File entries are TypeError
-/// stubs until D-14 (slot `#11-data-transfer-file-paired`).
+/// A single entry in the drag data store item list (HTML §6.11.2):
+/// a String entry (D-9) or a File entry (D-14).
 pub(in crate::vm) enum DataTransferEntry {
     /// `add(string, type)` / `setData(format, data)`: a `(format,
-    /// data)` pair both held as interned `StringId`s.  HTML §6.3
-    /// step: kind="string", type=format, data=data.
+    /// data)` pair both held as interned `StringId`s.  HTML §6.11.2
+    /// item: kind="string", type=format, data=data.
     String { format: StringId, data: StringId },
     /// `add(File)` overload — `file_id` is the File wrapper `ObjectId`
     /// (NOT the inner Blob), so DataTransferItemList enumeration and

@@ -1033,7 +1033,7 @@ pub enum ObjectKind {
     /// list.  Payload-free apart from the parent reference; every
     /// read consults the parent's state.  Identity preserved via
     /// the parent's `items_wrapper` slot (a single wrapper per
-    /// parent — matches Chrome `[SameObject]` semantics).
+    /// parent — HTML §6.11.3 IDL marks `items` `[SameObject]`).
     ///
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]

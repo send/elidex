@@ -956,8 +956,8 @@ define_well_known_strings! {
             "application/x-www-form-urlencoded;charset=UTF-8",
         multipart_form_data_prefix => "multipart/form-data; boundary=",
         // Default filename used when a `Blob` (not a `File`) is appended
-        // without an explicit filename argument — matches WHATWG XHR
-        // §4.3 step "create an entry" and Chromium / Firefox behaviour.
+        // without an explicit filename argument — HTML §4.10.22.4
+        // "create an entry": a non-File Blob becomes a File named "blob".
         blob_default_filename => "blob",
     }
 
