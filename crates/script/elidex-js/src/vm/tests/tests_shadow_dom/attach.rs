@@ -19,8 +19,8 @@ fn attach_shadow_open_returns_wrapper() {
 
 #[test]
 fn shadow_root_getter_open_returns_same_wrapper() {
-    // Identity invariant — Chrome / Firefox preserve the wrapper
-    // across `attachShadow` return + `element.shadowRoot` reads.
+    // Identity invariant — `element.shadowRoot` returns this's shadow
+    // root (getter step 3), the node `attachShadow` returned.
     let out = run("var host = document.createElement('div'); \
          var sr = host.attachShadow({mode: 'open'}); \
          (host.shadowRoot === sr && host.shadowRoot === host.shadowRoot) \

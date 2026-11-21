@@ -531,9 +531,9 @@ crates/dom/elidex-dom-api/src/range/mod.rs crates/dom/elidex-dom-api/src/range/m
 is at or over 1000, and the largest after the cells (`tests_selection.rs`, about +50 with V5 and V6) stays under
 1000, so CLAUDE.md's
 *1000-line debt* rule asks for no split and no new test file at this base. The code PR's base is not this one: it
-contains `tsel` (§9 item 3). Per the `tsel` plan on its branch (not yet on main; `git show
-tree-model-tsel-plan:docs/plans/2026-11-tree-model-tsel-selection-boundary-preconditions.md`, its §7.1 at
-`6a4912de`), `tsel`'s VM cells go in a new file `tests_selection_preconditions.rs` and `tests_selection.rs` gets only
+contains `tsel` (§9 item 3). Per the `tsel` plan on main
+([2026-11-tree-model-tsel-selection-boundary-preconditions.md](2026-11-tree-model-tsel-selection-boundary-preconditions.md),
+its §7.1 *1000-line re-count at `3cbd5b88`*; landed #658 `f9acca16`), `tsel`'s VM cells go in a new file `tests_selection_preconditions.rs` and `tests_selection.rs` gets only
 a fixture edit (+1 line). The counts and the anchors cited in this memo are still re-measured on the code PR's base
 (§10 item 7); if a file is already at or over 1000 there, or would cross 1000 with `tq`'s cells, those cells go in a
 new test file.

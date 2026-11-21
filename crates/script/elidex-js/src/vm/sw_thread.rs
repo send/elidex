@@ -25,7 +25,8 @@
 //! **solely by the `waitUntil` lifetime promises** (WHATWG SW Install
 //! `#install` / Activate `#activate`): a rejection or a timeout →
 //! `LifecycleComplete{success:false}`; a synchronous handler throw *without*
-//! `waitUntil` → success (the exception is merely reported — Chrome parity).
+//! `waitUntil` → success (the exception is merely reported; it is none of the
+//! Install algorithm's installFailed paths).
 //! This is stricter-correct than boa's `dispatch_sw_event` (which fails the
 //! lifecycle on any handler throw and stubs `waitUntil`).
 

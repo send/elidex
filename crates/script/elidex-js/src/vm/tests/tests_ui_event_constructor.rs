@@ -142,7 +142,7 @@ fn ui_event_view_non_window_throws() {
 #[test]
 fn ui_event_detail_coerces_via_webidl_long() {
     // UIEventInit.detail is WebIDL `long` — ToInt32 per WebIDL
-    // §3.10.9.  Integer-in-range values pass through, fractional
+    // §3.2.4.9.  Integer-in-range values pass through, fractional
     // inputs truncate toward zero, out-of-range inputs wrap
     // modulo 2^32, and NaN / ±Infinity map to 0 (matching
     // WebIDL `long` ConvertToInt maps NaN to 0 for `new UIEvent('x', {detail: NaN})`).

@@ -75,14 +75,14 @@ gap corner couples I-A×I-B, and the all-initial corner couples I-A×I-B×I-C×I
 ### Verification method
 
 All "elidex out" cells are computed from the stored `CssValue` → `to_css_string()`
-(the exact strings the coordinator feeds the handler; see §3.1). All "Blink out"
-cells are **measured** in Chrome 148 (Blink) via
+(the exact strings the coordinator feeds the handler; see §3.1). [evidence] All "Blink out"
+cells are **measured** [evidence] in Chrome 148 (Blink) via
 `el.style.cssText = <author> ; el.style.getPropertyValue(<shorthand>)` on
 `https://example.com` (page-independent; CSSOM is engine-level). Spec is
 underspecified for the all-initial corners (I-D), so Blink is the cited source
 there.
 
-> **Independently re-verified** (Chrome 148.0.7778.271 / Blink): every "Blink out"
+> **Independently re-verified** [evidence] (Chrome 148.0.7778.271 / Blink): every "Blink out"
 > cell above was re-measured before plan-review. The load-bearing I-D corners hold
 > exactly — `column-rule: medium none currentcolor` → `"medium"` (keep FIRST = width,
 > *not* the style `none` or color `currentcolor`), and `columns: auto auto` → `"auto"`
@@ -92,7 +92,7 @@ there.
 
 ### `column-rule` — canonical order: width, style, color
 
-| # | Author decl | stored width / style / color | non-initial set | **elidex out** | **Blink out** | resolution |
+| # | Author decl | stored width / style / color | non-initial set | **elidex out** | **Blink out** [evidence] | resolution |
 |---|---|---|---|---|---|---|
 | 1 | `column-rule: solid` | `3px` / `solid` / `currentcolor` | {style} | `solid` | `solid` | I-A: drop width+color (both initial), keep style |
 | 2 | `column-rule: thick blue` | `5px` / `none` / `#0000ff` | {width, color} — **style-gap** | `5px #0000ff` | `thick blue` | I-A×I-B: drop the **middle** (style=none=initial), keep width then color **in order** (no re-sort) |
@@ -107,7 +107,7 @@ The task flagged `columns` as *possibly* not a clean omit-initial family (gramma
 IS a clean omit-initial family, using the *identical* rule as `column-rule`,
 including the same I-D keep-first fallback.** No separate rule is needed.
 
-| # | Author decl | stored width / count | non-initial set | **elidex out** | **Blink out** | resolution |
+| # | Author decl | stored width / count | non-initial set | **elidex out** | **Blink out** [evidence] | resolution |
 |---|---|---|---|---|---|---|
 | 4 | `columns: auto` **and** `columns: auto auto` | `auto` / `auto` | **{} — ALL INITIAL** | `auto` | `auto` | **I-D**: same keep-first fallback → single `auto`, **not** `auto auto`. (`columns: auto` ≡ `columns: auto auto`, css-multicol-1 §3.3 example table) |
 | 5 | `columns: 200px` | `200px` / `auto` | {width} | `200px` | `200px` | I-A: drop count (auto=initial) |
@@ -300,19 +300,19 @@ divergences (which do **not** affect detection).
   No canonicalization gap in the omit-initial decision.
 
 - **R2 (DIVERGENCE, pre-existing, orthogonal) — component-value output forms.**
-  elidex serializes some component *values* differently from Blink because the
+  elidex serializes some component *values* differently from CSSOM §6.7.2 / CSS Color 4 §15.1 because the
   longhand value model resolves keywords/colors eagerly at parse:
   - Border-width keyword: `medium`/`thin`/`thick` → `Length(3/1/5, Px)` →
-    `3px`/`1px`/`5px` (`declaration/misc.rs:648,703`), vs Blink's declared-value
+    `3px`/`1px`/`5px` (`declaration/misc.rs:648,703`), vs CSSOM §6.7.2's declared-value
     `medium`/`thin`/`thick`. Surfaces in Corners 2, 2b, 3, 3b.
-  - Named color: `red` → `CssColor{255,0,0}` → `#ff0000` (`values.rs:816`), vs Blink's
+  - Named color: `red` → `CssColor{255,0,0}` → `#ff0000` (`values.rs:816`), vs CSS Color 4 §15.1's
     declared `red`. Surfaces in Corners 2, 2b, 3b.
 
   These are **inherited from the longhand `to_css_string`, not introduced by the
   collapse** — `el.style.columnRuleWidth = 'medium'` already reads back `3px` today.
-  Per CSSOM §6.7.2 a **keyword** serializes as itself (Blink is spec-correct; elidex
+  Per CSSOM §6.7.2 a **keyword** serializes as itself (elidex
   has a latent declared-value gap in its width/color value model). The omit-initial
-  **structure** still matches Blink exactly. **Decision for PR1**: assert elidex's
+  **structure** still matches Blink exactly [evidence]. **Decision for PR1**: assert elidex's
   honest current output (`5px`, `#ff0000`, …), do **not** special-case the width or
   color in the shorthand path (that would re-invent longhand serialization inside the
   collapse, violating I-C + the layering mandate). Carved to the deferred slot
@@ -323,7 +323,7 @@ divergences (which do **not** affect detection).
 
 - **R3 (checked, no divergence) — number formatting.** `column-count: 3` stores
   `Number(3.0)`; `to_css_string` = `format!("{n}")` on `f32` → `"3"` (Rust prints
-  `3.0f32` as `3`), matching Blink. Assert `"3"` (not `"3.0"`) in tests to lock it.
+  `3.0f32` as `3`), as CSSOM §6.7.2's shortest-form `<number>` requires. Assert `"3"` (not `"3.0"`) in tests to lock it.
 
 ## Test plan (ADDS coverage — NOT behavior-preserving)
 
@@ -373,10 +373,10 @@ hand-off, **run `/elidex-plan-review` on this memo before implementing.**
 
 ## Open questions (could not be closed from the spec alone)
 
-- **Q1 — Corner 3 output `3px` vs Blink `medium` (and `#ff0000` vs `red`).** The
-  omit-initial *structure* is verified against Blink, but the component *value*
+- **Q1 — Corner 3 output `3px` vs declared `medium` (and `#ff0000` vs `red`).** The
+  omit-initial *structure* is verified against Blink [evidence], but the component *value*
   strings diverge because elidex's longhand value model resolves the width keyword →
-  length and the named color → hex at parse (R2). CSSOM §6.7.2 makes Blink correct
+  length and the named color → hex at parse (R2). CSSOM §6.7.2 decides the keyword form
   (a keyword serializes as itself). **Options**: (a) accept + document + assert
   elidex's px/hex output in PR1 (recommended — the divergence is pre-existing and
   orthogonal to omit-initial), carving a separate deferred slot for declared-value

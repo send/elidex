@@ -107,8 +107,8 @@ impl VmInner {
 /// error, pre-flight abort, invalid `signal`) all reject the
 /// returned Promise rather than throwing synchronously, matching
 /// the WHATWG Fetch contract that `fetch()` returns a Promise for
-/// every well-formed call.  The exceptions are WebIDL
-/// binding-level checks that run *before* the method body and
+/// every well-formed call.  Deviation (WebIDL "create an operation
+/// function" rejects these too): the code holds that binding checks
 /// must therefore throw synchronously (verified on Chrome /
 /// Firefox / Safari):
 ///
@@ -120,8 +120,8 @@ fn native_fetch(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // WebIDL binding: missing required `input` → synchronous
-    // TypeError, not a Promise rejection.  Must run *before*
+    // Missing required `input` → synchronous TypeError, not a
+    // Promise rejection (the deviation above).  Must run *before*
     // `create_promise` so callers that never handed any argument
     // see the same shape (`try { fetch() } catch (e) { ... }`)
     // as browsers.
@@ -133,7 +133,7 @@ fn native_fetch(
 
     // WebIDL `RequestInit` is a dictionary argument.  Conversion
     // of a non-object / non-undefined / non-null value to a
-    // dictionary fails at the binding layer, producing a
+    // dictionary fails; this code throws it as a
     // synchronous TypeError (same shape as `new Request(..., 42)`
     // and `new Response(..., 42)` — both already throw sync).
     // Must run before `create_promise` so the observable shape

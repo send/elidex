@@ -104,8 +104,8 @@ pub(in crate::vm::host) fn validate_and_normalise(
 /// Used by [`super`]'s `Request`-guard mutation gate and
 /// by [`super::super::fetch`]'s URL-input init.headers snapshot path.
 /// Spec semantics: matched names are *silently ignored*, not
-/// rejected with TypeError — matches browsers (Chrome / Firefox /
-/// Safari) and is what user code expects from `Headers.append`.
+/// rejected with TypeError (Fetch "validate" step 3), which is
+/// what user code expects from `Headers.append`.
 #[must_use]
 pub(in crate::vm::host) fn is_forbidden_request_header(lower_name: &str) -> bool {
     if lower_name.starts_with("proxy-") || lower_name.starts_with("sec-") {

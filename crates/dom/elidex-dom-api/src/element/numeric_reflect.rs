@@ -1,7 +1,7 @@
 //! HTML §"reflect" non-negative-integer parser
 //! (slot `#11-tags-T2a-url-bearing`).
 //!
-//! WHATWG HTML §2.4.4.2 ("Rules for parsing non-negative integers")
+//! WHATWG HTML §2.3.4.2 ("Rules for parsing non-negative integers")
 //! specifies the algorithm used by IDL `unsigned long` reflect
 //! attributes — most notably `<img>.width` / `<img>.height`.  The
 //! algorithm is:
@@ -24,7 +24,7 @@
 //! back through `EcsDom::set_attribute`.
 
 /// Parse a content-attribute string per HTML's "rules for parsing
-/// non-negative integers" (HTML §2.4.4.2).  Takes the maximal leading
+/// non-negative integers" (HTML §2.3.4.2).  Takes the maximal leading
 /// run of ASCII digits (so `"100px"` → `100`); returns `0` when no
 /// digits are present, and saturates at `u32::MAX` on overflow.
 pub fn parse_unsigned_long(raw: &str) -> u32 {

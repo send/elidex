@@ -164,7 +164,8 @@ fn uncovered_shorthand_is_none_even_when_complete() {
 /// which wins by order of appearance (css-cascade-4 §6.1) and is read back via the
 /// caller's `.or_else` getter (outside the §6.6.1 shorthand-reconstruction path):
 ///   `background: initial; background: var(--bg)`
-///   → getPropertyValue("background") == "var(--bg)" (Blink 148), NOT "initial".
+///   → getPropertyValue("background") == "var(--bg)"
+///   (css-values-5 #pending-substitution-value), NOT "initial".
 ///
 /// `background` (and `flex`) is mapped but uncovered — every longhand set to the
 /// same CSS-wide keyword, or an unresolved `var()`, must still yield `None`, not
@@ -365,7 +366,7 @@ fn css_wide_keyword_mixed_with_physical_is_empty() {
 /// "stored" longhand strings directly.
 #[test]
 fn six_family_regression_mis_collapses_now_empty() {
-    // was elidex "initial 5px" (Blink "")
+    // was elidex "initial 5px" (spec "": CSSOM §6.7.2 step 1.2)
     let mut m1 = HashMap::new();
     m1.insert("margin-top", "initial");
     m1.insert("margin-right", "5px");
@@ -373,7 +374,7 @@ fn six_family_regression_mis_collapses_now_empty() {
     m1.insert("margin-left", "5px");
     assert_eq!(serialize("margin", &m1), Some(String::new()));
 
-    // was elidex "inherit 5px 5px" (Blink "")
+    // was elidex "inherit 5px 5px" (spec "": CSSOM §6.7.2 step 1.2)
     let mut m2 = HashMap::new();
     m2.insert("margin-top", "inherit");
     m2.insert("margin-right", "5px");
@@ -381,7 +382,7 @@ fn six_family_regression_mis_collapses_now_empty() {
     m2.insert("margin-left", "5px");
     assert_eq!(serialize("margin", &m2), Some(String::new()));
 
-    // was elidex "var(--x) 0px 0px" (Blink "")
+    // was elidex "var(--x) 0px 0px" (spec "": css-values-5 #pending-substitution-value)
     let mut m3 = HashMap::new();
     m3.insert("margin-top", "var(--x)");
     m3.insert("margin-right", "0px");
@@ -389,13 +390,13 @@ fn six_family_regression_mis_collapses_now_empty() {
     m3.insert("margin-left", "0px");
     assert_eq!(serialize("margin", &m3), Some(String::new()));
 
-    // was elidex "var(--g) 4px" (Blink "")
+    // was elidex "var(--g) 4px" (spec "": css-values-5 #pending-substitution-value)
     let mut g = HashMap::new();
     g.insert("row-gap", "var(--g)");
     g.insert("column-gap", "4px");
     assert_eq!(serialize("gap", &g), Some(String::new()));
 
-    // was elidex "initial inherit" (Blink "")
+    // was elidex "initial inherit" (spec "": CSSOM §6.7.2 step 1.2)
     let mut m4 = HashMap::new();
     m4.insert("margin-top", "initial");
     m4.insert("margin-right", "inherit");
@@ -565,7 +566,8 @@ fn column_rule_omit_initial_corners() {
         serialize_parsed("column-rule", "column-rule: dashed green"),
         Some("dashed #008000".to_string())
     );
-    // ALL initial ⇒ keep first (width); `3px` vs Blink's `medium`
+    // ALL initial ⇒ keep first (width); `3px` vs the specified `medium`
+    // (R2, `#11-css-declared-value-serialization-fidelity`)
     assert_eq!(
         serialize_parsed("column-rule", "column-rule: medium none currentcolor"),
         Some("3px".to_string())

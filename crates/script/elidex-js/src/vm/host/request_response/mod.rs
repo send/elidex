@@ -532,11 +532,11 @@ impl VmInner {
 // Shared HTTP / URL helpers
 // ---------------------------------------------------------------------------
 
-/// Apply WHATWG §5.3 step 24 method canonicalisation + §4.6
-/// forbidden-method filter.  Returns the canonical form:
-/// - the uppercase token for the seven byte-case-insensitive
-///   canonical methods (`GET` / `HEAD` / `POST` / `PUT` /
-///   `DELETE` / `OPTIONS` / `PATCH`),
+/// Apply Fetch "normalize a method" + the §4.6 forbidden-method
+/// filter, with one deviation.  Returns the canonical form:
+/// - the uppercase token for the six normalized methods (`GET` /
+///   `HEAD` / `POST` / `PUT` / `DELETE` / `OPTIONS`) and also for
+///   `PATCH`, which the spec leaves as written (deviation),
 /// - the original case otherwise (unknown extensions like
 ///   `CustomOperation` or `MKCOL` pass through verbatim —
 ///   matches Chromium / Firefox).

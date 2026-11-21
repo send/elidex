@@ -391,7 +391,7 @@ fn normalise_method(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<StringI
     let canonical = validate_http_method(&raw, "Failed to construct 'Request'")?;
     let wk = &ctx.vm.well_known;
     // `validate_http_method` returns the uppercased token for the
-    // seven canonical methods and the original casing otherwise —
+    // six normalized methods plus `PATCH`, the original casing otherwise —
     // dispatching on the uppercase here is safe because the match
     // arms cover exactly the canonical-uppercase forms.
     Ok(match canonical.as_str() {

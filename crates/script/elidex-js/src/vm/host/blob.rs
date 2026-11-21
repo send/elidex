@@ -556,9 +556,9 @@ pub(crate) fn parse_blob_options_endings(
 }
 
 /// Parse the optional `options` dict's `type` member into a
-/// lowercased `StringId`.  Spec §3.2 step 4 lower-cases the
-/// provided MIME type after an ASCII validity check; Phase 2
-/// lower-cases unconditionally (no validity check yet).
+/// lowercased `StringId`.  FileAPI §3.1 Blob() constructor step 3
+/// lower-cases the provided type after its validity check (step 3.1);
+/// this code checks ASCII only (see below).
 pub(crate) fn parse_blob_options_type(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
@@ -574,8 +574,9 @@ pub(crate) fn parse_blob_options_type(
                     let sid = super::super::coerce::to_string(ctx.vm, other)?;
                     let raw = ctx.vm.strings.get_utf8(sid);
                     // ASCII-only validation — if any non-ASCII byte,
-                    // fall back to empty (Chromium maps invalid types
-                    // to empty string per spec §3.2 step 4.1).
+                    // fall back to empty.  FileAPI §3.1 Blob() constructor
+                    // step 3.1 is narrower (outside U+0020–U+007E → empty);
+                    // the deviation is the module doc's MIME type item.
                     let type_sid = if raw.bytes().all(|b| b.is_ascii()) {
                         let lower = raw.to_ascii_lowercase();
                         if lower == raw {
