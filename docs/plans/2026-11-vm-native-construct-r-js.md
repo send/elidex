@@ -166,7 +166,7 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   `box_this_environment` (NEW, the one allocation of the kind and the only expression that builds a `ThisEnvId`,
   called by `create_closure`, §1.3.3) and the accessors (§1.3.3). The trace arm reads the value through
   `ThisEnvironment::traced_value() -> Option<JsValue>` (NEW, read only). The one way out of the handle,
-  `ThisEnvId::object_id()` (`pub(in crate::vm)`), exists for the collector: its callers are `vm/gc/` only. Rust
+  `ThisEnvId::object_id()` (`pub(in crate::vm)`), exists for the collector (`vm/frame.rs` reads the field itself): its callers are `vm/gc/` only. Rust
   cannot narrow that (`pub(in path)` admits only an ancestor module, and `vm::frame` and `vm::gc` share only
   `crate::vm`), so that one fact is **wire #5's record half, born in R-JS-1** (§4.1; R-JS-2 adds the
   `new_instance` half, §4.2). Holders (all NEW, §4.1): `CallFrame::this_env`, `FunctionObject::this_env`,
