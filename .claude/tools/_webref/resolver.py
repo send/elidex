@@ -16,7 +16,7 @@ import re
 import sys
 from typing import NamedTuple
 
-from .cache import NotFound
+from .cache import FetchError, NotFound
 from .respec import generator_url, respec_entry
 from .section_sort import heading_number_title, sec_number_key
 from .sources.tc39 import TC39_FAMILY, tc39_biblio, tc39_clauses_by_id
@@ -216,6 +216,22 @@ def _tc39_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate
     return anchor, cands
 
 
+def _respec_entry_if_relevant(shortname: str, url: str):
+    """`respec_entry` only when it can matter, and failing soft.
+
+    A multipage chapter file (`.../x.html`) is never a ReSpec nightly root, so
+    the catalog (`index.json`, fetched lazily) is not consulted for it. When
+    the catalog is needed but unreachable, the spec is treated as not-ReSpec
+    (one candidate): the plain `body` path must not die on the catalog.
+    """
+    if url.split("?", 1)[0].endswith(".html"):
+        return None
+    try:
+        return respec_entry(shortname)
+    except FetchError:
+        return None
+
+
 def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate]]:
     """Resolve (shortname, user-supplied anchor or AO name) → (anchor,
     ordered candidate sources). The only place that decides where a section's
@@ -244,7 +260,7 @@ def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candida
             f"or dfns/{shortname}.json)"
         )
     url, anchor = mp
-    ent = respec_entry(shortname)
+    ent = _respec_entry_if_relevant(shortname, url)
     # A ReSpec spec's other pages (multipage `href`s) are not the nightly, so
     # rendering "the nightly" would answer a different page: only the nightly
     # itself gets the ED -> generator -> TR chain.

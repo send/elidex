@@ -27,6 +27,7 @@ def _scan_attr_line(line: str, depth: int) -> tuple[int, str | None]:
     ` interface X {`.
     """
     in_str = False
+    last_close: int | None = None
     for i, ch in enumerate(line):
         if ch == '"':
             in_str = not in_str
@@ -36,7 +37,11 @@ def _scan_attr_line(line: str, depth: int) -> tuple[int, str | None]:
             elif ch == "]":
                 depth = max(depth - 1, 0)
                 if depth == 0:
-                    return 0, line[i + 1:]
+                    last_close = i
+    # Keep scanning past a balanced list so `[A] [B,` leaves `[B` open; the
+    # remainder is whatever follows the last list that closed on this line.
+    if depth == 0 and last_close is not None:
+        return 0, line[last_close + 1:]
     return depth, None
 
 
@@ -49,7 +54,10 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
     over several lines (`[Exposed=Window,\n LegacyOverrideBuiltIns]`) is kept
     whole, and a declaration on the closing line is recognised. Attributes of a non-matching block never leak into the next block.
     """
-    iface_re = re.compile(rf"\b{re.escape(iface)}\b")
+    # The declared name only: the same keyword prefix as `_IDL_DECL_RE`
+    # (one home), then `iface`. `interface Document : Node {` is not `Node`.
+    # `typedef` is not a block this subcommand extracts (not in the prefix).
+    iface_re = re.compile(_IDL_DECL_RE.pattern + re.escape(iface) + r"\b")
 
     out: list[str] = []
     buf: list[str] = []  # leading [attr] lines awaiting a decl line
@@ -74,10 +82,15 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
             else:
                 decl_text = line
             if _IDL_DECL_RE.match(decl_text):
-                if iface_re.search(decl_text):
+                if iface_re.match(decl_text):
                     out.extend(buf)
                     out.append(line)
-                    in_block = True
+                    # One-line declaration (`enum E { "a" };`, `callback C
+                    # = ...;`): the block ends on the declaration line.
+                    if decl_text.rstrip().endswith(";"):
+                        out.append("")
+                    else:
+                        in_block = True
                 buf = []
                 continue
             # Discard any buffered attrs not followed by a matching decl.

@@ -7,6 +7,7 @@ layer — any I/O failure falls back to uncached fetch.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import urllib.error
@@ -134,6 +135,10 @@ def cached_fetch_url(url: str) -> bytes:
         raise FetchError(f"webref: HTTP {e.code} fetching {url}") from e
     except urllib.error.URLError as e:
         raise FetchError(f"webref: network error fetching {url}: {e.reason}") from e
+    except (TimeoutError, OSError, http.client.HTTPException) as e:
+        # Socket timeout / reset / RemoteDisconnected raised from
+        # getresponse() or read(): urllib wraps only connect-phase errors.
+        raise FetchError(f"webref: network error fetching {url}: {e}") from e
 
 
 def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:
@@ -147,3 +152,7 @@ def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:
         raise FetchError(f"webref: HTTP {e.code} fetching {url}") from e
     except urllib.error.URLError as e:
         raise FetchError(f"webref: network error fetching {url}: {e.reason}") from e
+    except (TimeoutError, OSError, http.client.HTTPException) as e:
+        # Socket timeout / reset / RemoteDisconnected raised from
+        # getresponse() or read(): urllib wraps only connect-phase errors.
+        raise FetchError(f"webref: network error fetching {url}: {e}") from e

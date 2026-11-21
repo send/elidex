@@ -7,10 +7,12 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import functools
 import inspect
 import io
 import re
 import sys
+import tempfile
 import types
 import unittest
 import urllib.error
@@ -25,6 +27,7 @@ from _webref import cli as cli_mod  # noqa: E402
 from _webref import resolver as resolver_mod  # noqa: E402
 from _webref.cache import FetchError, NotFound  # noqa: E402
 from _webref.commands import body as body_mod  # noqa: E402
+from _webref.commands import idl as idl_mod  # noqa: E402
 from _webref.commands.idl import _IDL_DECL_RE, extract_idl_blocks  # noqa: E402
 from _webref import respec as respec_mod  # noqa: E402
 
@@ -87,6 +90,22 @@ def depth_blind_extract(text: str, iface: str) -> list[str]:
     return out
 
 
+def mutate(mod, needle: str, replacement: str, *more: str):
+    """Re-exec `mod`'s source with one edit: a scratch copy carrying the
+    mutant, never written to disk. The needle must be present."""
+    src = inspect.getsource(mod)
+    pairs = [(needle, replacement), *zip(more[::2], more[1::2])]
+    for n, _ in pairs:
+        assert n in src, n
+    m = types.ModuleType(mod.__name__ + "_mutant")
+    m.__package__ = mod.__package__
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        exec(compile(functools.reduce(lambda a, p: a.replace(*p), pairs, src),
+                     "mutant", "exec"), m.__dict__)
+    return m
+
+
 class IdlExtAttrTests(unittest.TestCase):
     def test_multiline_attrs_kept(self):
         out = extract_idl_blocks(IDL, "DOMStringMap")
@@ -126,6 +145,51 @@ class IdlExtAttrTests(unittest.TestCase):
         out = depth_blind_extract(IDL, "DOMStringMap")
         self.assertEqual(out[0], "interface DOMStringMap {")
         self.assertNotIn("[Exposed=Window,", out)
+
+    def test_one_line_blocks_close_on_the_declaration_line(self):
+        text = ('enum E { "a" };\n[Exposed=Window] interface X {};\n'
+                'interface After {\n  attribute long a;\n};\n')
+        self.assertEqual(extract_idl_blocks(text, "E"), ['enum E { "a" };', ""])
+        self.assertEqual(extract_idl_blocks(text, "X"),
+                         ["[Exposed=Window] interface X {};", ""])
+        self.assertEqual(extract_idl_blocks(text, "After")[0], "interface After {")
+
+    def test_mutant_one_line_block_never_closes(self):
+        text = 'enum E { "a" };\ninterface After {\n};\n'
+        m = mutate(idl_mod, 'if decl_text.rstrip().endswith(";"):', "if False:")
+        self.assertIn("interface After {", m.extract_idl_blocks(text, "E"))
+        self.assertNotIn("interface After {", extract_idl_blocks(text, "E"))
+
+    def test_name_match_is_the_declared_name_only(self):
+        text = ("interface Document : Node {\n  attribute long d;\n};\n\n"
+                "interface Node {\n  attribute long n;\n};\n")
+        out = extract_idl_blocks(text, "Node")
+        self.assertEqual(out[0], "interface Node {")
+        self.assertNotIn("interface Document : Node {", out)
+        self.assertEqual(extract_idl_blocks(text, "Document")[0],
+                         "interface Document : Node {")
+
+    def test_mutant_name_matched_anywhere_pulls_inheritor(self):
+        text = "interface Document : Node {\n};\n"
+        m2 = mutate(idl_mod, "iface_re.match(decl_text)", "iface_re.search(decl_text)",
+                    'iface_re = re.compile(_IDL_DECL_RE.pattern + re.escape(iface) + r"\\b")',
+                    'iface_re = re.compile(rf"\\b{re.escape(iface)}\\b")')
+        self.assertNotEqual(m2.extract_idl_blocks(text, "Node"), [])
+        self.assertEqual(extract_idl_blocks(text, "Node"), [])
+
+    def test_two_lists_on_one_line_keep_both(self):
+        text = "[A] [B,\n C]\ninterface X {\n};\n"
+        self.assertEqual(extract_idl_blocks(text, "X")[:3],
+                         ["[A] [B,", " C]", "interface X {"])
+        self.assertEqual(extract_idl_blocks("[A] [B] interface X {\n};\n", "X")[0],
+                         "[A] [B] interface X {")
+
+    def test_mutant_scan_stops_at_first_close(self):
+        text = "[A] [B,\n C]\ninterface X {\n};\n"
+        m = mutate(idl_mod, "                    last_close = i\n",
+                   "                    return 0, line[i + 1:]\n")
+        self.assertNotEqual(m.extract_idl_blocks(text, "X")[:2], ["[A] [B,", " C]"])
+        self.assertEqual(extract_idl_blocks(text, "X")[:2], ["[A] [B,", " C]"])
 
 
 NIGHTLY = "https://w3c.github.io/x-spec/"
@@ -285,10 +349,41 @@ class BodyLoopTests(unittest.TestCase):
         self.assertTrue(out.startswith("# source: none"))
         self.assertIn(f"not encountered in {RELEASE}", msg)
 
-    def test_miss_on_unfetchable_tail_names_last_fetched(self):
+    def test_miss_on_unfetchable_tail_reports_the_outage(self):
         out, calls, msg = self.run_cmd_body(self.RESPEC, {NIGHTLY: UNRENDERED})
         self.assertEqual(calls, [NIGHTLY, GEN, RELEASE])
-        self.assertIn(f"not encountered in {NIGHTLY}", msg)
+        self.assertIn(f"{GEN}", msg)  # the first failed candidate, by URL
+        self.assertIn("unreachable", msg)
+        self.assertNotIn("not encountered", msg)
+        self.assertNotIn("# source: none", out)
+
+    def test_mutant_outage_reported_as_not_found(self):
+        mutant = mutate(body_mod, "if not found and first_error is not None:",
+                        "if False:")
+        _, _, msg = self.run_cmd_body(self.RESPEC, {NIGHTLY: UNRENDERED}, module=mutant)
+        self.assertIn("not encountered", msg)
+
+    def test_unrendered_nightly_hit_is_not_accepted(self):
+        raw = (b'<html><body><section id="dom-x-foo"><p>RAW respec markup.</p>'
+               b"</section></body></html>")
+        out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED})
+        self.assertEqual(calls, [NIGHTLY, GEN])
+        self.assertNotIn("RAW respec", out)
+        self.assertIn("Rendered steps.", out)
+
+    def test_mutant_unrendered_nightly_hit_accepted(self):
+        raw = (b'<html><body><section id="dom-x-foo"><p>RAW respec markup.</p>'
+               b"</section></body></html>")
+        mutant = mutate(body_mod, "if found and cand.label == \"nightly\" and not is_rendered_respec(data):",
+                        "if False:")
+        out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED},
+                                          module=mutant)
+        self.assertEqual(calls, [NIGHTLY])
+        self.assertIn("RAW respec", out)
+
+    def test_rendered_nightly_hit_still_accepted(self):
+        out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: RENDERED})
+        self.assertEqual(calls, [NIGHTLY])
 
     def test_every_fetch_failing_surfaces_the_first_error(self):
         err = FetchError("webref: HTTP 500 fetching " + NIGHTLY)
@@ -373,6 +468,100 @@ class FetchErrorEdgeTests(unittest.TestCase):
             with self.assertRaises(FetchError):
                 cache_mod.cached_fetch_url(self.URL)
         self.assertTrue(issubclass(NotFound, FetchError))
+
+    def test_socket_errors_become_fetch_error(self):
+        import http.client
+        for exc in (TimeoutError("timed out"), ConnectionResetError("reset"),
+                    http.client.RemoteDisconnected("closed")):
+            for env in ({"ELIDEX_WEBREF_NO_CACHE": "1"}, {}):
+                with self.subTest(exc=type(exc).__name__, env=bool(env)), \
+                     mock.patch.dict("os.environ", env), \
+                     tempfile.TemporaryDirectory() as td, \
+                     mock.patch.dict("os.environ", {"XDG_CACHE_HOME": td}), \
+                     mock.patch.object(cache_mod.urllib.request, "urlopen",
+                                       mock.Mock(side_effect=exc)):
+                    with self.assertRaises(FetchError) as cm:
+                        cache_mod.cached_fetch_url(self.URL)
+                    self.assertIn(f"network error fetching {self.URL}", str(cm.exception))
+
+    def test_timeout_moves_body_to_next_candidate(self):
+        cands = [resolver_mod.Candidate(NIGHTLY, "nightly"),
+                 resolver_mod.Candidate(GEN, "generator", cite=NIGHTLY)]
+
+        def urlopen(req, timeout=None):
+            if req.full_url == NIGHTLY:
+                raise TimeoutError("timed out")
+            return io.BytesIO(RENDERED)
+
+        class Resp(io.BytesIO):
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen2(req, timeout=None):
+            if req.full_url == NIGHTLY:
+                raise TimeoutError("timed out")
+            return Resp(RENDERED)
+
+        buf = io.StringIO()
+        with mock.patch.dict("os.environ", {"ELIDEX_WEBREF_NO_CACHE": "1"}), \
+             mock.patch.object(cache_mod.urllib.request, "urlopen", urlopen2), \
+             mock.patch.object(body_mod, "resolve_body_candidates",
+                               lambda s, a: (a, cands)), \
+             contextlib.redirect_stdout(buf):
+            body_mod.cmd_body(argparse.Namespace(shortname="x-spec", anchor="dom-x-foo"))
+        self.assertIn("Rendered steps.", buf.getvalue())
+
+    def test_mutant_socket_errors_escape(self):
+        m = mutate(cache_mod, "except (TimeoutError, OSError, http.client.HTTPException) as e:",
+                   "except ZeroDivisionError as e:")
+        with mock.patch.dict("os.environ", {"ELIDEX_WEBREF_NO_CACHE": "1"}), \
+             mock.patch.object(m.urllib.request, "urlopen",
+                               mock.Mock(side_effect=TimeoutError("t"))):
+            with self.assertRaises(TimeoutError):
+                m.cached_fetch_url(self.URL)
+
+
+class LazyCatalogTests(unittest.TestCase):
+    """`body` must not die on, or needlessly fetch, webref's index.json."""
+
+    def resolve(self, href, entry_fn):
+        with mock.patch.object(respec_mod, "spec_entry", entry_fn), \
+             mock.patch.object(resolver_mod, "webref_resolve_body_url",
+                               lambda s, a: (href, a)):
+            return resolver_mod.resolve_body_candidates("x-spec", "a")
+
+    def boom(self, shortname):
+        raise FetchError("webref: HTTP 503 fetching index.json")
+
+    def test_catalog_outage_degrades_to_single_candidate(self):
+        _, c = self.resolve("https://spec.example/x/", self.boom)
+        self.assertEqual(c, [resolver_mod.Candidate("https://spec.example/x/")])
+
+    def test_chapter_html_never_consults_the_catalog(self):
+        called = []
+        self.resolve("https://spec.example/multipage/x.html",
+                     lambda s: called.append(s))
+        self.assertEqual(called, [])
+
+    def test_mutant_unguarded_catalog_outage_dies(self):
+        m = mutate(resolver_mod, "    except FetchError:\n        return None\n",
+                   "    except ZeroDivisionError:\n        return None\n")
+        with mock.patch.object(respec_mod, "spec_entry", self.boom), \
+             mock.patch.object(m, "respec_entry", respec_mod.respec_entry), \
+             mock.patch.object(m, "webref_resolve_body_url",
+                               lambda s, a: ("https://spec.example/x/", a)):
+            with self.assertRaises(FetchError):
+                m.resolve_body_candidates("x-spec", "a")
+
+    def test_mutant_html_guard_removed_consults_catalog(self):
+        m = mutate(resolver_mod, 'if url.split("?", 1)[0].endswith(".html"):', "if False:")
+        called = []
+        with mock.patch.object(m, "respec_entry", lambda s: called.append(s)), \
+             mock.patch.object(m, "webref_resolve_body_url",
+                               lambda s, a: ("https://spec.example/m/x.html", a)):
+            m.resolve_body_candidates("x-spec", "a")
+        self.assertEqual(called, ["x-spec"])
 
 
 if __name__ == "__main__":

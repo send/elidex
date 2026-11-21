@@ -6,7 +6,7 @@ import sys
 
 from ..cache import FetchError, cached_fetch_url
 from ..extractor import extract_section_body
-from ..respec import SOURCE_NONE_LINE, miss_is_final, source_line
+from ..respec import SOURCE_NONE_LINE, is_rendered_respec, miss_is_final, source_line
 from ..resolver import resolve_body_candidates
 
 
@@ -32,6 +32,11 @@ def cmd_body(args: argparse.Namespace) -> None:
             continue
         last = cand
         found, text = extract_section_body(data, anchor)
+        # An unrendered nightly's hand-written `<section id=...>` would print
+        # raw ReSpec markup; only a rendered nightly may answer, else go on
+        # to the generator.
+        if found and cand.label == "nightly" and not is_rendered_respec(data):
+            found = False
         if found:
             if cand.label:
                 print(source_line(cand.label, data))
@@ -40,6 +45,12 @@ def cmd_body(args: argparse.Namespace) -> None:
             break
     if last is None:
         raise first_error  # every fetch failed: surface the first (primary) one
+    if not found and first_error is not None:
+        # A source could not be fetched and none of the others carried the
+        # anchor: that is an outage, not evidence the anchor is absent.
+        sys.exit(f"{first_error} (anchor #{anchor} not found in the sources "
+                 f"that were reachable; a source above was unreachable, so "
+                 f"absence is unverified)")
     if not found:
         if candidates[0].label:  # a ReSpec ED chain
             print(SOURCE_NONE_LINE)
