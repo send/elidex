@@ -156,7 +156,7 @@ between them is (2)'s call into the sink, covered by X1, and listener writes, co
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, ResizeObserver step (currently 16) before the fixup step | style, layout and RO before the fixup | (3), O1; (2) keeps the position (X6) | ✗ | no |
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, docs in tree order (currently step 2) | each step over all documents | not met; FF-1 | ✗ | no |
 | WHATWG HTML §6.6.4 Processing model | focusing steps, target = viewport; unfocusing steps (currently step 8) | one viewport transition, two callers | (2) | ✓ | yes |
-| WHATWG HTML §6.6.4 Processing model | *focus update steps*, the change-on-blur substep (currently 2.1) | DC2's qualifiers; user change since focus and value ≠ baseline; script-only → none; a script write before the user's first change re-baselines (H, plan (1) §4.3) [as landed; not a spec requirement: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-5 / DF-1 (class (a) contradicts the spec text; class (b): no `change`, by the K-first predicate the user chose (its D-3, §0.4), and H conforms), 2026-11-20] | (1); X1 | ✓ | yes |
+| WHATWG HTML §6.6.4 Processing model | *focus update steps*, the change-on-blur substep (currently 2.1) | DC2's qualifiers; user change since focus and value ≠ baseline; script-only → none; a script write before the user's first change re-baselines (H, plan (1) §4.3) [as landed; not a spec requirement: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-5 / DF-1 (class (a) contradicts the spec text; class (b): no `change`, by the K-first predicate (its D-3, §0.4), and H conforms), 2026-11-20] | (1); X1 | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | *focus update steps*, user validity (currently 2.1.1) | set user validity | not this program; `#11-focus-change-user-validity` | ✗ | no |
 | WHATWG HTML §6.6.4 Processing model | *focus update steps*, Document entry of the new chain (currently step 4) | `focus` at the Window | not fired; canonical-focus A3 (R-A3) | ✗ | no |
 | WHATWG HTML §4.10.5.5 Common event behaviors | `input` when the user changes the value; none for script | `input` iff the funnel reports a change | (1) | ✓ | yes |
@@ -259,7 +259,7 @@ Sections §0–§6 are as ratified and landed, except the dated in-line correcti
   text (the kind boundary across a `type` change: DF-2 there); X1–X8 are not affected. The `<textarea>` rule holds on an elidex principle (one text-control class; the spec is silent). Implicit
   submission is not a commit point; the current order conforms (the re-derivation's §5).
 - **What differs.** Stated once, in the re-derivation's §6: DF-1 (the baseline: its class (a) is decided by the
-  spec text; its class (b) is decided by the K-first predicate the user chose (D-3 there, §0.4), not by spec text, and is not a defect) and DF-2 (the
+  spec text; its class (b) is decided by the K-first predicate (D-3 there, §0.4), not by spec text, and is not a defect) and DF-2 (the
   snapshot's population across a `type` change). The fix is a separate code PR, planned as a slice of this
   umbrella. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
 - **The measurements** of plan (1) §6 stay as `[history]`. No invariant, edge or DoD item of this umbrella changes.
@@ -272,7 +272,8 @@ Sections §0–§6 are as ratified and landed, except the dated in-line correcti
   re-derivation rev 3: its D-3 is decided, K-first (PM 866); the §3 step 2.1 row and §7 "What differs" now say
   class (b) is decided by §4.10.5.5 and is not a defect. Re-derivation rev 3.2, PM 870: that ground over-reached;
   class (b) is decided by the K-first predicate the user chose, §4.10.5.5 only leans; both lines re-worded.
-  Re-derivation rev 3.3: both lines cite D-3 by its §0.4, without restating its ground.)
+  Re-derivation rev 3.3: both lines cite D-3 by its §0.4, without restating its ground. Re-derivation rev 3.4:
+  "the user chose" removed from both lines; D-3 is cited by its §0.4 only.)
 - *Rev 2.2* (2026-11-03): aligned to plan (1) design H (rev 3.1) and plan (2) rev 5.1 (C19 ordering only, PM 298):
   row (1), e1, X1, §3, PR-1, DoD 2, nested revs; stall contingency deleted (its STOP row is gone); CP-3 / CP-4 owner and x4 (PM 312).
 - *Rev 2.1* (2026-11-03): removals per PM 282 (X6 sentence; FS-1, x6, FU-4 assignment, display repro); e4/e5 pointer; PR-1 list + update_steps.rs:72-76.

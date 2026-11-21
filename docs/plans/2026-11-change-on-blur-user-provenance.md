@@ -91,7 +91,7 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   - The baseline is not the spec's reference value, the value "when the control was first focused" (its §4.1; defect
     DF-1, its §6.1). What this memo's cells pin until the code PR lands: its §6.3.
   - The grounds this record cites for PM 305 (the §6 measurement) and for PM 393 ("the focus-time `initial` was dead
-    state") do not hold (its §6.3). The PM withdraws PM 305 and PM 393 at landing (its LR-6).
+    state") do not hold (its §6.3). The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names.
 - **D-2 One user-edit funnel, at the value change** (E3). `elidex_form::apply_user_edit` (NEW), in
   `crates/dom/elidex-form/src/user_edit.rs` (NEW), runs a user edit closure on the control's `FormControlState`, compares the value
   before and after, and if it changed (a) marks the snapshot (if one exists) and (b) returns `changed = true`. The shell
@@ -496,7 +496,7 @@ Chromium. [history]
 
 **Erratum (PM 432, 2026-11-20; added after landing).** The ground this record cites ("the spec defines no
 baseline") does not hold, and an engine's agreement is not a criterion for a core requirement
-(`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.3). The PM withdraws PM 307 at landing (its LR-6). C24's expected
+(`docs/plans/2026-11-change-on-blur-spec-rederivation.md` §6.3). The PM withdraws, at landing, the parts of PM 307 that its LR-6 names ((b), and "initial = before"). C24's expected
 outcome (no `change`) is decided by decision D-3 there (its §0.4 and §4.1; cell DC-9); step 2.1's text alone does
 not determine it, and §4.10.5.5 leans without deciding.
 
@@ -580,7 +580,7 @@ the WPT runner does not drive.
 
 ## §8. Edges, hand-offs and records
 
-- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [history] (2026-11-20: the cited ground does not hold; the PM withdraws PM 307 at landing; §6's erratum.)
+- W6 (`multiple` toggle) is a recorded Chromium divergence, not a defect (§6, PM 307); no slot. [history] (2026-11-20: the cited ground does not hold; the PM withdraws PM 307 (b) at landing, the re-derivation's LR-6; §6's erratum.)
 
 - **Order and edges**: umbrella §1.2–§1.3 (this PR is (1); e1 into the focus-fixup PR).
 - **L3 P1 `#11-element-lifecycle-hooks`** (file overlap, no order): the same files — `content/event_handlers.rs`
@@ -683,7 +683,9 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
   [spec] ground — the outcome follows from the K-first predicate the user chose; the M1 / M9 rows and the W6
   erratum re-worded; §1 (b)'s "settled by measurement" tagged [history] with an erratum pointing to D-3. Re-derivation
   rev 3.3: the M1 / M9 rows, §1 (b)'s erratum and the W6 erratum cite D-3 by its §0.4, without restating its ground;
-  the M1 / M9 rows give K-first's comparison; the merge of #652 tagged E1's correction line `[contrast]`.)
+  the M1 / M9 rows give K-first's comparison; the merge of #652 tagged E1's correction line `[contrast]`.
+  Re-derivation rev 3.4: the D-1 and W6 errata and §8's W6 line name the parts of PM 305, PM 307 and PM 393 that
+  its LR-6 withdraws, not the whole records.)
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.
