@@ -21,7 +21,7 @@ of §4.8, approved by the user) and the PM's A2-scope decision. The scope is not
 decisions.
 **Slices (PM 893, overturning PM 874's "single PR")**: two PRs, one memo each since PM 908, **P1a first**.
 - **P1a — git hooks**: `pre-push`, `pre-commit`, the shim, the installer (`install-githooks`, `--check`), the
-  ratchet's `--rev` mode, their tests, and the one-line `--check` standing item in the PM skill (D33). Cut-over §7.1,
+  ratchet's `--rev` mode, their tests, and the one-row `--check` standing item in the PM skill (D33, §4.9). Cut-over §7.1,
   which also applies the global bypass-guard patch this memo carries (§4.8; the PM applies it, it is not in the PR).
 - **P1b — merge wrapper**: `merge-pr` and its tests. Cut-over P1b memo §7.2.
 - **The seam**: this memo's own II × III intersection is empty — `merge-pr` pushes nothing, so no pre-push
@@ -57,7 +57,7 @@ Files (all (NEW) unless marked):
 | P1a | `.claude/tools/ecs_mission_ratchet.py` (MODIFIED) | `--rev <sha>`: materialise `<sha>`'s tree in a temp dir and run **`<sha>`'s own ratchet module** on it; the running copy only orchestrates (§4.5) |
 | P1a | `.claude/tools/test_ecs_mission_ratchet.py` (MODIFIED) | control + mutant for `--rev` (695 lines today; the addition keeps it under 1000) |
 | P1a | `mise.toml` `[tasks.install-githooks]` (MODIFIED) | runs `origin/main`'s `install.sh` with `bash -c` after a read that must succeed (§4.7); not part of `[tasks.ci]` |
-| P1a | `.claude/skills/pm/SKILL.md` (MODIFIED) | one line in §4: `mise run install-githooks -- --check` in every PM pass from shim install on (D33) — in P1a, not P3, so the standing item is in the PM procedure before anything is installed |
+| P1a | `.claude/skills/pm/SKILL.md` (MODIFIED) | one row in the §2 PM-pass table, the text of §4.9: `mise run install-githooks -- --check` in every PM pass from shim install on (D33) — in P1a, not P3, so the standing item is in the PM procedure before anything is installed |
 
 P1b's files (`merge-pr`, `test_merge_pr.py`): P1b memo §1.
 
@@ -813,6 +813,18 @@ mutants above → each killed. E2E, from a Claude session whose cwd is an elidex
 `git rev-parse --git-path hooks` unchanged afterwards; `git config --get core.hooksPath` → runs. If the hook files
 are dotfiles-managed, the edit goes through the dotfiles session.
 
+### §4.9 The PM-skill row [P1a]
+
+P1a's diff adds one row to the PM-pass table of `.claude/skills/pm/SKILL.md` §2 ("PM pass (毎回この順、出力は表)"),
+after its last row: the standing item of D33 (PM 908: it is in P1a's diff, not P3's). It goes in §2, not in §4
+("Merge 検証"), because §4 runs once per merge and the item runs in every pass. Before A1 the row has a value, not a
+`skipped:` (the skill's skip limit would otherwise escalate it every pass until A1). The row, with `<n>` = the next
+row number:
+
+```md
+| <n> | **githooks の到達** (常設、D33) | A1 (shim の install) 以降: `cd /Users/kazuaki/repos/send.sh/elidex && mise run install-githooks -- --check`。exit 0 → 値 `githooks: installed in every worktree`。exit 1 → 出力が名指す worktree を表に写し、その worktree の lane に理由 (hooks path の迂回か shim の書き換え、`docs/plans/2026-11-agent-neutral-git-guards-p1a.md` §4.1 の `installed(wt)`) を聞く。worktree を名指さない失敗は `githooks: ERROR` (0 と読まない)。A1 より前は値 `githooks: not installed yet (A1 前)` |
+```
+
 ## §5 Decisions and their ground
 
 Rung = which level decided it (CLAUDE.md order: spec → design principle → measurement; here "spec" means the git /
@@ -838,9 +850,9 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D27 | both | two slices, P1a first; the seam is the empty II × III | PM 893 (A1) |
 | D28 | P1a | the ratchet reads the pushed tree (`--rev`), once per distinct pushed sha; every verdict input is `<sha>`'s (its whole module on its materialised tree), the running copy only orchestrates; a ratchet deleted on the branch rejects | PM 893 (C6); round 2 A2-1 (driver decision: one source for every verdict input); fail-safe direction (A3 MIN) |
 | D29 | P1a | `ELIDEX_FMT_OK` must equal the staged tree | PM 893 (E22): an opt-out covers one commit |
-| D33 | P1a | `--check` is a standing PM-pass item, through the PM's own invocation; its line in `.claude/skills/pm/SKILL.md` lands in P1a | PM 893 (C9): hand-run git stays possible after P2; round 2 A5 MIN (in the PM procedure before P3) |
+| D33 | P1a | `--check` is a standing PM-pass item, through the PM's own invocation; its row in `.claude/skills/pm/SKILL.md` §2 (§4.9) lands in P1a's diff | PM 893 (C9): hand-run git stays possible after P2; round 2 A5 MIN (in the PM procedure before P3); PM 908 (in P1a's diff) |
 | D38 | P1a | the §4.8 bypass-guard patch: the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
-| D39 | P1a | P1a break-glass: the PM, in a terminal, `--no-verify`, recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action) |
+| D39 | P1a | P1a break-glass: `--no-verify`, run by the user (own terminal, or `! <command>` in the PM session) from the commands and record line the PM prepares; recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
 | D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it imports the bypass guard's derivation and `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots) |
 
@@ -905,11 +917,16 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 
 | step | action | state after it | safe because |
 |---|---|---|---|
-| A0 | P1a merges | scripts on `origin/main`, nothing installed | nothing runs them; Claude hooks unchanged |
-| A1 | E2E E1–E18 in a scratch clone (§7.5), then user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0; then E19 in the shared repository | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow; every branch is judged by `origin/main`'s rules (I2), so no list of unguarded branches is needed |
-| A2 | prerequisites for A4, global, PM / user: apply the §4.8 patch to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants, then E24; the PM runs `mise run install-githooks -- --check` in every PM pass from here on (standing, D33; the line is in the PM skill since P1a) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
+| A0 | P1a merges | scripts on `origin/main`, nothing installed; the §4.9 PM-pass row is in the PM skill and reads `not installed yet` | nothing runs them; Claude hooks unchanged |
+| A1 | E2E E1–E18 in a scratch clone (§7.5), then user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0; then E19 in the shared repository; from here on the §4.9 row runs `--check` in every PM pass | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow; every branch is judged by `origin/main`'s rules (I2), so no list of unguarded branches is needed |
+| A2 | prerequisites for A4, global, PM / user: apply the §4.8 patch to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants, then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for direct commands by Claude agents, detected by `--check` for everyone |
 | A3 | one good push and one good commit in a real lane worktree | same | real use, both layers deciding |
 | A4 | after A2; user approval of PLAN §6 item 3 (its text: 「git hook 移行後に Claude hook (`set:24,30`) を撤去するか (global)」), then **`:24` and `:30` only**: an elidex-scoped pass-through (below) instead of removal — narrower than that text (PM 893 (2)) | in an installed elidex worktree only the git hooks decide push-branch and fmt; everywhere else unchanged | V2 / V5 / V6 |
+
+**For the user, at A2** (PM 908). After A2, as before it, the bypass guard denies `--no-verify` to every Claude
+session, the PM's included. So when a broken hook on `origin/main` blocks its own fix (the push / commit
+break-glass, §7.4), you run the bypass — in your own terminal, or as `! <command>` in the PM session — from the exact
+commands and record line the PM gives you; no agent can run it.
 
 **The pass-through (A4).** `git-push-branch-guard.sh` (`:24`) and `cargo-fmt-precommit.sh` (`:30`) gain one early
 exit, taken only when **every git segment** of the command passes both tests below; one segment that fails either
@@ -948,15 +965,19 @@ them to the user:
 
 ### §7.4 Break-glass
 
-Both kinds are the PM's hand action with a record; neither is an override flag, and neither is run by an agent.
+Neither kind is an override flag, and neither is run by a lane driver; each is a hand action with a record. Who
+acts is stated per kind: the push / commit kind below, the merge kind in the P1b memo §7.4.
 
 **Merge (P1b, D32).** P1b memo §7.4.
 
 **Push / commit (P1a, D39).** A broken pre-push, pre-commit or ratchet on `origin/main` rejects the push (or the
-commit) of its own fix branch, and `--no-verify` is denied to agents (`git-hook-bypass-guard.py`). Then the PM, by
-hand in a terminal (not through an agent), commits with `git commit --no-verify` if pre-commit is the broken part,
-pushes the fix branch with `git push --no-verify origin <branch>`, and records it in PORTFOLIO with a decision
-number and the reason. The fix PR then goes through the normal gate (review, CI, and `merge-pr` once P1b is live)
+commit) of its own fix branch, and `--no-verify` is denied to every Claude session (`git-hook-bypass-guard.py`, the
+file §4.8 patches, already denies it). **The actor is the user** (PM 908): the PM is a Claude session, so the guard
+denies it `--no-verify` too, and it cannot run the bypass. The user runs it in their own terminal, or as
+`! <command>` in the PM session. The PM prepares the exact commands — in the fix branch's worktree,
+`git commit --no-verify` if pre-commit is the broken part, then `git push --no-verify origin <branch>` — and the
+record line (PORTFOLIO, with a decision number and the reason), and gives both to the user. The fix PR then
+goes through the normal gate (review, CI, and `merge-pr` once P1b is live)
 — only the hook run is skipped, nothing after it. The same applies to a PR that really removes or renames the
 ratchet (F, "the branch deleted the ratchet").
 
@@ -1040,6 +1061,9 @@ No question is open. Each former question was decided by the driver (lens conver
   from `<sha>` (§4.5, D28); A2-2 `installed(wt)` by bytes, no earlier version, and the Codex sandbox caveat (§4.1,
   I4, D12); A2-3 the pass-through per git segment (§7.1, D41); the go token path kept, PLAN §6 decision 6 being its
   ground (D42).
+- **PM 908** (after plan-review round 2): the plan is split into this memo (P1a, and everything both slices share)
+  and the P1b memo (§0 Pair); the PM-skill row is in P1a's diff (§4.9, D33, §7.1 A0–A2); the P1a break-glass actor
+  is the user, with the commands and record line prepared by the PM (§7.4, D39, the A2 note in §7.1).
 
 ## §9 Layering and what is not touched
 
