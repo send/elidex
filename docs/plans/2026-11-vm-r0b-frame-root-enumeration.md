@@ -3,18 +3,18 @@
 ## §0. Frame
 
 **Umbrella**: the native-construct protocol (R) umbrella, `docs/plans/2026-11-vm-native-construct-contract.md`
-(**not ratified, not on main**; Rev 1.6, read at `414dd70d` on branch `vm-native-construct-plan`; its own code anchors
-are at its base `4b723d4b`). This memo is the per-PR plan of its §4.1 **R-0b** bullet (`:347-351`), which asks for "a
-short plan memo and `/elidex-plan-review`" (`:376-383`) because an omitted field in a root enumeration is a
-use-after-free. Lane: VM P4.
+(ratified; on main since #643 `b46a030c`, 11-18; Rev 1.7 at `f9acca16`; its own code anchors are at its base
+`4b723d4b`). This memo is the per-PR plan of its §4.1 **R-0b** bullet ("R-0b: one GC frame-root enumeration"), which,
+in §4.1's plan-review paragraph, asks for "a short plan memo and `/elidex-plan-review`" because an omitted field in a
+root enumeration is a use-after-free. Lane: VM P4. (Rev 1–2.2 read the umbrella at Rev 1.6, `414dd70d` on branch
+`vm-native-construct-plan`.)
 
-**Dates** (umbrella §9.1 step 3, `:864-869`, PM 688; §4.1 `:382-383`, PM 784 (3)): target **11-24**, hard edge
+**Dates** (umbrella §9.1 step 3, PM 688; §4.1's plan-review paragraph, PM 784 (3)): target **11-24**, hard edge
 **12-04**; a date that would pass 11-26 is reported to the PM. **Ratification condition** (§9.1 step 3): R-0b is
-implemented against the reviewed umbrella. This memo rests on §4.1's R-0b paragraph alone, so it is written before the
-umbrella's ratification and its review completes after it: 11-24 holds while the umbrella is ratified by 11-23 (one
-day for the review), and each day later moves R-0b a day, still ahead of R-JS's implementation (§9.1 step 6, 11-28 at
-the earliest), which changes `CallFrame`'s field set. If this memo's review ends before the ratification, R-0b's
-implementation still waits for it.
+implemented against the reviewed umbrella. Met: the umbrella was ratified and landed at #643 (11-18), so this memo's
+review is the remaining gate before R-0b's implementation, which stays ahead of R-JS's (§9.1 step 6, 11-28 at the
+earliest), which changes `CallFrame`'s field set. (Until Rev 2.2 this paragraph made 11-24 conditional on a
+ratification by 11-23.)
 
 **Base**: `origin/main` at **`f9acca16`** (Rev 2.2; Rev 1–2.1 were written at `84fee8fa`). Every `file:line` below is at
 `f9acca16` unless it names another sha. A cite marked `84fee8fa` states a fact of that tree which a later PR changed; it is
@@ -29,18 +29,20 @@ absolute.
 - Both enumerate `this_value`, `upvalue_ids`, `local_upvalue_ids`, `actual_args`, `new_instance`, `mode`,
   `home_class`, `pending_completion`; only `generator` differs (live `roots.rs:300-302`, suspended none). Measured in §2.
 - `CallFrame` is **stored** in exactly two places: `VmInner::frames` (`vm/mod.rs`, read by `GcRoots`'s `frames`,
-  `vm/gc/roots.rs`) and `SuspendedFrame`'s `frame` (`vm/coroutine_types.rs`). Command, at `84fee8fa`:
-  `git grep -n -w CallFrame 84fee8fa -- crates/script/elidex-js/src` (every other hit is an import, a struct literal or
-  `CallFrame::tdz_init`). So the two blocks are the whole population of the frame's **storage residencies**, and
-  R-0b's one function serves both.
-- That population is not every place a frame's handles sit across a collection. A frame being created for a
-  generator or async call is built in a Rust local after its locals are drained off the stack, and is handed to
-  `alloc_object`, which may collect before insertion (`VmInner::alloc_object`, `vm/inner.rs`). At `84fee8fa`:
-  `call_internal`'s async and generator branches (`vm/interpreter_call.rs:366-396`, `:401-449`), `push_js_call_frame`'s
-  (`:603-643`, `:649-702`), and `make_async_coroutine_and_drive` (`vm/natives_generator.rs:546-555`). In that window the frame's handles are in
-  neither residency. That is a live use-after-free on main, not introduced by R-0b and not changed by it:
-  **`#11-vm-coroutine-creation-frame-rooting`** (PM 806, owner VM P4, its own PR before R-JS). R-0b covers the
-  storage residencies only; frames in flight during creation are that slot's. Ordering: §0.3.
+  `vm/gc/roots.rs`) and `SuspendedFrame`'s `frame` (`vm/coroutine_types.rs`). Command, at `f9acca16` (same result at
+  `84fee8fa`): `git grep -n -w CallFrame f9acca16 -- crates/script/elidex-js/src` (every other hit is a doc mention, an
+  import, a struct literal, `CallFrame::tdz_init`, or `create_coroutine`'s by-value parameter, next bullet). So the two
+  blocks are the whole population of the frame's **storage residencies**, and R-0b's one function serves both.
+- A frame being created for a generator or async call is in neither residency until it is installed, and needs no
+  third one. Since #650 (`7af70b68`, `#11-vm-coroutine-creation-frame-rooting`) every generator and async call ends in
+  `VmInner::create_coroutine` (`vm/natives_generator.rs`; callers `call_internal` and `push_js_call_frame`,
+  `vm/interpreter_call.rs`), which takes the frame **by value** and (1) allocates the `Generator` shell
+  (`suspended: None`) while the frame's locals, and on the `push_js_call_frame` entry its callee and receiver, are still
+  on the VM stack (on the `call_internal` entry `call_dispatch` roots them); (2) roots `actual_args` and the async
+  wrapper across that allocation with `push_stack_scope`; (3) drains the locals, sets `frame.generator` and stores the
+  `SuspendedFrame`, with no allocation in between. The frame in flight is only that parameter; its handles are rooted on
+  the stack, never by a frame enumeration. So R-0b's population stays the two storage residencies, with nothing to
+  fold and no ordering against the slot (§0.3). (At Rev 2.1, `84fee8fa`, this window was an open use-after-free.)
 - `vm/gc/trace.rs` is 1265 lines at `f9acca16` (1256 at `84fee8fa`); `trace_work_list`'s `match &obj.kind` spans
   `:246-1233` (a flat case table).
 
@@ -53,18 +55,15 @@ absolute.
   one line of `roots.rs` above the block): `:277-315`, `:334-373`, `home_class` at `roots.rs:297` and `trace.rs:358`.
 - The brief's "only `generator` differs" is correct as text; whether the difference is a defect is §2 F-1 (it is not).
 - Rev 1 of this memo said "two enumeration sites are the whole population" (§0.1; §3 and §8 read the same way). They
-  are the whole population of storage residencies only; frames in flight during creation are outside both (§0.1, second bullet).
+  are the whole population of storage residencies only; a frame in flight during creation is outside both and rooted on
+  the stack (§0.1, fourth bullet).
 
-### §0.3 Ordering against `#11-vm-coroutine-creation-frame-rooting`
+### §0.3 `#11-vm-coroutine-creation-frame-rooting` (closed by #650)
 
-The slot's fix PR and R-0b share no function: the fix touches `vm/interpreter_call.rs` (`call_internal`,
-`push_js_call_frame`) and `vm/natives_generator.rs` (`make_async_coroutine_and_drive`); R-0b touches `vm/gc/mod.rs`,
-`roots.rs`, `trace.rs` and `tests.rs`. **Either order**; the later one rebases with no shared hunk. Both land before
-R-JS, which edits `call_internal` and `push_js_call_frame` too (umbrella §4.2 `:462-464`). One coupling, conditional on
-the fix's design: if the fix roots the frame in flight by giving it a GC-visible residency (rather than by keeping its
-handles rooted on the stack until the allocation returns), that residency is a third storage site. Landing after R-0b,
-it calls `mark_frame`; landing before, it adds a third copy of the enumeration, and R-0b's implementation re-runs
-§0.1's command and §2's census over it and folds it too. The fix's plan states which.
+Resolved on the stack-rooting branch: #650 (`7af70b68`, 11-21) keeps the frame-in-flight's handles rooted on the VM
+stack and in `create_coroutine`'s stack scope until the install (§0.1, fourth bullet), and adds no GC-visible residency.
+So there is no third storage site, nothing for R-0b to fold and no ordering question; R-0b's base `f9acca16` contains
+#650. (Was open at Rev 2.1 (`84fee8fa`), with a coupling conditional on the fix's design; closed by #650.)
 
 ### §0.4 Revisions
 
@@ -74,6 +73,7 @@ it calls `mark_frame`; landing before, it adds a third copy of the enumeration, 
 | 2 | Plan-review R1 at `06a16913` (CRIT 0 / IMP 3 / MIN 12 / FP 1). **K1** population restated as storage residencies; the creation window cited to its slot (§0.1, §0.2, §0.3, §3, §8). **K2** `FrameKind` matched and `HandlerEntry` destructured exhaustively inside `mark_frame` (§4). **K3** design-invariants I-7 added to the coupled sites (§5.2). MIN: D-2's rule applied to `upvalue_slots` (§1.2, §4); why D-3 does not narrow the type (§1.3); the pre-refactor run recorded, the owner-`generator` cell a smoke check (§6); lasting homes for the umbrella and P0a-1 anchor shifts and the other line-shift sites (§5.3-§5.5); §3 restated over §9.9.1 / §9.9.2; umbrella branch, dates and ratification condition (§0); the §4.3 docstring obligation and the acceptance grep's test exclusion (§8). | PM 806 |
 | 2.1 | Plan-review R2 Axis 2 re-check (IMP 1, MIN 4). **IMP-1** a field bound as `field: _` could be retyped to a handle type and still compile: every untraced field of `CallFrame` and `HandlerEntry` is now bound to a name and its type pinned at the binding site; the residual narrowed to what a pinned type means to the GC and new handle-carrying variants of shared primitives (§4); a mechanical pin listing and a local retype control added (§8). MIN: the narrowing slot's draft name and its ID cited once registered (§1.3); the pre-existing VM-P4 family anchor drift homed by a proposed slot (§5.5); `:81` and `:768` added to the abort-signal memo's moved cites (§5.5); the suspended `upvalue_slots` cell's observable named (§6). | PM 811 |
 | 2.2 | Cites re-anchored to `f9acca16` (drift findings reported to the driver). Code cites whose line only locates a symbol now name the symbol; ranges that are the claim (the two blocks, §2's census, §8's control) are re-measured at `f9acca16`; the §2 census re-run gives the same 17 rows. Cites of facts that #650 (`7af70b68`) or #644 (`4d7b41dd`) changed are marked `84fee8fa` and kept as written (§0.1's creation-window sites and `CallFrame` command, §1.2's four store sites, §5.5's L3 branch and abort-signal memo lines). | — |
+| 2.3 | Stale tree statements folded (#650 / #643 / #644 landed), no plan decision changed. #650: the coroutine-creation window is closed on the stack-rooting branch, no third residency (§0.1, §0.2, §0.3, §1 Out, §3, §8); `SuspendedFrame` store sites 4 → 2, D-2 and the `upvalue_slots` subset re-checked at both (§1.2). #643: the umbrella is ratified and on main at Rev 1.7, its cites re-pointed by § (§0, §5.4, §8), and R-JS plan's cite of this memo re-pointed when this memo lands (§5.4). #644: L3's branch landed, the rebase coupling removed, the abort memo's cite lines re-measured at `f9acca16` (§5.5). | — |
 
 ## §1. Scope
 
@@ -82,8 +82,8 @@ the `Generator` arm of `trace_work_list` call it. New neutrality cells (§6). Th
 
 **Out**: no field of `CallFrame` added, removed or retyped; no change to what is rooted (§1.2 and §1.3 show the three
 forms below are no-ops at run time). `stack_slice` and `upvalue_slots` stay in the `Generator` arm (they are
-`SuspendedFrame`'s, not the frame's). Frames in flight during creation are `#11-vm-coroutine-creation-frame-rooting`'s
-(§0.1, §0.3). `ObjectKind::Function`'s `captured_this` (its arm of `trace_work_list`, `vm/gc/trace.rs`) is R-JS's, not a frame field. P0a-1's
+`SuspendedFrame`'s, not the frame's). A frame in flight during creation is not stored: it is `create_coroutine`'s
+by-value parameter, rooted on the VM stack by #650 (§0.1, §0.3). `ObjectKind::Function`'s `captured_this` (its arm of `trace_work_list`, `vm/gc/trace.rs`) is R-JS's, not a frame field. P0a-1's
 reaction-target arms are not touched (§5.3). `vm/gc/collect.rs` (2064 lines at `f9acca16`) is not touched.
 
 ### §1.1 D-1: location — `vm/gc/mod.rs`, beside the mark primitives
@@ -107,12 +107,13 @@ Size: `vm/gc/mod.rs` 122 → ~195 (§7).
 
 `mark_frame` marks `generator` like every other handle. For a suspended frame that call is a no-op:
 
-1. `susp.frame.generator` is `None` or the generator that owns `susp`. At `84fee8fa`, the four store sites of a
-   `SuspendedFrame` (`git grep -n -P 'suspended = Some\(|suspended: Some\(' 84fee8fa -- crates/script/elidex-js/src`, 4 hits):
-   `vm/interpreter_call.rs:435` and `:686` and `vm/natives_generator.rs:555` create the generator and then back-link
-   `susp.frame.generator = Some(gen_id)` to that same object (`interpreter_call.rs:446`, `:698`,
-   `natives_generator.rs:565`); `vm/natives_generator.rs:78` (yield) stores the frame into the generator read from that
-   frame's own `generator` (`:45-49`, `:72-78`).
+1. `susp.frame.generator` is `None` or the generator that owns `susp`. At `f9acca16` a `SuspendedFrame` has two store
+   sites (`git grep -n -P 'suspended = Some\(|suspended: Some\(' f9acca16 -- crates/script/elidex-js/src`, 2 hits;
+   positive control: the same command at `84fee8fa` gives the 4 sites of Rev 2.1, which #650 merged into
+   `create_coroutine`): `vm/natives_generator.rs:173` (`create_coroutine`) allocates the generator shell at `:148`, sets
+   `frame.generator = Some(gen_id)` to that same object at `:169` and stores the frame into it at `:173`;
+   `vm/natives_generator.rs:78` (`op_yield_suspend`) stores the frame into the generator read from that frame's own
+   `generator` (`:45-49`, `:72-78`; `frame_idx` is the top frame, `vm/dispatch.rs:42`, the one `frames.pop()` takes).
 2. The arm runs on an object popped from the work list, and an object is pushed only after its mark bit is set
    (`mark_object`, `vm/gc/mod.rs`). So `mark_object(owner)` finds the bit set and returns.
 
@@ -128,7 +129,7 @@ arm marks each of its ids with `mark_upvalue`, beside `stack_slice` (both are `S
 so they stay in the arm, not in `mark_frame`). That call is a no-op for the same two-step reason: (1) every id in
 `upvalue_slots` is also in `susp.frame.local_upvalue_ids` (it is pushed only while iterating that list,
 in `op_yield_suspend`, `vm/natives_generator.rs`, and the list is preserved verbatim across resume, `resume_generator`'s
-reopen-loop comment), which `mark_frame` marks; (2) `mark_upvalue` returns at once on a set bit (its bit test,
+reopen-loop comment; the other store site, `create_coroutine`, stores it empty), which `mark_frame` marks; (2) `mark_upvalue` returns at once on a set bit (its bit test,
 `vm/gc/mod.rs`), and either order marks the same
 closed value. Binding it as `upvalue_slots: _` would rest its soundness on that comment, the form D-2 rejects for
 `generator`; marking it keeps one rule for every handle and falls on "rooted" if the subset invariant ever breaks.
@@ -230,7 +231,7 @@ mark is swept into the free list (`sweep_objects`, `vm/gc/sweep.rs`) and its `Ob
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| ECMA-262 §9.9.2 Liveness (with §9.9.1 Objectives) | Note 6: reachability as the conservative approximation of liveness; R-0b keeps every handle a stored frame holds reachable | a frame field as the only reference, in either storage residency (live frame, suspended frame); frames in flight during creation are `#11-vm-coroutine-creation-frame-rooting`'s (§0.1) | `mark_frame` (NEW, `vm/gc/mod.rs`); callers `mark_roots` (`vm/gc/roots.rs:277-315`), `trace_work_list` `Generator` arm (`vm/gc/trace.rs:330-374`) | ✓ (exhaustive `CallFrame` pattern, §4) | yes (script decides what each field holds) |
+| ECMA-262 §9.9.2 Liveness (with §9.9.1 Objectives) | Note 6: reachability as the conservative approximation of liveness; R-0b keeps every handle a stored frame holds reachable | a frame field as the only reference, in either storage residency (live frame, suspended frame); a frame in flight during creation is rooted on the VM stack by `create_coroutine` (#650, §0.1), not here | `mark_frame` (NEW, `vm/gc/mod.rs`); callers `mark_roots` (`vm/gc/roots.rs:277-315`), `trace_work_list` `Generator` arm (`vm/gc/trace.rs:330-374`) | ✓ (exhaustive `CallFrame` pattern, §4) | yes (script decides what each field holds) |
 
 **Breadth**: K=1, M=1.
 
@@ -350,28 +351,35 @@ anchors for P0a-1's implementer. If P0a-1 lands first, the anchors are history a
 ### §5.4 R-JS and the umbrella (umbrella §4.2)
 
 R-JS changes the frame's field set (`new_instance`). After R-0b it edits one function, and §4's pattern fails to
-compile until it does. The umbrella's cells that name the two blocks or two sites are written at its base `4b723d4b`
-and stay true of that tree; after R-0b they describe a tree that no longer exists. At `414dd70d`: §2.1 A3×A9 (`:213`)
-and A5×A9 (`:224`, "two copies of one enumeration; R-JS edits both"); §4.1's R-0b bullet (`:347-351`); §4.2's first
-edge to umbrella 3 (`:465-466`, `roots.rs:297` / `trace.rs:357`); §7's `vm/gc/trace.rs` row (`:787`, the
-suspended-frame `new_instance` at `:350`); §8.1's `mark_roots` / `trace_work_list` row (`:814`). **Obligation**: the
-umbrella's first revision after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame`
-(one site), whether or not the umbrella has been ratified by then. R-0b's PR body and its landing report to the PM
-name this obligation; this section is its durable statement.
+compile until it does. The umbrella (on main, ratified, Rev 1.7 at `f9acca16`, §0) writes its cells that name the two
+blocks or two sites at its base `4b723d4b`; they stay true of that tree, and after R-0b they describe a tree that no
+longer exists. In the main file: §2.1 A3×A9 (the `vm/gc/trace.rs` prereq split) and A5×A9 ("two copies of one
+enumeration; R-JS edits both"); §4.1's R-0b bullet; §4.2's first edge to umbrella 3 ("Two edges to umbrella 3", item
+(1), `roots.rs:297` / `trace.rs:357`); §7's `vm/gc/trace.rs` row (the suspended-frame `new_instance` at `:350`); §8.1's
+`mark_roots` / `trace_work_list` row; §9.1 step 3 ("both copies change"). **Obligation**: the umbrella's first revision
+after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). The R-JS plan
+on main records the same item with its trigger and due date (`docs/plans/2026-11-vm-native-construct-r-js.md` §9,
+"Umbrella items left for a later revision"). R-0b's PR body and its landing report to the PM name this obligation;
+this section is its durable statement.
+
+**The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) reads
+this memo as an in-flight claim, "branch `vm-r0b-frame-roots` @ `c2e3dd5f`, Rev 2.1, not on main", with its landing
+order: this plan lands before R-JS-1 starts, or the cite is re-pointed to its main path when it lands (PM 899 / PM 904:
+no repo cite to a local path). The PR that lands this memo on main re-points that cite to
+`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md`.
 
 ### §5.5 Other line-shift sites (not R-0b's to edit)
 
 Removing the two blocks shifts every later line of `vm/gc/roots.rs` (after `:277`) and `vm/gc/trace.rs` (after
 `:334`).
 
-- **L3's branch `abort-signal-any-flatten-pr-a`** (at `84fee8fa`: local, unpushed; tip `49cb3657`, 10 commits over `origin/main`)
-  edits `roots.rs` at `:258` (before the frame block) and `:602`, `:610` (after it), and `trace.rs` at `:388` (after it).
-  No hunk overlaps a frame block; whichever lands second rebases by offset only. Reported to the PM for L3.
-- **`docs/plans/2026-11-abort-signal-any-flattening.md`** (L3, on main) cites, at `84fee8fa`, lines after the blocks: `trace.rs:385-398`
-  (`:83`, `:107`, `:732`), `trace.rs:387` (`:314`, `:510`), `trace.rs:540` (`:183`), `roots.rs:600-618` (`:81`, `:727`,
-  `:768`) and, at `:768`, the `roots.rs` line count 619 (already 621 at `84fee8fa`; R-0b changes it again, §7).
-  R-0b moves them; they are L3's memo and L3's implementation (the branch above) re-measures them. Its `roots.rs:257-261`,
-  `roots.rs:100-101` and `trace.rs:32-35` precede the blocks and do not move. R-0b's PR body lists the moved ones.
+- **`docs/plans/2026-11-abort-signal-any-flattening.md`** (L3, on main; its PR-A landed as #644 `4d7b41dd`, so no L3
+  branch is in flight over these files) cites, at `f9acca16`, lines after the blocks: `trace.rs:385-398` (`:89`,
+  `:781`, `:818`, `:966`), `trace.rs:387` (`:320`, `:529`), `trace.rs:540` (`:189`), note (k) `roots.rs:600-618`
+  (`:87`, `:776`, `:817`) and the line counts `roots.rs` 619 (`:817`; 618 at `f9acca16`) and `trace.rs` 1255 (`:818`,
+  `:966`; 1265 at `f9acca16`), both changed again by R-0b (§7). R-0b moves them; they are L3's memo, and R-0b does not
+  edit it. Its `roots.rs:257-261` (`:86`, `:776`, `:817`), `roots.rs:100-101` and `trace.rs:32-35` (`:113`) precede the
+  blocks and do not move. R-0b's PR body lists the moved ones, with their new lines measured at the PR's head.
 - **VM-P4 family memos whose frame-block cites are already stale at `84fee8fa`** (R-0b did not make them stale):
   `docs/plans/2026-07-vm-p4-slot-ledger.md:286` (`roots.rs:294-295`, `trace.rs:353-355`), `2026-07-vm-p4-slice-plan.md:943`
   and `2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:470` (`trace.rs:345-370`). They are pre-existing and
@@ -440,7 +448,8 @@ Before push: `cargo fmt --all`; `cargo test -p elidex-js --all-features`; `mise 
 ## §8. Acceptance
 
 - `mark_frame` is the only code that reads a stored `CallFrame`'s handles for the GC (both storage residencies, §0.1;
-  frames in flight during creation are `#11-vm-coroutine-creation-frame-rooting`'s, not this criterion's).
+  a frame in flight during creation is `create_coroutine`'s by-value parameter, rooted on the VM stack by #650, and is
+  outside this criterion).
   `git grep -n -P 'frame\.(this_value|home_class|new_instance)' -- crates/script/elidex-js/src/vm/gc ':!crates/script/elidex-js/src/vm/gc/tests.rs'`
   returns no hit (`mark_frame` reads the handles through §4's bindings). `vm/gc/tests.rs` is excluded because §6's
   cells build and clear frames there (`frame.this_value = …` in a negative control is a test write, not a GC read).
@@ -476,7 +485,7 @@ Before push: `cargo fmt --all`; `cargo test -p elidex-js --all-features`; `mise 
   (b) A **local control, not committed**: retype one pinned field (`CallFrame`'s `cleanup_base` to `ObjectId`), run
   `cargo check -p elidex-js --all-features`, and show the build fails at its pin in `mark_frame`; record the error line
   (`error[E0308]: mismatched types` with its `vm/gc/mod.rs:<line>`) in the PR body, then revert.
-- **Docstring** (umbrella §4.3 `:501-503`: every NEW function of the program carries a docstring naming the AO or
+- **Docstring** (umbrella §4.3, the docstring bullet: every NEW function of the program carries a docstring naming the AO or
   algorithm it implements). `mark_frame` implements no AO; its docstring names the clause it answers to, ECMA-262
   §9.9.2 Liveness, and states that marking every handle field is the reachability approximation Note 6 allows (§3),
   over a frame in either storage residency.
