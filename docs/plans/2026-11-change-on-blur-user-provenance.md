@@ -91,7 +91,8 @@ Every `file:line` below is read at `origin/main` **`d7d34035`** (#582), this bra
   - The baseline is not the spec's reference value, the value "when the control was first focused" (its §4.1; defect
     DF-1, its §6.1). What this memo's cells pin until the code PR lands: its §6.3.
   - The grounds this record cites for PM 305 (the §6 measurement) and for PM 393 ("the focus-time `initial` was dead
-    state") do not hold (its §6.3). The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names.
+    state") do not hold (its §6.3). The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names;
+    its LR-6 also names for withdrawal PM 307's "initial = before", the first-mark overwrite this record describes.
 - **D-2 One user-edit funnel, at the value change** (E3). `elidex_form::apply_user_edit` (NEW), in
   `crates/dom/elidex-form/src/user_edit.rs` (NEW), runs a user edit closure on the control's `FormControlState`, compares the value
   before and after, and if it changed (a) marks the snapshot (if one exists) and (b) returns `changed = true`. The shell
@@ -685,7 +686,8 @@ Rev 1's M1 is answered by the umbrella (§1); M2 and M3 are decided by PM decisi
   rev 3.3: the M1 / M9 rows, §1 (b)'s erratum and the W6 erratum cite D-3 by its §0.4, without restating its ground;
   the M1 / M9 rows give K-first's comparison; the merge of #652 tagged E1's correction line `[contrast]`.
   Re-derivation rev 3.4: the D-1 and W6 errata and §8's W6 line name the parts of PM 305, PM 307 and PM 393 that
-  its LR-6 withdraws, not the whole records.)
+  its LR-6 withdraws, not the whole records. Re-derivation rev 3.5: the D-1 erratum also names PM 307's "initial =
+  before", which its LR-6 names for withdrawal.)
 - *Rev 3.2* (2026-11-05): PM 393. Snapshot representation `Option<String>` (D-1, D-7 (4)); sites naming the old fields
   point to D-1 (I3, §4.1, §4.3, C7, MG1, MG6, DoD 3 grep); §6 N6 identical-replace probe (§4.4); §8 pointers to
   `#11-text-edit-primitives-report-change` and four pre-existing defect slots.

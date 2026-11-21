@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.4, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.5, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -29,8 +29,8 @@ comes from the spec, then from elidex's own principles where the spec is silent;
   control whose `type` changes to Number, Range or a date / time kind loses its mark; (iii) a user-edited text control
   whose `type` makes a round trip through a kind whose snapshot the reconciler clears, back to a text kind while
   focused, loses its mark, though at focus loss step 2.1 applies again. Defect **DF-2** (§6). **[spec] under R-2
-  (§0.5)**. One cell of (iii), the round trip through Color (DC-19), is in §4.1's mixed class, because the Color
-  sanitization changes the value; its expected value rests on D-3 (§6.2).
+  (§0.5)**. Where the sanitization of the kind passed through changes the value, (iii) is in §4.1's mixed class
+  and its expected value rests on D-3 (cell DC-19, through Color; §6.2).
 - Both fixes are a separate code PR (PM 842).
 - Implicit submission: the current order (`submit`, then `change` at a later focus loss) **conforms** (§5).
 
@@ -107,7 +107,8 @@ because plan (1) has a D-3 of its own).
   write and a user value change both happened while the control was focused, the value differs from the first-focus value, and the readings of
   §4.1 split (class (b), M1, M6 and S*), `change` fires iff the user changed the value, `V ≠ F0`, and `V` differs
   from the value just before the first user value change (K-first, §4.1). The outcomes of class (b), M1, M6 and S*
-  follow from that predicate, and so does that of DF-2 (iii)'s round trip through Color (DC-19, §6.2); step 2.1's
+  follow from that predicate, and so does that of DF-2 (iii) where the sanitization of the kind passed through
+  changes the value (DC-19, §6.2); step 2.1's
   text alone does not determine them (§4.1). §4.10.5.5 (Q5: "These events are
   not fired in response to changes made to the values of form controls by scripts.") stays a lean: K-first applies
   it only to the value before the first user edit, not to later script writes (the uneven application §4.1 noted).
@@ -123,10 +124,10 @@ because plan (1) has a D-3 of its own).
 - **D-6 The #597 measurements stay in plan (1) as `[history]`** and are a ground for nothing. Three PM decisions cite
   them or follow from them, each in part: PM 305's choice of H on the measurement, PM 307 (b) (W6 as an accepted
   divergence, no slot) and PM 393 D1 (the `Option<String>` representation) with D2's probe step. PM 307 also
-  approved "initial = before", the overwrite of the first-focus value by the value before the first user edit, which
-  DF-1 (a) contradicts. The grounds those parts cite do not hold (§6.3); the rest of each record stays in force
-  (LR-6). They are the PM's decisions: the PM withdraws those parts at
-  landing and settles the final range then (LR-6). This memo withdraws nothing.
+  approved "initial = before", the overwrite of the first-focus value by the value before the first user edit:
+  that part is withdrawn because it contradicts Q1 under every reading (DF-1 (a)). The grounds the other parts cite
+  do not hold (§6.3); the rest of each record stays in force (LR-6). They are the PM's decisions: the PM withdraws
+  those parts at landing and settles the final range then (LR-6). This memo withdraws nothing.
 
 ### §0.5 Readings this memo takes
 
@@ -190,6 +191,9 @@ None new. The memo touches two existing ones and leaves both intact.
 | WHATWG HTML §4.10.22.2 Implicit submission | default button → `click`; no submit button → the blocking-field count, then submit | names no `change`, no focus change | re-derived, E-15, §5 | ✓ | yes |
 | WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule | spec silent on `change`; decided by principle | re-derived, E-13 | ✓ | yes |
 | WHATWG HTML §4.10.7 The select element | *send select update notifications* | `input` then `change`, own commit | boundary only, E-14; `#11-select-keyboard-change-event` | ✗ | yes |
+| WHATWG HTML §4.10.5.1.12 Number state (type=number) | value sanitization algorithm | a value that is not a valid floating-point number becomes the empty string | boundary only; DF-2 (iii)'s Number example (§6.2, no cell) | ✗ | no |
+| WHATWG HTML §4.10.5.1.13 Range state (type=range) | value sanitization algorithm; default value, default minimum / maximum, default step | a value that is not a valid floating-point number becomes the best representation of the default value | boundary only; DF-2 (iii)'s Range example (§6.2, no cell) | ✗ | no |
+| WHATWG HTML §2.3.4.3 Floating-point numbers | best representation of a number | ToString(n) | boundary only; DF-2 (iii)'s Range example | ✗ | no |
 | WHATWG HTML §4.10.5.1.14 Color state (type=color) | value sanitization algorithm (*update a color well control color*) | a value that does not parse as a CSS color becomes opaque black | boundary only; DF-2 (iii) passes through it (DC-19) | ✗ | no |
 | WHATWG HTML §4.10.5.1.15 Checkbox state (type=checkbox) | input activation behavior | `input` then `change`, own commit | boundary only, E-14; DF-2 (iii) passes through it (DC-18) | ✗ | yes |
 | WHATWG HTML §4.10.5.1.16 Radio Button state (type=radio) | input activation behavior | `input` then `change`, own commit | boundary only, E-14 | ✗ | yes |
@@ -198,25 +202,29 @@ None new. The memo touches two existing ones and leaves both intact.
 | WHATWG HTML §2.1.4 DOM trees | removing steps, step 2 and its note | removal of the focused area fires no `blur`, no `change` | re-derived, E-9 | ✓ | no |
 | WHATWG HTML §4.10.18.1 A form control's value | user validity; dirty value flag | not H (E-16); the dirty flag has its own predicate (plan (1) D-5) | pointer only | ✗ | no |
 | UIEVENTS §3.3.2 Focus Event Order | rows 3–4 | `focusout` follows `blur` | re-derived, E-10 | ✓ | yes |
-| WHATWG HTML §4.10.5 The input element | activation behavior of `input` elements; *update an input element's type* steps 1–2 | every `input` has activation behavior (R-2); the value written by a `type` change (R-3; DF-2 (iii): value mode → default/on → value mode keeps the value) | readings only (§0.5); DF-2 | ✗ | yes |
+| WHATWG HTML §4.10.5 The input element | activation behavior of `input` elements; *update an input element's type* steps 1–3 and 6 | every `input` has activation behavior (R-2); the value written by a `type` change (R-3; DF-2 (iii): value mode → default/on → value mode keeps the value; value mode → value mode runs the new kind's sanitization) | readings only (§0.5); DF-2, DC-18, DC-19, DF-2 (iii) through File Upload | ✗ | yes |
 | WHATWG HTML §6.6.6 Focus management APIs | `activeElement` getter steps | reads the focused area's DOM anchor | observation only, O-2 | ✗ | no |
 | WHATWG HTML §8.1.7.2 Queuing tasks | queue an element task | → queue a global task | observation only, O-3 | ✗ | yes |
 | WHATWG HTML §8.1.7.3 Processing model | event loop step 2.1 | the task queue is chosen in an implementation-defined manner | observation only, O-3 | ✗ | yes |
 | CSS COLOR 4 §16.2.1 HTML-compatible serialization of sRGB values | 6-digit hex serialization | opaque black serializes as `"#000000"` | boundary only; DC-19 | ✗ | no |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 6.6.4 html 4.10.5.5 html 4.10.22.2 html 4.10.11 html 4.10.7
-html 4.10.5.1.14 html 4.10.5.1.15 html 4.10.5.1.16 html 4.10.5.1.20 html 4.10.23 html 2.1.4 html 4.10.18.1 uievents 3.3.2 html 4.10.5 html 6.6.6 html 8.1.7.2 html 8.1.7.3 css-color-4 16.2.1` (run 2026-11-20; the
+html 4.10.5.1.12 html 4.10.5.1.13 html 2.3.4.3 html 4.10.5.1.14 html 4.10.5.1.15 html 4.10.5.1.16 html 4.10.5.1.20 html 4.10.23 html 2.1.4 html 4.10.18.1 uievents 3.3.2 html 4.10.5 html 6.6.6 html 8.1.7.2 html 8.1.7.3 css-color-4 16.2.1` (run 2026-11-20; the
 rows §4.10.5.1.16, §4.10.5.1.20 and §4.10.23 added and the command re-run 2026-11-21; the rows §4.10.5.1.14 and
-CSS COLOR 4 §16.2.1 added and the command re-run 2026-11-21, rev 3.4; anchors `#focus-processing-model`,
+CSS COLOR 4 §16.2.1 added and the command re-run 2026-11-21, rev 3.4; the rows §4.10.5.1.12, §4.10.5.1.13 and
+§2.3.4.3 added and the command re-run 2026-11-21, rev 3.5; anchors `#focus-processing-model`,
 `#common-input-element-events`, `#implicit-submission`, `#the-textarea-element`, `#the-select-element`,
+`#number-state-(type=number)`, `#range-state-(type=range)`, `#floating-point-numbers`,
 `#color-state-(type=color)`, `#checkbox-state-(type=checkbox)`, `#radio-button-state-(type=radio)`, `#reset-button-state-(type=reset)`,
 `#resetting-a-form`, `#dom-trees`, `#a-form-control's-value`, `#events-focusevent-event-order`,
 `#the-input-element`, `#focus-management-apis`, `#queuing-tasks`, `#event-loop-processing-model`,
 `#HTML-compatible-serialization-of-srgb`).
-Breadth: K = 3 (css-color-4, html, uievents), M = 21 rows over 18 sections (verified 2026-11-21: `coverage-map`
-prints "spec=3 (css-color-4, html, uievents)" and "ok → single PR scope"). The preflight counts rows and prints
+Breadth: K = 3 (css-color-4, html, uievents), M = 24 rows over 21 sections (verified 2026-11-21, rev 3.5:
+`coverage-map` prints "spec=3 (css-color-4, html, uievents), step=21 entries" and "K≥4 or M≥20 → 分割推奨"; at rev
+3.4, with 18 sections, it printed "ok → single PR scope"). The preflight counts rows and prints
 "SPLIT-RECOMMENDED (K>=4 or M>=20)". Not taken: the memo is one docs PR that adds no mechanism (§1 Shape); the
-two rows added in rev 3.4 are boundary-only citations for one cell (DC-19). Also looked up: `webref dfn html 'unload a document'` →
+two rows added in rev 3.4 are boundary-only citations for one cell (DC-19), and the three added in rev 3.5 are
+boundary-only citations for two examples of DF-2 (iii) that add no cell. Also looked up: `webref dfn html 'unload a document'` →
 §7.5.9 Unloading documents; `webref body html unloading-documents | /usr/bin/grep -c -i 'focus\|blur\|change event'`
 → 0 (control: `-c -i 'unload'` on the same output → 25). The preflight does not know the label `UIEVENTS` that
 `coverage-map` prints, so it skips that row; its number and title were checked by hand
@@ -247,6 +255,7 @@ Each quote is copied from the output of the named command.
 | Q15 | `the-input-element` (*update an input element's type*) | "1. If oldState put the value IDL attribute in the value mode, element's value is not the empty string, and newState puts the value IDL attribute in either the default mode or the default/on mode, then set element's value content attribute to element's value. 2. Otherwise, if oldState put the value IDL attribute in any mode other than the value mode, and newState puts the value IDL attribute in the value mode, then set the value of element to the value of its value content attribute, if there is one, or the empty string otherwise, and then set element's dirty value flag to false. 3. Otherwise, if oldState put the value IDL attribute in any mode other than the filename mode, and newState puts the value IDL attribute in the filename mode, then set the value of element to the empty string. … 6. Invoke the value sanitization algorithm for element, if one is defined for newState." |
 | Q16 | `color-state-(type=color)`; `update-a-color-well-control-color` | "The value IDL attribute is in mode value." "The value sanitization algorithm is as follows: Run update a color well control color for the element." Its steps: "2. Let value be the result of running these steps: 1. If element's dirty value flag is false, then return the result of getting an attribute by namespace and local name given null, "value", and element. 2. Return element's value. 3. Let color be the result of parsing value. 4. If color is failure, then set color to opaque black. 5. Set element's value to the result of serializing a color well control color given element and color." Serializing: with no `alpha` attribute and the Limited sRGB `colorspace` (the missing value default), "set htmlCompatible to true" |
 | Q17 | `the-input-element`; `.claude/tools/webref body css-color-4 color-serialization-html-compatible-serialization-is-requested`; `body css-color-4 opaque-black` | "An input element's dirty value flag must be set to true whenever the user interacts with the control in a way that changes the value." CSS COLOR 4 §16.2.1: "A seven-character string consisting of the character "#", followed immediately by the two-digit hexadecimal representations of the red component, the green component, and the blue component, in that order, using ASCII lower hex digits."; "opaque black is defined as the color rgb(0 0 0 / 100%)" |
+| Q18 | `range-state-(type=range)`; `number-state-(type=number)`; `floating-point-numbers` | Range: "The value sanitization algorithm is as follows: If the value of the element is not a valid floating-point number, then set it to the best representation, as a floating-point number, of the default value."; "The default value is the minimum plus half the difference between the minimum and the maximum, unless the maximum is less than the minimum, in which case the default value is the minimum."; "The default minimum is 0." "The default maximum is 100."; "The default step is 1 (allowing only integers, unless the min attribute has a non-integer value)." Number: "The value sanitization algorithm is as follows: If the value of the element is not a valid floating-point number, then set it to the empty string instead." §2.3.4.3: "best representation of the number n as a floating-point number is the string obtained from running ToString(n)." Both states: "The value IDL attribute is in mode value." |
 
 ### §3.2 User-input touch audit
 
@@ -572,6 +581,23 @@ at the seed and at each `type` change (P4, P14, P16). Three sequences where the 
     its `value` content attribute). Step 3 empties the value and step 2 on the way back sets it to the content
     attribute, so otherwise `V` = `F0` and no reading fires; when it was dirty, the step-2 write changes the value
     and the sequence is in the mixed class, as DC-19.
+  - *Through a value mode non-text kind* (Number, Range, the date / time kinds). Text → that kind and back are value
+    mode to value mode: steps 1–3 do not apply, and step 6 runs the new kind's sanitization at each flip (Q15; for
+    Number and Range, Q18). Where neither sanitization changes the value (e.g. the user's `1` through Number), no
+    non-user write changes the value: the expected value is [spec] under R-2, as for DC-18. Where a sanitization
+    changes it, the sequence is in §4.1's mixed class and the expected value is K-first's, decided by D-3, as for
+    DC-19. DC-19 is the class's cell; the two examples below add none.
+    - *Range*: `<input id=b>` (no `min`, `max` or `step` attribute); the user types `a`; `b.type = "range"`: `"a"` is
+      not a valid floating-point number, so the value becomes the best representation of the default value, the
+      minimum plus half the difference between the minimum and the maximum, 0 + (100 − 0) / 2 = 50 (default minimum
+      0, default maximum 100; 50 is an integer, which the default step 1 allows), ToString(50) = `"50"` (Q18); `b.type =
+      "text"`: the Text sanitization leaves `"50"`. `V` = `"50"` ≠ `F0` = `""`. L and K-first (the value just before
+      the first user edit, `""`) fire; K-last (the value the last value-changing non-user write left, `"50"`) fires
+      none.
+    - *Number*: `<input id=b value=q>`; the user types `a` (the value is `q` with `a` inserted at the caret);
+      `b.type = "number"`: that value is not a valid floating-point number, so the value becomes `""`; `b.type =
+      "text"`: `""`. `V` = `""` ≠ `F0` = `"q"`. L and K-first (`"q"`) fire; K-last (`""`) fires none. The `value`
+      attribute is what puts the sequence in the class: without it `V` = `F0` = `""`, and no reading fires.
 
 *Reachability of (i).* Reachable: every step above is on a shipped path (UA focus of a checkbox:
 `crates/shell/elidex-shell/src/content/form_input.rs:62`; the `type` setter reaches the reconciler's `type` arm;
@@ -616,7 +642,7 @@ The two landed memos point here; they do not restate these.
 - **The `<textarea>` ground** is §4.2 (One issue, one way).
 - **The grounds three PM records cite.** The records are the PM's; the PM withdraws the parts that rest on these
   grounds, and the rest of each record stays in force (LR-6). What this memo establishes is only that the cited
-  ground does not hold:
+  ground does not hold, and, for PM 307's "initial = before", that the part contradicts Q1:
   - *PM 305* (its choice of H) cites the #597 measurement. A measurement is not a ground for a core requirement
     (ground order), and H's outcome in class (a) contradicts Q1 under every reading (§4.1).
   - *PM 307* (W6 as an accepted divergence) cites "the spec defines no baseline", and makes agreement of another
@@ -625,8 +651,8 @@ The two landed memos point here; they do not restate these.
     ground. PM 307 also approved the designer's deviation "re-baseline once at the first mark, initial = before".
     Its first half (record, at the first mark, the value just before the first user edit; fail-safe; no script-side
     calls) is K-first's mark under D-3. Its second half, "initial = before", overwrites the first-focus value
-    (plan (1) D-1: "the first mark always overwrote it"), and class (a) needs that value at focus loss under every
-    reading (DF-1 (a)).
+    (plan (1) D-1: "the first mark always overwrote it"); it is withdrawn because it contradicts Q1 under every
+    reading (DF-1 (a)): class (a) needs the first-focus value at focus loss.
   - *PM 393* D1 (`FocusValueSnapshot(Option<String>)`) cites "the focus-time `initial` was dead state". Class (a)
     needs the first-focus value at focus loss under every reading, so it is not dead state. D2's probe step ("a
     Chromium probe first" [history]) is not needed: §4.10.5.5 names an identical-text replace as a non-change (PE-5).
@@ -726,8 +752,9 @@ means that grep only.
     "(iii) an edited text control whose `type` makes a round trip through a kind whose snapshot the reconciler clears
     (every non-text kind) and back to a text kind while focused loses its mark at the first switch and is not
     re-marked at the second, though at focus loss step 2.1 applies again"; replace "(cells DC-14..DC-16)" with "(cells
-    DC-14 to DC-16, DC-18, DC-19)". The facet's ground is [spec] under reading R-2 (memo §0.5); DC-19's comparison
-    (the round trip through Color, whose sanitization changes the value) also rests on D-3.
+    DC-14 to DC-16, DC-18, DC-19)". The facet's ground is [spec] under reading R-2 (memo §0.5); where the
+    sanitization of the kind passed through changes the value, the comparison also rests on D-3 (cell DC-19, through
+    Color; memo §6.2).
   - *Fix*: after "/elidex-plan-review mandatory", add: "That slice's plan-review decides whether DF-1 and DF-2 are
     separate per-PR slices." Then replace "known requirements: one component holds the first-focus value and the
     user-change mark (re-decides PM 393), the seed before `focus` / `focusin` listeners, the VM `focus()` seed
@@ -788,7 +815,8 @@ means that grep only.
 - **LR-5 → `#11-focus-change-user-validity`, `#11-vm-host-synthetic-dom-event-dispatch`,
   `#11-number-input-user-edit-path` (ledger `:1062`), `#11-select-keyboard-change-event` (ledger `:1063`)**: no
   change; this memo cites them as the owners of E-16, E-8, O-4 and E-14.
-- **LR-6 → the PM: withdraw the parts of PM 305, PM 307 and PM 393 whose ground does not hold** (the PM issues the
+- **LR-6 → the PM: withdraw the parts of PM 305, PM 307 and PM 393 whose ground does not hold, and PM 307's "initial =
+  before", which contradicts Q1** (the PM issues the
   withdrawal records; PM 847). The records are in `PORTFOLIO-archive-2026-W45.md` (`:80`, `:84`, `:213`). The PM
   settles the final range at landing. Proposed (§6.3):
   - *PM 305*: withdraw the part that chose H on the measurement ("all predictions hold → (i) single branch"): its
@@ -798,15 +826,15 @@ means that grep only.
   - *PM 307*: withdraw (b) (W6 recorded as an accepted divergence, no slot, reopen if another engine matches): its
     ground "the spec defines no baseline" is false (step 2.1 names the value at first focus), and its reopen
     condition is an engine's behaviour. C24's outcome holds on D-3 (DC-9). Withdraw also "initial = before" in the
-    approved deviation (the overwrite of the first-focus value by the value before the first user edit): its
-    ground does not hold, since class (a) needs the first-focus value at focus loss (DF-1 (a)); re-decided in the
-    slice (LR-2, known requirement 1). Stays in force: the rest of the approved deviation, recording at the first
+    approved deviation (the overwrite of the first-focus value by the value before the first user edit): it
+    contradicts Q1 under every reading, since class (a) needs the first-focus value at focus loss (DF-1 (a));
+    re-decided in the slice (LR-2, known requirement 1). Stays in force: the rest of the approved deviation, recording at the first
     mark the value just before the first user edit (fail-safe, no script-side calls), which is K-first's mark under
     D-3.
   - *PM 393*: withdraw D1 (`FocusValueSnapshot` → `Option<String>`, "dead state"): its ground is false once class
     (a) is decided by the spec; the first-focus value is read at focus loss. The shape is re-decided in the slice
     (LR-2, known requirement 1). Withdraw also D2's probe step ("a Chromium probe first" [history]): §4.10.5.5 decides that
-    case (PE-5), so the spec, not a probe, grounds it; plan (1)'s N6 ("not run; PM 393, to run later", `:445`) falls
+    case (PE-5), so the spec, not a probe, grounds it; plan (1)'s N6 ("not run; PM 393, to run later", `:446`) falls
     with it (§8). Stays in force: D2's outcome (identical-text replace is not a value change), D3 + D4
     (`#11-text-edit-primitives-report-change`) and the slots it registered.
 - **LR-7 → the PM: decide D-3** (§4.1) — **answered by PM 866** (2026-11-20) and PM 870 (2026-11-21): K-first;
@@ -830,12 +858,12 @@ factual correction and points to this memo's section for the substance (§6.3); 
 | umbrella | §7; changelog line | erratum pointer; the cell list replaced by a pointer to §6.3; DF-1 (b) decided by D-3 (not by §4.10.5.5: rev 3.2), not a defect; rev 3.2, rev 3.3 and rev 3.4 sentences in the changelog's erratum line; rev 3.3: D-3 cited as "D-3 there, §0.4"; rev 3.4: "the user chose" removed (`:262`) |
 | plan (1) | opening table rows M1, M4, M9 | `[history]` tags; M4 → DF-1 (a) [spec]; M1 (mixed class) and M9 (class (b)) → decided by D-3, not [spec] (§4.1). Rev 3.3: each row cites "the re-derivation's D-3 (its §0.4)" and gives K-first's comparison (`V` against the value just before the first user edit), not "the difference is the script's" |
 | plan (1) | E1 | textarea ground (§4.2). The merge of #652 (`d61a7b4e`) tagged the correction line `[contrast]` (`:58`, "the ground is not browser behaviour [contrast]"): #652's classifier denies the untagged line, and the sentence states that the ground is *not* browser behaviour, a contrast |
-| plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3; "The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names" (`:94`; rev 3.4, was "withdraws PM 305 and PM 393") |
+| plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3; "The PM withdraws, at landing, the parts of PM 305 and PM 393 that its LR-6 names" (`:94`; rev 3.4, was "withdraws PM 305 and PM 393"); rev 3.5: "its LR-6 also names for withdrawal PM 307's "initial = before", the first-mark overwrite this record describes" (`:95`) |
 | plan (1) | §3 textarea row; §4.3 opening and table header; §4.4 | grounds corrected (PE-4, PE-5, §4.2); §4.3's erratum no longer says the spec decides the mixed case |
-| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold; the §6 erratum: "The PM withdraws, at landing, the parts of PM 307 that its LR-6 names ((b), and "initial = before")" (`:499`), and §8's first bullet: "the PM withdraws PM 307 (b) at landing, the re-derivation's LR-6" (`:583`) (rev 3.4, both were "withdraws PM 307"); C24's outcome decided by D-3, not by §4.10.5.5 (DC-9; rev 3.2); rev 3.3: D-3 cited without restating its ground |
+| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading, N6 and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags; dated pointers; W6: the cited ground does not hold; the §6 erratum: "The PM withdraws, at landing, the parts of PM 307 that its LR-6 names ((b), and "initial = before")" (`:500`), and §8's first bullet: "the PM withdraws PM 307 (b) at landing, the re-derivation's LR-6" (`:584`) (rev 3.4, both were "withdraws PM 307"); C24's outcome decided by D-3, not by §4.10.5.5 (DC-9; rev 3.2); rev 3.3: D-3 cited without restating its ground |
 | plan (1) | §1 (b) (`:140`, "settled by measurement") | `[history]` tag; erratum pointing to §4.1 / D-3 (rev 3.2); rev 3.3: D-3 cited as "its §0.4" |
-| plan (1) | §6 N6 (`:445`, "not run; PM 393, to run later") | **no edit**; the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
-| plan (1) | changelog | erratum line (rev 3.2, rev 3.3 and rev 3.4 sentences added; the line's earlier "PM 305, PM 307 and PM 393 are withdrawn by the PM at landing" is a dated changelog entry and stays) |
+| plan (1) | §6 N6 (`:446`, "not run; PM 393, to run later") | **no edit**; the line stays as landed. Recorded here: the instruction to run it falls with PM 393 D2's probe step, which LR-6 proposes the PM withdraw (PE-5: §4.10.5.5 decides the case) |
+| plan (1) | changelog | erratum line (rev 3.2, rev 3.3, rev 3.4 and rev 3.5 sentences added; the line's earlier "PM 305, PM 307 and PM 393 are withdrawn by the PM at landing" is a dated changelog entry and stays) |
 
 The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit above them is in place.
 
@@ -843,7 +871,7 @@ The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit abov
 
 1. `python3 .claude/skills/elidex-plan-review/preflight.py <memo>` exits 0 for this memo, the umbrella and plan (1).
 2. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (495 allowlisted, 0 new, 0 stale)` (run 2026-11-21 on this
-   revision, rev 3.4), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
+   revision, rev 3.5), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
    `#11-change-on-blur-baseline-first-focus-value`
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation\|change-on-blur-baseline-first-focus-value' .claude/tools/ecs-mission-allowlist.tsv`
    → 0; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
@@ -857,6 +885,22 @@ The umbrella's line numbers `:44`, `:81` and `:163` do not move: every edit abov
 
 ## Changelog
 
+- *Rev 3.5* (2026-11-21): Step 4.5 second re-check of rev 3.4 (0 CRIT / 0 IMP / 4 MIN).
+  - DF-2 (iii) gains a fourth case, the round trip through a value mode non-text kind (Number, Range, the date /
+    time kinds): where no sanitization changes the value the expected value is [spec] (as DC-18); where one does,
+    the mixed class, D-3 (as DC-19). Two examples, no new cell: Range (`"a"` → `"50"`, `F0` = `""`) and Number
+    (`<input value=q>`, `"qa"` / `"aq"` → `""`, `F0` = `"q"`); quote Q18 and the §3 rows §4.10.5.1.12,
+    §4.10.5.1.13 and §2.3.4.3 (K = 3, 24 rows over 21 sections; `coverage-map` now prints the split
+    recommendation, not taken, §3). The summary, D-3 and LR-2's Facet DF-2 state the D-3 part by its property ("where
+    the sanitization of the kind passed through changes the value"), not as "through Color".
+  - §3's §4.10.5 row: *update an input element's type* steps 1–3 and 6 (was 1–2); its touch column names DC-18,
+    DC-19 and the File Upload case.
+  - PM 307's "initial = before": withdrawn because it contradicts Q1 under every reading (DF-1 (a)), not because its
+    ground does not hold (D-6, §6.3, LR-6 and its heading). The other parts' wording is unchanged. Plan (1)'s D-1
+    erratum names it (`:95`); its W6 erratum (`:500`) and §8 (`:584`) are unchanged.
+    The added line moves plan (1)'s later lines by one; §8 and LR-6 cite `:446`, `:500` and `:584` (were `:445`,
+    `:499` and `:583`).
+  - No expected value of DC-1 to DC-19 changes.
 - *Rev 3.4* (2026-11-21): Step 4.5 re-check of the rev 3.3 fixes (`d61a7b4e..df7e759e`; 0 CRIT / 3 IMP / 10 MIN).
   - IMP: DC-18 (the round trip through Checkbox) is [spec] under R-2 and does not rest on D-3: the step-2 write puts
     `"a"` over `"a"`, so no non-user write changes the value and K is complete there (§4.1), as for DC-14 and DC-15.
