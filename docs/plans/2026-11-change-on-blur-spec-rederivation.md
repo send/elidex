@@ -471,6 +471,15 @@ value from it (§0.4); their "Today" already equals it.
 The code PR also rewrites the two code comments that name the measurement as the ground
 (`focus_snapshot.rs:4-5`, `:69-71`; the second is the ECS-mission allowlist's class-E row for that file, LR-2).
 
+*What happens to the existing cells.* The behaviour-level shell cells (C20–C26, C4, C17) keep their expected values
+and are cited by C-id; C6's expectation flips (DF-1 (a)). Three existing tests change for other reasons: C7 (l)
+(`c7l_first_mark_rebaselines_once`) asserts the snapshot's internal representation, which LR-2 known requirement 1
+re-decides, so it is rewritten at the judgement level (DC-11 is that assertion); C24's doc comment names PM 307's
+accepted divergence as its ground, which LR-6 withdraws, so the comment is rewritten (expected value unchanged; the
+allowlist's class-E row for it is pruned with it); and the unit test
+`record_clears_stale_snapshot_when_no_longer_text_control` asserts the clear that LR-2 known requirement 5 removes,
+so it is replaced by a cell for the population rule (DF-2).
+
 ### §6.2 DF-2 The snapshot's population follows the kind at each write, not step 2.1's conjuncts at focus loss
 
 *Defect.* Step 2.1 evaluates its conjuncts when focus is lost (Q1: "If entry is an input element, and the change
