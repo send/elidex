@@ -178,6 +178,11 @@ fn collapse_offset_defaults_to_zero() {
     vm.eval(TREE_SETUP).unwrap();
     vm.eval("globalThis.s = window.getSelection(); s.collapse(root);")
         .unwrap();
+    assert_eq!(
+        eval_num(&mut vm, "s.rangeCount"),
+        1.0,
+        "collapse set a range"
+    );
     assert_eq!(eval_num(&mut vm, "s.anchorOffset"), 0.0);
     vm.unbind();
 }
@@ -503,10 +508,11 @@ fn remove_all_ranges_empties() {
     vm.eval(TREE_SETUP).unwrap();
     vm.eval(
         "globalThis.s = window.getSelection();\
-         s.collapse(root, 0);\
-         s.removeAllRanges();",
+         s.collapse(root, 0);",
     )
     .unwrap();
+    assert_eq!(eval_num(&mut vm, "s.rangeCount"), 1.0, "set before removal");
+    vm.eval("s.removeAllRanges();").unwrap();
     assert_eq!(eval_num(&mut vm, "s.rangeCount"), 0.0);
     assert_eq!(eval_str(&mut vm, "s.type"), "None");
     vm.unbind();
@@ -517,8 +523,10 @@ fn empty_is_alias_of_remove_all_ranges() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     vm.eval(TREE_SETUP).unwrap();
-    vm.eval("globalThis.s = window.getSelection(); s.collapse(root, 0); s.empty();")
+    vm.eval("globalThis.s = window.getSelection(); s.collapse(root, 0);")
         .unwrap();
+    assert_eq!(eval_num(&mut vm, "s.rangeCount"), 1.0, "set before empty()");
+    vm.eval("s.empty();").unwrap();
     assert_eq!(eval_num(&mut vm, "s.rangeCount"), 0.0);
     vm.unbind();
 }
@@ -771,6 +779,7 @@ fn selectionchange_coalesces_multiple_mutations() {
          globalThis.s = window.getSelection();",
     )
     .unwrap();
+    assert_eq!(eval_num(&mut vm, "fired"), 0.0, "no event before mutating");
     // Multiple mutations in a single eval → one event per spec
     // §3.4 "queue a task ... if a queued task already exists, abort".
     vm.eval(
@@ -786,4 +795,18 @@ fn selectionchange_coalesces_multiple_mutations() {
         "multiple mutations in one drain coalesce to ONE selectionchange event"
     );
     vm.unbind();
+}
+
+#[test]
+fn add_range_after_unbind_throws_not_panics() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.s = window.getSelection(); globalThis.r = new Range();")
+        .unwrap();
+    vm.unbind();
+    let res = vm.eval("s.addRange(r)");
+    assert!(
+        res.is_err(),
+        "retained Selection.addRange after unbind must throw"
+    );
 }
