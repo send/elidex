@@ -699,8 +699,8 @@ array while the instance is only in Rust locals (`this`, `new_instance`).
 
 #### §4.3.5 The upgrade path's rooting (`#11-vm-do-new-instance-rooting`'s second item)
 Measured by code read at `7af70b68`, re-read at `3cbd5b88`: the definition's constructor is rooted through
-`HostData::ce_constructors` (in `gc_root_object_ids`, `vm/gc/roots.rs:350`); the element wrapper is a `StrongRoot` in
-`wrapper_store` (`mark_roots` (e), `:386`). After R-JS-3 the
+`HostData::ce_constructors`, chained into `HostData::gc_root_object_ids` (`vm/host_data/engine_feature/object_roots.rs`),
+which `mark_roots` (`vm/gc/roots.rs`) walks; the element wrapper is a `StrongRoot` in `wrapper_store` (`mark_roots` (e)). After R-JS-3 the
 entry roots its operands itself (§4.3.2), so the remaining question is the wrapper across the constructor body, which
 step 11.4 compares; C3-17 measures it.
 

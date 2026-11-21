@@ -152,3 +152,10 @@ checked against origin/main `6cbe39e3` (§12 M-11) before it was folded; none wa
 | MIN-4 `create_closure` moves the record out before `alloc_object` may collect | fixed: copy the value into a fresh record, the frame `Inline` until the frame write; the rooting order in four steps | §1.3.3 |
 | MIN-5 "never a script exception" overstated past a native frame | fixed: uncaught by its own run; past a native frame `Op::Call` / `Op::CallMethod` / `Op::New` convert it with `vm_error_to_thrown`; the PM note names `vm_error_to_thrown` | §1.3.3, §9 |
 | MIN-6 §13.2's A3 MIN (uncertain) row says the record half is "born in R-JS-2" | superseded (row kept as the Rev 3.2 record): Rev 3.3 moved wire #5's birth, record half included, to R-JS-1 (§4.1; R-JS-2 adds the `new_instance` half, §4.2) | §13.2, §4.1 |
+
+## §13.4 Post-landing correction (PM 907)
+- §4.3.5's constructor cite named `vm/gc/roots.rs:350` as where `HostData::ce_constructors` is rooted. That line is the
+  `gc_root_object_ids()` call inside `mark_roots`; the `ce_constructors` chain is in `HostData::gc_root_object_ids`
+  (`vm/host_data/engine_feature/object_roots.rs`). §4.3.5 now cites both by file + symbol; the wrapper cite names
+  `mark_roots` (e) without a line. M-8's `:350` / `:386` stay as recorded anchors at `3cbd5b88`. No plan statement
+  changes. Shipped in the standalone slot-ledger PR with landing-list section A.
