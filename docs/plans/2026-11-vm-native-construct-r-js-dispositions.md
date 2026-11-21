@@ -73,7 +73,7 @@ before R-JS-3's derived push, the same clippy ground); **contradictions found 9,
 matcher claim vs `mark_frame`; the converter site; PushThis's "arm already returns ReferenceError"; `mark_frame`'s
 `Inline(Uninitialized)` arm in R-JS-1; `complete_construct`'s step 15; a §4.3.3 → §4.3.1 cross-reference; §5's file
 list; §6.2's start rule; the landing list's drifted PM-ledger line numbers). Intentional, listed there: umbrella §4.6's
-birth list and `:448`, PM ledger `:245` / `:270`, the §13 / §13.1 history rows, `initialize_instance_elements`'s
+birth list and `:448`, PM ledger rows `#11-vm-construct-isconstructor-check`, `#11-vm-native-ctor-receiver-promotion-admission`, the §13 / §13.1 history rows, `initialize_instance_elements`'s
 unread parameters.
 
 | Finding | Disposition | Where |
@@ -86,7 +86,7 @@ unread parameters.
 | A5 MIN-2 history 1.7 (6) | fixed: fact (a)'s sites (§1.2 In, §4.2), §2.2 E-9 (was "§2.1 … E-9"), grounds PM 886 / PM 892 | umbrella `:69` |
 | A5 MIN-3 RS-7 "three phrasings" | fixed: "landing list A1 items 2-8" | RS-7 |
 | A5 MIN-4 §9 Made / Listed | fixed: ledger edits only under "Listed"; `:333` (A5), A1 items 6-8, A6 added | §9 |
-| A5 MIN-5 PM ledger `:248` / `:254` / `:257` | fixed (PM 892): landing list C2, at R-JS-3's landing, old texts `grep -c -F` = 1 each; `:245` / `:270` judged past measurements (not re-pointed) | landing list C2, §9 |
+| A5 MIN-5 PM ledger rows `#11-vm-construct-isconstructor-check` (its "future `[[Construct]]` entries" item), `#11-vm-call-depth-guard`, `#11-vm-native-callback-reentry-single-loop` | fixed (PM 892): landing list C2, at R-JS-3's landing, old texts `grep -c -F` = 1 each; the `#11-vm-construct-isconstructor-check` / `#11-vm-native-ctor-receiver-promotion-admission` mentions judged past measurements (not re-pointed); Rev 3.4.1 (PM 904 (c)): PM-ledger line cites → slot ids | landing list C2, §9 |
 | A5 MIN-6 A1 item 6 cites Rev 1.7 (4) | fixed both ways: (4) now records 2ab's body / R-JS's call points, and item 6 also cites RS-3 | umbrella `:69`, landing list A1.6 |
 | A5 MIN-7 slice-plan "umbrella §4.2 E-10" | fixed: "umbrella §2.2 E-10, §4.2" | slice plan 2ab |
 | A5 MIN (uncertain) 1a's stack-layout evidence | fixed: the form moves to `VmInner::construct`'s `[newTarget, ctor, args…]` (§4.3.2 item 1) | slice plan 1a |
@@ -122,7 +122,7 @@ rows above (kept as the record of Rev 3.1).
   `#11-vm-do-new-instance-rooting` and `#11-vm-generator-instance-prototype-from-function` (`grep -n -F`). Rev 3.2:
   `mise.toml:19` (`cargo clippy --workspace -- -D warnings`); `vm/mod.rs:190` (`pub(crate) struct VmInner`);
   `compiler/function.rs:19` (`pub bytecode`) and the 13 outside touches (§1.3.3's command); `vm/ops.rs:878-879`
-  (`create_closure` reads `this_value`); PM ledger `:248`, `:254`, `:257`, `:289`, `:1740`, `:1752` and repo ledger
+  (`create_closure` reads `this_value`); PM ledger rows `#11-vm-construct-isconstructor-check` (its "future `[[Construct]]` entries" item), `#11-vm-call-depth-guard`, `#11-vm-native-callback-reentry-single-loop`, `#11-step9-class-extras`, `#11-vm-do-new-instance-rooting`, `#11-vm-generator-instance-prototype-from-function` and repo ledger
   `:23` (`grep -n -F` / `grep -c -F` on each landing-list old text → 1).
 - **M-10 Rev 3.2.1 / 3.3.** 3.2.1 (`2dcce2e2`, PM 899): §13's tables moved verbatim to the companion (`b13ea4c6`
   :972-1071), no plan statement changed. 3.3 (re-check at `2dcce2e2`, at `3cbd5b88`): `Cargo.toml:312`, `lib.rs:37`;
