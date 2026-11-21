@@ -8,7 +8,7 @@ import argparse
 import json
 import sys
 
-from .cache import NotFound
+from .cache import FetchError, NotFound
 from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
@@ -255,6 +255,10 @@ def main() -> None:
         # fetches go through `fetch_data`, which exits with its own
         # diagnostic. Convert here to a clean CLI exit instead of a traceback.
         sys.exit(f"webref: fetch failed: {e}")
+    except FetchError as e:
+        # HTTP / network failure from `cache.cached_fetch_url`; the message is
+        # already `webref: ...`.
+        sys.exit(str(e))
     except json.JSONDecodeError as e:
         sys.exit(f"webref: invalid JSON from upstream: {e}")
     except KeyboardInterrupt:

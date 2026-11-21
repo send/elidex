@@ -66,17 +66,15 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
                 depth, rest = _scan_attr_line(line, depth)
                 # Same-line form `[Exposed=Window] interface X {`: once the
                 # list closes, the remainder may itself be the declaration.
-                if rest is not None and _IDL_DECL_RE.match(rest.lstrip()):
-                    if iface_re.search(rest):
-                        out.extend(buf)
-                        out.append(line)
-                        in_block = True
-                    buf = []
-                else:
+                # None while the list is still open.
+                decl_text = rest.lstrip() if rest is not None else None
+                if decl_text is None or not _IDL_DECL_RE.match(decl_text):
                     buf.append(line)
-                continue
-            if _IDL_DECL_RE.match(line):
-                if iface_re.search(line):
+                    continue
+            else:
+                decl_text = line
+            if _IDL_DECL_RE.match(decl_text):
+                if iface_re.search(decl_text):
                     out.extend(buf)
                     out.append(line)
                     in_block = True

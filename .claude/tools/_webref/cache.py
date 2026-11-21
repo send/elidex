@@ -9,14 +9,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 
-class NotFound(Exception):
-    """Raised by cached_fetch_url() on HTTP 404 so callers can attempt a fallback."""
+class FetchError(Exception):
+    """An HTTP / network failure fetching a URL. `str(e)` is the user-facing
+    `webref: ...` message; the CLI edge (`cli.main`) turns it into the exit
+    status, so library code can catch it and try another source."""
+
+
+class NotFound(FetchError):
+    """HTTP 404. `str(e)` is the URL (the CLI edge words it `fetch failed:`)."""
 
 
 def _cache_dir() -> Path | None:
@@ -48,7 +53,7 @@ def cached_fetch_url(url: str) -> bytes:
     is unwritable, transparently falls back to uncached fetch — cache is
     an optimization, not a correctness layer.
 
-    Raises NotFound on 404, exits on other network / HTTP errors.
+    Raises NotFound on 404, FetchError on other network / HTTP errors.
     """
     if os.environ.get("ELIDEX_WEBREF_NO_CACHE"):
         return _raw_fetch(url, headers={})
@@ -126,9 +131,9 @@ def cached_fetch_url(url: str) -> bytes:
             return _raw_fetch(url, headers={})
         if e.code == 404:
             raise NotFound(url) from e
-        sys.exit(f"webref: HTTP {e.code} fetching {url}")
+        raise FetchError(f"webref: HTTP {e.code} fetching {url}") from e
     except urllib.error.URLError as e:
-        sys.exit(f"webref: network error fetching {url}: {e.reason}")
+        raise FetchError(f"webref: network error fetching {url}: {e.reason}") from e
 
 
 def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:
@@ -139,6 +144,6 @@ def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:
     except urllib.error.HTTPError as e:
         if e.code == 404:
             raise NotFound(url) from e
-        sys.exit(f"webref: HTTP {e.code} fetching {url}")
+        raise FetchError(f"webref: HTTP {e.code} fetching {url}") from e
     except urllib.error.URLError as e:
-        sys.exit(f"webref: network error fetching {url}: {e.reason}")
+        raise FetchError(f"webref: network error fetching {url}: {e.reason}") from e

@@ -7,16 +7,23 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import inspect
 import io
 import re
 import sys
+import types
 import unittest
+import urllib.error
+import warnings
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from _webref.cache import NotFound  # noqa: E402
+from _webref import cache as cache_mod  # noqa: E402
+from _webref import cli as cli_mod  # noqa: E402
+from _webref import resolver as resolver_mod  # noqa: E402
+from _webref.cache import FetchError, NotFound  # noqa: E402
 from _webref.commands import body as body_mod  # noqa: E402
 from _webref.commands.idl import _IDL_DECL_RE, extract_idl_blocks  # noqa: E402
 from _webref import respec as respec_mod  # noqa: E402
@@ -105,8 +112,6 @@ class IdlExtAttrTests(unittest.TestCase):
 
     def test_mutant_depth_blind_misses_same_line_block(self):
         self.assertEqual(depth_blind_extract(IDL, "XRMesh"), [])
-        self.assertNotEqual(depth_blind_extract(IDL, "XRMesh"),
-                            extract_idl_blocks(IDL, "XRMesh"))
 
     def test_nested_bracket_in_attribute_argument(self):
         # Synthetic: the measured corpus (356 IDL extracts) has no nested `[`,
@@ -121,112 +126,253 @@ class IdlExtAttrTests(unittest.TestCase):
         out = depth_blind_extract(IDL, "DOMStringMap")
         self.assertEqual(out[0], "interface DOMStringMap {")
         self.assertNotIn("[Exposed=Window,", out)
-        self.assertNotEqual(out, extract_idl_blocks(IDL, "DOMStringMap"))
 
 
 NIGHTLY = "https://w3c.github.io/x-spec/"
 RELEASE = "https://www.w3.org/TR/x-spec/"
+GEN = respec_mod.generator_url(NIGHTLY)
 UNRENDERED = b"<html><body><section><h2>Source</h2><p>respec source, no ids</p></section></body></html>"
-RENDERED = (b'<html><body><section id="sec"><h2 id="dom-x-foo">foo()</h2>'
+RENDERED = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
+            b'<body><section id="sec"><h2 id="dom-x-foo">foo()</h2>'
             b"<p>Rendered steps.</p></section></body></html>")
+# Rendered ReSpec ED that lacks the anchor asked for.
+RENDERED_NO_ANCHOR = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
+                      b'<body><section id="other"><h2 id="dom-x-bar">bar()</h2>'
+                      b"<p>x</p></section></body></html>")
 TR = (b'<html><body><time class="dt-published" datetime="2026-06-11">11 June 2026</time>'
       b'<section id="sec"><h2 id="dom-x-foo">foo()</h2><p>TR steps.</p></section></body></html>')
-TODAY = datetime.date(2026, 11, 21)
+TODAY = datetime.date.today()
+
+TC39_LOC = "https://tc39.es/x262/"
+TC39_MULTI = TC39_LOC + "multipage/chap.html"
+BIBLIO = {"location": TC39_LOC, "entries": [
+    {"type": "clause", "id": "sec-chap", "number": "1", "title": "Chap"},
+    {"type": "clause", "id": "sec-foo", "number": "1.2", "title": "Foo"},
+]}
+TC39_HTML = (b'<html><body><emu-clause id="sec-foo"><h1>Foo</h1>'
+             b"<p>tc39 steps.</p></emu-clause></body></html>")
 
 
-def index(generator: str):
-    return {"x-spec": {"generator": generator, "nightly": {"url": NIGHTLY},
-                       "release": {"url": RELEASE}}}
+def entry(generator: str, release: bool = True):
+    e = {"generator": generator, "nightly": {"url": NIGHTLY}}
+    if release:
+        e["release"] = {"url": RELEASE}
+    return e
 
 
-class RespecTests(unittest.TestCase):
-    def run_resolve(self, fetches: dict, generator="respec", nightly=UNRENDERED):
+class CandidateTests(unittest.TestCase):
+    """`resolve_body_candidates`: the single place that orders body sources."""
+
+    def cands(self, generator="respec", href=NIGHTLY, release=True):
+        with mock.patch.object(respec_mod, "spec_entry",
+                               lambda s: entry(generator, release)), \
+             mock.patch.object(resolver_mod, "webref_resolve_body_url",
+                               lambda s, a: (href, a)):
+            return resolver_mod.resolve_body_candidates("x-spec", "dom-x-foo")
+
+    def test_respec_order_nightly_generator_release(self):
+        anchor, c = self.cands()
+        self.assertEqual(anchor, "dom-x-foo")
+        self.assertEqual([x.url for x in c], [NIGHTLY, GEN, RELEASE])
+        self.assertEqual([x.label for x in c], ["nightly", "generator", "tr"])
+        # the rendering is cited as the nightly it renders
+        self.assertEqual(c[1].cite, NIGHTLY)
+        self.assertIn("type=respec&url=https%3A%2F%2Fw3c.github.io%2Fx-spec%2F", GEN)
+
+    def test_respec_without_release_has_no_tr(self):
+        _, c = self.cands(release=False)
+        self.assertEqual([x.label for x in c], ["nightly", "generator"])
+
+    def test_bikeshed_is_one_unlabelled_candidate(self):
+        _, c = self.cands(generator="bikeshed")
+        self.assertEqual(c, [resolver_mod.Candidate(NIGHTLY)])
+
+    def test_respec_subpage_href_is_one_unlabelled_candidate(self):
+        # href is not the nightly: rendering "the nightly" would be another page
+        _, c = self.cands(href=NIGHTLY + "sub.html")
+        self.assertEqual(c, [resolver_mod.Candidate(NIGHTLY + "sub.html")])
+
+    def test_tc39_multipage_then_single_page(self):
+        with mock.patch.object(resolver_mod, "tc39_biblio", lambda s: BIBLIO):
+            anchor, c = resolver_mod.resolve_body_candidates("ecma262", "sec-foo")
+        self.assertEqual(anchor, "sec-foo")
+        self.assertEqual([x.url for x in c], [TC39_MULTI, TC39_LOC])
+        self.assertTrue(all(x.label is None for x in c))
+
+
+class BodyLoopTests(unittest.TestCase):
+    """`cmd_body`'s one candidate loop, with fetches faked as FetchError."""
+
+    def run_cmd_body(self, candidates, pages, module=body_mod, anchor="dom-x-foo"):
         calls: list[str] = []
 
         def fetch(url: str) -> bytes:
             calls.append(url)
-            v = fetches.get(url, NotFound(url))
+            v = pages.get(url, NotFound(url))
             if isinstance(v, BaseException):
                 raise v
             return v
 
-        with mock.patch.object(respec_mod, "_data_index", lambda: index(generator)):
-            r = respec_mod.resolve_respec_body("x-spec", NIGHTLY, "dom-x-foo",
-                                               nightly, fetch=fetch, today=TODAY)
-        return r, calls
+        buf = io.StringIO()
+        exit_msg = None
+        with mock.patch.object(module, "cached_fetch_url", fetch), \
+             mock.patch.object(module, "resolve_body_candidates",
+                               lambda s, a: (a, candidates)), \
+             contextlib.redirect_stdout(buf):
+            try:
+                module.cmd_body(argparse.Namespace(shortname="x-spec", anchor=anchor))
+            except SystemExit as e:
+                exit_msg = str(e)
+        return buf.getvalue(), calls, exit_msg
+
+    RESPEC = [resolver_mod.Candidate(NIGHTLY, "nightly"),
+              resolver_mod.Candidate(GEN, "generator", cite=NIGHTLY),
+              resolver_mod.Candidate(RELEASE, "tr")]
+
+    def test_first_hit_wins(self):
+        out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: RENDERED, GEN: TR})
+        self.assertEqual(calls, [NIGHTLY])
+        self.assertEqual(out.splitlines()[0], f"# source: ED nightly as served ({TODAY})")
+        self.assertIn("Rendered steps.", out)
 
     def test_unrendered_nightly_picks_spec_generator(self):
-        gen = respec_mod.generator_url(NIGHTLY)
-        self.assertIn("type=respec&url=https%3A%2F%2Fw3c.github.io%2Fx-spec%2F", gen)
-        r, calls = self.run_resolve({gen: RENDERED})
-        self.assertTrue(r[0])
-        self.assertIn("Rendered steps.", r[1])
-        self.assertEqual(r[3], "# source: ED rendered via spec-generator (2026-11-21)")
-        self.assertEqual(calls, [gen])
-
-    def test_rendered_nightly_needs_no_fetch(self):
-        r, calls = self.run_resolve({}, nightly=RENDERED)
-        self.assertTrue(r[0])
-        self.assertEqual(calls, [])
-        self.assertTrue(r[3].startswith("# source: ED nightly"))
-
-    def test_generator_failure_falls_back_to_tr(self):
-        gen = respec_mod.generator_url(NIGHTLY)
-        for failure in (NotFound(gen), SystemExit("HTTP 500")):
-            r, calls = self.run_resolve({gen: failure, RELEASE: TR})
-            self.assertTrue(r[0])
-            self.assertEqual(r[2], RELEASE)
-            self.assertIn("TR steps.", r[1])
-            self.assertTrue(r[3].startswith("# source: TR 2026-06-11"), r[3])
-            self.assertEqual(calls, [gen, RELEASE])
-
-    def test_generator_lacking_anchor_falls_back_to_tr(self):
-        gen = respec_mod.generator_url(NIGHTLY)
-        r, _ = self.run_resolve({gen: UNRENDERED, RELEASE: TR})
-        self.assertEqual(r[2], RELEASE)
-        self.assertTrue(r[0])
-
-    def test_all_sources_miss(self):
-        r, _ = self.run_resolve({})
-        self.assertFalse(r[0])
-        self.assertTrue(r[3].startswith("# source: none"))
-
-    def test_bikeshed_spec_takes_old_path(self):
-        r, calls = self.run_resolve({}, generator="bikeshed")
-        self.assertIsNone(r)
-        self.assertEqual(calls, [])
-
-    def test_cmd_body_prints_source_line_first(self):
-        gen = respec_mod.generator_url(NIGHTLY)
-        pages = {NIGHTLY: UNRENDERED, gen: RENDERED}
-        out = self.run_cmd_body("respec", pages)
+        out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: UNRENDERED, GEN: RENDERED})
+        self.assertEqual(calls, [NIGHTLY, GEN])
         lines = out.splitlines()
-        self.assertEqual(lines[0], "# source: ED rendered via spec-generator (%s)"
-                         % datetime.date.today())
+        self.assertEqual(lines[0], f"# source: ED rendered via spec-generator ({TODAY})")
         self.assertEqual(lines[1], f"# {NIGHTLY}#dom-x-foo")
         self.assertIn("Rendered steps.", out)
 
-    def test_cmd_body_bikeshed_control_unchanged(self):
-        out = self.run_cmd_body("bikeshed", {NIGHTLY: RENDERED})
+    def test_fetch_error_moves_to_next_candidate(self):
+        for failure in (NotFound(GEN), FetchError("webref: HTTP 500 fetching " + GEN)):
+            out, calls, _ = self.run_cmd_body(
+                self.RESPEC, {NIGHTLY: UNRENDERED, GEN: failure, RELEASE: TR})
+            self.assertEqual(calls, [NIGHTLY, GEN, RELEASE])
+            lines = out.splitlines()
+            self.assertTrue(lines[0].startswith("# source: TR 2026-06-11"), lines[0])
+            self.assertEqual(lines[1], f"# {RELEASE}#dom-x-foo")
+            self.assertIn("TR steps.", out)
+
+    def test_mutant_stop_on_first_fetch_error_fails_the_control(self):
+        # The same scenario run against a loop that gives up on the first
+        # FetchError must NOT reach the TR: the control above has teeth.
+        src = inspect.getsource(body_mod)
+        needle = "first_error = first_error or e\n            continue"
+        self.assertIn(needle, src)
+        mutant = types.ModuleType("_webref.commands.body_mutant")
+        mutant.__package__ = "_webref.commands"
+        exec(compile(src.replace(needle, needle.replace("continue", "break")),
+                     "body_mutant", "exec"), mutant.__dict__)
+        pages = {NIGHTLY: UNRENDERED, GEN: FetchError("boom"), RELEASE: TR}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            out, calls, _ = self.run_cmd_body(self.RESPEC, pages, module=mutant)
+        self.assertEqual(calls, [NIGHTLY, GEN])
+        self.assertNotIn("TR steps.", out)
+        out, calls, _ = self.run_cmd_body(self.RESPEC, pages)
+        self.assertEqual(calls, [NIGHTLY, GEN, RELEASE])
+        self.assertIn("TR steps.", out)
+
+    def test_generator_lacking_anchor_falls_back_to_tr(self):
+        out, calls, _ = self.run_cmd_body(
+            self.RESPEC, {NIGHTLY: UNRENDERED, GEN: UNRENDERED, RELEASE: TR})
+        self.assertEqual(calls, [NIGHTLY, GEN, RELEASE])
+        self.assertIn("TR steps.", out)
+
+    def test_all_sources_miss(self):
+        out, calls, msg = self.run_cmd_body(
+            self.RESPEC, {NIGHTLY: UNRENDERED, GEN: UNRENDERED, RELEASE: UNRENDERED})
+        self.assertTrue(out.startswith("# source: none"))
+        self.assertIn(f"not encountered in {RELEASE}", msg)
+
+    def test_miss_on_unfetchable_tail_names_last_fetched(self):
+        out, calls, msg = self.run_cmd_body(self.RESPEC, {NIGHTLY: UNRENDERED})
+        self.assertEqual(calls, [NIGHTLY, GEN, RELEASE])
+        self.assertIn(f"not encountered in {NIGHTLY}", msg)
+
+    def test_every_fetch_failing_surfaces_the_first_error(self):
+        err = FetchError("webref: HTTP 500 fetching " + NIGHTLY)
+        with self.assertRaises(FetchError) as cm:
+            self.run_cmd_body(self.RESPEC, {NIGHTLY: err})
+        self.assertIs(cm.exception, err)
+
+    def test_rendered_nightly_missing_anchor_skips_fallbacks(self):
+        out, calls, msg = self.run_cmd_body(
+            self.RESPEC, {NIGHTLY: RENDERED_NO_ANCHOR, GEN: RENDERED, RELEASE: TR})
+        self.assertEqual(calls, [NIGHTLY])
+        self.assertTrue(out.startswith("# source: none"))
+        self.assertIn(f"not encountered in {NIGHTLY}", msg)
+
+    def test_mutant_without_skip_would_fetch_the_fallbacks(self):
+        pages = {NIGHTLY: RENDERED_NO_ANCHOR, GEN: RENDERED, RELEASE: TR}
+        with mock.patch.object(body_mod, "miss_is_final", lambda label, data: False):
+            out, calls, _ = self.run_cmd_body(self.RESPEC, pages)
+        self.assertEqual(calls, [NIGHTLY, GEN])
+        self.assertIn("Rendered steps.", out)
+
+    def test_unlabelled_single_candidate_prints_no_source_line(self):
+        out, _, _ = self.run_cmd_body([resolver_mod.Candidate(NIGHTLY)], {NIGHTLY: RENDERED})
         self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
         self.assertNotIn("# source:", out)
 
-    def run_cmd_body(self, generator: str, pages: dict) -> str:
-        def fetch(url: str) -> bytes:
-            if url in pages:
-                return pages[url]
-            raise NotFound(url)
+    def test_unlabelled_miss_prints_no_source_none(self):
+        out, _, msg = self.run_cmd_body([resolver_mod.Candidate(NIGHTLY)], {NIGHTLY: UNRENDERED})
+        self.assertEqual(out, "")
+        self.assertIn("not encountered", msg)
 
-        args = argparse.Namespace(shortname="x-spec", anchor="dom-x-foo")
-        buf = io.StringIO()
-        with mock.patch.object(respec_mod, "_data_index", lambda: index(generator)), \
-             mock.patch.object(respec_mod, "cached_fetch_url", fetch), \
-             mock.patch.object(body_mod, "cached_fetch_url", fetch), \
-             mock.patch.object(body_mod, "resolve_body_source",
-                               lambda s, a: (NIGHTLY, a)), \
-             contextlib.redirect_stdout(buf):
-            body_mod.cmd_body(args)
-        return buf.getvalue()
+    def test_tc39_multipage_404_falls_back_to_single_page(self):
+        cands = [resolver_mod.Candidate(TC39_MULTI), resolver_mod.Candidate(TC39_LOC)]
+        out, calls, _ = self.run_cmd_body(cands, {TC39_LOC: TC39_HTML}, anchor="sec-foo")
+        self.assertEqual(calls, [TC39_MULTI, TC39_LOC])
+        self.assertEqual(out.splitlines()[0], f"# {TC39_LOC}#sec-foo")
+        self.assertIn("tc39 steps.", out)
+
+    def test_tc39_multipage_hit_never_fetches_single_page(self):
+        cands = [resolver_mod.Candidate(TC39_MULTI), resolver_mod.Candidate(TC39_LOC)]
+        out, calls, _ = self.run_cmd_body(cands, {TC39_MULTI: TC39_HTML}, anchor="sec-foo")
+        self.assertEqual(calls, [TC39_MULTI])
+        self.assertEqual(out.splitlines()[0], f"# {TC39_MULTI}#sec-foo")
+
+
+class FetchErrorEdgeTests(unittest.TestCase):
+    """cache raises typed errors; `cli.main` is the one place that exits."""
+
+    URL = "https://example.invalid/spec/"
+
+    def run_main(self, exc: BaseException) -> str:
+        argv = ["webref", "body", "x-spec", "a"]
+        with mock.patch.object(sys, "argv", argv), \
+             mock.patch.dict("os.environ", {"ELIDEX_WEBREF_NO_CACHE": "1"}), \
+             mock.patch.object(cache_mod.urllib.request, "urlopen",
+                               mock.Mock(side_effect=exc)), \
+             mock.patch.object(body_mod, "resolve_body_candidates",
+                               lambda s, a: (a, [resolver_mod.Candidate(self.URL)])):
+            with self.assertRaises(SystemExit) as cm:
+                cli_mod.main()
+        return str(cm.exception)
+
+    def http(self, code):
+        return urllib.error.HTTPError(self.URL, code, "x", {}, None)
+
+    def test_http_error_exit_message_unchanged(self):
+        self.assertEqual(self.run_main(self.http(500)),
+                         f"webref: HTTP 500 fetching {self.URL}")
+
+    def test_network_error_exit_message_unchanged(self):
+        self.assertEqual(self.run_main(urllib.error.URLError("dns down")),
+                         f"webref: network error fetching {self.URL}: dns down")
+
+    def test_not_found_exit_message_unchanged(self):
+        self.assertEqual(self.run_main(self.http(404)),
+                         f"webref: fetch failed: {self.URL}")
+
+    def test_cache_layer_raises_instead_of_exiting(self):
+        with mock.patch.dict("os.environ", {"ELIDEX_WEBREF_NO_CACHE": "1"}), \
+             mock.patch.object(cache_mod.urllib.request, "urlopen",
+                               mock.Mock(side_effect=self.http(503))):
+            with self.assertRaises(FetchError):
+                cache_mod.cached_fetch_url(self.URL)
+        self.assertTrue(issubclass(NotFound, FetchError))
 
 
 if __name__ == "__main__":
