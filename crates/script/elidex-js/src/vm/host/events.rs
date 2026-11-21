@@ -635,7 +635,7 @@ pub(super) fn parse_event_init(
         JsValue::Undefined | JsValue::Null => Ok(EventInit::default()),
         JsValue::Object(opts_id) => {
             // Read order is WebIDL §3.2.17 step 4.1 (lexicographic): bubbles,
-            // cancelable, composed (verified via userland getter probe).
+            // cancelable, composed.
             // Each `get_property_value` may fire user getters; side
             // effects on the init object are observable.
             let mut out = EventInit::default();
@@ -696,9 +696,8 @@ fn native_event_constructor(
 ///
 /// Extends `EventInit` with `detail: any = null`.  Missing `detail`
 /// defaults to `null` (WHATWG default); an explicit `{detail:
-/// undefined}` is also normalised to `null` by this implementation
-/// (see the in-body comment — the WebIDL `any` type technically
-/// preserves `undefined`, and a future change may relax this).
+/// undefined}` is also `null` (WebIDL dictionary default applies when Get
+/// returns `undefined`; see the in-body comment).
 fn native_custom_event_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -712,8 +711,7 @@ fn native_custom_event_constructor(
     let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "CustomEvent")?;
-    // Read `detail` separately — WebIDL `any` preserves the
-    // supplied value including `undefined`.  Missing key also yields
+    // Read `detail` separately.  Missing key also yields
     // `Undefined` from `get_property_value`; the WHATWG default is
     // `null`.  Both collapse to `null`: WebIDL §3.2.17 step 4.1.5 applies
     // the `= null` default when Get returns `undefined`, so an explicit
@@ -808,10 +806,10 @@ pub(crate) const EVENT_SLOT_CURRENT_TARGET: usize = 5;
 ///   - the key is absent (pure delete, no subsequent write) →
 ///     append a fresh entry with the `WEBIDL_RO` attrs the ctor
 ///     originally installed.
-///     Rationale (an IDL attribute accessor reads the
+///     Rationale: an IDL attribute accessor reads the
 ///     internal slot even post-delete; dispatch re-installs the
 ///     property but respects any custom descriptor already in
-///     place).
+///     place.
 pub(crate) fn set_event_slot_raw(
     vm: &mut VmInner,
     event_id: ObjectId,

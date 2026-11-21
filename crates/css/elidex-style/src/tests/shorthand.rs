@@ -164,7 +164,8 @@ fn uncovered_shorthand_is_none_even_when_complete() {
 /// which wins by order of appearance (css-cascade-4 §6.1) and is read back via the
 /// caller's `.or_else` getter (outside the §6.6.1 shorthand-reconstruction path):
 ///   `background: initial; background: var(--bg)`
-///   → getPropertyValue("background") == "var(--bg)" (css-values-5 #pending-substitution-value), NOT "initial".
+///   → getPropertyValue("background") == "var(--bg)"
+///   (css-values-5 #pending-substitution-value), NOT "initial".
 ///
 /// `background` (and `flex`) is mapped but uncovered — every longhand set to the
 /// same CSS-wide keyword, or an unresolved `var()`, must still yield `None`, not

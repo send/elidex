@@ -821,7 +821,7 @@ fn native_input_event_constructor(
 /// init member; real implementation comes with D-8 `#11-traversal-
 /// and-range` paired with `#11-event-modern-extras`).
 ///
-/// Brand-checks the receiver per WebIDL §3.7.2.4: `this` must be an
+/// Brand-checks the receiver per WebIDL §3.7.7: `this` must be an
 /// `ObjectKind::Event` whose prototype chain includes
 /// `InputEvent.prototype`.  Calling `InputEvent.prototype.
 /// getTargetRanges.call({})` or `.call(new MouseEvent(...))` therefore

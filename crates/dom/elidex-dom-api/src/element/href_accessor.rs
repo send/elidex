@@ -71,8 +71,8 @@ where
 
 /// Read `href`, parse, mutate one component via the supplied closure,
 /// serialise, and write back to the `href` attribute.  No-op if the
-/// `href` attribute is unparseable (HTML §4.6.3: each component setter returns when url is null).  Returns
-/// `Err` only for ECS access failures.
+/// `href` attribute is unparseable (HTML §4.6.3: each component setter returns
+/// when url is null).  Returns `Err` only for ECS access failures.
 pub fn href_url_set_component<F>(
     entity: Entity,
     dom: &mut EcsDom,

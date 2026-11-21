@@ -200,7 +200,7 @@ fn snapshot_attr_wrapper(
 }
 
 /// Freeze any JS-held `Attr` wrapper at its removal-time value + invalidate the
-/// wrapper cache, AFTER the removal has landed. Matches WHATWG DOM §4.9.2 +
+/// wrapper cache, AFTER the removal has landed. Matches WHATWG DOM §4.9.2
 /// (an Attr's value is its own): through a `removeAttribute(name)` → optional same-name
 /// `setAttribute` cycle, a previously-cached `Attr`'s `.value` keeps reporting
 /// the value the attribute held when it was removed (without the snapshot the

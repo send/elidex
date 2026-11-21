@@ -495,7 +495,7 @@ impl DomApiHandler for StyleCssTextGet {
 /// expansion).  All-or-nothing replacement: it returns an empty
 /// `InlineStyle` for empty / unparseable input, which clears the
 /// inline-style block.  This matches the spec "parse a CSS declaration
-/// block" algorithm (CSSOM cssText setter step 2 empties the declarations)
+/// block" algorithm, whose CSSOM cssText setter step 2 empties the declarations
 /// (accepted divergence: Firefox preserves existing declarations on
 /// whole-block parse failure).
 pub struct StyleCssTextSet;

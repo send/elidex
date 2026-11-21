@@ -282,7 +282,7 @@ fn dataset_set_equals_throws_invalid_character_error() {
 //
 // ⚠ KNOWN SPEC-DIVERGENCE — the tests below pin the CURRENT non-override
 // behavior, which is WRONG: DOMStringMap IS `[LegacyOverrideBuiltIns]`
-// (WHATWG HTML IDL `[LegacyOverrideBuiltIns]`), so a `data-*` attribute
+// (WHATWG HTML IDL), so a `data-*` attribute
 // whose camelCase key collides with an `Object.prototype` member DOES
 // override it — `dataset.toString` with `data-to-string` set returns the
 // attribute value, `Object.keys` includes it, and `dataset.toString = 'x'`

@@ -479,7 +479,7 @@ fn resolve_input_list_returns_none_when_input_self_references() {
 #[test]
 fn resolve_input_list_does_not_trim_whitespace() {
     // HTML §4.10.5.3.9 matches an ID *equal to* the list value, i.e.
-    // exact-compare (e.g. `list=" foo "` does NOT match
+    // an exact compare (e.g. `list=" foo "` does NOT match
     // `id="foo"`).
     let mut dom = EcsDom::new();
     let container = dom.create_element_ownerless_fixture("div", Attributes::default());

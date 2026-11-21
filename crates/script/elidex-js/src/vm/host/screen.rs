@@ -31,7 +31,7 @@
 //!   `change` event for `screen`); the live shell observe rides the S5-6 flip.
 //!   `availWidth`/`availHeight` use the full monitor dims until a work-area
 //!   source lands (`#11-screen-available-area-workarea-source`).
-//! - `colorDepth` / `pixelDepth` report the universal `24` (8 bits per RGB
+//! - `colorDepth` / `pixelDepth` report `24` (8 bits per RGB
 //!   channel) — CSSOM-View §4.3 sanctions returning 24
 //!   when the UA does not expose color depth, and the two return the same value
 //!   "for compatibility reasons". Constant, not a transported fact.
@@ -216,8 +216,8 @@ fn native_screen_get_avail_height(
     Ok(JsValue::Number(ctx.vm.viewport.avail_height.trunc()))
 }
 
-/// `screen.colorDepth` (CSSOM-View §4.3) — the universal `24` (8 bits per RGB
-/// channel), the CSSOM-View fallback value. The exact value, not a placeholder (a
+/// `screen.colorDepth` (CSSOM-View §4.3) — the CSSOM-View fallback `24` (8 bits per RGB
+/// channel). The exact value, not a placeholder (a
 /// deeper-color device-fact transport is not a thing the engine needs to
 /// represent).
 fn native_screen_get_color_depth(

@@ -113,7 +113,7 @@ pub(super) fn native_bigint_value_of(
 /// `ToIndex`).  `Undefined → 0` is the per-method default the
 /// `BigInt.asIntN` / `asUintN` callers rely on (their `bits` arg
 /// is the only consumer); the spec arithmetic itself routes through
-/// [`super::coerce::to_index_u64`] with the V8-shape error prefix `[evidence]`
+/// [`super::coerce::to_index_u64`] with the `[evidence]` V8-shape error prefix
 /// `"BigInt"` so the rejection message matches the rest of the
 /// engine's `ToIndex` surface.
 fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {

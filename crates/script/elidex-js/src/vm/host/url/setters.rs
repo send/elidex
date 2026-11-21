@@ -24,7 +24,6 @@ use super::{rebuild_linked_search_params, require_url_state_mut, require_url_thi
 /// `url.href = …` — full re-parse.  Throws `TypeError` when the
 /// new value does not parse as an absolute URL (URL `href` setter
 /// step 2; boa-side throws too).  Re-parse refreshes the
-/// throws here, and boa-side throws too).  Re-parse refreshes the
 /// linked `URLSearchParams` entry list (Phase 4 of slot #9.5).
 pub(super) fn native_url_set_href(
     ctx: &mut NativeContext<'_>,

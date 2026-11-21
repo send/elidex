@@ -218,7 +218,7 @@ impl SelectionState {
     /// Per Selection API §3.1:
     /// - `Forward` direction: anchor = range start, focus = range end.
     /// - `Backward` direction: anchor = range end, focus = range start.
-    /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both `[evidence]`
+    /// - `Directionless`: spec doesn't pin a side; `[evidence]` Chrome / Firefox both
     ///   return range start for anchor in this case, so we follow suit.
     pub fn anchor(
         &self,

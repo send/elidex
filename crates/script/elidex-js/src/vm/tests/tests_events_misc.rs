@@ -596,7 +596,7 @@ fn page_transition_event_persisted_round_trip() {
 
 #[test]
 fn input_event_get_target_ranges_throws_on_non_event_receiver() {
-    // R6 IMP regression: WebIDL §3.7.2.4 brand-check — calling
+    // R6 IMP regression: WebIDL §3.7.7 brand-check — calling
     // `InputEvent.prototype.getTargetRanges.call({})` must throw
     // TypeError "Illegal invocation".  Pre-fix: succeeded with []
     // because the method had no receiver check.
@@ -738,7 +738,7 @@ fn input_event_existing_fields_still_work() {
 
 #[test]
 fn before_unload_return_value_getter_throws_on_non_event_receiver() {
-    // Brand check (WebIDL §3.7.2.4): `Object.create(BeforeUnloadEvent.
+    // Brand check (WebIDL §3.7.6): `Object.create(BeforeUnloadEvent.
     // prototype)` is not an `ObjectKind::Event` instance, so reading
     // `returnValue` must throw TypeError "Illegal invocation" — matches
     // the WebIDL §3.7.6 attribute getter's TypeError.  Without the brand check the side table would

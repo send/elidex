@@ -132,12 +132,8 @@ impl CustomElementReactionConsumer {
         // "insert" step 7.7.2 ("If inclusiveDescendant is not connected, then
         // continue").
         //
-        // NOTE: we deliberately do NOT short-circuit on `was_connected`
-        // — DOM §4.2.3 "insert" step 7.7.1.2 fires connectedCallback on every
-        // insertion into a connected position, including within-tree
-        // moves (the companion Remove already fired its Disconnected,
-        // so suppressing the Insert side would leave the lifecycle in
-        // a stale disconnected state).
+        // NOTE: we deliberately do NOT short-circuit on `was_connected` — see
+        // the module-level "Gating rules" (DOM §4.2.3 "insert" step 7.7.1.2).
         if !dom.is_connected(node) {
             return;
         }

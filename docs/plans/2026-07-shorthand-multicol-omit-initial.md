@@ -143,7 +143,7 @@ omit-initial collapse is a **single canonical form**, not per-handler copies
   /// Omit each component equal to its initial; join survivors with " " in the
   /// given (canonical) order. When ALL are initial, keep the FIRST component —
   /// omitting all would yield "" (invalid / "less backwards-compatible",
-  /// §6.7.2 step 2). `[evidence]` Verified vs Blink: `column-rule: medium none currentcolor`
+  /// §6.7.2 step 2). Verified vs Blink `[evidence]`: `column-rule: medium none currentcolor`
   /// ⇒ first = width; `columns: auto auto` ⇒ first = width.
   pub fn serialize_omit_initial(components: &[(&str, &str)]) -> Option<String> {
       if components.is_empty() {
