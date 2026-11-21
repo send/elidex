@@ -11,6 +11,20 @@ Rev 1.4: Step 4.5 re-check fixes M1–M11 (A2 0/0/3, A4 0/1/4, A5 0/1/2); full c
 record `tsel-r13-recheck-decisions.md` (the PM's record, kept outside the repository; the "re-check
 decision record" below); PM 903 (slots for P-17 / P-18), PM 905 (P-20 folded).
 
+**Changelog.** *Erratum: code-PR findings (PM 939, PM 940)* (2026-11-22; no rev bump; carried by the tsel code PR,
+branch `tree-model-tsel`). §2 SEL × ROOT, DOC × MUT and LRR × ROOT, §4.1 `add_range` row, §7 note on equivalent
+mutants: a registered Range can have two roots (a shadow root's child moved out is not adjusted,
+`EcsDom::fire_after_remove`; slot `#11-shadow-tree-live-range-tracking`), so `addRange()` step 1 checks both boundary
+roots (`range_roots_are_document`; code review #1, fixed in this PR, cells `add_range_two_root_range_aborts` in
+dom-api and VM). §0.2 and §11 P-14: the existing direction tests pin `"directionless"`, not `"none"`. §4.1 and §7
+(the note before J1): `collapseToStart()` / `collapseToEnd()` collapse the range in place; they do not replace it.
+§5.1: `object_roots.rs` is not a GC root. §7: J3 moved from M3's row to a new M3+M12 row. §4.2: `addRange()` with an
+unregistered Range id throws the detached "InvalidStateError" (PM 939 Q2; replaces the ratified "TypeError"
+sentence). §3.2: row W4 added. §8 L-12: row 40 deleted (PM 940); row 39's "spec silent" is recorded as false. The
+slots these findings go to (`#11-selection-range-unregistered-by-gc`, `#11-selection-api-algorithm-conformance`,
+and amendments to `#11-selection-select-all-children-steps` and `#11-capped-walker-deep-element-processing`) are in
+the PM's landing list `tsel-code.md`, kept outside the repository. This PR changes no behaviour beyond §0.3.
+
 Slice **`tsel`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (order tp → **tsel** → tq → ta, PM 884; scope PM 885, widened by PM 890 and PM 891). Slot
@@ -137,7 +151,9 @@ and the marshalling points in the VM that carry its result (§4.2). Facets, each
   `extend()` and `setBaseAndExtent()` set *forwards*. Step 3 takes "the number of children of node"
   (webref 外 (raw cache, selection-api 2026-06-11)); `select_all_children` takes `node_length` (`:437`), which is a
   Text node's data length (read from the code, not probed). Not preconditions; `tsel` changes no direction. The
-  tests that pin today's `"none"` / `Directionless` are the slot's and are left as they are (§7.2): `tests_selection.rs`
+  tests that pin today's `"directionless"` / `Directionless` are the slot's (erratum, PM 939: this said `"none"`. The
+  `direction` getter maps `Directionless` to `"directionless"`, though the spec value is `"none"`; that string is
+  slot `#11-selection-api-algorithm-conformance`'s) and are left as they are (§7.2): `tests_selection.rs`
   `extend_collapsed_back_to_anchor_is_directionless` (`:311`) and `set_base_and_extent_collapsed_is_directionless`
   (`:379`); `selection_tests.rs` `set_base_and_extent_collapsed_is_directionless` (`:184`) and
   `select_all_children_makes_range` (`:110`). No cell of this plan asserts a direction (§7).
@@ -337,9 +353,9 @@ after a slice (`ta × tsel`, `tr × tsel`) are hand-offs to that slice, not axes
 
 | Pair | Invariant after `tsel` | Cells |
 |---|---|---|
-| SEL × ROOT | every range the four setters and `addRange` give the Selection has one root (start's root = end's root), and so does every write through a Range method (RW): the Range natives run DOM *set the start or end* step 4, which collapses a cross-root write onto the new point (`range_proto.rs:552`, `:567`) | E1, E2, E13, J1, J2, J15 |
+| SEL × ROOT | every range the four setters and `addRange` give the Selection has one root (start's root = end's root), and so does every write through a Range method (RW): the Range natives run DOM *set the start or end* step 4, which collapses a cross-root write onto the new point (`range_proto.rs:552`, `:567`). Erratum (PM 939): a *registered* Range can still have two roots, through the live-range gap of LRR × ROOT, so this holds only because `addRange()` step 1 checks both boundary roots (`range_roots_are_document`, code review #1) | E1, E2, E13, J1, J2, J15, `add_range_two_root_range_aborts` (dom-api and VM) |
 | SEL × DOC | after `collapse` / `extend` / `setBaseAndExtent` the range's shadow-including root is the associated document (a shadow tree of the document is allowed: the spec's note, "anchor and focus … could be in a shadow tree of the same document" (webref 外 (raw cache, selection-api 2026-06-11))); after `selectAllChildren` / `addRange` its root is the document itself. This holds at the Selection's own writes only: a Range method on the wrapper (RW) can move the same range into a shadow tree, a detached tree or another document, and the Selection stays associated with it (§2's note: "the same range object must continue to be associated with the selection"; webref 外 (raw cache, selection-api 2026-06-11)) | E3, E4, E5, E6, E13, J4, J5, J6, J9, J15 |
-| DOC × MUT | `deleteFromDocument` reaches `delete_contents` only when the anchor's and the focus's root is the document; so a Selection never deletes inside a shadow tree, a detached tree or another document, whichever setter or Range method made it. With SEL × ROOT, "both" reduces to the start container's root, but the check is written on both points as the spec says | E8, J10 |
+| DOC × MUT | `deleteFromDocument` reaches `delete_contents` only when the anchor's and the focus's root is the document; so a Selection never deletes inside a shadow tree, a detached tree or another document, whichever setter or Range method made it. With SEL × ROOT, "both" reduces to the start container's root, but the check is written on both points as the spec says (erratum, PM 939: and it must be, since the reduction fails for a range made two-rooted by LRR × ROOT's gap) | E8, J10 |
 | DOC × read (facets 5, 6) | `containsNode(n)` is `false` whenever `n`'s root is not the document, before any boundary comparison; `getRangeAt(0)` throws "IndexSizeError" unless anchor and focus are in the document tree. Both read the same `root_is_document` as facets (2), (4) and (7), so every site shares one predicate | E9, E10, J11, J12 |
 | read × read (facet 7) | for every selection, `rangeCount`, `type`, `getRangeAt(0)` and `deleteFromDocument()` read one condition (paraphrased: this is not empty and both anchor and focus are in the document tree; one helper, §4.1): `rangeCount` 1 ⇔ `type` ≠ "None" ⇔ `getRangeAt(0)` returns ⇔ `deleteFromDocument()` may delete; and `anchorNode` is `null` exactly when the anchor is null or outside the document tree (likewise `focusNode`). `isCollapsed` and `toString()` read the concepts and carry no clause (§0.2) | E11, J1, J2, J9, J10, J13 |
 | SEL × ERR | an abort returns `Ok(false)` and leaves `active_range_id` and `direction` bit-identical; an exception does too (unchanged rule, `collapse`'s doc comment) | E5, E7, J6 |
@@ -347,7 +363,7 @@ after a slice (`ta × tsel`, `tr × tsel`) are hand-offs to that slice, not axes
 | ERR × event | a setter or `addRange` that aborts, and a `deleteFromDocument()` that does nothing, schedule no `selectionchange`; one that sets a range, or runs `deleteContents()`, schedules one, as today; the five methods without an abort keep today's unconditional event (§0.3 item 5) | J7, J10, J15 (d) |
 | LRR × ERR | an abort registers no Range and unregisters none (`prev_id == new_id` in `mutate_selection`) | E5 (registry untouched), J6 |
 | LRR × SEL (`addRange` replace, facet 7; PM 901) | `addRange()` on a selection outside the document tree replaces its range (step 2 reads `rangeCount`, `0`); the displaced id is unregistered only when no wrapper holds it, by `mutate_selection`'s one displaced-id rule (`addRange`'s native now goes through it). The displaced range can be one a setter put in a shadow tree (no wrapper: `getRangeAt(0)` threw, so it is freed) or one a Range method moved out (RW: the script holds its wrapper, so it stays registered and live). A selection in the document tree still blocks `addRange()` (step 2 aborts), as today | E12, J14, J16 |
-| LRR × ROOT | live-range adjustment cannot make a one-root range cross-root: DOM's *live range pre-remove steps* (§5.6, run by *remove* step 3, §4.2.3) move a boundary inside the removed node to (parent, index), in the same tree, and *insert* (§4.2.3) moves offsets within the same parent. So the one-root invariant set at write time holds until the next write. Reasoning, not a cell; `extend` reads "this's range's root" from the start container on that basis | — |
+| LRR × ROOT | live-range adjustment cannot make a one-root range cross-root: DOM's *live range pre-remove steps* (§5.6, run by *remove* step 3, §4.2.3) move a boundary inside the removed node to (parent, index), in the same tree, and *insert* (§4.2.3) moves offsets within the same parent. So the one-root invariant set at write time holds until the next write. Reasoning, not a cell; `extend` reads "this's range's root" from the start container on that basis. Erratum (PM 939): this holds only where the adjustment runs. `EcsDom::fire_after_remove` (`crates/core/elidex-ecs/src/dom/tree/mutation.rs`) returns early when the node or its parent is a shadow root, so live ranges are not adjusted when a shadow root's child is removed (slot `#11-shadow-tree-live-range-tracking`). A Range from (`a`'s Text, 1) to (`b`'s Text, 2), where `a` and `b` are children of one shadow root, therefore spans the document and the shadow tree once `a` is appended to the document. So a registered two-root Range exists, and `addRange()` step 1 reads both roots (SEL × ROOT). The same gap can reach the selection's own range; that is the slot's, not `tsel`'s | `add_range_two_root_range_aborts` (dom-api and VM) |
 | LRR × DOC (facets 4, 6, 7) | live-range adjustment cannot take a selection out of the document tree: removing the subtree that holds a boundary moves the boundary to the removed node's parent, which stays in the document. A selection leaves it by two writes only: a setter that puts it in a shadow tree, or a Range method on the wrapper the script holds (RW: `getRangeAt(0)` hands out "a reference to (not a copy of) this's range" (webref 外 (raw cache, selection-api 2026-06-11); cache lines 322-323), `addRange(r)` keeps the script's `r`), which can move it into a shadow tree, a detached tree or another document. Facet (4)'s "do nothing", facet (6)'s throw and facet (7)'s `null` / `0` / "None" arise from those two, not from a removal | E8, E10, E11, E13, J15 |
 | RW × read (§0.1 item 8, K2) | a range moved by a Range method into another document reads as outside the document tree (the associated document's tree, §0.5 rung 2), the same as one moved into a shadow tree or a detached tree; so `rangeCount` 0 and `containsNode()` `false` for its nodes agree (the any-document reading would give `rangeCount` 1 there) | E13, J15 (M24) |
 | DOC × ROOT | the two predicates are storage-neutral: `is_in_document` climbs the stored parent, and at base a shadow root's stored parent is its host, so it reaches the document through the host (census R-8: shadow-including, "S, equal" at base); at `ta` its step takes `shadow_including_parent` (census, the R-5 / R-8 row: "K"), so the relation is the same after `ta` and `ts`. `find_tree_root` stops at the `ShadowRoot` marker at every head | E6, J9 (they hold unchanged through `ts`) |
@@ -444,7 +460,7 @@ returned, and the verdict. Selection API headings and dfns come from `webref hea
 `body` cannot render it); its step numbers and prose come from the raw cache and carry the marker. Cites of this
 memo's own sections, of the umbrella, of the census and of other plans are not spec cites and are not rows. Cites
 that quote the code's comments (`§3.1`, `WebIDL §3.7.6`, …) are rows with the verdict on the code (§8 L-8 holds
-their population). 53 rows (S 34, D 15, W 3, H 1; S34 and D15 added after the final Axis 4 re-check found *forwards* / *backwards* and *connected* unlisted). Mismatches in the memo's own cites: 4, each fixed in Rev 1.4
+their population). 54 rows (S 34, D 15, W 4, H 1; W4 added by the PM 939 erratum; S34 and D15 added after the final Axis 4 re-check found *forwards* / *backwards* and *connected* unlisted). Mismatches in the memo's own cites: 4, each fixed in Rev 1.4
 (S2, D8, D14, W1). Mismatches in the code's cites: S4, W2, W3, H1; of them `tsel`'s code PR fixes the ones in the
 doc comments it rewrites (the S4 sites of §8 L-8's removed list, and W2's `selection.rs:376`), and the rest stay
 with the sweep.
@@ -503,6 +519,7 @@ with the sweep.
 | W1 | "`[SameObject]` holds" (for `getRangeAt()`) | §4.2 | `dfn webidl SameObject` → §3.3.12 [SameObject] `#SameObject`; `body webidl SameObject`: "appears on a read only attribute" | fixed: `getRangeAt()` is an operation; the rule is the Selection API's "a reference to (not a copy of) this's range" |
 | W2 | "WebIDL §3.7.6" (the code's, for argument conversion) | §8 L-8 (`selection.rs:376`, `dom_selection_mutation.rs:234`) | `heading webidl 3.7.6` → §3.7.6 Attributes `#js-attributes`; `heading webidl 3.7.7` → §3.7.7 Operations `#js-operations`, whose steps pass the arguments to the overload resolution algorithm (`body webidl js-operations`, the operation-function step "Let <operation, values> be the result of passing S and args to the overload resolution algorithm"; `dfn webidl "overload resolution algorithm"` → §3.6, which converts left to right) | the code's cite is wrong: `selection.rs:376` sits in `set_base_and_extent`'s rewritten doc comment and is fixed by the code PR to "WebIDL §3.7.7 Operations" (§4.1); `:234` left to the sweep |
 | W3 | "WebIDL §3.10" (the code's, for ToUint32) | §8 L-8 (`dom_selection_proto.rs:412`) | `heading webidl 3.10` → §3.10 Observable array exotic objects `#js-observable-arrays` | the code's cite is wrong; left to the sweep (`tsel` does not edit that comment) |
+| W4 | "WebIDL §3.2.15 Interface types", step 1 (erratum, PM 939 Q2) | §4.2 | `heading webidl 3.2.15` → §3.2.15 Interface types `#js-interface`; step from `body webidl js-interface` | ok |
 | H1 | "HTML §8.1.7.1 ("selection task source")" (the code's) | §8 L-8 (`dom_selection_proto.rs:661`) | `heading html 8.1.7.1` → §8.1.7.1 Definitions `#definitions-3`; `dfn html "task source"` → §8.1.7.1 `#task-source`; `dfn html "selection task source"` → no dfn; the Selection API queues on the "user interaction task source" (webref 外 (raw cache, selection-api 2026-06-11); cache line 1071) | the heading is right, the named task source is not HTML's; outside the §3.x property of L-8; left to the sweep (`tsel` does not edit that comment) |
 
 ## §4. Mechanism
@@ -558,7 +575,13 @@ nothing is dissociated, yet the event is scheduled) is unchanged by `tsel`; its 
 (§11 P-20) and PM 905 folded it into facet (a) of `#11-selection-change-on-noop-range-mutation` ("any Selection
 operation that is a spec no-op must not schedule selectionchange"). So the doc comments of `remove_all_ranges` and
 `empty` cite that slot for the empty-selection case; those of `remove_range`, `collapse_to_start` and
-`collapse_to_end` cite none (on a non-error path each dissociates or replaces the range). Then every
+`collapse_to_end` cite none (on a non-error path `remove_range` dissociates the range, and `collapse_to_start` /
+`collapse_to_end` collapse it). Erratum (PM 939): this said they "replace" the range. They collapse the registered
+range in place (`with_range_mut` … `range.collapse`), so a Range the script holds is collapsed too and stays the
+selection's range. The spec creates a new range and sets this's range to it (`collapseToStart()` /
+`collapseToEnd()`; webref 外 (raw cache, selection-api 2026-06-11)). That deviation and `remove_range`'s
+"InvalidStateError" (spec "NotFoundError") are recorded in their doc comments as known deviations, citing slot
+`#11-selection-api-algorithm-conformance`; `tsel` does not change them. Then every
 `mutate_selection` closure passes the `SelectionState` method's own value and no literal `Ok(true)` stays in the
 host; that slot's fix is one edit inside `SelectionState`, not in the natives.
 
@@ -570,7 +593,7 @@ Step order, each check before any state change:
 | `extend` | `is_in_document` → abort; empty → `InvalidState`; DocumentType → throw; offset → throw (DOM set-the-start steps 1-2, run before step 5's writes); if `find_tree_root(node) != find_tree_root(range start)` → both points to newFocus (step 5); else the forward / backward branch through `set_*_to_boundary` | empty; DocumentType; `same_document`; offset; raw writes |
 | `set_base_and_extent` | offsets → `IndexSize` (step 1); `is_in_document` for both → abort (step 2); DocumentType for either → throw (DOM step 1, inside step 5); branch on `direction_between` through `set_*_to_boundary` (step 5) | DocumentType; `same_document`; offsets; raw writes |
 | `select_all_children` | DocumentType → throw; `root_is_document` → abort; plain writes (steps 4-5 say "Set" (webref 外 (raw cache, selection-api 2026-06-11)), not "set the start") | DocumentType; `same_document`; raw writes |
-| `add_range` | `root_is_document(start container of the registered range)` → abort; `range_count(registry, dom, owner_document) != 0` → abort (step 2, facet 7); set. Signature `fn add_range(&mut self, registry: &mut LiveRangeRegistry, dom: &EcsDom, owner_document: Entity, range_id: RangeId) -> bool` | `active_range_id.is_some()`; `owner_document` equality |
+| `add_range` | `range_roots_are_document` (the root of both boundary points of the registered range; erratum PM 939, code review #1: this said the start container only, §2 LRR × ROOT) → abort; `range_count(registry, dom, owner_document) != 0` → abort (step 2, facet 7); set. Signature `fn add_range(&mut self, registry: &mut LiveRangeRegistry, dom: &EcsDom, owner_document: Entity, range_id: RangeId) -> bool` | `active_range_id.is_some()`; `owner_document` equality |
 | `delete_from_document` | `anchor_and_focus_in_document_tree` → else nothing (it covers empty); `delete_contents` and the write-back as today. Returns `Option<Vec<MutationRecord>>`: `None` = the "do nothing" branch, `Some(records)` = ran `deleteContents()` (a collapsed range included: `Some(vec![])`) | empty → `Vec::new()`; else delete |
 | `contains_node` (read) | empty → `false`; `root_is_document(node)` → else `false`; containment as today | empty; `same_document` → `false`; containment |
 | `range_at` (NEW, read) | `index != 0` → `OutOfRange`; `anchor_and_focus_in_document_tree` → else `OutOfRange` (it covers empty); `Ok(active_range_id)`. Signature `fn range_at(&self, index: usize, registry: &mut LiveRangeRegistry, dom: &EcsDom, owner_document: Entity) -> Result<RangeId, SelectionError>` (`usize`: what `arg_offset_required` returns) | in the native: empty → `OutOfRange`; `index > 0` → `OutOfRange` |
@@ -629,7 +652,7 @@ ranges, not Selection ranges.
 - `delete_selection_contents` (`:121`): passes the document to `delete_from_document`; on `None` it neither commits
   records nor sets `selectionchange_pending` (`:146-147`); on `Some(records)` it does both, as today.
 - `native_selection_add_range` (`:155`): stops reading `r.owner_document` (`:171-172`); it keeps its registration
-  check first (an unregistered id is the same "TypeError"), then calls `mutate_selection` with
+  check first, then calls `mutate_selection` with
   `|s, reg, dom, doc| Ok(s.add_range(reg, dom, doc, range_id))`. Today it writes the slot itself and sets
   `selectionchange_pending` on `true` (`:178-186`); it never displaced a range, since step 2 aborted on any range.
   After facet (7) step 3 can replace a selection outside the document tree, so the displaced id must be freed when
@@ -639,6 +662,13 @@ ranges, not Selection ranges.
   condition that a cell proves the held-wrapper half: J16 (a displaced range whose wrapper the script holds stays
   registered and usable) and J14 (one without a wrapper is freed), with mutant M23 (the `range_instances` guard
   removed) red on J16.
+  Erratum (PM 939 Q2): the registration check said "an unregistered id is the same "TypeError"". It is not: an
+  unregistered id throws the Range natives' detached "InvalidStateError" (`range_proto.rs` `detached_range_error`,
+  the error `read_range` returns for an unregistered id). Ground: [spec] WebIDL §3.2.15 Interface types, step 1 ("If
+  V implements I, then return the IDL interface type value that represents a reference to that platform object.";
+  `body webidl js-interface`), so the conversion of a Range wrapper succeeds whether or not its id is registered;
+  and One issue, one way, since one state gets one error across the Range and Selection natives. When the VM is
+  unbound the native skips the pre-check and `mutate_selection` throws, as the other Selection natives do.
 - `native_selection_get_range_at` (`dom_selection_proto.rs:600`): its own emptiness and index checks (`:608-624`)
   are replaced by one `read_selection` call to `range_at(index, reg, dom, doc)`; `Err` goes through
   `map_selection_error` as today, `Ok(rid)` to `wrap_range_id` as today (the same wrapper, so the method returns "a reference to (not a copy of)
@@ -697,8 +727,12 @@ git grep -l -P '\bgetSelection\b' -- crates ':!crates/script/elidex-js' ':!crate
 | `focus` (concept, unchanged) | `focusNode` / `focusOffset` natives (`dom_selection_proto.rs:520`, `:533`) → move to `focus_in_document_tree` | `selection_tests.rs:47`, `:64`, `:128`, `:148`, `:168`, `:216` (unchanged) |
 
 **Non-script callers: none.** The only `SelectionState` users outside `selection.rs` are the VM's Selection natives,
-its HostData slot (`host_data/mod.rs:425`, `bind.rs` borrow splits, `lifecycle.rs:62` reset) and the GC root walk
-(`object_roots.rs:156`, `current_range_id` only). The fourth command finds only `lib.rs:120` (the re-export) and
+its HostData slot (`host_data/mod.rs:425`, `bind.rs` borrow splits, `lifecycle.rs:62` reset) and the GC trace
+(`object_roots.rs:156`, `current_range_id` only). Erratum (PM 939): this called it the "GC root walk". It is not a
+root: `object_roots.rs` `selection_active_range_id_bits` is read by `gc/trace.rs`'s `ObjectKind::Selection` arm,
+which marks the active Range wrapper only while the Selection wrapper is itself marked, and
+`HostData::gc_root_object_ids` names no Selection state. So a GC that finds neither wrapper reachable unregisters the
+`RangeId` the selection still holds (slot `#11-selection-range-unregistered-by-gc`). The fourth command finds only `lib.rs:120` (the re-export) and
 `elidex-form-core`'s own `SelectionDirection` (the input / textarea selection, a different type). No editing, shell
 or a11y code reads or writes the document Selection, so nothing depends on today's lax behaviour. Re-run for facet (7) (Rev 1.2, at `3cbd5b88`): the `.range_count(` / `.anchor(` /
 `.focus(` / `.selection_type(` hits are the rows above and nothing else (the `.focus(` command's other hits are
@@ -866,7 +900,8 @@ After facet (7) a selection outside the document tree reads `rangeCount` 0 like 
 must tell "aborted" from "set outside the document tree" reads through what has no clause: `isCollapsed`,
 `toString()`, and `collapseToStart()`, which throws "InvalidStateError" exactly when this is empty ("The method must
 throw InvalidStateError exception if the this is empty."; webref 外 (raw cache, selection-api 2026-06-11)). The
-cells call it last, since on a non-empty selection it replaces the range (§11 P-16).
+cells call it last, since on a non-empty selection it collapses the range (§11 P-16; erratum, PM 939: this said
+"replaces"; it collapses the range in place, §4.1).
 
 - J1 `cross_root_set_base_and_extent_is_collapsed_and_empty` (NEW): 1a and 1b → `isCollapsed`, `toString()` `""`.
   Green on `tsel`'s base and after `tq` (the value `tq`'s cell expects). Where the range collapses is Q-1, so the
@@ -953,7 +988,8 @@ cells red):
 |---|---|---|
 | M1 | `extend`: raw `set_start` / `set_end` back, step 5 branch removed | E2, J2 (`isCollapsed`) |
 | M2 | `extend`: step 5 branch removed, `set_*_to_boundary` kept | E2 (backward), J2 (1d, `getRangeAt`) |
-| M3 | `set_base_and_extent`: raw writes back | E1, J1, J3 |
+| M3 | `set_base_and_extent`: raw writes back | E1, J1 (erratum, PM 939: J3 removed from this row, see M3+M12) |
+| M3+M12 (erratum, PM 939) | M3 and M12 together | J3 (1e: `pre.data` "p", expected "pre"). J3 is guarded twice: the boundary setters collapse the cross-root range (so `deleteContents()` removes nothing), and `deleteFromDocument()` refuses a range that is not in the document tree. M3 alone leaves the second guard, so J3 stays green; M12 alone leaves the first. Measured 2026-11-22 on head `616a0d77`: M3 alone → J3 green; M3+M12 → J3 red |
 | M4 | the shadow-including check (`is_in_document`) → node-document equality (base `same_document`) | E5 (detached), J6 (3a, 3c, 3e) |
 | M5 | the shadow-including check (`is_in_document`) → `find_tree_root` equality | E6, J9 |
 | M6 | `root_is_document` → `find_tree_root_composed` equality | E3 (shadow), E4 (shadow), E8, E9 (shadow), E10, E11, E13 (a), J4 (2a, 2b), J5 (2e), J10, J11 (`st`), J12, J13, J15 (a) |
@@ -992,7 +1028,10 @@ guard, so it is red on J16 and, predicted, on the `collapse` path too.
 is claimed for it. A mutant that checks only the anchor (not the focus) in `delete_from_document` or in `range_at`
 is equivalent under SEL × ROOT (both points share one root after `tsel`); no cell is claimed for it. For the same
 reason the helper checking one point only, and `anchor_in_document_tree` testing the focus's node (or the reverse),
-are equivalent; no cell is claimed.
+are equivalent; no cell is claimed. Erratum (PM 939): the SEL × ROOT premise does not hold for every registered Range
+(§2 LRR × ROOT's gap). For `add_range` the one-point mutant is not equivalent and is killed by
+`add_range_two_root_range_aborts`. For the selection's own range the equivalences above hold only outside that gap,
+which is slot `#11-shadow-tree-live-range-tracking`'s; no cell is claimed there.
 
 ### §7.1 1000-line re-count at `3cbd5b88`
 
@@ -1184,6 +1223,14 @@ attribute helpers +≈45, `same_document` −≈10 → ≈780); `dom_selection_m
   PR finds it must change either line, it stops and reports to the PM with the slot's population before and after.
   The code PR re-runs the ratchet (at `3cbd5b88` the file had five `selection.rs` rows, 58-62; #655 reclassified
   them).
+  Erratum (PM 939, PM 940; 2026-11-22). Row 40: PM 940 decided its line ("matching the conservative interpretation
+  Chrome / Firefox use." [contrast]) is deleted in the code PR, with its allowlist row. The gap it described
+  (`containsNode(document)` compares only the containers) is now recorded only by slot
+  `#11-selection-api-algorithm-conformance`. Row 39: its line stays byte-identical, but its premise "spec doesn't
+  pin a side" is false. Selection API §2 fixes both sides: "If the selection's range is not null and its direction
+  is forwards, its anchor is the range's start, and its focus is the end. Otherwise, its focus is the start and its
+  anchor is the end." (webref 外 (raw cache, selection-api 2026-06-11)). Relabelling or removing the row is the work
+  of `#11-selection-select-all-children-steps` (PM 939 Q1).
 - **L-13** (re-check decision record M9; to L3, the `tq` lane) `tq`'s Changelog entry in the umbrella. Per PM 898
   `tq`'s plan PR lands after `tsel`'s and merges `main`; on that merge, `tq`'s Changelog entry joins `tsel`'s
   `**Changelog.**` paragraph (§0.4 (e)) in the #647 form, newest first. A mechanical edit on the `tq` branch, done
@@ -1265,12 +1312,13 @@ P-5 is a precondition on this landing.
   set it to forwards."; webref 外 (raw cache, selection-api 2026-06-11)) and `setBaseAndExtent()` ("If focus is before anchor, set this's direction to backwards.
   Otherwise, set it to forwards"; webref 外 (raw cache, selection-api 2026-06-11)) set *forwards* for a collapsed result, so `direction` is `"forward"` there, and
   the existing VM cells `extend_collapsed_back_to_anchor_is_directionless` and
-  `set_base_and_extent_collapsed_is_directionless` pin `"none"`. By its name, slot
+  `set_base_and_extent_collapsed_is_directionless` pin `"directionless"` (erratum, PM 939: this said `"none"`; see
+  §0.2). By its name, slot
   `#11-selection-select-all-children-steps` covers the first half; whether it also covers the second, or the second
   needs its own slot, is the PM's (the draft's text was not read here). **Resolved by PM 897**: the slot is widened
   to "Selection direction steps (selectAllChildren / extend / setBaseAndExtent set forwards on a collapsed range;
-  current_direction is the single site) + selectAllChildren child count", and the four tests that pin `"none"` /
-  `Directionless` are its (§0.2). `tsel` changes no direction and no cell asserts one (§7).
+  current_direction is the single site) + selectAllChildren child count", and the four tests that pin
+  `"directionless"` / `Directionless` are its (§0.2). `tsel` changes no direction and no cell asserts one (§7).
 - **P-15** (Rev 1.2, found while placing facet 7; **ratified, PM 901**) `addRange()` step 2 is "If `rangeCount` is not `0`" (§3), so the
   attributes' clause reaches a write path: a selection outside the document tree no longer blocks `addRange()`,
   which replaces it (probe A8: base aborts). Decided by the lens of §0.5 (every row selects reading `range_count`);
