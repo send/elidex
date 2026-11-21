@@ -222,6 +222,7 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
+- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (PM 911)。
 - PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
