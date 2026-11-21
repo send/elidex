@@ -23,15 +23,7 @@ impl MutationDispatcher for FormControlOnlyTestDispatcher {
 /// pre-attached, and the form-control reconciler installed.
 fn setup(tag: &str, attrs: &[(&str, &str)]) -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let mut attr_map = Attributes::default();
-    for (k, v) in attrs {
-        attr_map.set(k.to_string(), v.to_string());
-    }
-    let entity = dom.create_element_ownerless_fixture(tag, attr_map);
-    assert!(
-        create_form_control_state(&mut dom, entity),
-        "create_form_control_state must succeed for tag {tag}"
-    );
+    let entity = crate::test_support::attached_element(&mut dom, tag, attrs);
     let displaced = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
     )));
@@ -211,16 +203,16 @@ fn e2b_type_change_checkable_to_text_clears_checked_via_sanitize() {
 /// A focused `<input>` (seeded) carrying the value `value`, then a user edit
 /// appending `a` at the end: the mark is `value`, the value `value + "a"`.
 fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
-    use crate::{apply_user_edit, record_focus_snapshot};
+    use crate::record_focus_snapshot;
+    use crate::test_support::user_append;
     let (mut dom, e) = setup("input", &[("value", value)]);
     record_focus_snapshot(&mut dom, e);
     let end = value.chars().count();
-    let edit = apply_user_edit(&mut dom, e, |f| {
-        f.set_cursor(end);
-        f.insert_at_cursor("a");
-    })
-    .unwrap();
-    assert!(edit.changed);
+    dom.world_mut()
+        .get::<&mut FormControlState>(e)
+        .unwrap()
+        .set_cursor(end);
+    user_append(&mut dom, e, "a");
     with_fcs(&dom, e, |s| assert_eq!(s.value(), format!("{value}a")));
     (dom, e)
 }
@@ -252,12 +244,12 @@ fn dc14u_seed_on_checkbox_survives_flip_to_text() {
     // DC-14u: the seed is written on an `<input type=checkbox>` (the
     // population is the element); a flip to text writes nothing; a user edit
     // then marks it, and the take (kind Text at focus loss) fires.
-    use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
+    use crate::test_support::user_append;
+    use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "checkbox")]);
     record_focus_snapshot(&mut dom, e);
     assert!(dom.set_attribute(e, "type", "text").did_set);
-    let edit = apply_user_edit(&mut dom, e, |f| f.insert_at_cursor("a")).unwrap();
-    assert!(edit.changed);
+    user_append(&mut dom, e, "a");
     assert!(take_change_on_blur(&mut dom, e));
 }
 
@@ -306,15 +298,15 @@ fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
     // edit comes first: an unmarked snapshot is indistinguishable from a
     // re-seeded one, so only a marked one shows that the flip neither clears
     // nor re-seeds it.
-    use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
+    use crate::test_support::user_append;
+    use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
         state.set_value("typed".to_string());
     }
     record_focus_snapshot(&mut dom, e);
-    let edit = apply_user_edit(&mut dom, e, |f| f.insert_at_cursor("!")).unwrap();
-    assert!(edit.changed);
+    user_append(&mut dom, e, "!");
     assert!(dom.set_attribute(e, "type", "search").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
     assert!(

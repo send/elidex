@@ -185,10 +185,9 @@ fn dispatch_focus_event_with_related(
     pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" at the blur of a Population element (the `input` /
-/// `textarea` elements `elidex_form::record_focus_snapshot` seeds; HTML §6.6.4
-/// focus update steps step 2.1, see `elidex_form`'s `focus_snapshot` module
-/// doc). The verdict is `elidex_form::take_change_on_blur`'s, which
+/// Dispatch "change" at the blur of an element `elidex_form::record_focus_snapshot`
+/// seeded (HTML §6.6.4 focus update steps step 2.1, see `elidex_form`'s
+/// `focus_snapshot` module doc). The verdict is `elidex_form::take_change_on_blur`'s, which
 /// consumes the `FocusValueSnapshot`; this sink only dispatches.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
     if take_change_on_blur(&mut pipeline.dom, entity) {

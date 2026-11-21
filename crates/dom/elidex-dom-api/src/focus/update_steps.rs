@@ -74,8 +74,8 @@ pub trait FocusEventSink {
     /// The bound (active) document.
     fn document(&self) -> Entity;
 
-    /// §6.6.4 focus-update step 2.1 — fire `change` per the Population
-    /// element's verdict. **Owns the change-on-blur snapshot consume**: the sink
+    /// §6.6.4 focus-update step 2.1 — fire `change` per the verdict
+    /// of `elidex_form::take_change_on_blur`. **Owns the change-on-blur snapshot consume**: the sink
     /// calls `elidex_form::take_change_on_blur` (the one place the verdict is
     /// computed) and dispatches `change` iff it returns `true`; a no-op impl
     /// (VM, until its dispatch primitive lands) leaves the snapshot intact so

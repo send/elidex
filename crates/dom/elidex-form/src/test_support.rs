@@ -26,13 +26,23 @@ pub(crate) fn control(dom: &mut EcsDom, kind: FormControlKind, value: &str) -> E
 /// attach ([`crate::create_form_control_state`]) gives it, as parse, insert and
 /// `createElement` do. An element from `create_element_ownerless_fixture` alone
 /// carries none (it runs no attach).
-pub(crate) fn attached_element(dom: &mut EcsDom, tag: &str) -> Entity {
-    let e = dom.create_element_ownerless_fixture(tag, Attributes::default());
+pub(crate) fn attached_element(dom: &mut EcsDom, tag: &str, attrs: &[(&str, &str)]) -> Entity {
+    let mut attr_map = Attributes::default();
+    for (k, v) in attrs {
+        attr_map.set((*k).to_string(), (*v).to_string());
+    }
+    let e = dom.create_element_ownerless_fixture(tag, attr_map);
     assert!(
         crate::create_form_control_state(dom, e),
         "create_form_control_state must attach to <{tag}>"
     );
     e
+}
+
+/// A user edit that appends `text` at the cursor; asserts it changed the value.
+pub(crate) fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
+    let edit = crate::apply_user_edit(dom, e, |f| f.insert_at_cursor(text)).unwrap();
+    assert!(edit.changed);
 }
 
 /// `e`'s change-on-blur snapshot, as the three cases tests distinguish.

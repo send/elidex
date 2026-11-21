@@ -6,19 +6,18 @@
 //! behavior", and "the user has changed the element's value … while the
 //! control was focused without committing that change (such that it is
 //! different to what it was when the control was first focused)". The spec is
-//! silent for `<textarea>`; it follows the same rule (plan
-//! `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md` D-4). §4.10.5.5
+//! silent for `<textarea>`; it follows the same rule (re-derivation
+//! `docs/plans/2026-11-change-on-blur-spec-rederivation.md` D-4). §4.10.5.5
 //! says `input` / `change` "are not fired in response to changes made to the
 //! values of form controls by scripts". The snapshot is stored **on the focused
 //! element** as an ECS component so it follows the canonical
 //! `ElementState::FOCUS` bit whichever path established focus (the shell UA
 //! transition or the VM's `HTMLElement.focus()`).
 //!
-//! The Population (the elements that carry the component) is chosen by the
-//! element, once, at the seed ([`record_focus_snapshot`]): every HTML `input`
-//! and `textarea` element. The kind (the `type` state) is read only at focus
-//! loss, by [`take_change_on_blur`] through `change_on_blur_kind_applies`, so
-//! no write chooses by kind. The component holds one thing: the baseline the
+//! The Population (the elements that carry the component) is chosen once, by
+//! the element, at the seed: see [`record_focus_snapshot`]. The kind (the `type`
+//! state) is read only at focus loss, by [`take_change_on_blur`] through
+//! `change_on_blur_kind_applies`, so no write chooses by kind. The component holds one thing: the baseline the
 //! blur compares against, `None` until the first user value change since focus,
 //! which stores the value just before it. `Some` is therefore also the
 //! provenance mark. Only [`crate::apply_user_edit`] sets it; no non-user writer
@@ -27,7 +26,7 @@
 //! The blur's verdict is computed in one place, [`take_change_on_blur`]; every
 //! focus sink calls it and only dispatches `change`.
 
-use elidex_ecs::{EcsDom, Entity, TagType};
+use elidex_ecs::{EcsDom, Entity};
 
 use crate::{FormControlKind, FormControlState};
 
@@ -63,12 +62,11 @@ impl FocusValueSnapshot {
 /// seeded component yields `change` is decided at focus loss, by the kind then
 /// (see [`take_change_on_blur`]).
 pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
-    let is_input_or_textarea = dom.is_html_namespace(entity)
-        && dom
-            .world()
-            .get::<&TagType>(entity)
-            .is_ok_and(|tag| matches!(tag.0.as_str(), "input" | "textarea"));
-    if is_input_or_textarea && dom.world().get::<&FormControlState>(entity).is_ok() {
+    // Cheapest exclusion first: most focused elements are not form controls.
+    if dom.world().get::<&FormControlState>(entity).is_ok()
+        && dom.is_html_namespace(entity)
+        && (dom.has_tag(entity, "input") || dom.has_tag(entity, "textarea"))
+    {
         let _ = dom.world_mut().insert_one(entity, FocusValueSnapshot(None));
     }
 }
@@ -124,7 +122,7 @@ fn change_on_blur_kind_applies(kind: FormControlKind) -> bool {
         | FormControlKind::Number
         | FormControlKind::Range => true,
         // The `<textarea>` element: the spec states no `change` rule for it
-        // (re-derivation PE-2); it follows the text states (plan D-4). Also the
+        // (re-derivation PE-2); it follows the text states (re-derivation D-4). Also the
         // kind an `<input type=textarea>` maps to (Text state by QB-3): same
         // answer.
         FormControlKind::TextArea => true,
@@ -176,20 +174,13 @@ pub fn take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{attached_element, control, snap, Snap};
-    use crate::{apply_user_edit, FormControlKind, FormControlState};
+    use crate::test_support::{attached_element, control, snap, user_append, Snap};
 
     fn set_value(dom: &mut EcsDom, e: Entity, value: &str) {
         dom.world_mut()
             .get::<&mut FormControlState>(e)
             .unwrap()
             .set_value(value.to_string());
-    }
-
-    /// A user edit that appends `text`.
-    fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
-        let edit = apply_user_edit(dom, e, |f| f.insert_at_cursor(text)).unwrap();
-        assert!(edit.changed);
     }
 
     /// C7 (a): a seed is unmarked (no baseline).
@@ -286,67 +277,90 @@ mod tests {
         assert_eq!(snap(&dom, input), Snap::Baseline("x".to_string()));
     }
 
-    /// Every [`FormControlKind`]. `expected_applies`' exhaustive `match`
-    /// (no wildcard) fails to compile when a variant is added, which forces this
-    /// list to be extended with it.
-    const ALL_KINDS: [FormControlKind; 26] = [
-        FormControlKind::TextInput,
-        FormControlKind::Password,
-        FormControlKind::Checkbox,
-        FormControlKind::Radio,
-        FormControlKind::SubmitButton,
-        FormControlKind::ResetButton,
-        FormControlKind::Button,
-        FormControlKind::TextArea,
-        FormControlKind::Select,
-        FormControlKind::Email,
-        FormControlKind::Url,
-        FormControlKind::Tel,
-        FormControlKind::Search,
-        FormControlKind::Number,
-        FormControlKind::Range,
-        FormControlKind::Color,
-        FormControlKind::Date,
-        FormControlKind::DatetimeLocal,
-        FormControlKind::Time,
-        FormControlKind::Week,
-        FormControlKind::Month,
-        FormControlKind::File,
-        FormControlKind::Hidden,
-        FormControlKind::Output,
-        FormControlKind::Meter,
-        FormControlKind::Progress,
-    ];
+    /// The plan §4.4 truth table: one row per [`FormControlKind`], with the
+    /// spec ground of the expected verdict, stated independently of
+    /// `change_on_blur_kind_applies`. Coverage of a new variant is a compile-time
+    /// fact: [`row`] is an exhaustive `match` (no wildcard), so a new variant
+    /// fails to compile until it is given a row index, and
+    /// `truth_table_rows_are_indexed_by_row` checks that index points at the
+    /// variant's own row.
+    const TRUTH_TABLE: [(FormControlKind, bool); 26] = {
+        use FormControlKind as K;
+        [
+            // QB-2 + R-2: the events apply, no input activation behavior.
+            (K::TextInput, true),
+            (K::Search, true),
+            (K::Tel, true),
+            (K::Url, true),
+            (K::Email, true),
+            (K::Password, true),
+            (K::Date, true),
+            (K::Month, true),
+            (K::Week, true),
+            (K::Time, true),
+            (K::DatetimeLocal, true),
+            (K::Number, true),
+            (K::Range, true),
+            // D-4: `<textarea>` follows the text states.
+            (K::TextArea, true),
+            // QB-2 + R-2: the events apply, but an input activation behavior is
+            // defined.
+            (K::Checkbox, false),
+            (K::Radio, false),
+            (K::File, false),
+            (K::Color, false),
+            // QB-1: the events do not apply.
+            (K::Hidden, false),
+            (K::SubmitButton, false),
+            (K::ResetButton, false),
+            (K::Button, false),
+            // O-B1: not `input` states.
+            (K::Select, false),
+            (K::Output, false),
+            (K::Meter, false),
+            (K::Progress, false),
+        ]
+    };
 
-    /// The plan §4.4 truth table, restated from the spec's per-state lines
-    /// (QB-1 / QB-2 and R-2; D-4 for `TextArea`) independently of
-    /// `change_on_blur_kind_applies`.
-    #[allow(clippy::match_same_arms)] // one arm per spec ground, as in the predicate
-    fn expected_applies(kind: FormControlKind) -> bool {
+    /// `kind`'s row in [`TRUTH_TABLE`]. Exhaustive, no wildcard.
+    const fn row(kind: FormControlKind) -> usize {
         use FormControlKind as K;
         match kind {
-            // events apply, no activation behavior
-            K::TextInput
-            | K::Search
-            | K::Tel
-            | K::Url
-            | K::Email
-            | K::Password
-            | K::Date
-            | K::Month
-            | K::Week
-            | K::Time
-            | K::DatetimeLocal
-            | K::Number
-            | K::Range => true,
-            // D-4
-            K::TextArea => true,
-            // events apply, but an input activation behavior is defined
-            K::Checkbox | K::Radio | K::File | K::Color => false,
-            // events do not apply
-            K::Hidden | K::SubmitButton | K::ResetButton | K::Button => false,
-            // not input states
-            K::Select | K::Output | K::Meter | K::Progress => false,
+            K::TextInput => 0,
+            K::Search => 1,
+            K::Tel => 2,
+            K::Url => 3,
+            K::Email => 4,
+            K::Password => 5,
+            K::Date => 6,
+            K::Month => 7,
+            K::Week => 8,
+            K::Time => 9,
+            K::DatetimeLocal => 10,
+            K::Number => 11,
+            K::Range => 12,
+            K::TextArea => 13,
+            K::Checkbox => 14,
+            K::Radio => 15,
+            K::File => 16,
+            K::Color => 17,
+            K::Hidden => 18,
+            K::SubmitButton => 19,
+            K::ResetButton => 20,
+            K::Button => 21,
+            K::Select => 22,
+            K::Output => 23,
+            K::Meter => 24,
+            K::Progress => 25,
+        }
+    }
+
+    /// Every table row sits at its kind's [`row`] index; with `row` exhaustive
+    /// and injective over the table length, each variant has exactly one row.
+    #[test]
+    fn truth_table_rows_are_indexed_by_row() {
+        for (i, (kind, _)) in TRUTH_TABLE.iter().enumerate() {
+            assert_eq!(row(*kind), i, "{kind:?} is not at its row index");
         }
     }
 
@@ -354,7 +368,7 @@ mod tests {
     /// every kind (the population is the element, not the kind).
     #[test]
     fn seed_writes_every_input_kind() {
-        for kind in ALL_KINDS {
+        for (kind, _) in TRUTH_TABLE {
             let mut dom = EcsDom::new();
             let input = control(&mut dom, kind, "v");
             record_focus_snapshot(&mut dom, input);
@@ -366,7 +380,7 @@ mod tests {
     #[test]
     fn seed_writes_textarea() {
         let mut dom = EcsDom::new();
-        let ta = attached_element(&mut dom, "textarea");
+        let ta = attached_element(&mut dom, "textarea", &[]);
         record_focus_snapshot(&mut dom, ta);
         assert_eq!(snap(&dom, ta), Snap::Unmarked);
     }
@@ -378,11 +392,11 @@ mod tests {
     fn seed_writes_nothing_for_non_population() {
         for tag in ["select", "button", "output", "meter", "progress"] {
             let mut dom = EcsDom::new();
-            let fresh = attached_element(&mut dom, tag);
+            let fresh = attached_element(&mut dom, tag, &[]);
             record_focus_snapshot(&mut dom, fresh);
             assert_eq!(snap(&dom, fresh), Snap::Absent, "<{tag}>: no insert");
 
-            let marked = attached_element(&mut dom, tag);
+            let marked = attached_element(&mut dom, tag, &[]);
             dom.world_mut()
                 .insert_one(marked, FocusValueSnapshot(Some("kept".to_string())))
                 .unwrap();
@@ -398,12 +412,8 @@ mod tests {
     /// PB-4: `change_on_blur_kind_applies` over every kind (§4.4).
     #[test]
     fn kind_predicate_truth_table() {
-        for kind in ALL_KINDS {
-            assert_eq!(
-                change_on_blur_kind_applies(kind),
-                expected_applies(kind),
-                "{kind:?}"
-            );
+        for (kind, expected) in TRUTH_TABLE {
+            assert_eq!(change_on_blur_kind_applies(kind), expected, "{kind:?}");
         }
     }
 
