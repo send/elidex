@@ -388,7 +388,7 @@ fn native_xml_serializer_serialize_to_string(
     // than serializing "". `NodeKind::is_node()` is false for Window / Worker /
     // OffscreenCanvas — mirrors `node_proto::require_node_arg` /
     // `dom_bridge.rs` Node-argument coercion.
-    if !matches!(dom.node_kind_inferred(entity), Some(k) if k.is_node()) {
+    if !matches!(dom.node_kind(entity), Some(k) if k.is_node()) {
         return Err(VmError::type_error(
             "Failed to execute 'serializeToString' on 'XMLSerializer': \
              parameter 1 is not of type 'Node'.",

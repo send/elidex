@@ -203,7 +203,7 @@ fn element_siblings_skip_non_elements() {
 fn element_walkers_agree_with_is_element_on_node_kind_only_entity() {
     // Regression for the predicate-alignment gap surfaced by PR #203
     // R2: `first/last_element_child` and `next/prev_element_sibling`
-    // must use `EcsDom::is_element` (NodeKind-first, TagType fallback)
+    // must use `EcsDom::is_element` (reads `NodeKind` only)
     // so they cannot disagree with `child_element_count` / `is_element`
     // on an entity that carries `NodeKind::Element` without `TagType`.
     let mut dom = EcsDom::new();

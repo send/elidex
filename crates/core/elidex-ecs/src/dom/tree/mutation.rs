@@ -251,14 +251,14 @@ impl EcsDom {
     /// and only Nodes carry a node document (a Window / Worker entity is never
     /// stamped), so this is a debug assertion, not a check.
     pub fn adopt(&mut self, node: Entity, document: Entity) {
-        debug_assert!(
-            self.node_kind(node)
-                .is_none_or(|kind| kind.is_node() && kind != NodeKind::Document),
-            "adopt: only a non-Document Node can be adopted (callers reject the rest first)"
-        );
         if !self.contains(node) || !self.is_live_document(document) {
             return;
         }
+        debug_assert!(
+            self.node_kind(node)
+                .is_some_and(|kind| kind.is_node() && kind != NodeKind::Document),
+            "adopt: only a non-Document Node can be adopted (callers reject the rest first)"
+        );
         self.adopt_into(node, Some(document), None);
     }
 
@@ -453,6 +453,10 @@ impl EcsDom {
         prev: Option<Entity>,
         next: Option<Entity>,
     ) {
+        debug_assert!(
+            self.node_kind(node).is_some(),
+            "link_node: invariant violated — a tree child must carry a NodeKind (spawn nodes via the creators / spawn_node(kind, ..))"
+        );
         self.update_rel(node, |rel| {
             rel.parent = Some(parent);
             rel.prev_sibling = prev;

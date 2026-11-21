@@ -151,19 +151,27 @@ impl DomApiHandler for CloneNode {
         }
 
         let deep = matches!(args.first(), Some(JsValue::Bool(true)));
-        // ECS cloners return `None` only when `this` no longer exists
-        // in the world (per their `#[must_use]` contract), so map that
-        // to NotFoundError rather than NotSupportedError.
+        // ECS cloners return `None` when `this` no longer exists in the
+        // world or is not a node (no `NodeKind`) (per their `#[must_use]`
+        // contract), so map that to NotFoundError rather than
+        // NotSupportedError.
         let Some(cloned) = clone_node_with_shadow_honor(this, dom, deep) else {
             return Err(DomApiError {
                 kind: DomApiErrorKind::NotFoundError,
-                message: "cloneNode: source entity does not exist".into(),
+                message: "cloneNode: source is not a live node".into(),
             });
         };
 
-        let kind = dom
-            .node_kind(cloned)
-            .map_or(ComponentKind::Element, ComponentKind::from_node_kind);
+        // A clone always copies its source's `NodeKind`, so a missing kind
+        // is unreachable; report it like the source check rather than
+        // guessing a kind.
+        let Some(cloned_kind) = dom.node_kind(cloned) else {
+            return Err(DomApiError {
+                kind: DomApiErrorKind::NotFoundError,
+                message: "cloneNode: source is not a live node".into(),
+            });
+        };
+        let kind = ComponentKind::from_node_kind(cloned_kind);
         let obj_ref = session.get_or_create_wrapper(cloned, kind);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
@@ -228,10 +236,10 @@ impl DomApiHandler for CloneNode {
 /// the custom-element and form-control consumers run their clone-time passes
 /// at dispatch, before this returns.
 ///
-/// Returns `None` only when `src` does not exist in the ECS — matching
-/// the `clone_subtree` / `clone_node_shallow` contract so the caller
-/// can map that to `NotFoundError` once at the boundary.
-#[must_use = "returns None when src does not exist"]
+/// Returns `None` when `src` does not exist in the ECS or is not a node (no
+/// `NodeKind`) — matching the `clone_subtree` / `clone_node_shallow` contract
+/// so the caller can map that to `NotFoundError` once at the boundary.
+#[must_use = "returns None when src does not exist or is not a node (no NodeKind)"]
 pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -> Option<Entity> {
     let mut pairs: Vec<(Entity, Entity)> = Vec::new();
     // DOM §4.4 *clone a node*'s document (default: node's node document,

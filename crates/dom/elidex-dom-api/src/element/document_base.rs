@@ -225,7 +225,7 @@ pub fn initialize_base_url_for_document(dom: &mut EcsDom, doc: Entity, fallback:
 /// codepath that cannot legitimately change a document base URL.
 fn in_document_light_tree(dom: &EcsDom, entity: Entity) -> bool {
     matches!(
-        dom.node_kind_inferred(dom.find_tree_root(entity)),
+        dom.node_kind(dom.find_tree_root(entity)),
         Some(NodeKind::Document)
     )
 }

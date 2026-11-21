@@ -37,17 +37,6 @@ fn nodes_equal_deep_tree_no_overflow() {
 }
 
 #[test]
-fn nodes_equal_legacy_kind_inferred_distinguishes_payloads() {
-    // Two legacy entities (no `NodeKind` component) carrying
-    // different payload kinds must NOT compare equal — the
-    // `node_kind_inferred` fallback drives this.
-    let mut dom = EcsDom::new();
-    let text_legacy = dom.world_mut().spawn((TextContent("hi".into()),));
-    let comment_legacy = dom.world_mut().spawn((CommentData("hi".into()),));
-    assert!(!dom.nodes_equal(text_legacy, comment_legacy));
-}
-
-#[test]
 fn nodes_equal_per_kind_branches() {
     let mut dom = EcsDom::new();
     // Element: same tag + same attrs (order-independent) -> equal
@@ -142,7 +131,7 @@ fn nodes_equal_attribute_missing_attrdata_returns_false() {
 fn nodes_equal_non_dom_entities_return_false() {
     // Pin Copilot R1 vLFr second leg: two bare entities without a
     // NodeKind component or DOM payload must NOT compare equal —
-    // node_kind_inferred returns None for both, and the per-kind
+    // node_kind is None for both, and the per-kind
     // arms would otherwise no-op into a vacuous true.
     let mut dom = EcsDom::new();
     let bare_a = dom.world_mut().spawn(());
