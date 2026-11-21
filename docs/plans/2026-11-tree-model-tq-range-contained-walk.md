@@ -3,7 +3,7 @@
 **Revision log.** R1 fixes F1–F12 (plan-review R1, 0/5/9/8). R1.2: Step 4.5 re-check fixes G1–G8, G11 (0/2/10/0);
 P-5 → precondition on tsel (PM 884/885). R1.3: final re-check fixes H1–H8 (0/2/8/0), PM 890 (tsel scope = Selection
 tree preconditions; P-6 probe before the code PR). R1.4: R1.3 re-check MINs (A2 ×3, A5 ×1) + orphan splitText
-probe DoD (PM 11-21).
+probe DoD (PM 11-21); raw-cache marker on every Selection API quote (PM 896).
 
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
@@ -128,8 +128,8 @@ LINK and MO of the same table. One line each, for this slice only:
 | WHATWG DOM §4.2.3 Mutation algorithms | *remove* step 16 (queue a tree mutation record for parent with « node ») | reached only for nodes in *nodesToRemove* | `apply_remove_child` (`child_list.rs:356`), unchanged; no longer called with a shadow root from Range | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | `shadowRoot` getter step 2 | "If shadow is null or its mode is \"closed\", then return null." | none (what probe P1's record breaks: it hands page script the closed root) | ✓ | yes |
 | WHATWG DOM §1.1 Trees | *root*: "The root of an object is itself, if its parent is null, or else it is the root of its parent." | the parent chain of a shadow-tree node ends at the shadow root (a shadow root has a null parent in the node tree), so its root is the shadow root | none (what *contained*'s root clause reads; elidex's `find_tree_root` stops at the `ShadowRoot` marker, `crates/core/elidex-ecs/src/dom/tree/walkers.rs:408-426`) | ✓ | yes |
-| SELECTION API §3 Selection interface | `deleteFromDocument()`: "The method must invoke deleteContents() on this's range if this is not empty and both focus and anchor are in the document tree. Otherwise the method must do nothing." | empty → nothing; non-empty × anchor and focus both in the document tree → `deleteContents()` on the range; non-empty × either not in the document tree → nothing | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`) | ✗ (the "both in the document tree" check is absent at base: elidex runs `deleteContents()` whenever the selection has a range (`selection.rs:518-533`); the prereq slice `tsel` takes it: its one declared change, "Selection operations check the spec's tree preconditions" (PM 890), covers the boundary setters (PM 885) and this check, §11 P-5. The cells of §7 are all in the "both in the document tree" branch) | yes |
-| SELECTION API §3 Selection interface | stringifier: "The stringification must return the string, which is the concatenation of the rendered text if there is a range associated with this." | rangeCount 0 / 1 | `SelectionState` `to_string` (`selection.rs:580`, → `Range::to_string` `:585`) | ✗ ("rendered text" is not defined in Selection API and not linked to a definition, so rank (1) does not fix the string for a range over a host; P4 / V5's values are rank (2): see below) | yes |
+| SELECTION API §3 Selection interface | `deleteFromDocument()`: "The method must invoke deleteContents() on this's range if this is not empty and both focus and anchor are in the document tree. Otherwise the method must do nothing." (webref 外 (raw cache, selection-api 2026-06-11)) | empty → nothing; non-empty × anchor and focus both in the document tree → `deleteContents()` on the range; non-empty × either not in the document tree → nothing | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`) | ✗ (the "both in the document tree" check is absent at base: elidex runs `deleteContents()` whenever the selection has a range (`selection.rs:518-533`); the prereq slice `tsel` takes it: its one declared change, "Selection operations check the spec's tree preconditions" (PM 890), covers the boundary setters (PM 885) and this check, §11 P-5. The cells of §7 are all in the "both in the document tree" branch) | yes |
+| SELECTION API §3 Selection interface | stringifier: "The stringification must return the string, which is the concatenation of the rendered text if there is a range associated with this." (webref 外 (raw cache, selection-api 2026-06-11)) | rangeCount 0 / 1 | `SelectionState` `to_string` (`selection.rs:580`, → `Range::to_string` `:585`) | ✗ ("rendered text" is not defined in Selection API and not linked to a definition, so rank (1) does not fix the string for a range over a host; P4 / V5's values are rank (2): see below) | yes |
 
 **Lookups** (all `.claude/tools/webref`, 2026-11-21): `heading dom 5.6` → §5.6 Interface Range `#interface-range`
 (the Range code's comments say "§5.5", but `heading dom 5.5` → §5.5 Interface StaticRange; see §11 P-3); `dfn dom contained` → §5.6 `#contained`; `dfn dom 'partially contained'` →
@@ -142,20 +142,22 @@ dom dom-element-shadowroot`; `dfn dom root` → §1.1 Trees `#concept-tree-root`
 `dfn selection-api deleteFromDocument` → §3 Selection interface `#dom-selection-deletefromdocument`; `dfn
 selection-api stringifier` → §3 `#dom-selection-stringifier`; `heading selection-api 3` → §3 Selection interface
 `#selection-interface`; `coverage-map dom 5.6 dom 1.1 dom 4.2.2 dom 4.2.3 dom 4.9 selection-api 3` → spec=2, single
-PR. The two Selection API quotes are not from `webref body`: `webref body selection-api
+PR. The Selection API quotes of this memo (the two rows above, and the `setBaseAndExtent()` step quoted in §7 and
+§11 P-5) are not from `webref body`: `webref body selection-api
 dom-selection-deletefromdocument` and `... dom-selection-stringifier` both answer "anchor … not encountered" (the
 rendered ReSpec page does not carry the ids its dfns index points at; a webref limit, for the PM / CI/tools). They
 are read from webref's own cached ReSpec source of the spec
 (`~/.cache/elidex-webref/c0d97c3dfdf1cb8a59fa73f678d007b67d8cef81`, `https://w3c.github.io/selection-api/`,
-last-modified 2026-06-11), the `<dfn>deleteFromDocument()</dfn>` and `<dfn>stringifier</dfn>` entries, markup
-stripped.
+last-modified 2026-06-11), the `<dfn>deleteFromDocument()</dfn>`, `<dfn>stringifier</dfn>` and
+`<dfn>setBaseAndExtent()</dfn>` entries, markup stripped (re-read 2026-11-21). Every quote taken from this cache file carries the marker "webref 外 (raw cache, selection-api
+2026-06-11)" at its site (PM 896).
 
 **Rank of the Selection string values (P4a/b/c, V5).** Derived by the basis order of CLAUDE.md (*Design philosophy*,
 the 至上命題 bullet, verbatim):
 
 > 根拠の順位: (1) 仕様 → (2) 仕様が沈黙なら「ECS ベースのブラウザとしてどうあるべきか」(本節の原則) → (3) それでも決まらない時だけ既存ブラウザの実測を「証拠」として記録。
 
-1. **Spec.** Selection API §3's stringifier says "the concatenation of the rendered text"; "rendered text" is not
+1. **Spec.** Selection API §3's stringifier says "the concatenation of the rendered text" (webref 外 (raw cache, selection-api 2026-06-11)); "rendered text" is not
    defined in Selection API and is not linked to a definition. HTML §3.2.7 The innerText and outerText properties
    has *rendered text collection steps* (`webref dfn html 'rendered text collection steps'` → §3.2.7
    `#rendered-text-collection-steps`, 2026-11-21), but Selection API does not reference it. Read literally
@@ -447,7 +449,7 @@ Where each cell's expected value comes from:
   another root ("If range's root is not node's root …"); the collapsed range's string is `""` by the
   stringification's step 2 (start node is end node, a Text node: the substring from the start offset to the equal
   end offset), and the Selection stringifier's "rendered text" of a collapsed range is empty on any reading of that
-  undefined term. Where it collapses is uncertain: step 5 branches on "anchor is before focus", and DOM's *position* of
+  undefined term. Where it collapses is uncertain: step 5 branches on "anchor is before focus" (webref 外 (raw cache, selection-api 2026-06-11)), and DOM's *position* of
   a boundary point asserts the two nodes have the same root (WHATWG DOM §5.2 `#concept-range-bp-position` step 1),
   so it is undefined across roots; the "before" branch collapses at `(st, 3)`, the other at `(pre, 1)`. The
   asserted `""` holds on either branch. Which branch elidex takes is `tsel`'s, not this memo's.
@@ -645,7 +647,7 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   node document); of these only `extend` and `set_base_and_extent` write the two boundaries with two different
   nodes, so only they can give a range two roots (§4.2, the write-path table and its hit list); and `range_proto_mutation.rs:159-160` (a collapsed transient for `insertNode`, one node, so one
   root). Selection API §3 `extend()` step 5 collapses on a root mismatch, and `setBaseAndExtent()` step 5 "set the
-  start"s through DOM's *set the start or end* (WHATWG DOM §5.6 `#concept-range-bp-set` step 4: "If range's root
+  start"s (webref 外 (raw cache, selection-api 2026-06-11)) through DOM's *set the start or end* (WHATWG DOM §5.6 `#concept-range-bp-set` step 4: "If range's root
   is not node's root …", `webref body dom concept-range-bp-set`), which collapses too; elidex does neither. So a Selection range can
   span two roots, and `tq` changes its output. Probed at `3cbd5b88` (temporary VM test, removed, `git status`
   clean; rustc 1.99.1; tree `body` = [`pre` "pre", `h`, `post` "post", `p` "TAIL"], `h` closed shadow root holding
@@ -664,7 +666,7 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   **Precondition (PM 884 / 885; scope worded by PM 890).** `tq` lands after the prereq slice **`tsel`**, slot
   `#11-selection-boundary-setter-skips-root-check`, whose one declared change is "Selection operations check the
   spec's tree preconditions" (PM 890): the boundary setters' preconditions (PM 885) and `deleteFromDocument`'s "both
-  focus and anchor are in the document tree" check (§3, the `deleteFromDocument()` row). PM 890 folds the slot
+  focus and anchor are in the document tree" (webref 外 (raw cache, selection-api 2026-06-11)) check (§3, the `deleteFromDocument()` row). PM 890 folds the slot
   `#11-selection-document-membership` into `tsel`. Its design
   is `tsel`'s own plan, not this memo's. Order: tp → `tsel` → `tq` → ta (in the form of umbrella §5.1's order;
   the umbrella's order erratum is carried by `tsel`'s plan PR, not by this one). `tq`'s dependency on it is one cell
