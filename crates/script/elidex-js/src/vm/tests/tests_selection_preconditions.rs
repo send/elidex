@@ -16,10 +16,7 @@
 #![cfg(feature = "engine")]
 #![allow(unsafe_code)]
 
-use elidex_ecs::EcsDom;
-use elidex_script_session::SessionCore;
-
-use super::super::test_helpers::{bind_vm, eval_num, eval_str};
+use super::super::test_helpers::{bind_vm, eval_num, eval_str, with_bound_vm};
 use super::super::Vm;
 
 /// The tree: `L` (the document element) > (`pre` text "pre", `H`, `post`
@@ -49,14 +46,14 @@ const SETUP: &str = "globalThis.L = document.createElement('div');\
      globalThis.thr = function(f) { try { f(); return 'none'; } catch (e) { return e.name; } };";
 
 fn with_tree(body: impl FnOnce(&mut Vm)) {
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_vm(&mut vm, &mut session, &mut dom, doc) };
-    vm.eval(SETUP).unwrap();
-    body(&mut vm);
-    vm.unbind();
+    with_bound_vm(
+        |vm, session, dom, doc| {
+            // SAFETY: `with_bound_vm` keeps `session` / `dom` live until its guard unbinds.
+            unsafe { bind_vm(vm, session, dom, doc) };
+            vm.eval(SETUP).unwrap();
+        },
+        body,
+    );
 }
 
 /// `String(expr)`.

@@ -180,7 +180,10 @@ impl SelectionState {
         dom: &EcsDom,
         owner_document: Entity,
     ) -> u32 {
-        u32::from(self.anchor_and_focus_in_document_tree(registry, dom, owner_document))
+        u32::from(
+            self.range_in_document_tree(registry, dom, owner_document)
+                .is_some(),
+        )
     }
 
     /// `true` when there is no current range.
@@ -210,12 +213,9 @@ impl SelectionState {
         dom: &EcsDom,
         owner_document: Entity,
     ) -> SelectionType {
-        let Some(id) = self.active_range_id else {
+        let Some(id) = self.range_in_document_tree(registry, dom, owner_document) else {
             return SelectionType::None;
         };
-        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
-            return SelectionType::None;
-        }
         let collapsed = registry
             .with_range(id, dom, |range, _| range.collapsed())
             .unwrap_or(true);
@@ -307,22 +307,21 @@ impl SelectionState {
     /// `deleteFromDocument()`; paraphrased): this is not empty and both
     /// anchor and focus are in the document tree, read as the associated
     /// document's tree (tsel plan §0.5, rung 2). The one home of that
-    /// condition.
-    fn anchor_and_focus_in_document_tree(
+    /// condition; returns the current range's id when it holds, else `None`.
+    fn range_in_document_tree(
         &self,
         registry: &mut LiveRangeRegistry,
         dom: &EcsDom,
         owner_document: Entity,
-    ) -> bool {
-        let Some(id) = self.active_range_id else {
-            return false;
-        };
+    ) -> Option<RangeId> {
+        let id = self.active_range_id?;
         registry
             .with_range(id, dom, |range, dom| {
                 root_is_document(range.start_container, owner_document, dom)
                     && root_is_document(range.end_container, owner_document, dom)
             })
             .unwrap_or(false)
+            .then_some(id)
     }
 
     /// `Selection.collapse(node, offset)` per Selection API §3 (`setPosition`
@@ -436,12 +435,15 @@ impl SelectionState {
         }
         // Capture the current anchor BEFORE allocating any new range so
         // we keep the pre-extend boundary semantics.
-        let (anchor_node, anchor_offset) = self
-            .anchor(registry, dom)
-            .ok_or(SelectionError::InvalidState)?;
-        let range_root = registry
+        let direction = self.direction;
+        let ((anchor_node, anchor_offset), range_root) = registry
             .with_range(id, dom, |range, dom| {
-                dom.find_tree_root(range.start_container)
+                let anchor = if matches!(direction, SelectionDirection::Backward) {
+                    (range.end_container, range.end_offset)
+                } else {
+                    (range.start_container, range.start_offset)
+                };
+                (anchor, dom.find_tree_root(range.start_container))
             })
             .ok_or(SelectionError::InvalidState)?;
         let new_direction = direction_between(anchor_node, anchor_offset, node, offset, dom);
@@ -580,7 +582,10 @@ impl SelectionState {
         if !rooted {
             return false;
         }
-        if self.range_count(registry, dom, owner_document) != 0 {
+        if self
+            .range_in_document_tree(registry, dom, owner_document)
+            .is_some()
+        {
             return false;
         }
         self.active_range_id = Some(range_id);
@@ -643,10 +648,7 @@ impl SelectionState {
         dom: &mut EcsDom,
         owner_document: Entity,
     ) -> Option<Vec<MutationRecord>> {
-        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
-            return None;
-        }
-        let id = self.active_range_id?;
+        let id = self.range_in_document_tree(registry, dom, owner_document)?;
         // `with_range_mut` would need `&mut EcsDom` to call
         // `delete_contents` from inside the closure, but `with_range_mut`'s
         // closure receives `&EcsDom`. Clone the boundary state out under
@@ -686,10 +688,8 @@ impl SelectionState {
         if index != 0 {
             return Err(SelectionError::OutOfRange);
         }
-        if !self.anchor_and_focus_in_document_tree(registry, dom, owner_document) {
-            return Err(SelectionError::OutOfRange);
-        }
-        self.active_range_id.ok_or(SelectionError::OutOfRange)
+        self.range_in_document_tree(registry, dom, owner_document)
+            .ok_or(SelectionError::OutOfRange)
     }
 
     /// `Selection.containsNode(node, allowPartialContainment)` per
