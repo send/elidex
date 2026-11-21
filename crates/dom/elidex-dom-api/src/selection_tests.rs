@@ -191,8 +191,10 @@ fn set_base_and_extent_collapsed_is_directionless() {
     let p = elem_in(&mut dom, "p", doc);
     let _ = dom.append_child(doc, p);
     let mut sel = SelectionState::new();
-    sel.set_base_and_extent(&mut reg, &dom, doc, p, 0, p, 0)
-        .unwrap();
+    assert_eq!(
+        sel.set_base_and_extent(&mut reg, &dom, doc, p, 0, p, 0),
+        Ok(true)
+    );
     assert!(sel.is_collapsed(&mut reg, &dom));
     assert_eq!(
         sel.current_direction(&mut reg, &dom),
@@ -300,7 +302,8 @@ fn remove_all_ranges_empties() {
     let p = elem_in(&mut dom, "p", doc);
     let _ = dom.append_child(doc, p);
     let mut sel = SelectionState::new();
-    sel.collapse(&mut reg, &dom, doc, p, 0).unwrap();
+    assert_eq!(sel.collapse(&mut reg, &dom, doc, p, 0), Ok(true));
+    assert!(!sel.is_empty());
     sel.remove_all_ranges();
     assert!(sel.is_empty());
 }
@@ -311,7 +314,8 @@ fn empty_is_alias_of_remove_all_ranges() {
     let p = elem_in(&mut dom, "p", doc);
     let _ = dom.append_child(doc, p);
     let mut sel = SelectionState::new();
-    sel.collapse(&mut reg, &dom, doc, p, 0).unwrap();
+    assert_eq!(sel.collapse(&mut reg, &dom, doc, p, 0), Ok(true));
+    assert!(!sel.is_empty());
     sel.empty();
     assert!(sel.is_empty());
 }
@@ -340,7 +344,7 @@ fn contains_node_cross_document_false() {
     let foreign = elem_in(&mut dom, "span", other_doc);
     let _ = dom.append_child(other_doc, foreign);
     let mut sel = SelectionState::new();
-    sel.collapse(&mut reg, &dom, doc, p, 0).unwrap();
+    assert_eq!(sel.collapse(&mut reg, &dom, doc, p, 0), Ok(true));
     assert!(
         !sel.contains_node(&mut reg, &dom, doc, foreign, false),
         "cross-doc must return false, not throw"
@@ -539,6 +543,27 @@ fn add_range_not_rooted_at_document_aborts() {
     let ok = register_range(&mut t.reg, &t.dom, t.pre, 0, 2);
     assert!(sel.add_range(&mut t.reg, &t.dom, t.doc, ok));
     assert_eq!(sel.current_range_id(), Some(ok));
+}
+
+/// Selection API `addRange()` step 1 reads the root of BOTH boundary points:
+/// a registered Range whose start is in the document and end in a shadow
+/// tree (reachable through a shadow-root child moved out, which the
+/// adjustment skips) is aborted, and the selection stays empty.
+#[test]
+fn add_range_two_root_range_aborts() {
+    let mut t = tree();
+    let id = register_range(&mut t.reg, &t.dom, t.pre, 0, 2);
+    t.reg
+        .with_range_mut(id, &t.dom, |r, _| r.set_end(t.st, 1))
+        .unwrap();
+    assert_eq!(
+        range_root(&mut t, id),
+        (t.doc, t.sr),
+        "two-root range set up"
+    );
+    let mut sel = SelectionState::new();
+    assert!(!sel.add_range(&mut t.reg, &t.dom, t.doc, id));
+    assert!(sel.is_empty());
 }
 
 #[test]

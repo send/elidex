@@ -101,11 +101,14 @@ impl SelectionDirection {
 /// time by [`SelectionState::selection_type`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionType {
-    /// `rangeCount == 0`.
+    /// `rangeCount == 0` (this is empty, or its range is not in the
+    /// document tree).
     None,
-    /// A range is set AND it is collapsed.
+    /// A range is set in the document tree AND it is collapsed
+    /// (`selection_type` returns `None` otherwise).
     Caret,
-    /// A range is set AND it is non-collapsed.
+    /// A range is set in the document tree AND it is non-collapsed
+    /// (`selection_type` returns `None` otherwise).
     Range,
 }
 
@@ -134,8 +137,7 @@ pub enum SelectionError {
     InvalidNodeType,
     /// `offset` exceeds `node`'s length per WHATWG DOM "length of a node".
     IndexSize,
-    /// Operation requires `rangeCount > 0` (Selection API §3.2 extend
-    /// step 1 / `getRangeAt(0)`).
+    /// This is empty (or the given range is not this's range).
     InvalidState,
     /// `getRangeAt(index)` with `index >= rangeCount`.
     OutOfRange,
@@ -245,7 +247,7 @@ impl SelectionState {
     /// document", §2); the `anchorNode` / `anchorOffset` attributes read
     /// [`Self::anchor_in_document_tree`] instead.
     ///
-    /// Per Selection API §3:
+    /// Per Selection API §2 Definition (anchor / focus):
     /// - `Forward` direction: anchor = range start, focus = range end.
     /// - `Backward` direction: anchor = range end, focus = range start.
     /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
@@ -323,8 +325,7 @@ impl SelectionState {
         let id = self.active_range_id?;
         registry
             .with_range(id, dom, |range, dom| {
-                root_is_document(range.start_container, owner_document, dom)
-                    && root_is_document(range.end_container, owner_document, dom)
+                range_roots_are_document(range, owner_document, dom)
             })
             .unwrap_or(false)
             .then_some(id)
@@ -371,8 +372,12 @@ impl SelectionState {
     /// `Selection.collapseToStart()` per Selection API §3 — collapses the
     /// existing range to its start boundary. Throws `InvalidStateError`
     /// when this is empty. Returns `Ok(true)` on every non-error path (the
-    /// range is replaced), so the VM-side caller keeps its unconditional
-    /// `selectionchange`.
+    /// existing range is collapsed in place), so the VM-side caller keeps
+    /// its unconditional `selectionchange`.
+    ///
+    /// Known deviation: the Selection API creates a new range and leaves
+    /// the old `Range` object unchanged; this mutates it in place. Tracked
+    /// with the PM (no slot id yet).
     pub fn collapse_to_start(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -391,7 +396,8 @@ impl SelectionState {
     /// `Selection.collapseToEnd()` per Selection API §3 — collapses the
     /// existing range to its end boundary. Throws `InvalidStateError` when
     /// this is empty. Returns `Ok(true)` on every non-error path, as
-    /// [`Self::collapse_to_start`].
+    /// [`Self::collapse_to_start`] (including the in-place collapse and its
+    /// known deviation from the spec's new range, tracked with the PM).
     pub fn collapse_to_end(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -416,8 +422,10 @@ impl SelectionState {
     /// steps 1-2, run by the writes of steps 5-7); `node`'s root is not the
     /// range's root → both points to `(node, offset)` (step 5); otherwise
     /// forward / backward through DOM *set the start* / *set the end*
-    /// (steps 6-7). Direction is `Forward` when the new focus does not
-    /// precede the anchor, `Backward` otherwise.
+    /// (steps 6-7). Direction is `Forward` when the new focus follows the
+    /// anchor, `Backward` when it precedes it, and `Directionless` when the
+    /// two points are equal (`direction_between`; the spec's step 8 differs,
+    /// tracked by slot `#11-selection-select-all-children-steps`).
     ///
     /// Returns `Ok(true)` when the range was replaced, `Ok(false)` on the
     /// step 1 abort.
@@ -579,7 +587,7 @@ impl SelectionState {
     ) -> bool {
         let rooted = registry
             .with_range(range_id, dom, |range, dom| {
-                root_is_document(range.start_container, owner_document, dom)
+                range_roots_are_document(range, owner_document, dom)
             })
             .unwrap_or(false);
         if !rooted {
@@ -597,7 +605,9 @@ impl SelectionState {
     }
 
     /// `Selection.removeRange(range)` per Selection API §3.
-    /// `InvalidStateError` when `range` is not the current range. Returns
+    /// `InvalidStateError` when `range` is not the current range. Known
+    /// deviation: the spec throws `NotFoundError` there; tracked with the
+    /// PM. Returns
     /// `Ok(true)` on every non-error path (the range is dissociated).
     pub fn remove_range(&mut self, range_id: RangeId) -> Result<bool, SelectionError> {
         match self.active_range_id {
@@ -771,17 +781,29 @@ fn direction_between(
     }
 }
 
+/// The one home of "both boundary roots of `range` are the associated
+/// document" (Selection API `addRange()` step 1; the document-tree gate of
+/// [`SelectionState::range_in_document_tree`]).
+fn range_roots_are_document(range: &Range, owner_document: Entity, dom: &EcsDom) -> bool {
+    root_is_document(range.start_container, owner_document, dom)
+        && root_is_document(range.end_container, owner_document, dom)
+}
+
 /// `true` when `node`'s `(parent, child_index)..(parent, child_index+1)`
 /// boundary points both lie within `range` — i.e. the entire node is
 /// covered. Used by `containsNode(node, allowPartialContainment=false)`.
 ///
-/// A node with no parent has only one boundary point (the document root)
-/// — we treat it as contained iff the range covers the whole root,
+/// A node with no parent (only the Document, after the root gate) is
+/// treated as contained iff both of the range's containers are that node.
+/// Earlier wording of this doc, which the code does not implement (known
+/// gap, tracked with the PM): contained iff the range covers the whole root,
 /// matching the conservative interpretation Chrome / Firefox use.
 fn node_fully_contained(range: &Range, node: Entity, dom: &EcsDom) -> bool {
     let Some(parent) = dom.get_parent(node) else {
-        // Detached node: contained only if it IS the range's
-        // start/end container (degenerate case).
+        // Parentless: after the root gate only the Document reaches
+        // here. Compares only the containers (both are `node`); it does
+        // not check that the range covers the whole root. Known gap,
+        // tracked with the PM.
         return range.start_container == node && range.end_container == node;
     };
     // Build a temporary range covering exactly `node` and compare both

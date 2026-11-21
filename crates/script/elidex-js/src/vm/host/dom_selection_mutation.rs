@@ -171,7 +171,9 @@ pub(super) fn native_selection_add_range(
     require_selection_receiver(ctx, this, "addRange")?;
     let range_id = arg_range(ctx, args.first().copied(), "addRange")?;
     // An unregistered id is the same "TypeError" as a non-Range argument.
-    {
+    // Unbound: skip the pre-check (HostData access would panic); the
+    // `mutate_selection` guard below throws like the other Selection natives.
+    if ctx.host_if_bound().is_some() {
         let host = ctx.host();
         let (dom, registry, _sel_slot) = host.split_dom_live_ranges_and_selection();
         if registry.with_range(range_id, dom, |_, _| ()).is_none() {

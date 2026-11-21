@@ -11,7 +11,9 @@
 //! "aborted" from "set outside the document tree" reads what has no clause:
 //! `isCollapsed`, `toString()`, and `collapseToStart()`, which throws
 //! "InvalidStateError" exactly when the selection is empty. Those cells call
-//! it last, since on a non-empty selection it replaces the range.
+//! it last, since on a non-empty selection it collapses the existing range
+//! in place (the Selection API creates a new range and leaves the old
+//! `Range` unchanged; that deviation is tracked with the PM).
 
 #![cfg(feature = "engine")]
 #![allow(unsafe_code)]
@@ -133,8 +135,34 @@ fn cross_root_set_base_and_extent_is_collapsed_and_empty() {
                 ),
                 "true"
             );
+            // Set (not empty): collapseToStart() does not throw.
+            assert_eq!(thrown(vm, "s.collapseToStart();"), "none", "{script}");
         });
     }
+}
+
+/// `addRange()` step 1 reads the root of BOTH boundary points. A shadow
+/// root's child moved out is not adjusted in the live ranges, so a
+/// registered Range can span the document and a shadow tree; it is aborted.
+#[test]
+fn add_range_two_root_range_aborts() {
+    with_tree(|vm| {
+        run(
+            vm,
+            "var host = document.createElement('div'); L.appendChild(host);\
+             var sr2 = host.attachShadow({mode: 'open'});\
+             var a = document.createElement('p'); a.appendChild(document.createTextNode('AAA'));\
+             var b = document.createElement('p'); b.appendChild(document.createTextNode('BBB'));\
+             sr2.appendChild(a); sr2.appendChild(b);\
+             var r = document.createRange();\
+             r.setStart(a.firstChild, 1); r.setEnd(b.firstChild, 2);\
+             document.documentElement.appendChild(a);\
+             s.addRange(r);",
+        );
+        assert_eq!(val(vm, "s.rangeCount"), "0");
+        assert_eq!(val(vm, "s.anchorNode"), "null");
+        assert_eq!(thrown(vm, "s.collapseToStart();"), "InvalidStateError");
+    });
 }
 
 #[test]
