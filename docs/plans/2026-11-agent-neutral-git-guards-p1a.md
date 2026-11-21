@@ -629,7 +629,7 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D29 | P1a | `ELIDEX_FMT_OK` must equal the staged tree | PM 893 (E22): an opt-out covers one commit |
 | D33 | P1a | `--check` is a standing PM-pass item, through the PM's own invocation; its row in `.claude/skills/pm/SKILL.md` §2 (§4.9) lands in P1a's diff | PM 893 (C9): hand-run git stays possible after P2; round 2 A5 MIN (in the PM procedure before P3); PM 908 (in P1a's diff) |
 | D38 | P1a | the bypass-guard patch (bypass-guard memo §4.8): the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
-| D39 | P1a | P1a break-glass: `--no-verify`, run by the user (own terminal, or `! <command>` in the PM session) from the commands and record line the PM prepares; recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
+| D39 | P1a | P1a break-glass: `--no-verify`, run by the user from the commands and record line the PM prepares (who acts: §7.4); recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
 | D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it imports the bypass guard's derivation and `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots) |
 
@@ -703,7 +703,8 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 **For the user, at A2** (PM 908). After A2, as before it, the bypass guard denies `--no-verify` to every Claude
 session, the PM's included. So when a broken hook on `origin/main` blocks its own fix (the push / commit
 break-glass, §7.4), you run the bypass — in your own terminal, or as `! <command>` in the PM session — from the exact
-commands and record line the PM gives you; no agent can run it.
+commands and record line the PM gives you; no agent can run it. Before A2, check the `! <command>` form once
+(§7.4, the unverified premise and its one-command check); until it passes, use your own terminal.
 
 **The pass-through (A4).** `git-push-branch-guard.sh` (`:24`) and `cargo-fmt-precommit.sh` (`:30`) gain one early
 exit, taken only when **every git segment** of the command passes both tests below; one segment that fails either
@@ -736,25 +737,34 @@ them to the user:
 | line | today | would become |
 |---|---|---|
 | `:13` | amend / force deny on flag text (inline jq) | the force half: the same elidex-scoped pass-through (pre-push II5 covers `-f` and `+<refspec>`); **the amend half stays everywhere** |
-| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. If adopted, break-glass (P1b memo §7.4) runs outside the Claude Bash tool, so no PostToolUse entry fires for it: its sync and cleanup are the PM's, by hand, as P1b memo §7.4 says |
+| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. Break-glass (P1b memo §7.4) is unchanged by either form: the user runs it outside the Claude Bash tool, and its sync and cleanup are in the commands the PM prepares |
 | `:42` | delete-branch worktree guard | in elidex, inert once raw merges are denied (`merge-pr` writes `--delete-branch=false`); kept as is under the adapter form |
 | `:136`, `:142` | PostToolUse sync / cleanup | unchanged entries; the scripts stay (V4). Under the deny form they never fire for elidex merges; under the adapter form they keep serving raw merges. Changed only after `:36` (V3) |
 
 ### §7.4 Break-glass
 
-Neither kind is an override flag, and neither is run by a lane driver; each is a hand action with a record. Who
-acts is stated per kind: the push / commit kind below, the merge kind in the P1b memo §7.4.
+Neither kind is an override flag, and neither is run by a lane driver; each is a hand action with a record.
+
+**Who acts, for both kinds (PM 908, PM 916; the one statement, D32 and D39 refer here).** **The actor is the
+user.** The PM is a Claude session, so it can run neither kind: `git-hook-bypass-guard.py` (the file bypass-guard
+memo §4.8 patches) already denies it `--no-verify`, and `gh-pr-merge-head-guard.sh` (`:36`) applies to its
+`gh pr merge` as to any Claude session's. The user runs the commands in their own terminal, or as `! <command>` in
+the PM session. The PM prepares the exact commands (per kind: below, and P1b memo §7.4) and the record line
+(PORTFOLIO, with a decision number and the reason), and gives both to the user.
+**The `! <command>` form rests on a premise: that a command typed as `! <command>` in the PM session does not pass
+through Claude's PreToolUse hooks. Unverified.** Before the A2 cut-over, the user checks it with a harmless command:
+type `! git -C /Users/kazuaki/repos/send.sh/elidex -c core.hooksPath=/dev/null --version` in the PM session and
+confirm it prints the git version with no deny (control: the PM runs the same command as a Bash tool call and it is
+denied, `-c core.hooksPath` in scope; a control that is not denied makes the check void). Until the check passes,
+the user's own terminal is the only form.
 
 **Merge (P1b, D32).** P1b memo §7.4.
 
 **Push / commit (P1a, D39).** A broken pre-push, pre-commit or ratchet on `origin/main` rejects the push (or the
-commit) of its own fix branch, and `--no-verify` is denied to every Claude session (`git-hook-bypass-guard.py`, the
-file bypass-guard memo §4.8 patches, already denies it). **The actor is the user** (PM 908): the PM is a Claude session, so the guard
-denies it `--no-verify` too, and it cannot run the bypass. The user runs it in their own terminal, or as
-`! <command>` in the PM session. The PM prepares the exact commands — in the fix branch's worktree,
-`git commit --no-verify` if pre-commit is the broken part, then `git push --no-verify origin <branch>` — and the
-record line (PORTFOLIO, with a decision number and the reason), and gives both to the user. The fix PR then
-goes through the normal gate (review, CI, and `merge-pr` once P1b is live)
+commit) of its own fix branch, and `--no-verify` is denied to every Claude session. The PM prepares, in the fix
+branch's worktree, `git commit --no-verify` if pre-commit is the broken part, then
+`git push --no-verify origin <branch>`. The fix PR then goes through the normal gate (review, CI, and `merge-pr`
+once P1b is live)
 — only the hook run is skipped, nothing after it. The same applies to a PR that really removes or renames the
 ratchet (F, "the branch deleted the ratchet").
 
@@ -841,6 +851,10 @@ No question is open. Each former question was decided by the driver (lens conver
 - **PM 908** (after plan-review round 2): the plan is split into this memo (P1a, and everything both slices share)
   and the P1b memo (§0 Pair); the PM-skill row is in P1a's diff (§4.9, D33, §7.1 A0–A2); the P1a break-glass actor
   is the user, with the commands and record line prepared by the PM (§7.4, D39, the A2 note in §7.1).
+- **PM 916**: §4.8 is its own file, the bypass-guard memo, applied by this memo's cut-over by reference (§0, §7.1
+  A2); the merge break-glass actor is the user too, for the same reason (the PM is a Claude session, and
+  `gh-pr-merge-head-guard` applies to it), with one actor rule for both kinds (§7.4; P1b memo D32, III5); the
+  `! <command>` premise is unverified, and the user checks it before A2 (§7.4, the A2 note in §7.1).
 
 ## §9 Layering and what is not touched
 

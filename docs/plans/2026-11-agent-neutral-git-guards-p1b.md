@@ -119,7 +119,8 @@ Exit codes: 0 merged, or `--dry-run` with every check passed; 1 refused at steps
   caught by the pin. A finding posted on `H` in that window is not seen (the same window as a manual merge).
 - III4 [P1b]. **Trust model of the go token**: it guards against accidents and sandboxed agents. A session that can
   write `$ELIDEX_PM_DIR` — an unsandboxed Claude session can — can write its own token. Stated limit (D36).
-- III5 [P1b]. **No override flag.** Break-glass is a raw merge by the PM, recorded (§7.4); this also covers a broken
+- III5 [P1b]. **No override flag.** Break-glass is a raw merge run by the user from the commands and record line the
+  PM prepares (who acts: P1a memo §7.4), recorded (§7.4); this also covers a broken
   `merge-pr` on `origin/main`, whose fix PR is merged that way.
 
 **IV — coexistence with the Claude hooks** (the axis, IV1, IV2 and IV5: P1a memo §2).
@@ -270,7 +271,7 @@ The rung: P1a memo §5. The P1b rows:
 | D25 | P1b | `--dry-run` runs every check and prints the merge command (Q4) | the PM's E2E needs the good path on a real PR without an irreversible act |
 | D30 | P1b | Codex: dry verdict on `H` after the last trigger, no finding in any channel, 0 unresolved Codex threads; the `Completed` row is not an assessment; every bot item admitted, its sha derived as the global resolver (marker → first `/blob/<sha>/` → `commit_id`), a round item with no sha is a finding; the trigger by literal containment from a non-bot author | PM 893 (C7); canonical rule in the global external-review SKILL; #492 (latest item does not win), #494 R2 (threads), #525 (`Completed`); round 2 A5-1 (driver decision: no-sha item = finding) |
 | D31 | P1b | reviewer values read from `origin/main`'s `external-converge/project.md` § reviewer, not copied into the script | One issue, one way (the overlay is their canonical site) |
-| D32 | P1b | no override flag; break-glass = a recorded raw merge by the PM (§7.4); its post-merge sync / cleanup is the PM's, by where the merge ran | PM 893 (C8); round 2 A3 / A2 MIN |
+| D32 | P1b | no override flag; break-glass = a raw merge and its post-merge sync / cleanup, run by the user from the commands and record line the PM prepares (who acts: P1a memo §7.4); recorded (§7.4) | PM 893 (C8); round 2 A3 / A2 MIN; PM 916 (the PM is a Claude session, and `gh-pr-merge-head-guard` applies to it too) |
 | D34 | P1b | invocation site = the `main` worktree's copy, run from the caller's cwd | PM 893 (D13); step 2 refuses a PR worktree |
 | D35 | P1b | Dependabot PRs get a `@codex review` from the CI/tools lane, which runs them (`pm:223`, PM 240), then `merge-pr` | PM 893 (E29); no Dependabot exemption, no break-glass for them; round 2 A5 MIN (the lane, not the PM) |
 | D36 | P1b | the go token's trust model is accidents + sandboxed agents | PM 893 (E28); stated limit III4 |
@@ -320,17 +321,18 @@ or any other prefix is refused (step 7). The file's content is not read.
 
 ### §7.4 Break-glass
 
-What both kinds share, and the push / commit kind: P1a memo §7.4.
+What both kinds share (who acts, and the unverified `! <command>` premise) and the push / commit kind: P1a memo
+§7.4.
 
 **Merge (P1b, D32).** There is no override in `merge-pr`. When a merge must happen that `merge-pr` refuses —
-including a broken `merge-pr` on `origin/main`, whose fix PR is merged this way — the PM runs, by hand,
-`gh pr merge <N> -R send/elidex --squash --match-head-commit <H> --delete-branch=false`, and records it in
-PORTFOLIO with a decision number and the reason. **The post-merge sync and cleanup depend on where that command
-runs**, and are the PM's either way: run as a Claude Bash tool call, the PostToolUse entries (`:136`, `:142`) run
-them as today; run in a terminal (or under the P1a memo §7.3 deny form, which forces that), nothing runs them, and the PM
-runs both scripts by hand from its own cwd with step 14's stdin:
+including a broken `merge-pr` on `origin/main`, whose fix PR is merged this way — the user runs it (who acts: P1a
+memo §7.4). The PM prepares the commands, all run from one cwd in this order:
+`gh pr merge <N> -R send/elidex --squash --match-head-commit <H> --delete-branch=false`, then step 14's two scripts
+with its stdin,
 `printf '{"tool_input":{"command":"gh pr merge <N>"},"cwd":"%s"}' "$(pwd -P)" | ~/.claude/hooks/post-merge-sync-main.sh`,
-then the same into `post-merge-cleanup-branch.sh`.
+then the same into `post-merge-cleanup-branch.sh`; and the record line. **The post-merge sync and cleanup are in
+those commands**, because the merge runs outside the Claude Bash tool and no PostToolUse entry (`:136`, `:142`)
+runs them; if one ever did, the second run is harmless (IV4).
 
 ### §7.5 E2E cases
 
