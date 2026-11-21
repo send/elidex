@@ -141,7 +141,7 @@ fn ensure_character_data(
 }
 
 /// Coerce the arg at `idx` via WebIDL `unsigned long` (ToUint32,
-/// ECMA-262 §7.1.8) — the spec-mandated conversion for CharacterData
+/// ECMA-262 §7.1.9) — the spec-mandated conversion for CharacterData
 /// offsets.  Unlike a naive `to_number + floor`, this wraps
 /// out-of-range / negative inputs mod 2^32 before range-checking
 /// against the data length (WebIDL `unsigned long`, ToUint32).  Returns the

@@ -27,8 +27,8 @@
 //! `getOwnPropertyNames(uaEvent)` (sorted) matches
 //! `getOwnPropertyNames(ctorEvent)` (sorted) per family.  Name equality
 //! only — value semantics differ deliberately (UA defaults
-//! `view = window` per Chrome parity; ctor defaults `view = null` per
-//! WebIDL §3.2 `attribute Window? view = null`).
+//! `view = window` for UA-fired events; ctor defaults `view = null` per
+//! UI Events §3.2.1.2 `UIEventInit` `Window? view = null`).
 
 #![cfg(feature = "engine")]
 
@@ -188,7 +188,7 @@ fn mouse_payload_slot_order_locked() {
     let ev = make_event("click", true, payload, el);
     let obj = vm.inner.create_event_object(&ev, target, target, false);
 
-    // UIEvent prefix — view defaults to window (Chrome parity), detail to 0.
+    // UIEvent prefix — UA-fired events get view = window, detail 0.
     assert_eq!(read_data(&vm, obj, "view"), JsValue::Object(global));
     assert_eq!(read_num(&vm, obj, "detail"), 0.0);
     // Ctor-shape slot order: screenX/Y → clientX/Y → ctrl/shift/alt/meta →

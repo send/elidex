@@ -57,8 +57,8 @@ pub(super) fn native_number_to_string(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §20.1.3.6 step 5-8: radix defaults to 10; if specified, apply
-    // ToIntegerOrInfinity FIRST, then range-check the integer value in
+    // §21.1.3.6 step 3 (SnapToInteger, §7.1.6): radix defaults to 10;
+    // if specified, truncate FIRST, then range-check the integer value in
     // [2, 36].  `36.1` must truncate to 36 and be accepted; `36.5` likewise;
     // +Infinity and values outside the range throw RangeError.
     let radix = match args.first().copied() {
@@ -74,10 +74,10 @@ pub(super) fn native_number_to_string(
             } else {
                 r.trunc()
             };
-            // §20.1.3.6 step 8: radix of 0 (i.e. absent) would have hit the
-            // default branch above; here 0 comes from ToIntegerOrInfinity(NaN)
-            // which spec does not special-case — we follow V8 and treat it
-            // as an out-of-range error rather than silently defaulting.
+            // §21.1.3.6 step 3, SnapToInteger (§7.1.6) step 2: NaN throws a
+            // RangeError rather than defaulting; the NaN → 0 above reaches
+            // the out-of-range check below, which throws the same
+            // RangeError.
             if !(2.0..=36.0).contains(&r_int) {
                 return Err(VmError::range_error(
                     "toString() radix must be between 2 and 36",
@@ -175,7 +175,7 @@ pub(super) fn native_number_to_fixed(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §20.1.3.3 step 4: ToIntegerOrInfinity then range-check.
+    // §21.1.3.3 step 4: ToIntegerOrInfinity then range-check.
     let digits = {
         let arg = args.first().copied().unwrap_or(JsValue::Number(0.0));
         let d = super::coerce::to_number(ctx.vm, arg)?;
@@ -196,7 +196,7 @@ pub(super) fn native_number_to_fixed(
             raw as usize
         }
     };
-    // Non-finite values return their toString representation (§20.1.3.3 step 5-6).
+    // Non-finite values return their toString representation (§21.1.3.3 step 5-6).
     let s = if n.is_nan() {
         "NaN".to_string()
     } else if n.is_infinite() {
@@ -206,7 +206,7 @@ pub(super) fn native_number_to_fixed(
             "-Infinity".to_string()
         }
     } else if n == 0.0 {
-        // §20.1.3.3 step 7: -0 formats as "0.000..."
+        // §21.1.3.3 step 7: -0 formats as "0.000..."
         format!("{:.digits$}", 0.0_f64)
     } else {
         format!("{n:.digits$}")
@@ -222,7 +222,7 @@ pub(super) fn native_number_to_exponential(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §20.1.3.2: step 1 — ThisNumberValue
+    // §21.1.3.2: step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
     // step 2 — ToInteger(fractionDigits) before non-finite check
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -244,7 +244,7 @@ pub(super) fn native_number_to_exponential(
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
-    // §20.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
+    // §21.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
     // Use abs() to normalize -0 to +0 for formatting.
     let (sign, x) = if n < 0.0 { ("-", -n) } else { ("", n.abs()) };
     let raw = match fraction_digits {

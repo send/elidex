@@ -230,7 +230,7 @@ fn add_range_no_op_when_range_set() {
     let new_id = reg.register(r);
     assert!(
         !sel.add_range(doc, doc, new_id),
-        "must no-op per Chrome single-range"
+        "must no-op: single-range selection"
     );
     assert_eq!(sel.current_range_id(), Some(original));
 }

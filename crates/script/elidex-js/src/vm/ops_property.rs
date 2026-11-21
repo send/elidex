@@ -144,7 +144,7 @@ impl VmInner {
             // base passes `GetThisValue(refRecord)` (the original primitive) as
             // Receiver, independent of any boxing for own-property lookup.  An
             // invoked accessor therefore observes the raw primitive as `this`
-            // per §10.1.8.1 OrdinaryGet step 7 — matches V8/SpiderMonkey.
+            // per §10.1.8.1 OrdinaryGet step 7 (`Call(getter, receiver)`).
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),

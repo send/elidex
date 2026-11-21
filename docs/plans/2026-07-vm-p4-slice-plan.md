@@ -703,7 +703,7 @@ time rather than reading forward):
   await is true"); and **§15.7.10** ClassFieldDefinitionEvaluation step 2.e (⚠ *step numbers restated at HEAD c032379d in the spec's own a/i/1 notation*) builds the
   initializer with `OrdinaryFunctionCreate(%Function.prototype%, sourceText, formalParamList,
   Initializer, non-lexical-this, envRecord, privateEnv)` — an *ordinary* function, neither async nor
-  generator. Meanwhile the behaviour other engines ship is the opposite of what those three readings
+  generator. [contrast] Meanwhile the behaviour other engines ship is the opposite of what those three readings
   would predict: in Node v24.16.0, `new Function(src)` throws a SyntaxError for each of the four
   **public** `await`/`yield` initializer spellings above (the private one was not put to it)
   **and accepts** the computed-name forms

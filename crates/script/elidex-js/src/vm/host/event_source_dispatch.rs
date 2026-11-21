@@ -35,7 +35,7 @@
 //! updates run BEFORE the event-fire so handlers observing
 //! `es.readyState === EventSource.OPEN` / reading `e.lastEventId` from
 //! inside the `open` / `message` callback see the post-mutation values
-//! (matches Chrome / Firefox semantics).
+//! (HTML §9.2.3: e.g. "announce the connection" sets readyState, then fires `open`).
 
 #![cfg(feature = "engine")]
 

@@ -27,7 +27,7 @@
 //! - `new URL(input, base?)` — both args coerced via
 //!   [`super::super::coerce::to_string`].  Relative `input` resolves
 //!   against `base` per WHATWG URL §4.4 ("URL parser").  A parse
-//!   failure throws `TypeError` (matches V8 / Firefox 2023+).
+//!   failure throws `TypeError` (URL constructor step 2).
 //! - 12 IDL accessors: `href` / `origin` / `protocol` / `username`
 //!   / `password` / `host` / `hostname` / `port` / `pathname` /
 //!   `search` / `hash` / `searchParams`.  All are read/write

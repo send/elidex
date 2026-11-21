@@ -502,8 +502,8 @@ fn within_tree_move_fires_both_disconnected_and_connected() {
     // F1 fix: per WHATWG DOM §4.2.3 insertion-steps, a Custom
     // element moved within the connected tree fires
     // disconnectedCallback (from the implicit detach) AND
-    // connectedCallback (from the new insert). Both Blink and Gecko
-    // fire both callbacks.
+    // connectedCallback (from the new insert): DOM remove step 12 and
+    // insert each enqueue one.
     //
     // Uses 3 evals so the initial Connected fires (and drains) BEFORE
     // the log reset, isolating the move's own dispatch.

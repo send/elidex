@@ -484,8 +484,8 @@ fn input_type_change_to_selectable_collapses_cursor_to_beginning() {
     // (date / number) and is now (text) has its text entry cursor set to
     // the BEGINNING and the selection direction reset to "none".  So after
     // the switch both cases read collapsed at 0 regardless of what select()
-    // did — matching real browsers (Chrome's `selectionStart` throws on
-    // number/date, and number→text lands the cursor at the start).
+    // did.  (`selectionStart` reads null on number/date per its getter
+    // step 1; type-change step 9 sets the cursor at the start.)
     let date = run("var i = document.createElement('input'); \
          i.type = 'date'; i.value = '2025-01-15'; \
          i.select(); \
@@ -762,8 +762,8 @@ fn input_list_returns_datalist_wrapper_when_matched() {
 
 #[test]
 fn input_list_returns_same_object_on_repeated_reads() {
-    // HTML §4.10.5.1.16 IDL is not `[SameObject]`, but Chrome / Firefox
-    // return identity-stable wrappers via their wrapper caches — elidex
+    // HTML §4.10.5.4 `list` is not `[SameObject]`, but it returns the
+    // current suggestions source element itself (one wrapper) — elidex
     // matches via `create_element_wrapper`'s per-entity cache.
     let out = run(
         "var dl = document.createElement('datalist'); dl.id = 'opts'; \

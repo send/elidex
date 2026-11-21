@@ -24,7 +24,7 @@
 //! and per-state field populates (`protocol`, `extensions`) run
 //! BEFORE the event-fire so handlers observing
 //! `ws.readyState === WebSocket.OPEN` from inside the `open` callback
-//! see the post-transition value (matches Chrome / Firefox semantics).
+//! see the post-transition value (WebSockets §4: ready state, then `open`).
 
 #![cfg(feature = "engine")]
 
