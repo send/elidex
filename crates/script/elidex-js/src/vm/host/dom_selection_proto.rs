@@ -44,8 +44,7 @@
 //!
 //! Both are `Option<...>` (not maps) because the M4-12 VM is
 //! single-Window single-Document.  Multi-document promotion is
-//! tracked at `#11-mutation-hook-multiplexer` (D-15 ShadowRoot /
-//! iframe entry).
+//! not implemented (D-15 ShadowRoot / iframe entry).
 //!
 //! ## GC interaction
 //!

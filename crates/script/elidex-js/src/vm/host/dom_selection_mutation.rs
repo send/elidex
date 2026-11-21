@@ -40,7 +40,9 @@ use super::dom_selection_proto::{
 /// `SelectionState` method's own "did something" value; this function
 /// sets `selectionchange_pending` only on `Ok(true)` (Selection API §6.2:
 /// the event is scheduled when the selection is dissociated with its
-/// range or associated with a new range; a spec abort does neither).
+/// range, associated with a new range, or the associated range's boundary
+/// point is mutated — the last covers `collapse_to_start` /
+/// `collapse_to_end` mutating in place; a spec abort does none of them).
 /// Engine-indep errors returned by the closure
 /// (as [`SelectionError`]) are mapped to the corresponding
 /// `DOMException` here so the engine-indep crate stays free of
@@ -170,7 +172,7 @@ pub(super) fn native_selection_add_range(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "addRange")?;
     let range_id = arg_range(ctx, args.first().copied(), "addRange")?;
-    // WebIDL interface conversion (`arg_range`) succeeds for any Range; an
+    // WebIDL §3.2.15 Interface types step 1: interface conversion (`arg_range`) succeeds for any Range; an
     // unregistered id is the Range natives' "detached" state, so it throws the
     // same `detached_range_error` they do (one issue, one way).
     // Unbound: skip the pre-check (HostData access would panic); the
@@ -179,7 +181,11 @@ pub(super) fn native_selection_add_range(
         let host = ctx.host();
         let (dom, registry, _sel_slot) = host.split_dom_live_ranges_and_selection();
         if registry.with_range(range_id, dom, |_, _| ()).is_none() {
-            return Err(super::range_proto::detached_range_error(ctx, "addRange"));
+            return Err(super::range_proto::detached_range_error_on(
+                ctx,
+                "Selection",
+                "addRange",
+            ));
         }
     }
     mutate_selection(ctx, "addRange", |s, reg, dom, doc| {

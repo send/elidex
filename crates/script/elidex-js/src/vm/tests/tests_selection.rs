@@ -1,5 +1,5 @@
 //! Integration tests for `Selection` (Selection API Living Standard
-//! §3) — slot `#11-traversal-and-range-pr-b-selection`.
+//! §3) — landed as D-8 PR-B (PR #188, `560725d9`).
 //!
 //! Covers the 8 prop + 15 method surface, direction tri-state
 //! transitions, window/document.getSelection identity, previous-range

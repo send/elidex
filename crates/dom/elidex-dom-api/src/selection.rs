@@ -333,6 +333,9 @@ impl SelectionState {
             .with_range(id, dom, |range, dom| {
                 range_roots_are_document(range, owner_document, dom)
             })
+            // An unregistered active `RangeId` reads as "not in the document
+            // tree" here; the only known way to reach that state is the GC
+            // defect, slot `#11-selection-range-unregistered-by-gc`.
             .unwrap_or(false)
             .then_some(id)
     }
@@ -431,7 +434,7 @@ impl SelectionState {
     /// forward / backward through DOM *set the start* / *set the end*
     /// (steps 6-7). Direction is `Forward` when the new focus follows the
     /// anchor, `Backward` when it precedes it, and `Directionless` when the
-    /// two points are equal (`direction_between`; the spec's step 8 differs,
+    /// two points are equal (`direction_between`; the spec's step 9 differs,
     /// tracked by slot `#11-selection-select-all-children-steps`).
     ///
     /// Returns `Ok(true)` when the range was replaced, `Ok(false)` on the
@@ -761,8 +764,13 @@ impl SelectionState {
 /// DOM §1.1 / §4.2.1: `node`'s root is the associated document (`node` is
 /// in its document tree; the associated document, not any document:
 /// tree-model tsel plan §0.5).
-/// Depth bound differs from `focus::is_in_document` (`find_tree_root` here,
-/// `MAX_ANCESTOR_DEPTH` there): `#11-capped-walker-deep-element-processing`.
+/// Both this walk (`find_tree_root`) and `focus::is_in_document` are bounded
+/// by `MAX_ANCESTOR_DEPTH`; they differ in the comparison (`find_tree_root`
+/// breaks at `depth > MAX_ANCESTOR_DEPTH`, `is_in_document` returns at
+/// `depth >= MAX_ANCESTOR_DEPTH`) and in the result at the bound
+/// (`find_tree_root` yields the intermediate ancestor it stopped at, so this
+/// reads `false`; `is_in_document` returns `false` outright):
+/// `#11-capped-walker-deep-element-processing`.
 fn root_is_document(node: Entity, owner_document: Entity, dom: &EcsDom) -> bool {
     dom.find_tree_root(node) == owner_document
 }
