@@ -1,10 +1,12 @@
 """ReSpec editor's drafts: render before extracting a section body.
 
-A ReSpec spec's nightly ED (`w3c.github.io/<spec>/`) is served as *unrendered
-source* — the ids that webref's dfns/headings extracts record are generated in
-the browser, so they are absent from the HTML we fetch. The body path therefore
-tries, in order (the candidate list is built by `resolver.resolve_body_candidates`,
-the loop is `commands.body.cmd_body`; this module holds the ReSpec specifics):
+A ReSpec spec's nightly ED (`w3c.github.io/<spec>/`) is usually served as
+*unrendered source*: the ids that webref's dfns/headings extracts record are
+generated in the browser, so they are typically absent from the HTML we fetch
+(a hand-written `<section id=...>` may exist, and prints as raw markup). The
+body path therefore tries, in order (the candidate list is built by
+`resolver.resolve_body_candidates`, the loop is `commands.body.cmd_body`; this
+module holds the ReSpec specifics):
 
   1. the resolved page as fetched (the nightly; works when pre-rendered);
   2. the W3C spec-generator's rendering of that nightly URL;
@@ -24,6 +26,7 @@ from __future__ import annotations
 import datetime
 import re
 import urllib.parse
+from typing import NamedTuple
 
 from .sources.webref_data import spec_entry
 
@@ -58,19 +61,30 @@ def _tr_date(html: bytes) -> str:
     return (m.group(1) or m.group(2)) if m else "date unknown"
 
 
+_RENDERED_MARKERS = (_RENDERED_MARKER, b'id="respecDocument"')
+# A ReSpec loader script (`<script ... src=".../respec-w3c.js">`, usually
+# `class="remove"`): the config may be inline (`respecConfig`) or external.
+_RESPEC_SCRIPT_RE = re.compile(rb'<script\b[^>]*\bsrc\s*=\s*["\']?[^"\'>\s]*respec', re.I)
+
+
 def is_rendered_respec(html: bytes) -> bool:
     """True when `html` is a ReSpec document that has already been rendered:
-    ReSpec adds `<meta name="generator" content="ReSpec ...">` to the document
-    it renders, and an unrendered source (which carries `respecConfig`) lacks
-    it. Checked against the cached nightly EDs (webcrypto, geolocation,
-    media-source, ... carry it; the `respecConfig` source ones do not)."""
-    return _RENDERED_MARKER in html
+    ReSpec adds `<meta name="generator" content="ReSpec ...">` (older output:
+    `id="respecDocument"`) to the document it renders."""
+    return any(m in html for m in _RENDERED_MARKERS)
 
 
 def is_unrendered_respec(html: bytes) -> bool:
-    """True when `html` is ReSpec *source* (carries `respecConfig`, lacks the
-    rendered marker): its hand-written markup is not what a reader sees."""
-    return b"respecConfig" in html and not is_rendered_respec(html)
+    """True when `html` is ReSpec *source*: not rendered (see
+    `is_rendered_respec`), but it loads ReSpec (a `<script src=...respec...>`
+    tag) or carries the `respecConfig` literal. Decided by property, fail-safe:
+    a page that is neither rendered nor recognisably ReSpec is ordinary. On the
+    cached nightly EDs of all catalog ReSpec specs this classifies every page
+    as rendered or unrendered (the config can be external, so `respecConfig`
+    alone misses about a seventh of them)."""
+    if is_rendered_respec(html):
+        return False
+    return bool(_RESPEC_SCRIPT_RE.search(html)) or b"respecConfig" in html
 
 
 def miss_is_final(label: str | None, html: bytes) -> bool:
@@ -81,15 +95,48 @@ def miss_is_final(label: str | None, html: bytes) -> bool:
     return label is None and is_rendered_respec(html)
 
 
-def source_line(label: str, html: bytes, today: datetime.date | None = None) -> str:
-    """The `# source:` provenance line for a fallback candidate `label` that hit
-    (a first-candidate hit prints none: its `# <url>` header is the source)."""
-    today = today or datetime.date.today()
+class Outcome(NamedTuple):
+    """What one body source (a candidate, or the catalog lookup that yields
+    the later candidates) answered. `body` records one per source tried and
+    builds every diagnostic from that record."""
+    label: str | None  # candidate label: None (first page) / generator / tr / catalog
+    state: str  # hit | miss | unreachable | unrendered
+    detail: str = ""  # the FetchError text when unreachable
+
+
+_NAMES = {None: "ED", "generator": "spec-generator", "tr": "TR", "catalog": "catalog"}
+
+
+def _note(o: Outcome) -> str:
+    name = _NAMES[o.label]
+    if o.state == "unreachable":
+        return f"{name} unreachable: {' '.join(o.detail.split())}"
+    if o.state == "unrendered":
+        return f"{name} unrendered"
+    return f"{name} lacks the anchor"
+
+
+def unreachable_names(record: list[Outcome]) -> str:
+    """The unreachable sources in `record`, by name (for the outage message)."""
+    return ", ".join(_NAMES[o.label] for o in record if o.state == "unreachable")
+
+
+def source_line(label: str | None, html: bytes, copy_date: datetime.date,
+                earlier: list[Outcome] = ()) -> str:
+    """The `# source:` first line of a ReSpec-path hit, naming the source and
+    its date. `copy_date` is the date of the fetched copy (see
+    `cache.copy_date`), `earlier` the outcomes of the sources tried before
+    this one: a source that was unreachable is said so, so a TR answer never
+    reads as though the ED had merely lacked the anchor."""
+    if label is None:
+        return f"# source: rendered ReSpec page as served ({copy_date})"
     if label == "generator":
-        return f"# source: ED rendered via spec-generator ({today})"
+        down = [_note(o) for o in earlier if o.state == "unreachable"]
+        return (f"# source: ED rendered via spec-generator "
+                f"({'; '.join([str(copy_date)] + down)})")
     if label == "tr":
-        return (f"# source: TR {_tr_date(html)} "
-                f"(ED not renderable or lacks the anchor)")
+        why = "; ".join(_note(o) for o in earlier) or "ED not used"
+        return f"# source: TR {_tr_date(html)} ({why})"
     raise ValueError(f"unknown source label {label!r}")
 
 

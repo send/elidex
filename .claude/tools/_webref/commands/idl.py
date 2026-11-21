@@ -9,8 +9,9 @@ from ..sources.webref_data import fetch_data
 
 # IDL block start: optional `partial`, then one of:
 #   interface [mixin] / dictionary / enum / callback [interface] / namespace
-# followed by whitespace. The interface-name match (\biface\b) is done separately
-# so we can buffer leading [attr] lines until we know whether the block matches.
+# followed by whitespace. The declared-name match (`_IDL_DECL_RE.pattern` + the
+# name + `\b`, built in `extract_idl_blocks`) is done separately so we can
+# buffer leading [attr] lines until we know whether the block matches.
 _IDL_DECL_RE = re.compile(
     r"^(?:partial\s+)?"
     r"(?:interface(?:\s+mixin)?|dictionary|enum|callback(?:\s+interface)?|namespace)"
@@ -45,6 +46,42 @@ def _scan_attr_line(line: str, depth: int) -> tuple[int, str | None]:
     return depth, None
 
 
+def _scan_definition(line: str, depth: int, in_comment: bool) -> tuple[int, bool, bool]:
+    """Advance over `line` of a definition: track `{`/`}` depth, ignoring
+    string literals and `//` / `/* */` comments. Returns (depth, in_comment,
+    ended); the definition ends at the first `;` at depth 0 (the `;` that
+    closes `callback X = ...(...);`, `enum E { ... };` and `interface X { ... };`
+    alike, wherever the closing text sits on its line)."""
+    i, n = 0, len(line)
+    while i < n:
+        two = line[i:i + 2]
+        if in_comment:
+            end = line.find("*/", i)
+            if end < 0:
+                return depth, True, False
+            i, in_comment = end + 2, False
+            continue
+        ch = line[i]
+        if two == "//":
+            break
+        if two == "/*":
+            in_comment = True
+            i += 2
+            continue
+        if ch == '"':
+            i += 1
+            while i < n and line[i] != '"':
+                i += 2 if line[i] == "\\" else 1
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == ";" and depth <= 0:
+            return depth, in_comment, True
+        i += 1
+    return depth, in_comment, False
+
+
 def extract_idl_blocks(text: str, iface: str) -> list[str]:
     """Return the output lines (leading extended attributes + block) for every
     top-level block whose declaration line names `iface`.
@@ -63,6 +100,8 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
     buf: list[str] = []  # leading [attr] lines awaiting a decl line
     depth = 0  # open `[` count of the attribute list being accumulated
     in_block = False
+    bdepth = 0  # `{` depth of the matching definition being copied
+    in_comment = False  # inside a `/* */` comment of that definition
 
     for line in text.splitlines():
         if not in_block:
@@ -85,9 +124,11 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
                 if iface_re.match(decl_text):
                     out.extend(buf)
                     out.append(line)
-                    # One-line declaration (`enum E { "a" };`, `callback C
-                    # = ...;`): the block ends on the declaration line.
-                    if decl_text.rstrip().endswith(";"):
+                    # The definition ends at the `;` at brace depth 0, which
+                    # may already be on the declaration line (`enum E { "a" };`,
+                    # `callback C = ...;`).
+                    bdepth, in_comment, ended = _scan_definition(decl_text, 0, False)
+                    if ended:
                         out.append("")
                     else:
                         in_block = True
@@ -96,11 +137,14 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
             # Discard any buffered attrs not followed by a matching decl.
             buf = []
             continue
-        # Inside a matching block — emit every line through `};`. Member-level
-        # [CEReactions] / [SameObject] / etc. flow through here unconditionally
-        # (must NOT be buffered, else they get dropped at the next non-[ line).
+        # Inside a matching definition — emit every line through its closing
+        # `;` (grammar, not line shape: `}; // note`, multi-line `callback`).
+        # Member-level [CEReactions] / [SameObject] / etc. flow through here
+        # unconditionally (must NOT be buffered, else they get dropped at the
+        # next non-[ line).
         out.append(line)
-        if line.strip() == "};":
+        bdepth, in_comment, ended = _scan_definition(line, bdepth, in_comment)
+        if ended:
             in_block = False
             out.append("")
     return out

@@ -16,7 +16,7 @@ import re
 import sys
 from typing import Callable, NamedTuple
 
-from .cache import FetchError, NotFound
+from .cache import NotFound
 from .respec import generator_url, respec_entry
 from .section_sort import heading_number_title, sec_number_key
 from .sources.tc39 import TC39_FAMILY, tc39_biblio, tc39_clauses_by_id
@@ -218,7 +218,8 @@ def _tc39_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate
 
 class CandidateChain:
     """Iterable of candidates whose tail is computed only when iteration
-    reaches it. `cmd_body` asks for a second candidate only after the first
+    reaches it (and which raises FetchError there if the catalog is down).
+    `cmd_body` asks for a second candidate only after the first
     missed, failed to fetch, or was an unrendered ReSpec source — so the
     webref catalog (`index.json`, ~1.5 MB), which the tail needs, is fetched
     only then."""
@@ -234,18 +235,15 @@ class CandidateChain:
 
 def _respec_fallbacks(shortname: str, url: str) -> list[Candidate]:
     """[spec-generator rendering, TR release] when `url` is the nightly ED of
-    a ReSpec spec, else []. Consults the catalog and fails soft: an
-    unreachable catalog yields no extra candidates, so the plain `body` path
-    does not die on it (the first candidate's own result is reported).
+    a ReSpec spec, else []. Consults the catalog; an unreachable catalog
+    raises FetchError, which `body` records as an unreachable source (the
+    absence of the anchor is then unverified, not "not encountered").
 
     A ReSpec spec's other pages (multipage `href`s) are not the nightly, so
     rendering "the nightly" would answer a different page: only the nightly
     itself gets the generator -> TR chain. A nightly root may end in `.html`
     (9 catalog specs), so the URL shape is not a filter."""
-    try:
-        ent = respec_entry(shortname)
-    except FetchError:
-        return []
+    ent = respec_entry(shortname)
     if ent is None or url.rstrip("/") != ent[0].rstrip("/"):
         return []
     nightly, release = ent

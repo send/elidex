@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..cache import FetchError, cached_fetch_url
+from ..cache import FetchError, cached_fetch_url, copy_date
 from ..extractor import extract_section_body
-from ..respec import SOURCE_NONE_LINE, is_unrendered_respec, miss_is_final, source_line
+from ..respec import (SOURCE_NONE_LINE, Outcome, is_rendered_respec,
+                      is_unrendered_respec, miss_is_final, source_line,
+                      unreachable_names)
 from ..resolver import resolve_body_candidates
 
 
@@ -19,30 +21,50 @@ def cmd_body(args: argparse.Namespace) -> None:
     anchor, candidates = resolve_body_candidates(args.shortname, raw)
 
     # One loop over the resolver's candidate sources: the first that fetches
-    # and carries the anchor wins. A failed fetch (FetchError) or a source
-    # lacking the anchor moves on to the next candidate.
+    # and carries the anchor wins. Each source's outcome (hit / miss /
+    # unreachable / unrendered) goes into `record`, and every diagnostic below
+    # (the `# source:` line, the outage or not-found message) is built from it.
+    # Advancing the iterator can itself fail: the tail's catalog lookup is a
+    # source too (label "catalog").
+    record: list[Outcome] = []
     first_error: FetchError | None = None
     last = None  # last candidate fetched, named in the not-found error
-    labelled = False  # a fallback (generator / TR) candidate was reached
     found = False
-    for cand in candidates:
-        labelled = labelled or cand.label is not None
+    text = ""
+    it = iter(candidates)
+    while True:
+        try:
+            cand = next(it)
+        except StopIteration:
+            break
+        except FetchError as e:
+            first_error = first_error or e
+            record.append(Outcome("catalog", "unreachable", str(e)))
+            break
         try:
             data = cached_fetch_url(cand.url)
         except FetchError as e:
             first_error = first_error or e
+            record.append(Outcome(cand.label, "unreachable", str(e)))
             continue
         last = cand
         found, text = extract_section_body(data, anchor)
         # An unrendered ReSpec source's hand-written `<section id=...>` would
         # print raw markup; only rendered text may answer, else go on to the
         # generator (the catalog is consulted only when the loop gets here).
-        if found and is_unrendered_respec(data):
+        if is_unrendered_respec(data):
             found = False
-        if found:
-            if cand.label:
-                print(source_line(cand.label, data))
+            record.append(Outcome(cand.label, "unrendered"))
+        elif found:
+            record.append(Outcome(cand.label, "hit"))
+            # Every ReSpec-path answer names its source and the date of the
+            # fetched copy on the first line: a fallback by its label, the
+            # first page by the rendered marker in its bytes (no catalog).
+            if cand.label or is_rendered_respec(data):
+                print(source_line(cand.label, data, copy_date(cand.url), record[:-1]))
             break
+        else:
+            record.append(Outcome(cand.label, "miss"))
         if miss_is_final(cand.label, data):
             break
     if last is None:
@@ -51,10 +73,10 @@ def cmd_body(args: argparse.Namespace) -> None:
         # A source could not be fetched and none of the others carried the
         # anchor: that is an outage, not evidence the anchor is absent.
         sys.exit(f"{first_error} (anchor #{anchor} not found in the sources "
-                 f"that were reachable; a source above was unreachable, so "
+                 f"that were reachable; unreachable: {unreachable_names(record)}, so "
                  f"absence is unverified)")
     if not found:
-        if labelled:  # a ReSpec ED fallback chain was tried
+        if any(o.label is not None for o in record):  # a ReSpec fallback chain was tried
             print(SOURCE_NONE_LINE)
         sys.exit(
             f"webref: anchor #{anchor} not encountered in {last.cite or last.url} "

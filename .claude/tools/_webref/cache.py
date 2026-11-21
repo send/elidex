@@ -11,6 +11,8 @@ import http.client
 import json
 import os
 import urllib.error
+import datetime
+import email.utils
 import urllib.request
 from pathlib import Path
 
@@ -139,6 +141,35 @@ def cached_fetch_url(url: str) -> bytes:
         # Socket timeout / reset / RemoteDisconnected raised from
         # getresponse() or read(): urllib wraps only connect-phase errors.
         raise FetchError(f"webref: network error fetching {url}: {e}") from e
+
+
+def copy_date(url: str) -> datetime.date:
+    """The date of the copy of `url` that `cached_fetch_url` last returned:
+    the response's Last-Modified when it sent one, else when the cache entry
+    was stored (the body file's mtime). Unreadable metadata, an uncached fetch
+    (ELIDEX_WEBREF_NO_CACHE / no cache dir) or no entry means the copy was
+    fetched just now: today. Cache is an optimization — this never raises."""
+    today = datetime.date.today()
+    if os.environ.get("ELIDEX_WEBREF_NO_CACHE"):
+        return today
+    try:
+        cdir = _cache_dir()
+        if cdir is None:
+            return today
+        key = hashlib.sha1(url.encode("utf-8")).hexdigest()
+        try:
+            meta = json.loads((cdir / f"{key}.meta").read_text("utf-8"))
+            lm = meta.get("last_modified") if isinstance(meta, dict) else None
+            if isinstance(lm, str):
+                dt = email.utils.parsedate_to_datetime(lm)
+                if dt.tzinfo is not None:
+                    dt = dt.astimezone(datetime.timezone.utc)
+                return dt.date()
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        return datetime.date.fromtimestamp((cdir / key).stat().st_mtime)
+    except (OSError, ValueError, OverflowError):
+        return today
 
 
 def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:

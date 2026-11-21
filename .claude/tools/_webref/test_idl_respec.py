@@ -157,9 +157,46 @@ class IdlExtAttrTests(unittest.TestCase):
 
     def test_mutant_one_line_block_never_closes(self):
         text = 'enum E { "a" };\ninterface After {\n};\n'
-        m = mutate(idl_mod, 'if decl_text.rstrip().endswith(";"):', "if False:")
+        m = mutate(idl_mod, "bdepth, in_comment, ended = _scan_definition(decl_text, 0, False)",
+                   "bdepth, in_comment, ended = 0, False, False")
         self.assertIn("interface After {", m.extract_idl_blocks(text, "E"))
         self.assertNotIn("interface After {", extract_idl_blocks(text, "E"))
+
+    CB = ("callback PositionCallback = undefined (GeolocationPosition position);\n\n"
+          "callback LongCb = undefined (\n  long a,\n  long b\n);\n\n"
+          "interface After {\n  attribute long a;\n};\n")
+
+    def test_multiline_callback_ends_at_its_semicolon(self):
+        self.assertEqual(extract_idl_blocks(self.CB, "PositionCallback"),
+                         ["callback PositionCallback = undefined (GeolocationPosition position);", ""])
+        self.assertEqual(extract_idl_blocks(self.CB, "LongCb"),
+                         ["callback LongCb = undefined (", "  long a,", "  long b", ");", ""])
+
+    def test_trailing_comment_after_close_ends_the_block(self):
+        text = ("interface A {\n  attribute long a;\n}; // WEBGL_x\n\n"
+                "interface B {\n  attribute long b;\n};\n")
+        self.assertEqual(extract_idl_blocks(text, "A"),
+                         ["interface A {", "  attribute long a;", "}; // WEBGL_x", ""])
+
+    def test_braces_and_semicolons_in_strings_and_comments_are_ignored(self):
+        text = ('enum E {\n  "a;}",\n  "b{" // };\n};\n'
+                'interface X {\n  /* }; */\n  attribute long a;\n};\n'
+                'interface After {\n};\n')
+        self.assertEqual(extract_idl_blocks(text, "E")[-2:], ["};", ""])
+        self.assertEqual(len(extract_idl_blocks(text, "E")), 5)
+        self.assertEqual(extract_idl_blocks(text, "X")[-2:], ["};", ""])
+        self.assertEqual(len(extract_idl_blocks(text, "X")), 5)
+
+    def test_mutant_line_shape_end_swallows_following_definitions(self):
+        m = mutate(idl_mod, "bdepth, in_comment, ended = _scan_definition(line, bdepth, in_comment)",
+                   'ended = line.strip() == "};"')
+        text = ("callback LongCb = undefined (\n  long a\n);\n\n"
+                "interface After {\n  attribute long a;\n};\n")
+        self.assertEqual(len(extract_idl_blocks(text, "LongCb")), 4)
+        self.assertGreater(len(m.extract_idl_blocks(text, "LongCb")), 4)
+        text2 = "interface A {\n}; // c\ninterface B {\n};\n"
+        self.assertEqual(extract_idl_blocks(text2, "A"), ["interface A {", "}; // c", ""])
+        self.assertGreater(len(m.extract_idl_blocks(text2, "A")), 3)
 
     def test_name_match_is_the_declared_name_only(self):
         text = ("interface Document : Node {\n  attribute long d;\n};\n\n"
@@ -300,8 +337,9 @@ class BodyLoopTests(unittest.TestCase):
     def test_first_hit_wins(self):
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: RENDERED, GEN: TR})
         self.assertEqual(calls, [NIGHTLY])
-        self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
-        self.assertNotIn("# source:", out)
+        lines = out.splitlines()
+        self.assertEqual(lines[0], f"# source: rendered ReSpec page as served ({TODAY})")
+        self.assertEqual(lines[1], f"# {NIGHTLY}#dom-x-foo")
         self.assertIn("Rendered steps.", out)
 
     def test_unrendered_nightly_picks_spec_generator(self):
@@ -326,7 +364,7 @@ class BodyLoopTests(unittest.TestCase):
         # The same scenario run against a loop that gives up on the first
         # FetchError must NOT reach the TR: the control above has teeth.
         src = inspect.getsource(body_mod)
-        needle = "first_error = first_error or e\n            continue"
+        needle = 'record.append(Outcome(cand.label, "unreachable", str(e)))\n            continue'
         self.assertIn(needle, src)
         mutant = types.ModuleType("_webref.commands.body_mutant")
         mutant.__package__ = "_webref.commands"
@@ -379,7 +417,7 @@ class BodyLoopTests(unittest.TestCase):
     def test_mutant_unrendered_nightly_hit_accepted(self):
         raw = (b'<html><head><script>var respecConfig = {};</script></head><body>'
                b'<section id="dom-x-foo"><p>RAW respec markup.</p></section></body></html>')
-        mutant = mutate(body_mod, "if found and is_unrendered_respec(data):",
+        mutant = mutate(body_mod, "if is_unrendered_respec(data):",
                         "if False:")
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED},
                                           module=mutant)
@@ -410,8 +448,8 @@ class BodyLoopTests(unittest.TestCase):
         self.assertEqual(calls, [NIGHTLY, GEN])
         self.assertIn("Rendered steps.", out)
 
-    def test_unlabelled_single_candidate_prints_no_source_line(self):
-        out, _, _ = self.run_cmd_body([resolver_mod.Candidate(NIGHTLY)], {NIGHTLY: RENDERED})
+    def test_non_respec_single_candidate_prints_no_source_line(self):
+        out, _, _ = self.run_cmd_body([resolver_mod.Candidate(NIGHTLY)], {NIGHTLY: RENDERED_PLAIN})
         self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
         self.assertNotIn("# source:", out)
 
@@ -588,11 +626,12 @@ class LazyCatalogTests(unittest.TestCase):
         self.assertEqual(calls, ["https://html.spec.whatwg.org/"])
         self.assertIn("Plain steps.", out)
 
-    def test_rendered_respec_first_hit_no_catalog_no_source_line(self):
+    def test_rendered_respec_first_hit_no_catalog_names_source(self):
         out, calls, _ = self.run_body(NIGHTLY, {NIGHTLY: RENDERED}, index=[])
         self.assertEqual(self.catalog_calls(calls), [])
-        self.assertEqual(out.splitlines()[0], f"# {NIGHTLY}#dom-x-foo")
-        self.assertNotIn("# source:", out)
+        self.assertEqual(out.splitlines()[0],
+                         f"# source: rendered ReSpec page as served ({TODAY})")
+        self.assertNotIn("nightly", out.splitlines()[0])
 
     def test_rendered_respec_first_miss_no_catalog(self):
         out, calls, _ = self.run_body(NIGHTLY, {NIGHTLY: RENDERED_NO_ANCHOR}, index=[])
@@ -618,9 +657,9 @@ class LazyCatalogTests(unittest.TestCase):
         self.assertIn("TR steps.", out)
 
     def test_mutant_html_guard_restored_loses_the_chain(self):
-        m = mutate(resolver_mod, "    try:\n        ent = respec_entry(shortname)",
+        m = mutate(resolver_mod, "    ent = respec_entry(shortname)\n",
                    '    if url.split("?", 1)[0].endswith(".html"):\n        return []\n'
-                   "    try:\n        ent = respec_entry(shortname)")
+                   "    ent = respec_entry(shortname)\n")
         with mock.patch.object(resolver_mod, "_respec_fallbacks", m._respec_fallbacks):
             _, calls, _ = self.run_body(
                 self.HTML_NIGHTLY,
@@ -646,13 +685,16 @@ class LazyCatalogTests(unittest.TestCase):
             body_mod.cmd_body(argparse.Namespace(shortname="x-spec", anchor="dom-x-foo"))
         self.assertEqual(len(self.catalog_calls(calls)), 1)
 
-    def test_catalog_outage_on_a_miss_reports_the_miss(self):
-        # (c) catalog unreachable: no extra candidates, reported as a plain miss
+    def test_catalog_outage_on_a_miss_is_unverified_absence(self):
+        # (c) catalog unreachable: an unreachable source, never "not encountered"
         out, calls, msg = self.run_body(
             NIGHTLY, {NIGHTLY: UNRENDERED},
             index_error=FetchError("webref: HTTP 503 fetching index.json"))
-        self.assertEqual(self.catalog_calls(calls) and len(self.catalog_calls(calls)), 1)
-        self.assertIn(f"not encountered in {NIGHTLY}", msg)
+        self.assertEqual(len(self.catalog_calls(calls)), 1)
+        self.assertIn("index.json", msg)
+        self.assertIn("absence is unverified", msg)
+        self.assertIn("unreachable: catalog", msg)
+        self.assertNotIn("not encountered", msg)
         self.assertEqual(out, "")
 
     def test_catalog_outage_with_unreachable_first_surfaces_first_error(self):
@@ -662,13 +704,172 @@ class LazyCatalogTests(unittest.TestCase):
                           index_error=FetchError("webref: HTTP 503 fetching index.json"))
         self.assertIs(cm.exception, err)
 
-    def test_mutant_unguarded_catalog_outage_dies(self):
-        m = mutate(resolver_mod, "    except FetchError:\n        return []\n",
-                   "    except ZeroDivisionError:\n        return []\n")
-        with mock.patch.object(respec_mod, "spec_entry", self.boom), \
-             mock.patch.object(m, "respec_entry", respec_mod.respec_entry):
-            with self.assertRaises(FetchError):
-                m._respec_fallbacks("x-spec", NIGHTLY)
+    def test_catalog_notfound_is_unreachable_too(self):
+        _, _, msg = self.run_body(NIGHTLY, {NIGHTLY: UNRENDERED},
+                                  index_error=NotFound("index.json"))
+        self.assertIn("absence is unverified", msg)
+
+    def test_mutant_swallowed_catalog_outage_reads_as_a_miss(self):
+        m = mutate(resolver_mod, "    ent = respec_entry(shortname)\n",
+                   "    try:\n        ent = respec_entry(shortname)\n"
+                   "    except FetchError:\n        return []\n",
+                   "from .cache import NotFound", "from .cache import FetchError, NotFound")
+        with mock.patch.object(resolver_mod, "_respec_fallbacks", m._respec_fallbacks):
+            out, calls, msg = self.run_body(
+                NIGHTLY, {NIGHTLY: UNRENDERED},
+                index_error=FetchError("webref: HTTP 503 fetching index.json"))
+        self.assertIn("not encountered", msg)  # the defect R1a closes
+
+
+class OutcomeRecordTests(unittest.TestCase):
+    """R1/R3: the source line is built from the per-candidate outcome record."""
+
+    RESPEC = BodyLoopTests.RESPEC
+    body = BodyLoopTests.run_cmd_body
+
+    def test_tr_after_unreachable_ed_says_so(self):
+        err = FetchError("webref: HTTP 500 fetching " + NIGHTLY)
+        out, _, _ = self.body(self.RESPEC, {NIGHTLY: err, GEN: NotFound(GEN), RELEASE: TR})
+        first = out.splitlines()[0]
+        self.assertTrue(first.startswith("# source: TR 2026-06-11 ("), first)
+        self.assertIn("ED unreachable: webref: HTTP 500", first)
+        self.assertIn("spec-generator unreachable", first)
+        self.assertNotIn("not renderable or lacks", first)
+
+    def test_tr_after_unrendered_and_miss_says_why(self):
+        out, _, _ = self.body(self.RESPEC, {NIGHTLY: UNRENDERED, GEN: UNRENDERED, RELEASE: TR})
+        self.assertIn("(ED unrendered; spec-generator unrendered)", out.splitlines()[0])
+
+    def test_generator_after_unreachable_ed_says_so(self):
+        err = FetchError("webref: HTTP 500 fetching " + NIGHTLY)
+        out, _, _ = self.body(self.RESPEC, {NIGHTLY: err, GEN: RENDERED})
+        self.assertIn(f"({TODAY}; ED unreachable: webref: HTTP 500", out.splitlines()[0])
+
+    def test_mutant_unreachable_not_recorded_in_source_line(self):
+        m = mutate(respec_mod, 'if o.state == "unreachable":\n        return f"{name} unreachable',
+                   'if False:\n        return f"{name} unreachable')
+        line = m.source_line("tr", TR, TODAY,
+                             [m.Outcome(None, "unreachable", "boom")])
+        self.assertNotIn("unreachable", line)
+        self.assertIn("ED unreachable: boom",
+                      respec_mod.source_line("tr", TR, TODAY,
+                                             [respec_mod.Outcome(None, "unreachable", "boom")]))
+
+    def test_source_date_is_the_copy_date_not_today(self):
+        d = datetime.date(2025, 1, 2)
+        for pages, first in (({NIGHTLY: RENDERED}, "rendered ReSpec page as served"),
+                             ({NIGHTLY: UNRENDERED, GEN: RENDERED}, "ED rendered via spec-generator")):
+            with mock.patch.object(body_mod, "copy_date", lambda u: d):
+                out, _, _ = self.body(self.RESPEC, pages)
+            self.assertEqual(out.splitlines()[0], f"# source: {first} (2025-01-02)")
+
+    def test_mutant_date_is_today(self):
+        m = mutate(body_mod, "copy_date(cand.url)", "__import__('datetime').date.today()")
+        d = datetime.date(2025, 1, 2)
+        with mock.patch.object(body_mod, "copy_date", lambda u: d):
+            out, _, _ = self.body(self.RESPEC, {NIGHTLY: RENDERED}, module=m)
+        self.assertNotIn("2025-01-02", out.splitlines()[0])
+
+    def test_text_empty_hit_still_names_source_first(self):
+        empty = (b'<html><head><meta name="generator" content="ReSpec 35.0"></head>'
+                 b'<body><section id="dom-x-foo"></section></body></html>')
+        out, _, _ = self.body([resolver_mod.Candidate(NIGHTLY)], {NIGHTLY: empty})
+        self.assertTrue(out.startswith("# source: rendered ReSpec page as served"))
+
+
+class UnrenderedByPropertyTests(unittest.TestCase):
+    """R2: rendered marker -> rendered; ReSpec script or respecConfig ->
+    unrendered; else ordinary."""
+
+    EXT = (b'<html><head><script src="https://www.w3.org/Tools/respec/respec-w3c" '
+           b'class="remove" async></script></head><body><section id="dom-x-foo">'
+           b'<p>{{Foo}}</p></section></body></html>')
+
+    def test_external_config_is_unrendered(self):
+        self.assertTrue(respec_mod.is_unrendered_respec(self.EXT))
+        self.assertTrue(respec_mod.is_unrendered_respec(
+            b"<script src='js/respec-w3c.js'></script>"))
+        self.assertTrue(respec_mod.is_unrendered_respec(
+            b"<script src=respec-w3c.js class=remove></script>"))
+
+    def test_inline_config_is_unrendered(self):
+        self.assertTrue(respec_mod.is_unrendered_respec(UNRENDERED))
+
+    def test_rendered_is_not_unrendered_even_with_script_and_config(self):
+        both = (b'<meta name="generator" content="ReSpec 35.0">'
+                b'<script src="respec-w3c.js"></script><script>respecConfig</script>')
+        self.assertTrue(respec_mod.is_rendered_respec(both))
+        self.assertFalse(respec_mod.is_unrendered_respec(both))
+        old = b'<div id="respecDocument"><h2>x</h2></div>'
+        self.assertTrue(respec_mod.is_rendered_respec(old))
+        self.assertFalse(respec_mod.is_unrendered_respec(old))
+
+    def test_ordinary_pages_are_neither(self):
+        for h in (RENDERED_PLAIN, b"<html><body><script src='app.js'></script></body></html>"):
+            self.assertFalse(respec_mod.is_unrendered_respec(h))
+            self.assertFalse(respec_mod.is_rendered_respec(h))
+
+    def test_mutant_config_literal_only(self):
+        m = mutate(respec_mod, "return bool(_RESPEC_SCRIPT_RE.search(html)) or b\"respecConfig\" in html",
+                   'return b"respecConfig" in html')
+        self.assertFalse(m.is_unrendered_respec(self.EXT))
+        self.assertTrue(respec_mod.is_unrendered_respec(self.EXT))
+
+    def test_external_config_nightly_hit_is_not_accepted_in_body(self):
+        out, calls, _ = BodyLoopTests.run_cmd_body(
+            self, BodyLoopTests.RESPEC, {NIGHTLY: self.EXT, GEN: RENDERED})
+        self.assertEqual(calls, [NIGHTLY, GEN])
+        self.assertNotIn("{{Foo}}", out)
+
+
+class CopyDateTests(unittest.TestCase):
+    URL = "https://example.invalid/copy-date/"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = mock.patch.dict("os.environ", {"XDG_CACHE_HOME": self.tmp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        import os
+        os.environ.pop("ELIDEX_WEBREF_NO_CACHE", None)
+        self.dir = Path(self.tmp.name) / "elidex-webref"
+        self.dir.mkdir()
+        import hashlib
+        self.key = hashlib.sha1(self.URL.encode()).hexdigest()
+
+    def test_last_modified_wins(self):
+        (self.dir / self.key).write_bytes(b"x")
+        (self.dir / f"{self.key}.meta").write_text(
+            json.dumps({"last_modified": "Tue, 03 Mar 2026 10:00:00 GMT"}))
+        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date(2026, 3, 3))
+
+    def test_falls_back_to_when_the_entry_was_stored(self):
+        import os
+        body = self.dir / self.key
+        body.write_bytes(b"x")
+        (self.dir / f"{self.key}.meta").write_text("{}")
+        ts = datetime.datetime(2025, 7, 8, 12, 0).timestamp()
+        os.utime(body, (ts, ts))
+        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date(2025, 7, 8))
+
+    def test_unreadable_meta_or_no_entry_is_today(self):
+        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date.today())
+        (self.dir / f"{self.key}.meta").write_text("not json")
+        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date.today())
+
+    def test_bad_last_modified_falls_back_without_raising(self):
+        (self.dir / self.key).write_bytes(b"x")
+        (self.dir / f"{self.key}.meta").write_text(json.dumps({"last_modified": "garbage"}))
+        self.assertIsInstance(cache_mod.copy_date(self.URL), datetime.date)
+
+    def test_mutant_ignores_last_modified(self):
+        m = mutate(cache_mod, 'lm = meta.get("last_modified") if isinstance(meta, dict) else None',
+                   "lm = None")
+        (self.dir / self.key).write_bytes(b"x")
+        (self.dir / f"{self.key}.meta").write_text(
+            json.dumps({"last_modified": "Tue, 03 Mar 2026 10:00:00 GMT"}))
+        self.assertNotEqual(m.copy_date(self.URL), datetime.date(2026, 3, 3))
 
 
 if __name__ == "__main__":
