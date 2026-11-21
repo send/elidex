@@ -224,7 +224,7 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
-- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する。landing report の項目は merge の依頼に同梱される (PM 911 / 918)。
+- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (driver 側は `/drive` の `codex.md` の merge 行、PM 911 / 918)。
 - PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
@@ -251,6 +251,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
 - yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out (plan-review / review の 5 軸) も
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
+- Codex driver の lane の helper gate と relay の Claude 側の token は、Claude の cap に数える (PM 912)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
 
@@ -353,7 +354,7 @@ merge の分担、PR body の ratchet の行、landing report、handoff、止ま
 
 brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
 
-Codex driver の lane では、lane SSoT は lane dir の `ssot.md` (`/drive` の `codex.md`)。`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
+Codex driver の lane では、brief に「repo `CLAUDE.md` → `/drive` → `/drive` の `codex.md` の順に読む」と書き、`codex -C <lane root>` で起動する。lane SSoT の置き場は `codex.md` で、`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
 
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 
