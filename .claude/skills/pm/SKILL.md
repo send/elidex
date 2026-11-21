@@ -63,7 +63,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
    確かめる。どれでもない項目は落ちている — 一覧に戻す。本 skill 自身は landing するまで必ずこの一覧に載る。
-4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す。
+4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す (Codex driver の lane は `ListAgents` に出ない — `/drive` の `codex.md` の nonce の往復で確かめる)。
    `/restart` 後は ref 同じ・名前が変わる、fresh session は両方変わる (旧名宛は届かない)。
    PM 自身が新しい session なら、MEMORY Active state 冒頭の PM 名の更新を pmo に渡し、全 lane に通知。
 5. **pmo**: `ListAgents` に `pmo` がいて応答すればそれを使う。いなければ `subagent_type: pmo` で 1 体
@@ -202,7 +202,7 @@ gh pr checks <N> -R send/elidex
 - [ ] review 3 channel を `/external-review` Step 1 で読む (reviewThreads は改ページして `totalCount` == 取得数)。
       skill の手順内の読み取りには `# converge-manual-ok`。未解決 thread は 0 か、各々に返信と理由
 - [ ] Codex の評価対象 commit == current head、かつ dry。silent 👍 は verdict でない
-- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head == merge する head。差が main の merge commit だけなら、やり直さない (`/drive` §6 の 3 と同じ、PM 927)
+- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head == merge する head (Skip-OK の PR は push の go の依頼にある skip の理由で代える)。差が main の merge commit だけなら、やり直さない (`/drive` §6 の 3 と同じ、PM 927)
 - [ ] **その PR の plan の landing 条件を読み直す** (PM 425 → 437): 対象は PR body、PR が実装する plan memo、
       その umbrella plan。memo は PR head の版を読む (`git fetch -q origin pull/<N>/head` の後
       `git show <headRefOid>:<path>`)。条件の語は日英両方の regex で引く:
