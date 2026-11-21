@@ -271,7 +271,7 @@ The rung: P1a memo §5. The P1b rows:
 | D25 | P1b | `--dry-run` runs every check and prints the merge command (Q4) | the PM's E2E needs the good path on a real PR without an irreversible act |
 | D30 | P1b | Codex: dry verdict on `H` after the last trigger, no finding in any channel, 0 unresolved Codex threads; the `Completed` row is not an assessment; every bot item admitted, its sha derived as the global resolver (marker → first `/blob/<sha>/` → `commit_id`), a round item with no sha is a finding; the trigger by literal containment from a non-bot author | PM 893 (C7); canonical rule in the global external-review SKILL; #492 (latest item does not win), #494 R2 (threads), #525 (`Completed`); round 2 A5-1 (driver decision: no-sha item = finding) |
 | D31 | P1b | reviewer values read from `origin/main`'s `external-converge/project.md` § reviewer, not copied into the script | One issue, one way (the overlay is their canonical site) |
-| D32 | P1b | no override flag; break-glass = a raw merge and its post-merge sync / cleanup, run by the user from the commands and record line the PM prepares (who acts: P1a memo §7.4); recorded (§7.4) | PM 893 (C8); round 2 A3 / A2 MIN; PM 916 (the PM is a Claude session, and `gh-pr-merge-head-guard` applies to it too) |
+| D32 | P1b | no override flag; break-glass = a raw merge and its post-merge sync / cleanup, run by the user from the commands and record line the PM prepares (who acts: P1a memo §7.4); recorded (§7.4) | PM 893 (C8); round 2 A3 / A2 MIN; PM 916 (the actor is the user, one rule with the push / commit kind; the ground is that decision — `gh-pr-merge-head-guard` does not stop a Claude session's raw merge, P1a memo §7.4) |
 | D34 | P1b | invocation site = the `main` worktree's copy, run from the caller's cwd | PM 893 (D13); step 2 refuses a PR worktree |
 | D35 | P1b | Dependabot PRs get a `@codex review` from the CI/tools lane, which runs them (`pm:223`, PM 240), then `merge-pr` | PM 893 (E29); no Dependabot exemption, no break-glass for them; round 2 A5 MIN (the lane, not the PM) |
 | D36 | P1b | the go token's trust model is accidents + sandboxed agents | PM 893 (E28); stated limit III4 |
@@ -331,8 +331,10 @@ memo §7.4). The PM prepares the commands, all run from one cwd in this order:
 with its stdin,
 `printf '{"tool_input":{"command":"gh pr merge <N>"},"cwd":"%s"}' "$(pwd -P)" | ~/.claude/hooks/post-merge-sync-main.sh`,
 then the same into `post-merge-cleanup-branch.sh`; and the record line. **The post-merge sync and cleanup are in
-those commands**, because the merge runs outside the Claude Bash tool and no PostToolUse entry (`:136`, `:142`)
-runs them; if one ever did, the second run is harmless (IV4).
+those commands**, so the break-glass does not depend on whether a PostToolUse entry (`:136`, `:142`) runs them for
+this merge: for a command in the user's own terminal none does, and for a `! <command>` it is unverified — the P1a
+memo §7.4 check covers the unfiltered bypass guard only, and these entries carry `"if": "Bash(gh *)"`
+(`settings.json:137`, `:143`). If one did run them, the second run is harmless (IV4).
 
 ### §7.5 E2E cases
 
