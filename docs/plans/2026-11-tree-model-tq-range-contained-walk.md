@@ -142,15 +142,15 @@ dom dom-element-shadowroot`; `dfn dom root` → §1.1 Trees `#concept-tree-root`
 `dfn selection-api deleteFromDocument` → §3 Selection interface `#dom-selection-deletefromdocument`; `dfn
 selection-api stringifier` → §3 `#dom-selection-stringifier`; `heading selection-api 3` → §3 Selection interface
 `#selection-interface`; `coverage-map dom 5.6 dom 1.1 dom 4.2.2 dom 4.2.3 dom 4.9 selection-api 3` → spec=2, single
-PR. The Selection API quotes of this memo (the two rows above, and the `setBaseAndExtent()` step quoted in §7 and
-§11 P-5) are not from `webref body`: `webref body selection-api
+PR. The Selection API quotes of this memo (the two rows above, their re-quotes in §3 *Rank* step 1 and §11 P-5's
+Precondition, and the `setBaseAndExtent()` step quoted in §7 and §11 P-5) are not from `webref body`: `webref body selection-api
 dom-selection-deletefromdocument` and `... dom-selection-stringifier` both answer "anchor … not encountered" (the
 rendered ReSpec page does not carry the ids its dfns index points at; a webref limit, for the PM / CI/tools). They
 are read from webref's own cached ReSpec source of the spec
 (`~/.cache/elidex-webref/c0d97c3dfdf1cb8a59fa73f678d007b67d8cef81`, `https://w3c.github.io/selection-api/`,
 last-modified 2026-06-11), the `<dfn>deleteFromDocument()</dfn>`, `<dfn>stringifier</dfn>` and
 `<dfn>setBaseAndExtent()</dfn>` entries, markup stripped (re-read 2026-11-21). Every quote taken from this cache file carries the marker "webref 外 (raw cache, selection-api
-2026-06-11)" at its site (PM 896).
+2026-06-11)" at its site (PM 896); a bare mention of the term "rendered text" after a marked quote (§3 *Rank* step 1, §7's V6 paragraph) refers to that quote and carries no second marker.
 
 **Rank of the Selection string values (P4a/b/c, V5).** Derived by the basis order of CLAUDE.md (*Design philosophy*,
 the 至上命題 bullet, verbatim):
