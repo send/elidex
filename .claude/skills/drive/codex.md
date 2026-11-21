@@ -5,8 +5,8 @@ Codex CLI session が `/drive` の lane driver を務める時 (PM 872 / 873) �
 repo `CLAUDE.md` → `/drive` → 本 file (PM の kickoff brief が指示する)。食い違いを見つけたら PM に報告する。
 
 名前の出所: `merge-pr` / git hook / go token の名前は CI/tools の P1 plan memo
-(`docs/plans/2026-11-agent-neutral-git-guards-p1.md`、branch `ci-agent-neutral-guards-p1` @ `8a30239d`、**main に無い、
-plan-review 中で未 ratify**、P1a / P1b に分割中 — PM 893 / 908) から取った。ratify・着地で変わったら本 file を直す。
+(`docs/plans/2026-11-agent-neutral-git-guards-p1a.md` / `-p1b.md`、branch `ci-agent-neutral-guards-p1` @ `d9627a36`、**main に無い、
+plan-review 中で未 ratify** — PM 893 / 908) から取った。ratify・着地で変わったら本 file を直す。
 
 **lane dir** = `$PMD/handoff/codex-lanes/<lane>/`。下の表の file (lane SSoT、gate file) はすべてここに置く。
 
@@ -26,7 +26,7 @@ plan-review 中で未 ratify**、P1a / P1b に分割中 — PM 893 / 908) から
 | Claude の PreToolUse / Stop の guard (`~/.claude/settings.json`) | **P1a 着地まで**: Codex の `hooks.json` から Claude の global hook script をそのまま呼ぶ (Bash の PreToolUse の guard は PM 911、Stop gate は PM 912)。amend / force-push の deny は global の script に切り出して Claude と Codex の両方から呼ぶ (user の diff 承認の後、PM 912)。P1a の git hook (`pre-push` / `pre-commit`) が入ったらそちらが正。`止まる理由` の規則は `/drive` §10 のまま |
 | ECS-mission guard (Claude の編集 hook) | **P1a 着地まで**: Codex の編集 (apply_patch) は hook から見えない。PR body の ratchet の行 (`/drive` §4) と CI の `tools` job が担う (PM 911)。P1a の `pre-push` が入ったらそれも加わる |
 | `git` / `gh` (fetch、`worktree add`、add、commit、push、`gh` の API) | workspace-write の sandbox は `.git` を書けず、ネットワークも前提にしない。走らせるのは execpolicy の allow rule に載った形だけ (PM 877 / 878、置き場は global の `~/.codex/rules`、一覧は P2 の下書き。適用は P2 の hooks と同じ user の diff 承認の後、PM 912)。PreToolUse の guard は allow rule より先に発火する (PM 912)。rule は argv の prefix で照合するので、`git -c k=v commit` のように間に token を挟む形や `cd … &&` で始まる複合コマンドは外れ、network の無い sandbox の中で失敗する。git (push / commit / fetch / `worktree add`) は plain な形で、workdir を指定した単独のコマンドで打つ (PM 920) (照合は `codex execpolicy check --rules <file> <argv…>` で事前に確かめられる) |
-| merge (`/drive` §6 の 4) | **P1b 着地まで**: Codex driver は merge しない (merge するのは PM、`/pm` §4)。§6 の 1 の報告に `/drive` §7 の landing report の項目 (merge commit の sha を除く) を同梱する (PM 918)。P1b の後は `/drive` §6 に戻る (wrapper `merge-pr` と go token の形は P1 memo §4.4 / §7.2、PM 873 (6)) |
-| memory の書き込み、lane SSoT (`/drive` §0、§1 の 6、§9) | `--add-dir` で書けるのは lane dir の 1 つだけ (`$MEM` は開かない)。lane SSoT は lane dir の `ssot.md` で、`/drive` §9 の 10 項目を書く。`$MEM` の lane の file の冒頭はそれを指す pointer だけ (`/pm` §9、置き場は 1 つのまま、PM 912)。`.git` 以外の dir への add-dir は P2 で試験する (効かなければ PM 912 を見直す) |
+| merge (`/drive` §6 の 4) | **P1b 着地まで**: Codex driver は merge しない (merge するのは PM、`/pm` §4)。§6 の 1 の報告に `/drive` §7 の landing report の項目 (merge commit の sha を除く) を同梱する (PM 918)。P1b の後は `/drive` §6 に戻る (wrapper `merge-pr` と go token の形は P1b memo §4.4 / §7.2、PM 873 (6)) |
+| memory の書き込み、lane SSoT (`/drive` §0、§1 の 2・6、§9) | `--add-dir` で書けるのは lane dir の 1 つだけ (`$MEM` は開かない)。lane SSoT は lane dir の `ssot.md` で、`/drive` §9 の 10 項目を書く。`$MEM` の lane の file の冒頭はそれを指す pointer だけ (`/pm` §9、置き場は 1 つのまま、PM 912) — `/drive` §1 の 2 では pointer を辿って `ssot.md` を読む。`.git` 以外の dir への add-dir は P2 で試験する (効かなければ PM 912 を見直す) |
 | commit するブランチ用の worktree (`/drive` §1 の 9) | lane ごとに root dir を 1 つ置き、session は `codex -C <lane root>` で起動する。per-PR worktree はその下の subdir に `git worktree add` で作る (allow list に載る、PM 912)。lane root は elidex の guard の範囲 (`~/.claude/hooks/git-hook-bypass-guard.py` の `in_scope`) の中に置く |
 | budget (`/drive` §10、`/pm` §6) | pilot の間は Codex 側の cap を置かない (PM 912)。machine の負荷 (local の `mise run ci` は machine 全体で同時に 1 本、PM 912。排他の確認の `pgrep` は allow rule が前提、PM 920) と disk の下限 (`/drive` §8) は効く |

@@ -46,7 +46,7 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 | backup | `$PMD/backup/` (global 変更) / pmo は scratchpad に取ってパスを報告 |
 | usage-pace | `~/.claude/hooks/usage-pace.py status` / `~/.claude/state/usage-pace.log` |
 
-driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない。
+driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない (Codex driver の lane は SSoT が lane dir にあり、`$MEM` 側の pointer は pmo が書く — §9)。
 
 ## 1. 起動 (`/pm`、compaction 後、restart 後)
 
@@ -110,8 +110,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
-- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出したら helper はそこで止まって patch を返し、Stage 4–5 は driver が当てた後の新しい head の依頼で回す (PM 924)。
-- 行 6 の lane が Codex driver なら、読んだ verdict を Orca で driver に渡す (PM 912)。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出したら helper はそこで止まり、driver が当てた後の新しい head の依頼では Stage 4–5 だけを回す (`/pre-push`「Fix → re-verify」、PM 924)。
+- Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912)。
 
 ## 3. 役割の境界
 
