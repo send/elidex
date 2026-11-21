@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Offline tests: multi-line IDL extended attributes (`webref idl`). No
-network: IDL is a fixture."""
+"""Offline tests for `webref idl`: extended-attribute lists (multi-line and
+several on one line), definition end by grammar (one-line blocks, callbacks
+ending at `;`, trailing comments), strings and comments (braces / `;` inside,
+no backslash escapes), and declared-name match. No network: IDL is a fixture."""
 from __future__ import annotations
 
 import re

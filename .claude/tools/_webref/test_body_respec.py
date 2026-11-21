@@ -8,12 +8,10 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
-import inspect
 import io
 import json
 import sys
 import tempfile
-import types
 import unittest
 import urllib.error
 import warnings
@@ -164,13 +162,8 @@ class BodyLoopTests(unittest.TestCase):
     def test_mutant_stop_on_first_fetch_error_fails_the_control(self):
         # The same scenario run against a loop that gives up on the first
         # FetchError must NOT reach the TR: the control above has teeth.
-        src = inspect.getsource(body_mod)
         needle = 'record.append(Outcome(cand.label, "unreachable", str(e)))\n            continue'
-        self.assertIn(needle, src)
-        mutant = types.ModuleType("_webref.commands.body_mutant")
-        mutant.__package__ = "_webref.commands"
-        exec(compile(src.replace(needle, needle.replace("continue", "break")),
-                     "body_mutant", "exec"), mutant.__dict__)
+        mutant = mutate(body_mod, needle, needle.replace("continue", "break"))
         pages = {NIGHTLY: UNRENDERED, GEN: FetchError("boom"), RELEASE: TR}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
