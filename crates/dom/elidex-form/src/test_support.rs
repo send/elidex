@@ -40,8 +40,10 @@ pub(crate) fn attached_element(dom: &mut EcsDom, tag: &str, attrs: &[(&str, &str
 }
 
 /// A user edit that appends `text` at the cursor; asserts it changed the value.
+#[track_caller]
 pub(crate) fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
-    let edit = crate::apply_user_edit(dom, e, |f| f.insert_at_cursor(text)).unwrap();
+    let edit = crate::apply_user_edit(dom, e, |f| f.insert_at_cursor(text))
+        .expect("user_append: the entity has no FormControlState / no focus snapshot");
     assert!(edit.changed);
 }
 

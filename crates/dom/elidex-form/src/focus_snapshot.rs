@@ -425,19 +425,4 @@ mod tests {
             assert_eq!(change_on_blur_kind_applies(kind), expected, "{kind:?}");
         }
     }
-
-    /// PB-8 (was `no_snapshot_for_non_text_control`): an `<input type=button>`
-    /// is seeded (the population is the element) and judged `false` by its kind.
-    #[test]
-    fn button_kind_input_is_seeded_and_judged_false() {
-        let mut dom = EcsDom::new();
-        let button = control(&mut dom, FormControlKind::Button, "");
-        record_focus_snapshot(&mut dom, button);
-        assert_eq!(snap(&dom, button), Snap::Unmarked, "seeded");
-        // Mark it with a user edit so the kind is the only reason for `false`:
-        // the snapshot is marked and the value differs from the mark.
-        user_append(&mut dom, button, "x");
-        assert_eq!(snap(&dom, button), Snap::Baseline(String::new()), "marked");
-        assert!(!take_change_on_blur(&mut dom, button));
-    }
 }

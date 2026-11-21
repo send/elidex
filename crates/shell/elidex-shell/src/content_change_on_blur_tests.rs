@@ -752,7 +752,7 @@ fn dc18_round_trip_through_checkbox() {
 
 /// DC-19: a round trip text → color → text after a user edit: the sanitization
 /// writes `"#000000"`, which differs from the value just before the first user
-/// edit (`""`, D-3), so `change` fires.
+/// edit (`""`, the re-derivation's D-3), so `change` fires.
 #[test]
 fn dc19_round_trip_through_color() {
     let (mut s, _b) = edit_then_retype("a", &["color"]);
