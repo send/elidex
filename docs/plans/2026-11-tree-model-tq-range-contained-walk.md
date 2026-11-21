@@ -1,14 +1,18 @@
 # Tree model tq — Range's contained-node walk takes tree children (per-PR plan-memo)
 
 **Revision log.** R1 fixes F1–F12 (plan-review R1, 0/5/9/8). R1.2: Step 4.5 re-check fixes G1–G8, G11 (0/2/10/0);
-P-5 → precondition on tsel (PM 884/885).
+P-5 → precondition on tsel (PM 884/885). R1.3: final re-check fixes H1–H8 (0/2/8/0), PM 890 (tsel scope = Selection
+tree preconditions; P-6 probe before the code PR).
 
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (ratified at `4918a6c7`, PR #648; slice placed by D3, approved PM 820; order tp → tq → ta, and with the
-precondition of §11 P-5 (PM 884 / 885) tp → tsel → tq → ta). Census:
+precondition of §11 P-5 (PM 884 / 885; `tsel`'s scope as worded by PM 890: Selection operations check the spec's
+tree preconditions) tp → tsel → tq → ta). Census:
 [2026-11-tree-model-census.md](2026-11-tree-model-census.md) (C-3, C-14). Base: `origin/main` `3cbd5b88`
-(2026-11-21); every code fact below was measured there, and the probes of §6 ran there. Owner lane: L3 DOM/form.
+(2026-11-21); every code fact below was measured there, and the probes of §6 ran there. The code PR's base is a
+later `main` that contains `tsel` (§9 item 3), so the anchors and line counts of this memo are re-measured there
+(§10 item 7). Owner lane: L3 DOM/form.
 Security-relevant: closes the closed-shadow-root exposure of umbrella §0.1 item 6 on its second path (Range).
 
 Stated in the umbrella and only referred to here, by section: the rule and why `tq` is its own slice (§1.6, the
@@ -123,7 +127,7 @@ LINK and MO of the same table. One line each, for this slice only:
 | WHATWG DOM §4.2.3 Mutation algorithms | *remove* step 16 (queue a tree mutation record for parent with « node ») | reached only for nodes in *nodesToRemove* | `apply_remove_child` (`child_list.rs:356`), unchanged; no longer called with a shadow root from Range | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | `shadowRoot` getter step 2 | "If shadow is null or its mode is \"closed\", then return null." | none (what probe P1's record breaks: it hands page script the closed root) | ✓ | yes |
 | WHATWG DOM §1.1 Trees | *root*: "The root of an object is itself, if its parent is null, or else it is the root of its parent." | the parent chain of a shadow-tree node ends at the shadow root (a shadow root has a null parent in the node tree), so its root is the shadow root | none (what *contained*'s root clause reads; elidex's `find_tree_root` stops at the `ShadowRoot` marker, `crates/core/elidex-ecs/src/dom/tree/walkers.rs:408-426`) | ✓ | yes |
-| SELECTION API §3 Selection interface | `deleteFromDocument()`: "The method must invoke deleteContents() on this's range if this is not empty and both focus and anchor are in the document tree. Otherwise the method must do nothing." | empty → nothing; non-empty × anchor and focus both in the document tree → `deleteContents()` on the range; non-empty × either not in the document tree → nothing | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`) | ✗ (the "both in the document tree" check is absent at base: elidex runs `deleteContents()` whenever the selection has a range (`selection.rs:518-533`); the prereq slice `tsel` of PM 884 / 885 takes it, §11 P-5. The cells of §7 are all in the "both in the document tree" branch) | yes |
+| SELECTION API §3 Selection interface | `deleteFromDocument()`: "The method must invoke deleteContents() on this's range if this is not empty and both focus and anchor are in the document tree. Otherwise the method must do nothing." | empty → nothing; non-empty × anchor and focus both in the document tree → `deleteContents()` on the range; non-empty × either not in the document tree → nothing | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`) | ✗ (the "both in the document tree" check is absent at base: elidex runs `deleteContents()` whenever the selection has a range (`selection.rs:518-533`); the prereq slice `tsel` takes it: its one declared change, "Selection operations check the spec's tree preconditions" (PM 890), covers the boundary setters (PM 885) and this check, §11 P-5. The cells of §7 are all in the "both in the document tree" branch) | yes |
 | SELECTION API §3 Selection interface | stringifier: "The stringification must return the string, which is the concatenation of the rendered text if there is a range associated with this." | rangeCount 0 / 1 | `SelectionState` `to_string` (`selection.rs:580`, → `Range::to_string` `:585`) | ✗ ("rendered text" is not defined in Selection API and not linked to a definition, so rank (1) does not fix the string for a range over a host; P4 / V5's values are rank (2): see below) | yes |
 
 **Lookups** (all `.claude/tools/webref`, 2026-11-21): `heading dom 5.6` → §5.6 Interface Range `#interface-range`
@@ -160,16 +164,21 @@ the 至上命題 bullet, verbatim):
 2. **elidex principle.** The value is already decided by the ratified umbrella: §7.4 (N6) re-syncs
    `#11-shadow-root-accepted-as-ref-or-old-child` to "this also stops Range.prototype.toString and
    Selection.prototype.toString from including a shadow tree's text (probed in tq)" (PM 812 / 820;
-   `git show 4918a6c7:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md`, `:1089-1099`). The
-   principle it rests on is the CLAUDE.md *Design philosophy* bullet whose head reads, verbatim:
+   `git show 4918a6c7:docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md`, `:1089-1099`). The value
+   has two halves, and they do not rest on the same thing:
+   - *Leaving out the closed shadow tree's text* ("SHADOW"): supported by the CLAUDE.md *Design philosophy* bullet
+     whose head reads, verbatim:
 
-   > **Security by structure, not review convention**: security boundary は後付けしない。
+     > **Security by structure, not review convention**: security boundary は後付けしない。
 
-   A closed shadow root's text is behind the encapsulation boundary that
-   `tq` closes on its Range path (umbrella §0.1 item 6), and the boundary is held by the one walk itself, not by a
-   check added per caller. The discipline applied is *One issue, one way* (CLAUDE.md *Design discipline*):
-   Selection's stringification delegates to the one Range stringification (`selection.rs:585`, `with_range(id, dom,
-   Range::to_string)`), so a selection over a range has that range's §5.6 string and no second computation exists.
+     A closed shadow root's text is behind the encapsulation boundary that `tq` closes on its Range path (umbrella
+     §0.1 item 6), and the boundary is held by the one walk itself, not by a check added per caller.
+   - *Including the unslotted light child's text* ("LIGHT", P4b / P4c): no *Design philosophy* principle selects
+     it. It rests on the discipline *One issue, one way* (CLAUDE.md *Design discipline*), applied: Selection's
+     stringification delegates to the one Range stringification (`selection.rs:585`, `with_range(id, dom,
+     Range::to_string)`), so a selection over a range has that range's §5.6 string (in which the light child is a
+     contained Text node) and no second computation exists; and on the ratified umbrella decision (N6) above, which
+     fixes the Selection string to the Range string. No other principle is claimed for this half.
 3. **Re-derivation trigger.** If Selection API defines "rendered text" (or links a definition), V5's expectation
    (and P4a/b/c's spec column) is re-derived from that definition.
 
@@ -231,21 +240,78 @@ A host inside a shadow tree (a nested host) is the same case one level down: a r
 no longer enters the inner one (still the declared change; *contained* is the same test).
 
 **The same-root premise of the climb row.** The third row's "the climb out of one" matters only for a range whose
-start is inside a shadow tree and whose end is not, i.e. a range with two roots. Every path that writes a range
-boundary at `3cbd5b88`, and what holds on it:
+start is inside a shadow tree and whose end is not, i.e. a range with two roots. The population of boundary writes
+is measured, not asserted: `git grep -n -P '\.(start|end)_container\s*=[^=]|\.set_(start|end)\(' 3cbd5b88 --
+crates ':!*tests*'` → 57 hits (listed and classified after the table; control: the same command's `selection.rs`
+hits include the known `:278-279` writes of P-5). The grep does not see constructors and copies, which write both
+boundaries at once; those are rows of their own below (`git grep -n -P '\bclone_range\(|Range::new(_with_owner)?\('
+3cbd5b88 -- crates ':!*tests*'`; of `Range`'s derived `Clone`, only the two sites named in the copies row were read, the
+`.clone()` population is not measured). By write path:
 
 | Write path | Same root kept? | Basis |
 |---|---|---|
 | Range natives `setStart` / `setEnd` (`range_proto.rs:552`, `:567`) → `set_start_to_boundary` / `set_end_to_boundary` (`range/boundary.rs:52`, `:67`); `setStartBefore` / `-After`, `setEndBefore` / `-After`, `selectNode` (`boundary.rs:82-128`) through the same two | yes | the two collapse the other boundary when the new one's `find_tree_root` differs, and `find_tree_root` stops at the `ShadowRoot` marker (`walkers.rs:408-426`) |
 | `selectNodeContents`, `collapse` (`boundary.rs:114-137`) | yes | both boundaries are set to one node |
-| the live-range hooks (`LiveRangeBridge`, `range/live.rs:112-300`: removal, insertion, text change, replace data, split text, normalize merge) | yes, read from the code (not probed) | each hook keeps a boundary in its node, moves it within its node's tree (`splitText`'s new node, `normalize`'s merge target), or moves a boundary inside a removed subtree to `(parent, index)` of the removed node, whose root is the root the other boundary already had |
+| the live-range hooks (`LiveRangeBridge`, `range/live.rs:112-325`: removal, insertion, text change, replace data, split text, normalize merge incl. `after_normalize_merge` `:278-324`) | yes, read from the code (not probed), except split text on an orphan Text (next row) | each hook keeps a boundary in its node, moves it within its node's tree (`splitText`'s new node when the Text has a parent, `normalize`'s merge target, a sibling of the merged child), or moves a boundary inside a removed subtree to `(parent, index)` of the removed node, whose root is the root the other boundary already had |
+| split text on an orphan Text (`after_split_text`, `live.rs:229-276` → `adjust_ranges_for_split_text`, `range/mod.rs:380-387`) | **no**, read from the code (not probed) | the node-side migration (`off > offset` → `(new_node, off - offset)`) runs whether or not the Text has a parent (`live.rs:266-275` passes `None` parent args only to skip the parent-side rule; `split_text.rs:194` fires the event unconditionally), so a range `(t, 2)`-`(t, 8)` on an orphan `t` split at 5 gets its end on `new_node`, a second orphan: two roots. DOM §4.11 *split a Text node* runs the migration only under step 7 "If parent is non-null" (`webref body dom concept-text-split`). Neither root holds a shadow root, so `tq`'s climb row is not reached by it; the defect is not `tq`'s (found in R1.3 while classifying the hits below; reported to the PM, its placement is the PM's) |
 | `LiveRangeRegistry::finalize_pending` (`range/live.rs:434-450`, run by every `with_range` / `with_range_mut`) | **not shown** | it re-homes start and end to the owner document **separately**, each when its own container is no longer in the `EcsDom` (`!dom.contains`), so a range whose start container is gone and whose end container is alive in a shadow tree becomes `(document, 0)`-`(end in the shadow tree)`. Whether a page script can reach that one-ended re-home (a range container despawned without the removal hook having moved the boundary) is **not measured**; §11 P-6 |
-| Selection setters (`collapse`, `extend`, `set_base_and_extent`, `select_all_children`, `selection.rs:278-440`) → raw `set_start` / `set_end` (`boundary.rs:35`, `:42`) after a node-document check only (`same_document`, `selection.rs:613-618`) | **no** (measured, §11 P-5) | a Selection range can have its start in the light tree and its end in a shadow tree; `tq` changes that shape's output. Precondition: `tsel` (§11 P-5) |
+| Selection setters `extend` (`selection.rs:357-361`) and `set_base_and_extent` (`:408-412`) → raw `set_start` / `set_end` (`boundary.rs:35`, `:42`) with two different nodes, after a node-document check only (`same_document`, `selection.rs:613-618`) | **no** (measured, §11 P-5) | a Selection range can have its start in the light tree and its end in a shadow tree; `tq` changes that shape's output. Precondition: `tsel` (§11 P-5) |
+| Selection setters `collapse` (`selection.rs:278-279`) and `select_all_children` (`:439-440`) → the same raw pair | yes | both boundaries are written with one node (`node` / `parent`), so one root |
+| `Range::new` / `Range::new_with_owner` (`range/mod.rs:89-111`; callers `selection.rs:277`, `:355`, `:406`, `:438`, `:631`, `:634`, `:664`, `document_traversal.rs:40`, `range_proto.rs:287`, `range_proto_mutation.rs:158`, `static_range_proto.rs:415`) | yes | both boundaries at `(node, 0)` |
+| copies: `clone_range` (`boundary.rs:140`, no caller outside tests at base) and `Range`'s derived `Clone` (`.clone()`) at the two sites read (`cloneRange`, `range_proto.rs:863`; the `deleteFromDocument` snapshot, `selection.rs:530`; other `.clone()` sites: not verified) | as the source | a copy has its source's two roots or one; so `getSelection().getRangeAt(0).cloneRange()` of a Selection range written by `extend` / `set_base_and_extent` has two roots too (read from the code, not probed). Moot after `tsel` |
+| Selection's comparison temporaries `direction_between` (`selection.rs:631-636`) and `node_fully_contained` (`:664-666`) | yes | each temporary is written with one node; they are passed to `compare_boundary_points` only and never registered, so no walk reads them |
+| `deleteFromDocument`'s write-back collapse (`selection.rs:537-542`, the writes at `:538-540`) | yes | both boundaries are set to the snapshot's start container |
+| `delete_contents` / `extract_contents` collapse to start (`range/mutation.rs:235`, `:409`) | yes | end := start |
+| the `with_range_mut` copy-back `commit_range_after_mutation` (`range_proto_mutation.rs:50-55`, writes `:51`, `:53`; callers `:99` `deleteContents`, `:125` `extractContents`) | yes | it copies the range those two returned, which is collapsed to its start (previous row) |
 | `range_proto_mutation.rs:159-160` (raw `set_start` / `set_end` on a collapsed transient for `insertNode`) | yes | one node, so one root |
+| the `insertNode` collapsed-end commit (`range_proto_mutation.rs:190-196`, the write at `:194`) | yes, read from the code (not probed) | the end becomes `(parent, newOffset)`, where `parent` is the start container or, for a Text, its stored parent (`range/mutation.rs:447-454`); the start stayed on the start container, so one root |
+| the StaticRange transient (`build_static_range`, `static_range_proto.rs:414-421`, writes `:416`, `:418`; its one caller `:403`, `isValid`) | yes | a StaticRange's fields can span two roots, but `isValid` returns `false` before building the transient when they do (`static_range_proto.rs:382`, `find_tree_root` of both containers); the transient is passed to `compare_boundary_points` only (`:410`) and never reaches `contained_top_level_nodes` or `to_string` (`build_static_range`'s one caller, `git grep -n -w build_static_range 3cbd5b88 -- crates` → 2 hits, definition and `:403`) |
 
-So the claim this memo makes is scoped: on the Range natives and the live-range hooks a range has one root and the
-climb row is unchanged by `tq`; on the Selection setters it is not, until `tsel` (§11 P-5); for `finalize_pending`
-it is not shown (§11 P-6).
+The 57 hits of the grep, each classified (one root: the write cannot give a one-root range a second root; can be
+two roots; not verified: the code was not traced far enough to say):
+
+| Hits (`file:line` at `3cbd5b88`) | Write | Class |
+|---|---|---|
+| `char_data/split_text.rs:368`, `:369`, `:394`, `:395` | inside `#[cfg(test)] mod tests` (`split_text.rs:225`; the pathspec `':!*tests*'` does not exclude an inline test module): one node each | one root (4) |
+| `range/boundary.rs:36`, `:43` | the raw primitives `set_start` / `set_end`: no root check | can be two roots (2): reached with two nodes by `extend` / `set_base_and_extent` |
+| `range/boundary.rs:57`, `:60`, `:72`, `:75` | `set_start_to_boundary` / `set_end_to_boundary` | one root (4) |
+| `range/boundary.rs:116`, `:119` | `collapse` | one root (2) |
+| `range/boundary.rs:132`, `:134` | `select_node_contents` | one root (2) |
+| `range/live.rs:305`, `:309` | `after_normalize_merge` parent-side migration to `prev`, a child of that parent | one root (2) |
+| `range/live.rs:439`, `:445` | `finalize_pending`'s separate re-homes | not verified (2): two roots if one container is gone and the other is alive in another tree; reachability from page script not measured (§11 P-6) |
+| `range/mod.rs:189`, `:197` | `adjust_ranges_for_removal` (callers only in `range/tests_adjust.rs` at base) | one root (2) |
+| `range/mod.rs:233`, `:240` | `adjust_ranges_for_removal_snapshot` (the live removal hook) | one root (2) |
+| `range/mod.rs:381`, `:385` | `adjust_ranges_for_split_text` node-side migration | can be two roots (2): an orphan Text (the split-text row above) |
+| `range/mod.rs:433`, `:437`, `:444`, `:454` | `adjust_ranges_for_normalize_merge`: to `prev`, a sibling of the merged child / a child of the parent | one root (4) |
+| `range/mutation.rs:235`, `:409` | collapse to start | one root (2) |
+| `selection.rs:278`, `:279` | `collapse` | one root (2) |
+| `selection.rs:357`, `:358`, `:360`, `:361` | `extend` | can be two roots (4) |
+| `selection.rs:408`, `:409`, `:411`, `:412` | `set_base_and_extent` | can be two roots (4) |
+| `selection.rs:439`, `:440` | `select_all_children` | one root (2) |
+| `selection.rs:538`, `:540` | `deleteFromDocument` write-back | one root (2) |
+| `selection.rs:632`, `:633`, `:635`, `:636` | `direction_between` temporaries | one root (4) |
+| `selection.rs:665`, `:666` | `node_fully_contained` temporary | one root (2) |
+| `range_proto_mutation.rs:51`, `:53` | copy-back | one root (2) |
+| `range_proto_mutation.rs:159`, `:160` | `insertNode` transient | one root (2) |
+| `range_proto_mutation.rs:194` | `insertNode` collapsed-end commit | one root (1) |
+| `static_range_proto.rs:416`, `:418` | StaticRange transient (guarded by `:382`) | one root (2) |
+
+Counts: one root 43, can be two roots 12 (`boundary.rs` 2, `selection.rs` 8, `range/mod.rs` 2), not verified 2.
+
+**Read-side aliasing.** A Selection's range is not a copy: `addRange` stores the given range's `RangeId`
+(`native_selection_add_range`, `dom_selection_mutation.rs:155-187`, `add_range(.., range_id)` `:182`), and
+`getRangeAt(0)` wraps the selection's current `RangeId` (`native_selection_get_range_at`,
+`dom_selection_proto.rs:600-626`, `wrap_range_id(ctx, rid)` `:625`). So a range written cross-root by `extend` /
+`set_base_and_extent` reaches the Range natives too: `getSelection().getRangeAt(0).toString()` and
+`.deleteContents()` read the same registered range through `Range::to_string` / `Range::delete_contents` (read from
+the code, not probed; a row of §11 P-5's table). It is moot after `tsel`: once the setters apply the spec's
+precondition, no Selection range has two roots for the Range natives to read.
+
+So the claim this memo makes is scoped: on the Range natives' own setters, the constructors, the collapses and
+copy-backs, the transients and the live-range hooks a range keeps one root and the climb row is unchanged by `tq`,
+except split text on an orphan Text (two roots, neither a shadow tree, so the climb row is not reached); on the
+Selection setters `extend` / `set_base_and_extent`, and on the Range natives reading a Selection range through the
+shared `RangeId`, it does not, until `tsel` (§11 P-5); for `finalize_pending` it is not shown (§11 P-6).
 
 ### §4.3 ECS-native / layering check
 
@@ -373,7 +439,17 @@ Where each cell's expected value comes from:
 - **An elidex design value, not a spec value**: U1. It asserts what the private walk returns, which is §0.1's
   design (the root clause of *contained* is held by the walk's descent: its two child steps stay in the node tree);
   the spec has no such function.
-- **Rank (2)**: V5, and V6 (NEW) (§3, *Rank of the Selection string values*).
+  V6 (NEW) is in this group too: its `""` is the string of a collapsed range under any reading. On the post-`tsel`
+  base, `setBaseAndExtent` step 5 (Selection API §3) sets the boundaries through DOM's *set the start or end*
+  (WHATWG DOM §5.6 `#concept-range-bp-set`), whose step 4 collapses the range when the new boundary point's node has
+  another root ("If range's root is not node's root …"); the collapsed range's string is `""` by the
+  stringification's step 2 (start node is end node, a Text node: the substring from the start offset to the equal
+  end offset), and the Selection stringifier's "rendered text" of a collapsed range is empty on any reading of that
+  undefined term. Where it collapses is uncertain: step 5 branches on "anchor is before focus", and DOM's *position* of
+  a boundary point asserts the two nodes have the same root (WHATWG DOM §5.2 `#concept-range-bp-position` step 1),
+  so it is undefined across roots; the "before" branch collapses at `(st, 3)`, the other at `(pre, 1)`. The
+  asserted `""` holds on either branch. Which branch elidex takes is `tsel`'s, not this memo's.
+- **Rank (2)**: V5 (§3, *Rank of the Selection string values*).
 
 None is any engine's. Each shape below is the probe's of §6, §6.1 or §11 P-5.
 
@@ -415,7 +491,8 @@ shape is predicted: at base the shadow root is a candidate and `apply_append_chi
 - V6 `selection_cross_root_set_base_and_extent_to_string_is_empty` (NEW), same file: §11 P-5's tree (`body` =
   [`pre` "pre", `h`, `post` "post", `p` "TAIL"], `h` closed shadow root holding `sp` > `st` "SHADOW");
   `getSelection().setBaseAndExtent(pre, 1, st, 3); getSelection().toString()` → `""`. This is the post-`tsel`
-  expectation (the range collapses at `(st, 3)`; Selection string rank (2)): V6 is red until `tsel` lands (with the
+  expectation (the range is collapsed, at `(st, 3)` or `(pre, 1)`; `""` either way, a rank (1) value, see the
+  lead-in above): V6 is red until `tsel` lands (with the
   edit alone it reads `"repostTAILSHA"`, at base `"reSHA"`, §11 P-5), which is why `tq` lands after `tsel` (§9,
   §10). It pins `tq`'s dependency: on `tq`'s base, `setBaseAndExtent` no longer hands the walk a cross-root range.
 
@@ -446,7 +523,10 @@ crates/dom/elidex-dom-api/src/range/mod.rs crates/dom/elidex-dom-api/src/range/m
 651 (the first five the same as umbrella §8 at `2ac9fa44`; `range/mutation.rs` takes a comment-only edit). None
 is at or over 1000, and the largest after the cells (`tests_selection.rs`, about +50 with V5 and V6) stays under
 1000, so CLAUDE.md's
-*1000-line debt* rule asks for no split and no new test file.
+*1000-line debt* rule asks for no split and no new test file at this base. The code PR's base is not this one: it
+contains `tsel` (§9 item 3), whose cells may land in the same test files (`tests_selection.rs` most likely), so the
+counts and the anchors cited in this memo are re-measured there (§10 item 7); if a file would cross 1000 with
+`tq`'s cells, those cells go in a new test file.
 
 ## §8. Landing items
 
@@ -461,7 +541,8 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   > `SelectionState::delete_from_document`), by the one fix in the shared `Range::delete_contents` (elidex-dom-api
   > `range/mutation.rs`, whose candidates come from `contained_top_level_nodes`)"; the row stays open.
 
-  The row closes at `ta` (umbrella §7.1). The quoted text names files and symbols only, no line numbers, so it does
+  This text is applied **in place of** the umbrella item's "gains" for `#11-shadow-root-accepted-as-ref-or-old-child`
+  (the umbrella's own wording of that item is not applied in addition). The row closes at `ta` (umbrella §7.1). The quoted text names files and symbols only, no line numbers, so it does
   not drift; at `3cbd5b88` the symbols are at `range_proto_mutation.rs:68`, `dom_selection_mutation.rs:312`,
   `selection.rs:513`, `mutation.rs:147`.
 - The landing list `pending-at-landing/tree-model-umbrella.md` ("Later") addresses umbrella §7.4 by item heading
@@ -490,7 +571,8 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
 2. Then the code PR, one PR from a worktree on `origin/main`: the edits of §0.1 (the walk's two steps and its doc
    comment in `range/mod.rs`, the comment-only edit in `range/mutation.rs`) and the cells of §7, nothing else.
 3. Prereq landed: the code PR merges only after `tsel` (`#11-selection-boundary-setter-skips-root-check`, PM 884 /
-   885) has landed on `origin/main` (§11 P-5); its base is a `main` that contains `tsel`.
+   885; its one declared change "Selection operations check the spec's tree preconditions", PM 890) has landed on
+   `origin/main` (§11 P-5); its base is a `main` that contains `tsel`.
 
 ## §10. Definition of done
 
@@ -499,7 +581,7 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    base; at base the same command gives 4, these two plus `:574`, `:579`), and the walk's body holds
    `children_iter(current).next()` and `next_exposed_sibling(node)`; its `get_parent` line is unchanged. For the code
    PR, `git diff origin/main --stat` → `range/mod.rs`, `range/mutation.rs` (comment only: `git diff origin/main --
-   crates/dom/elidex-dom-api/src/range/mutation.rs` changes `///` lines only) and the four test files of §7.1 only.
+   crates/dom/elidex-dom-api/src/range/mutation.rs` changes `///` lines only) and the four test files of §7.1 only (or, under item 7, a new test file in their place).
 2. U1-U4 and V1-V6 present and green; M1, M2 and M3 each observed red by the cells listed in §7 at the final head.
 3. The probes P1-P6 and P1c-P5c re-run at the head (the temporary test, removed again) give the "with the edit
    applied" column of §6 and §6.1.
@@ -508,8 +590,14 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
    names `#11-shadow-root-is-a-tree-root` for the unchanged upward step; the rewritten `contained_top_level_nodes`
    comment (rewritten as a whole) cites WHATWG DOM §5.6 for *contained* and for the `nodesToRemove` paragraph it
    keeps, holds no "§5.5", and states the three clauses of *contained* and which part enforces which (§0.1).
-6. Prereq landed: `tsel` (`#11-selection-boundary-setter-skips-root-check`) is in the code PR's base (§9 item 3),
-   and V6 is green there.
+6. Prereq landed: `tsel` (`#11-selection-boundary-setter-skips-root-check`; "Selection operations check the spec's
+   tree preconditions", PM 890) is in the code PR's base (§9 item 3), and V6 is green there.
+7. On the code PR's base (which contains `tsel`), the anchors this memo cites (`range/mod.rs:572-584`, the
+   `mutation.rs` doc comment `:70-88`, the natives of §3.1, the write paths of §4.2) and the 1000-line counts of
+   §7.1 (`tests_selection.rs` especially) are re-measured before the cells are written; if a file would cross 1000,
+   `tq`'s cells for it go in a new test file.
+8. P-6 reachability probed from page script before the code PR; if reachable, report to the PM, who decides a slot
+   or scope before the code PR is cut (§11 P-6). No slot is opened on the unmeasured claim.
 
 ## §11. Premises found wrong or not foreseen
 
@@ -544,7 +632,8 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   `SelectionState`: `collapse`
   (`selection.rs:278-279`), `extend` (`:357-361`), `set_base_and_extent` (`:408-412`), `select_all_children`
   (`:439-440`), each after a node-document check only (`same_document`, `:613-618`; a shadow-tree node has the same
-  node document), and `range_proto_mutation.rs:159-160` (a collapsed transient for `insertNode`, one node, so one
+  node document); of these only `extend` and `set_base_and_extent` write the two boundaries with two different
+  nodes, so only they can give a range two roots (§4.2, the write-path table and its hit list); and `range_proto_mutation.rs:159-160` (a collapsed transient for `insertNode`, one node, so one
   root). Selection API §3 `extend()` step 5 collapses on a root mismatch, and `setBaseAndExtent()` step 5 "set the
   start"s through DOM's *set the start or end* (WHATWG DOM §5.6 `#concept-range-bp-set` step 4: "If range's root
   is not node's root …", `webref body dom concept-range-bp-set`), which collapses too; elidex does neither. So a Selection range can
@@ -554,20 +643,23 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
 
   | Script | Base | With the edit (temporary) | Spec value |
   |---|---|---|---|
-  | `getSelection().setBaseAndExtent(pre, 1, st, 3); getSelection().toString()` | `"reSHA"` (range `(pre, 1)`-`(st, 3)`, not collapsed) | `"repostTAILSHA"` (the walk never meets the end container in the shadow tree, so it runs to the document's end, then adds the end text's head) | the range collapses at `(st, 3)`; Selection string rank (2): `""` |
+  | `getSelection().setBaseAndExtent(pre, 1, st, 3); getSelection().toString()` | `"reSHA"` (range `(pre, 1)`-`(st, 3)`, not collapsed) | `"repostTAILSHA"` (the walk never meets the end container in the shadow tree, so it runs to the document's end, then adds the end text's head) | the range collapses (at `(st, 3)` or `(pre, 1)`, §7 lead-in); `""`, a rank (1) value (§7) |
   | `collapse(pre, 1); extend(st, 3); toString()` | `"reSHA"` | `"repostTAILSHA"` | the same: collapsed, `""` |
   | `setBaseAndExtent(pre, 1, st, 3); deleteFromDocument()` | `pre` → "p", `st` → "DOW", `sp` disconnected, 1 record under `body` | the same | nothing (focus is not in the document tree) |
+  | `setBaseAndExtent(pre, 1, st, 3); getSelection().getRangeAt(0).toString()` / `.deleteContents()` (the Range natives on the Selection's shared `RangeId`, §4.2 *Read-side aliasing*) | not probed; read from the code: the same `Range::to_string` / `Range::delete_contents` on the same registered range as the first / third row | not probed; as the first / third row | the range is collapsed (first row): `""` (DOM stringification step 2) / nothing (DOM `deleteContents()` step 1, "If this is collapsed, then return") |
 
   Both columns are wrong at base already (the cross-root range is the defect); `tq` changes the `toString` row's
   wrong value, which is not in the declared change of §0.3.
 
-  **Precondition (PM 884 / 885).** `tq` lands after the prereq slice **`tsel`**, slot
-  `#11-selection-boundary-setter-skips-root-check`, which makes Selection's boundary setters apply the spec's
-  preconditions (its one declared change: "Selection's boundary setters apply the spec's preconditions"). Its design
+  **Precondition (PM 884 / 885; scope worded by PM 890).** `tq` lands after the prereq slice **`tsel`**, slot
+  `#11-selection-boundary-setter-skips-root-check`, whose one declared change is "Selection operations check the
+  spec's tree preconditions" (PM 890): the boundary setters' preconditions (PM 885) and `deleteFromDocument`'s "both
+  focus and anchor are in the document tree" check (§3, the `deleteFromDocument()` row). PM 890 folds the slot
+  `#11-selection-document-membership` into `tsel`. Its design
   is `tsel`'s own plan, not this memo's. Order: tp → `tsel` → `tq` → ta (in the form of umbrella §5.1's order;
   the umbrella's order erratum is carried by `tsel`'s plan PR, not by this one). `tq`'s dependency on it is one cell
   and two gate lines: V6 (§7; the post-`tsel` value `""`, red until `tsel` lands), §9 item 3 and §10 item 6 ("prereq
-  landed"). §0.3 is unchanged: removing the Selection setters' cross-root shape is `tsel`'s declared change, so on a
+  landed"). §0.3 is unchanged: removing the Selection setters' cross-root shape is within `tsel`'s declared change, so on a
   base that contains `tsel` the `toString` row above is not `tq`'s output and `tq`'s change stays the declared one; V6
   checks that on the code PR's base.
 - **P-6** (R1.2, G3; for the PM) `LiveRangeRegistry::finalize_pending` (`range/live.rs:434-450`) re-homes a range's
@@ -575,4 +667,6 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
   range whose start container is gone and whose end is alive in a shadow tree becomes cross-root (§4.2, the
   write-path table). Whether a page script can reach that one-ended re-home (a container despawned while a live range
   still points at it, the removal hook not having moved the boundary) is **not measured**; this memo makes no
-  same-root claim for that path. Where it belongs (a probe in `tq`'s code PR, `tsel`, or a slot) is the PM's.
+  same-root claim for that path. PM 890: its reachability is probed from page script before the code PR (§10 item
+  8); if it is reachable, the PM decides a slot or scope before the code PR is cut. No slot is opened on the
+  unmeasured claim.
