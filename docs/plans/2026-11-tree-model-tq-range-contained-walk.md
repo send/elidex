@@ -1,5 +1,7 @@
 # Tree model tq — Range's contained-node walk takes tree children (per-PR plan-memo)
 
+**Revision log.** R1 fixes F1–F12 (plan-review R1, 0/5/9/8).
+
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (ratified at `4918a6c7`, PR #648; slice placed by D3, approved PM 820; order tp → tq → ta). Census:
@@ -34,9 +36,16 @@ exposed child steps in place of the raw ones:
 and its doc comment (`range/mod.rs:572`, "Global pre-order next (not confined to a root).") is rewritten to say
 what the walk now is: its downward and sideways steps stay in the node tree (WHATWG DOM §5.6 *contained*: "node's
 root is range's root", so a shadow tree's node is never a candidate), and its upward step still climbs by the stored
-parent, so a walk that starts inside a shadow tree still leaves it (unchanged; `ta` names it, `tr` flips it). Plus
-the cells of §7. Nothing else: no new symbol in production code, no guard (umbrella §1.6: "`tq` adds no guard and
-nothing in it is deleted later").
+parent, so a walk that starts inside a shadow tree still leaves it (unchanged; `ta` names it, `tr` flips it; the new
+comment names the slot that tracks that step, `#11-shadow-root-is-a-tree-root`, not the slice names only). A second
+doc comment follows the body: `contained_top_level_nodes` (`range/mutation.rs:70-89`) says *contained* is the two
+position clauses ("A node is **contained** … iff `(node, 0)` is after the range start AND `(node, node's length)` is
+before the range end") and that the walk is "only an over-approximation"; from `tq` the walk enforces the root clause
+for every candidate it reaches by descent, so the comment is rewritten (comment-only edit in `mutation.rs`) to state
+all three clauses of §5.6 *contained* and which part enforces which (root clause: the walk's two child steps;
+position clauses: `compare_points`), so that a later edit cannot restore a raw step under a comment that still reads
+true. Plus the cells of §7. Nothing else: no new symbol in production code, no guard (umbrella §1.6: "`tq` adds no
+guard and nothing in it is deleted later").
 
 ### §0.2 Out of scope (and whose it is)
 
@@ -54,9 +63,13 @@ nothing in it is deleted later").
   `#11-range-full-impl` (umbrella §1.6, §7.4 (N7), applied under PM 826). Not fixed here.
 - `deleteContents` / `extractContents` / `deleteFromDocument` leaving the range at `(start, startOffset)` instead of
   `(newNode, newOffset)` → D5 of the Range contents program (`docs/plans/2026-11-range-contents-program.md:729`,
-  RC-1). `extract`'s partial-clone steps 17 / 20 → B1.2d-ii plan §11 (`mutation.rs:252-255`).
-- `cloneContents` / `surroundContents` are stubs (`mutation.rs:612`, `:621`; `#11-range-clone-and-surround-contents`)
-  and read no walk; not reached.
+  RC-1). `extract`'s partial-clone steps 17 / 20 → D6 of the same program
+  (`docs/plans/2026-11-range-contents-program.md:735`, RC-2b; D6 names the slot
+  `#11-range-extract-partial-ancestor-clone`, open in the ledger). The code comment at `mutation.rs:252-255` still
+  points at "B1.2d-ii plan §11"; that stale pointer is not `tq`'s.
+- `cloneContents` / `surroundContents` are stubs (`mutation.rs:612`, `:621`) and read no walk; not reached. Their
+  slot is `#11-range-full-impl` (the code comment's `#11-range-clone-and-surround-contents` is closed: the ledger
+  merged it into `#11-range-full-impl` in the 2026-05-15 sweep; home RC-2b clone / RC-3 surround).
 
 ### §0.3 The declared behaviour change
 
@@ -98,12 +111,14 @@ LINK and MO of the same table. One line each, for this slice only:
 |---|---|---|---|---|---|
 | WHATWG DOM §5.6 Interface Range | *contained*: "node's root is range's root, and (node, 0) is after range's start, and (node, node's length) is before range's end" | a node of a shadow tree under a host inside the range: its root is the shadow root, not the range's root → not contained | `next_in_preorder_global` (`range/mod.rs:574`, `:579`) feeds `contained_top_level_nodes` (`mutation.rs:89`); the two position clauses stay `compare_points` (`mutation.rs:104-111`, unchanged) | ✗ (the root clause is enforced for descent only; a range whose start is inside a shadow tree still climbs out by the upward step, `tr`) | yes |
 | WHATWG DOM §5.6 Interface Range | `deleteContents()` steps 4 and 10 | step 4 *nodesToRemove* = contained nodes omitting those whose parent is contained; step 10 *remove* each | `delete_contents` (`mutation.rs:216-219`) | ✗ (steps 6-8 *newNode* / *newOffset*: D5, RC-1) | yes |
-| WHATWG DOM §5.6 Interface Range | *extract* steps 10 and 18 | step 10 *containedChildren* = children of *commonAncestor* contained in range; step 18 append each to *fragment* | `extract_contents` (`mutation.rs:370-377`, which enumerates through `contained_top_level_nodes`) | ✗ (steps 17 / 20 partial clone: B1.2d-ii §11; steps 13-15: D5) | yes |
+| WHATWG DOM §5.6 Interface Range | *extract* steps 10 and 18 | step 10 *containedChildren* = children of *commonAncestor* contained in range; step 18 append each to *fragment* | `extract_contents` (`mutation.rs:370-377`, which enumerates through `contained_top_level_nodes`) | ✗ (steps 17 / 20 partial clone: D6, RC-2b; steps 13-15: D5) | yes |
 | WHATWG DOM §5.6 Interface Range | stringification behavior steps 3-5 | step 4: "the data of all Text nodes that are contained in this, in tree order" | `Range::to_string` (`mutation.rs:47-58`) | ✗ (the end-ancestor overshoot: `#11-range-full-impl`) | yes |
 | WHATWG DOM §4.2.2 Shadow tree | "A shadow tree is a node tree whose root is a shadow root." | why a shadow-tree node's root is never the range's root when the range is in the host's tree | none (the reason for the two steps) | ✓ | yes |
 | WHATWG DOM §4.2.3 Mutation algorithms | *remove* step 16 (queue a tree mutation record for parent with « node ») | reached only for nodes in *nodesToRemove* | `apply_remove_child` (`child_list.rs:356`), unchanged; no longer called with a shadow root from Range | ✓ | yes |
 | WHATWG DOM §4.9 Interface Element | `shadowRoot` getter step 2 | "If shadow is null or its mode is \"closed\", then return null." | none (what probe P1's record breaks: it hands page script the closed root) | ✓ | yes |
-| SELECTION API §3 Selection interface | `deleteFromDocument()`; `stringifier` | rangeCount 0 / 1 | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`); `SelectionState` `to_string` (`selection.rs:580`, → `Range::to_string` `:585`) | ✗ (the step text is unconfirmed: `webref body selection-api dom-selection-deletefromdocument` and `... dom-selection-stringifier` find no anchor, so the branches come from the IDL, `webref idl selection-api Selection`, and the code; same limit as `docs/plans/2026-11-range-contents-program.md:1054`) | yes |
+| WHATWG DOM §1.1 Trees | *root*: "The root of an object is itself, if its parent is null, or else it is the root of its parent." | the parent chain of a shadow-tree node ends at the shadow root (a shadow root has a null parent in the node tree), so its root is the shadow root | none (what *contained*'s root clause reads; elidex's `find_tree_root` stops at the `ShadowRoot` marker, `crates/core/elidex-ecs/src/dom/tree/walkers.rs:408-426`) | ✓ | yes |
+| SELECTION API §3 Selection interface | `deleteFromDocument()`: "The method must invoke deleteContents() on this's range if this is not empty and both focus and anchor are in the document tree. Otherwise the method must do nothing." | empty → nothing; non-empty × anchor and focus both in the document tree → `deleteContents()` on the range; non-empty × either not in the document tree → nothing | `SelectionState::delete_from_document` (`selection.rs:513`, → `delete_contents` `:533`) | ✓ (the cells of §7 are all in the "both in the document tree" branch; the other branches are not `tq`'s) | yes |
+| SELECTION API §3 Selection interface | stringifier: "The stringification must return the string, which is the concatenation of the rendered text if there is a range associated with this." | rangeCount 0 / 1 | `SelectionState` `to_string` (`selection.rs:580`, → `Range::to_string` `:585`) | ✗ ("rendered text" is not defined there, and the spec does not say that Selection's string is the range's DOM §5.6 stringification; it is silent on a range over a host. P4 / V5's values are therefore rank (2), not rank (1): see below) | yes |
 
 **Lookups** (all `.claude/tools/webref`, 2026-11-21): `heading dom 5.6` → §5.6 Interface Range `#interface-range`
 (the Range code's comments say "§5.5", but `heading dom 5.5` → §5.5 Interface StaticRange; see §11 P-3); `dfn dom contained` → §5.6 `#contained`; `dfn dom 'partially contained'` →
@@ -112,11 +127,25 @@ LINK and MO of the same table. One line each, for this slice only:
 `body dom dom-range-stringifier` (steps 1-6); `heading dom 4.2.2` → §4.2.2 Shadow tree `#shadow-trees`;
 `body dom shadow-trees`; `dfn dom remove` → §4.2.3 Mutation algorithms `#concept-node-remove`, `body dom
 concept-node-remove` (steps 1-17, step 16 the record); `dfn dom shadowRoot` → §4.9 `#dom-element-shadowroot`, `body
-dom dom-element-shadowroot`; `dfn selection-api deleteFromDocument` → §3 Selection interface
-`#dom-selection-deletefromdocument`; `dfn selection-api stringifier` → §3 `#dom-selection-stringifier`;
-`coverage-map dom 5.6 dom 1.1 dom 4.2.3 dom 4.3.2 selection-api 3` → spec=2, single PR.
+dom dom-element-shadowroot`; `dfn dom root` → §1.1 Trees `#concept-tree-root`, `body dom concept-tree-root`;
+`dfn selection-api deleteFromDocument` → §3 Selection interface `#dom-selection-deletefromdocument`; `dfn
+selection-api stringifier` → §3 `#dom-selection-stringifier`; `heading selection-api 3` → §3 Selection interface
+`#selection-interface`; `coverage-map dom 5.6 dom 1.1 dom 4.2.2 dom 4.2.3 dom 4.9 selection-api 3` → spec=2, single
+PR. The two Selection API quotes are not from `webref body`: `webref body selection-api
+dom-selection-deletefromdocument` and `... dom-selection-stringifier` both answer "anchor … not encountered" (the
+rendered ReSpec page does not carry the ids its dfns index points at; a webref limit, for the PM / CI/tools). They
+are read from webref's own cached ReSpec source of the spec
+(`~/.cache/elidex-webref/c0d97c3dfdf1cb8a59fa73f678d007b67d8cef81`, `https://w3c.github.io/selection-api/`,
+last-modified 2026-06-11), the `<dfn>deleteFromDocument()</dfn>` and `<dfn>stringifier</dfn>` entries, markup
+stripped.
 
-**Breadth**: K=2 specs (DOM, Selection API), M=8 rows (preflight: `total entries (M): 8`; its label table has no Selection API entry, so that row is "unmapped-label" and its citations are the `dfn selection-api` lookups above). **Split decision**: single PR (a terminal slice).
+**Rank of the Selection string values (P4, V5).** Selection API §3 leaves "rendered text" undefined, so the spec
+does not fix Selection's string for a range over a host. The values come from rank (2), an elidex principle:
+Selection's stringification delegates to the one Range stringification (`selection.rs:585`, `with_range(id, dom,
+Range::to_string)`; CLAUDE.md *One issue, one way*), so a selection over a range has that range's §5.6 string. No
+browser is measured for it.
+
+**Breadth**: K=2 specs (DOM, Selection API), M=10 rows (preflight: `total entries (M): 10`; its label table has no Selection API entry, so those two rows are "unmapped-label" (`unmapped-label rows: 2`) and their citations are the `dfn selection-api` lookups above). **Split decision**: single PR (a terminal slice).
 
 ### §3.1 User-input touch audit
 
@@ -164,12 +193,23 @@ The walk differs from base exactly where a raw step would return a shadow root. 
 
 | Step from | Base | `tq` | Effect |
 |---|---|---|---|
-| a host whose stored first child is its shadow root (no light child stored before it) | the shadow root, then its tree | the first light child stored after it, or else the host's next tree sibling / an ancestor's | declared |
+| a host whose stored first child is its shadow root (no light child stored before it) | the shadow root, then its tree | the first light child stored after it (the "after" shape: script order `attachShadow` → `appendChild`), or else the host's next tree sibling / an ancestor's (the "no light" shape) | declared; both branches have cells (§6.1, §7), and mutant M3 drops the first |
 | the last light child stored before the host's shadow root | the shadow root, then its tree | the light child stored after it, or else the climb | declared |
 | any other node (including a shadow root itself, a node inside a shadow tree, and the climb out of one) | unchanged: neither raw step returns a shadow root there, because a shadow root is only ever a stored child of its own host | unchanged | none |
 
 A host inside a shadow tree (a nested host) is the same case one level down: a range inside the outer shadow tree
 no longer enters the inner one (still the declared change; *contained* is the same test).
+
+**The same-root premise of the climb row.** The third row's "the climb out of one" matters only for a range whose
+start is inside a shadow tree. On the Range natives a range has one root: `setStart` / `setEnd`
+(`range_proto.rs:552`, `:567`) go through `set_start_to_boundary` / `set_end_to_boundary`
+(`range/boundary.rs:52`, `:67`), which collapse the other boundary when the new one's `find_tree_root` differs, and
+`find_tree_root` stops at the `ShadowRoot` marker (`walkers.rs:408-426`), so a Range-native range in a shadow tree
+has its end there too, and the climb row is unchanged by `tq`. The raw `set_start` / `set_end`
+(`boundary.rs:35`, `:42`) are not only in-crate test helpers, though: `SelectionState`'s `collapse`, `extend`,
+`set_base_and_extent` and `select_all_children` build their ranges with them after a node-document check only
+(`same_document`, `selection.rs:613-618`), so a Selection range can have its start in the light tree and its end in a
+shadow tree; `tq` changes that shape's output (§11 P-5, measured).
 
 ### §4.3 ECS-native / layering check
 
@@ -250,8 +290,8 @@ h.attachShadow({mode: "closed"})` holds `sp` (span) with Text "SHADOW". A `Mutat
 | P2 | same range, `rg.extractContents()` | fragment has 0 children, 0 records; links intact | the same: no contained child, empty fragment | the same |
 | P3a | `rg.setStart(pre, 1); rg.setEnd(post, 2); rg.toString()` (no light child) | `"reSHADOWpo"` | `"repo"` (steps 3, 4, 5; "SHADOW" is not contained) | `"repo"` |
 | P3b | the same, light shape | `"reLIGHTSHADOWpo"` | `"reLIGHTpo"` | `"reLIGHTpo"` |
-| P4a | P3a's range through `getSelection().addRange(rg); getSelection().toString()` | `"reSHADOWpo"` | `"repo"` | `"repo"` |
-| P4b | the same, light shape | `"reLIGHTSHADOWpo"` | `"reLIGHTpo"` | `"reLIGHTpo"` |
+| P4a | P3a's range through `getSelection().addRange(rg); getSelection().toString()` | `"reSHADOWpo"` | rank (2), not the spec's: `"repo"`, P3a's Range string (§3, *Rank of the Selection string values*) | `"repo"` |
+| P4b | the same, light shape | `"reLIGHTSHADOWpo"` | rank (2): `"reLIGHTpo"` | `"reLIGHTpo"` |
 | P5 | P1's range through `addRange` + `getSelection().deleteFromDocument()` | as P1: 1 record naming `sr`; links diverge | as P1 | as P1 at `tq`: 0 records, links intact |
 | P6 | light shape, `rg.setStart(pre, 1); rg.setEnd(post, 2); rg.deleteContents()` (the host is contained) | `h` removed whole (`body` has 2 children, `sp.isConnected` false); `sr` stays `h`'s; no record on `h` | `h` is contained and removed with its shadow tree | the same (no change: the shadow root is dominated by `h`) |
 
@@ -260,19 +300,52 @@ prediction. Mutants, run the same way: raw first child restored at `:574` alone 
 stays fixed; raw next sibling restored at `:579` alone → P3b back to base (`"reLIGHTSHADOWpo"`), P1 and P3a stay
 fixed. So each mutant needs its own shape, and §7 has both. Each probe is run again at the PR head (§10).
 
+### §6.1 The "after" shape (R1, F1; run at `3cbd5b88`, 2026-11-21)
+
+The "light" shape of §6 stores the light child before the shadow root. The other script order, `sr =
+h.attachShadow({mode: "closed"})` (holding `sp` with Text "SHADOW") and then `h.appendChild(light)` (Text "LIGHT"),
+stores it after the root (`attach_shadow_with_init` appends the root, `shadow.rs:210`; `appendChild` appends after
+it). No probe of §6 and no cell built that shape, so a first-child step that returns `None` when the stored first
+child is a shadow root (mutant M3 below) survived every cell. Probed the same way as §6 (one temporary VM test,
+`tests_shadow_dom/probe_tq.rs` (NEW: removed) registered in that `mod.rs`; both removed afterwards, `git status`
+clean; `unset RUSTUP_TOOLCHAIN && rustc --version && cargo test -j 2 -p elidex-js --all-features --lib
+tq_probe_after -- --nocapture`, rustc 1.99.1 (58cf8f9c3 2026-10-13)). The `MutationObserver` observes `h` with
+`{childList: true}`, read with `takeRecords()`; the link columns are read from the `EcsDom` after the script.
+
+| # | Script (after shape) | Observed at base | Spec value | With the edit applied (temporary) | Mutant M3 (temporary) |
+|---|---|---|---|---|---|
+| P1c | P1's range, `rg.deleteContents()` | 2 records on `h`: `removedNodes` [`sr`], then [`light`]; `sp.isConnected` true, `sr.host === h`; `h`'s stored child list empty, stored parent of `sr` ≠ `h`, `get_shadow_root(h)` still `sr` | `light` is the one contained node (its root is the range's, `(light, 0)` is after `(h, 0)`): 1 record, `removedNodes` [`light`] | 1 record, [`light`]; stored list [`sr`], stored parent of `sr` = `h` | 0 records; `light` stays (`h.childNodes.length` 1) |
+| P2c | P1's range, `rg.extractContents()` | fragment [`light`], 1 record [`light`]; links intact, stored list [`sr`] | the same | the same | fragment empty, 0 records |
+| P3c | P3a's range, `rg.toString()` | `"reSHADOWLIGHTpo"` | `"reLIGHTpo"` | `"reLIGHTpo"` | `"repo"` |
+| P4c | P3a's range through `addRange`, `getSelection().toString()` | `"reSHADOWLIGHTpo"` | rank (2): `"reLIGHTpo"` | `"reLIGHTpo"` | `"repo"` |
+| P5c | P1's range through `addRange`, `getSelection().deleteFromDocument()` | as P1c at base | as P1c | as P1c with the edit | as P1c under M3 |
+
+Mutants on this shape, the same run: M3 (`range/mod.rs:574` = `dom.get_first_child(current).filter(|c|
+!dom.is_shadow_root(*c))`, the sibling step as in `tq`) turns every row red, P2c included (it is a killer through
+`extract` too, but F1 does not give U3 / V3 this shape). M1 (raw first child at `:574`, exposed sibling at `:579`):
+P1c, P3c, P4c, P5c back to base; P2c as at base and at `tq` (no kill). M2 is not killed by this shape (the light child is the last
+stored one, so the raw and exposed sibling of it agree; predicted from the code, not run). On the shapes of §6, M3
+equals `tq` (no light: the first stored child is `sr`, `None` then the sibling step, as `tq`; light before: the
+first stored child is `light`, as `tq`), predicted from the code; hence the new shape.
+
 ## §7. Cells and mutants
 
-Values are the spec's (§3), not any engine's. Each shape below is the probe's of §6.
+Values are the spec's (§3) for the Range cells (U1-U4, V1-V4) and for V2 (Selection API §3 deleteFromDocument runs
+`deleteContents()`); V5's are rank (2) (§3, *Rank of the Selection string values*). None is any engine's. Each shape
+below is the probe's of §6 or §6.1.
 
 **Unit, `crates/dom/elidex-dom-api/src/range/tests.rs`** (the module is a child of `range`, so it can call the
 private walk):
 - U1 `next_in_preorder_global_does_not_enter_shadow_root` (NEW): (a) host with a shadow root and no light child,
   followed by a sibling `n` → `next_in_preorder_global(host)` is `Some(n)`; (b) host with light child `l` stored
   before its shadow root, followed by `n` → `next_in_preorder_global(l)` is `Some(n)`; (c) contrast, unchanged: from
-  the shadow root itself → its first child.
+  the shadow root itself → its first child; (d) the after shape (§6.1): host whose shadow root is stored first and
+  light child `l` after it → `next_in_preorder_global(host)` is `Some(l)`.
 - U2 `delete_contents_over_host_leaves_shadow_root_linked` (NEW): P1 shape → returned records empty; P1-light shape
   (range `(host, 0)`-`(parent, index(host) + 1)` with `l` stored before the root) → exactly one record, `target`
-  host, `removed_nodes` = [`l`] (deleteContents step 4: `l` is contained, the root is not); in both, no record's
+  host, `removed_nodes` = [`l`] (deleteContents step 4: `l` is contained, the root is not); P1c shape (the same
+  range, `l` stored after the root, §6.1) → exactly one record, `target` host, `removed_nodes` = [`l`]; in all three,
+  no record's
   `removed_nodes` holds the shadow root or a node of its tree, and `get_parent(sr)`, `get_shadow_root(host)`,
   `shadow_host(sr)` read the same after the call as before it (storage-neutral: the cell says "unchanged by the
   call", so it holds after `ts` too).
@@ -280,32 +353,38 @@ private walk):
   links unchanged; P2-light shape → fragment children = [`l`], the shadow root still the host's (`get_shadow_root`,
   `shadow_host` unchanged), no record names it. Green at base and head (the pin of §0.3 item 3; the no-light shape is probe P2, the light
 shape is predicted: at base the shadow root is a candidate and `apply_append_child` refuses it).
-- U4 `to_string_over_host_skips_shadow_tree_text` (NEW): P3a shape → `"repo"`; P3b shape → `"reLIGHTpo"`.
+- U4 `to_string_over_host_skips_shadow_tree_text` (NEW): P3a shape → `"repo"`; P3b shape → `"reLIGHTpo"`; P3c shape
+  → `"reLIGHTpo"`.
 
 **VM end-to-end** (closed mode and the script-visible record):
 - V1 `delete_contents_over_closed_host_reports_no_shadow_root` (NEW), in
   `crates/script/elidex-js/src/vm/tests/tests_mutation_observer/range_ops.rs`: P1 → `records.length` 0,
   `sp.isConnected` true, `sr.host === h`; P1-light → 1 record, `target === h`, `removedNodes` = [`light`],
-  `h.childNodes.length` 0.
+  `h.childNodes.length` 0; P1c → 1 record, `target === h`, `removedNodes` = [`light`], `sp.isConnected` true,
+  `sr.host === h`.
 - V2 `selection_delete_from_document_over_closed_host_reports_no_shadow_root` (NEW), same file: P5 → as V1's P1.
 - V3 `extract_contents_over_closed_host_reports_no_shadow_root` (NEW), same file: P2 → fragment empty, 0 records,
   `sp.isConnected` true.
 - V4 `range_to_string_skips_shadow_tree_text` (NEW), in `crates/script/elidex-js/src/vm/tests/tests_range.rs`: P3a
-  → `"repo"`, P3b → `"reLIGHTpo"`.
+  → `"repo"`, P3b → `"reLIGHTpo"`, P3c → `"reLIGHTpo"`.
 - V5 `selection_to_string_skips_shadow_tree_text` (NEW), in
-  `crates/script/elidex-js/src/vm/tests/tests_selection.rs`: P4a → `"repo"`, P4b → `"reLIGHTpo"`.
+  `crates/script/elidex-js/src/vm/tests/tests_selection.rs`: P4a → `"repo"`, P4b → `"reLIGHTpo"` (rank (2), §3).
 
 V1-V5 build the tree in a connected `body` (the shadow DOM tests' `build_doc` shape) so `isConnected` is meaningful;
 the MO cells read records in a second `eval` after the first one's microtask checkpoint, as the existing
 `range_ops.rs` cells do.
 
 **Mutants** (run at the final head only, at most 2 in parallel):
-- M1 `range/mod.rs:574` back to `dom.get_first_child(current)` → red: U1 (a), U2 / V1 / V2 P1 shape, U4 / V4 / V5
-  no-light shape.
+- M1 `range/mod.rs:574` back to `dom.get_first_child(current)` → red: U1 (a) and (d), U2 / V1 / V2 P1 shape, U2 /
+  V1 P1c shape, U4 / V4 / V5 no-light shape, U4 / V4 P3c shape.
 - M2 `range/mod.rs:579` back to `dom.get_next_sibling(node)` → red: U1 (b), U2 / V1 P1-light shape, U4 / V4 / V5
   light shape.
+- M3 `range/mod.rs:574` = `dom.get_first_child(current).filter(|c| !dom.is_shadow_root(*c))` ("`None` if the first
+  stored child is a shadow root") → red: U1 (d), U2 P1c shape, U4 P3c shape, V1 P1c, V4 P3c. Green on every other
+  shape (it equals `tq` there, §6.1).
 
-Observed in the plan's run (§6): M1 on the P1 and P3a shapes, M2 on the P3b shape. The other kills listed are
+Observed in the plan's run (§6, §6.1): M1 on the P1, P3a, P1c, P3c, P4c and P5c shapes, M2 on the P3b shape, M3 on
+P1c, P2c, P3c, P4c and P5c. The other kills listed are
 predicted from the same walk (the P1-light shape under M2: the raw sibling of `l` is the shadow root, which then passes
 the `compare_points` filter as in P1) and are checked at the final head (§10). U3 / V3 are not mutant killers (green
 at base); they pin that `extract` no longer depends on `apply_append_child`'s refusal.
@@ -320,49 +399,100 @@ is at or over 1000, and the largest after the cells (`tests_selection.rs`, about
 
 ## §8. Landing items
 
-From umbrella §7.4 at `4918a6c7`, by reference only:
+From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this plan PR adds there (below):
 
 - **At `tq`** (umbrella `:1100-1101`): `#11-shadow-root-accepted-as-ref-or-old-child` gains "Range path closed by
-  tq (<sha>, <date>)"; the row stays open (it closes at `ta`, umbrella §7.1).
+  tq (<sha>, <date>)"; the row stays open (it closes at `ta`, umbrella §7.1). The Range path reaches page script
+  through two deleting natives, both closed by the one fix in the shared `Range::delete_contents`
+  (`crates/dom/elidex-dom-api/src/range/mutation.rs:147`, whose candidates come from `contained_top_level_nodes`):
+  `Range.prototype.deleteContents` = `native_range_delete_contents`
+  (`crates/script/elidex-js/src/vm/host/range_proto_mutation.rs:68`) and `Selection.prototype.deleteFromDocument` =
+  `native_selection_delete_from_document` (`crates/script/elidex-js/src/vm/host/dom_selection_mutation.rs:312`,
+  → `SelectionState::delete_from_document` → `delete_contents`, `selection.rs:533`); line numbers at `3cbd5b88`, to be
+  re-read on the `tq` merge commit (PM 882 (1)). L3 updates the "At tq" entry of the landing list
+  `pending-at-landing/tree-model-umbrella.md` to carry this text.
 - (N6) (umbrella `:1089-1099`, "at `tq`'s landing or at this umbrella's ratify, whichever is first"): ratify came
   first; the PM's landing list records it as applied on `4918a6c7` (pmo 8, 2026-11-20). Nothing left for `tq`.
 
-An observation for the PM, not an item this memo adds (§11 P-2): `tq` also removes D13 (b) of the Range contents
-program (`docs/plans/2026-11-range-contents-program.md:731`, the walk half), while D13 (a) stays `tc`'s.
+- **At `tq`, added by this plan PR** (umbrella `:1102-1103`; erratum carried by this plan PR (PM 882 (2)), reviewed
+  in plan-review R1's re-check). The text, verbatim:
+
+  > `#11-range-compare-points-shadow-index`: gains "D13 (b) (the walk) fixed by tq (<sha>, <date>); (a) stays tc's";
+  > the row stays open (erratum, tq plan PR, PM 882 (2)).
+
+  It lands in the slot that tracks D13: the ledger row `#11-range-compare-points-shadow-index` points at
+  `docs/plans/2026-11-range-contents-program.md:731`, the D13 row of its §0.4 defect table (D13 (a): the
+  boundary-point comparison's child index, `range/mod.rs:549-571`; D13 (b): the pre-order walk, `range/mod.rs:573-584`),
+  closed by `tc` (umbrella §7.4 "At `tc`"). The ledger has that one row for it (`/usr/bin/grep -c
+  'range-compare-points-shadow-index'` on the ledger → 1, at `:1077`; the ledger names D13 only through the `:731`
+  pointer, `grep -c 'D13'` → 0), and the program's D13 row names that slot and no other.
 
 ## §9. Gate
 
-1. This memo through `/elidex-plan-review` in full (umbrella §5 `tq`: required; *Skip OK* closed, ≥3 axes).
-2. Then one PR from a worktree on `origin/main`: the edit of §0.1, the cells of §7, nothing else.
+1. The plan PR: this memo plus the one-item umbrella §7.4 erratum of §8, through `/elidex-plan-review` in full
+   (umbrella §5 `tq`: required; *Skip OK* closed, ≥3 axes).
+2. Then the code PR, one PR from a worktree on `origin/main`: the edits of §0.1 (the walk's two steps and its doc
+   comment in `range/mod.rs`, the comment-only edit in `range/mutation.rs`) and the cells of §7, nothing else.
 
 ## §10. Definition of done
 
 1. `next_in_preorder_global` reads no raw child or sibling: `git grep -n -P '\b(get_first_child|get_next_sibling)\('
    -- crates/dom/elidex-dom-api/src/range/mod.rs` → 2 hits, both in `child_index_in_ancestor` (`:558`, `:564` at
    base; at base the same command gives 4, these two plus `:574`, `:579`), and the walk's body holds
-   `children_iter(current).next()` and `next_exposed_sibling(node)`; its `get_parent` line is unchanged. `git diff origin/main --stat` → `range/mod.rs`
-   and the four test files of §7.1 only.
-2. U1-U4 and V1-V5 present and green; M1 and M2 each observed red by the cells listed in §7 at the final head.
-3. The probes P1-P6 re-run at the head (the temporary test, removed again) give the "with the edit applied" column
-   of §6.
+   `children_iter(current).next()` and `next_exposed_sibling(node)`; its `get_parent` line is unchanged. For the code
+   PR, `git diff origin/main --stat` → `range/mod.rs`, `range/mutation.rs` (comment only: `git diff origin/main --
+   crates/dom/elidex-dom-api/src/range/mutation.rs` changes `///` lines only) and the four test files of §7.1 only.
+2. U1-U4 and V1-V5 present and green; M1, M2 and M3 each observed red by the cells listed in §7 at the final head.
+3. The probes P1-P6 and P1c-P5c re-run at the head (the temporary test, removed again) give the "with the edit
+   applied" column of §6 and §6.1.
 4. `cargo test -p elidex-dom-api --all-features`, `cargo test -p elidex-js --all-features`, then `mise run ci`.
-5. The new doc comment cites WHATWG DOM §5.6 *contained* (`#contained`), by the number `heading dom 5.6` gives.
+5. The new doc comment cites WHATWG DOM §5.6 *contained* (`#contained`), by the number `heading dom 5.6` gives, and
+   names `#11-shadow-root-is-a-tree-root` for the unchanged upward step; the rewritten `contained_top_level_nodes`
+   comment states the three clauses of *contained* and which part enforces which (§0.1).
 
 ## §11. Premises found wrong or not foreseen
 
 - **P-1** The umbrella names three users of the walk and two natives for `toString` (§1.6, *What the edit
   reaches*), but not `Selection.deleteFromDocument`, which runs `delete_contents` (`selection.rs:533`) and so
   carries the same exposure (probe P5). Its change is the declared one (the same algorithm), not a change beyond it,
-  so this memo names it (§0.3, §3.1, §5.1) and pins it (V2) instead of stopping; the PM may want it in the slot text
-  of §8.
+  so this memo names it (§0.3, §3.1, §5.1) and pins it (V2) instead of stopping. Placed by PM 882 (1): the "At
+  `tq`" landing item carries both natives (§8).
 - **P-2** Umbrella §7.4 has no item for D13 (b) of the Range contents program, which `tq` fixes (the walk half of
   D13; census C-3 already says the function "leaves this population at `tq`'s head"). The slot
-  `#11-range-compare-points-shadow-index` stays `tc`'s for D13 (a); whether its text records the (b) half is the
-  PM's.
+  `#11-range-compare-points-shadow-index` stays `tc`'s for D13 (a). Placed by PM 882 (2): this plan PR carries the
+  umbrella §7.4 erratum that records the (b) half (§8).
 - **P-3** The Range code's comments cite "DOM §5.5" for Range 47 times in `range/` (`git grep -n -F '§5.5' --
   crates/dom/elidex-dom-api/src/range | wc -l` → 47; `§5.6` → 1); `webref heading dom 5.5` → Interface StaticRange,
-  `5.6` → Interface Range. Pre-existing and not `tq`'s; `tq`'s own new comment uses §5.6. A citation sweep, for the
-  PM to place.
+  `5.6` → Interface Range. Pre-existing and not `tq`'s; `tq`'s own new comments use §5.6. Placed by PM 882 (3) under
+  the sweep `project_dom-events-section-renumber-sweep`. Three facts for the PM's sweep record (the record is the
+  PM's): its pattern `§\s?5\.5(?![.0-9])` misses a sentence-final "§5.5." (`git grep -n -P` with it on
+  `crates/script/elidex-js/src/vm/host/range_proto_mutation.rs` → 5 hits of the file's 7 `§5.5`; the two missed are
+  `:211` and `:227`); `crates/script/elidex-js/src/vm/host_data/mod.rs:352` ("§5.5)") is not in its list; and
+  Layout's branch `layout-nodekind-inference-shim-removal` (`712b32d5`) already rewrites 11 of the 47 in `range/`
+  (`git diff $(git merge-base 3cbd5b88 712b32d5) 712b32d5 -- crates/dom/elidex-dom-api/src/range` → 11 removed lines
+  with `§5.5`; at `712b32d5` the `range/` count is 36). Reported to the PM.
 - **P-4** The brief's "§2 rows … LINK / MO that name tq": umbrella §2 has no LINK or MO row naming `tq`; LINK and MO
   are elements of the matrix, and the rows naming `tq` are TREE × WR (the child half) and CHILD × RANGE. §2 above
   writes the LINK and MO intersections on the existing pairs TREE × LINK and CHILD × MO.
+- **P-5** (found while writing F3 of R1; not decided here) The R1 decision record states that the raw `set_start` /
+  `set_end` are in-crate test helpers, so that every range has one root and the climb row of §4.2 is not a new
+  exposure. At `3cbd5b88` they are also the production write path of `SelectionState`: `collapse`
+  (`selection.rs:278-279`), `extend` (`:357-361`), `set_base_and_extent` (`:408-412`), `select_all_children`
+  (`:439-440`), each after a node-document check only (`same_document`, `:613-618`; a shadow-tree node has the same
+  node document), and `range_proto_mutation.rs:159-160` (a collapsed transient for `insertNode`, one node, so one
+  root). Selection API §3 `extend()` step 5 collapses on a root mismatch, and `setBaseAndExtent()` step 5 "set the
+  start"s through DOM's *set the start or end* (WHATWG DOM §5.6 `#concept-range-bp-set` step 4: "If range's root
+  is not node's root …", `webref body dom concept-range-bp-set`), which collapses too; elidex does neither. So a Selection range can
+  span two roots, and `tq` changes its output. Probed at `3cbd5b88` (temporary VM test, removed, `git status`
+  clean; rustc 1.99.1; tree `body` = [`pre` "pre", `h`, `post` "post", `p` "TAIL"], `h` closed shadow root holding
+  `sp` > `st` "SHADOW"):
+
+  | Script | Base | With the edit (temporary) | Spec value |
+  |---|---|---|---|
+  | `getSelection().setBaseAndExtent(pre, 1, st, 3); getSelection().toString()` | `"reSHA"` (range `(pre, 1)`-`(st, 3)`, not collapsed) | `"repostTAILSHA"` (the walk never meets the end container in the shadow tree, so it runs to the document's end, then adds the end text's head) | the range collapses at `(st, 3)`; Selection string rank (2): `""` |
+  | `collapse(pre, 1); extend(st, 3); toString()` | `"reSHA"` | `"repostTAILSHA"` | the same: collapsed, `""` |
+  | `setBaseAndExtent(pre, 1, st, 3); deleteFromDocument()` | `pre` → "p", `st` → "DOW", `sp` disconnected, 1 record under `body` | the same | nothing (focus is not in the document tree) |
+
+  Both columns are wrong at base already (the cross-root range is the defect); `tq` changes the `toString` row's
+  wrong value, which is not in the declared change of §0.3. Where the cross-root write path belongs (a Selection
+  fix, `tq`'s scope, or a slot) is the driver's / PM's; this memo has not changed §0.3 or added a cell for it.

@@ -1099,6 +1099,8 @@ Every "old" below is quoted from the current ledger row (re-read 2026-11-18 for 
   "Trigger: tq (Range path closed), then ta; closed by: ta."
 - **At `tq`.** `#11-shadow-root-accepted-as-ref-or-old-child`: gains "Range path closed by tq (<sha>, <date>)";
   the row stays open.
+  `#11-range-compare-points-shadow-index`: gains "D13 (b) (the walk) fixed by tq (<sha>, <date>); (a) stays tc's"; the
+  row stays open (erratum, tq plan PR, PM 882 (2)).
 - **At `ta`.** (1) `#11-vm-isconnected-bound-document`: "Re-eval: L3's next DOM node-surface touch; backstop
   2026-12-15." → "Re-eval: `ta`'s landing date" (the trigger fires at `ta`; PM 758 Q-14).
   (2) `#11-shadow-slot-assignment-flat-tree`, text: gains "owns the callers of `pending_flat_tree_parent` and
