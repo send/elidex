@@ -432,6 +432,7 @@ enum Handle {
     Generator,
     PendingReturn,
     PendingThrow,
+    PendingNormal,
 }
 
 /// A frame with no handle set.
@@ -507,6 +508,10 @@ fn frame_holding(vm: &mut Vm, handle: Handle, place: bool) -> (ObjectId, CallFra
                 f.pending_completion =
                     Some(Box::new(FrameCompletion::Return(JsValue::Object(obj))));
             }
+            Handle::PendingNormal => {
+                f.pending_completion =
+                    Some(Box::new(FrameCompletion::Normal(JsValue::Object(obj))));
+            }
             Handle::PendingThrow => {
                 f.pending_completion = Some(Box::new(FrameCompletion::Throw(JsValue::Object(obj))));
             }
@@ -555,7 +560,7 @@ fn suspended_frame_keeps(handle: Handle, place: bool) -> bool {
     collect_and_alive(&mut vm, obj)
 }
 
-const LIVE_HANDLES: [Handle; 10] = [
+const LIVE_HANDLES: [Handle; 11] = [
     Handle::This,
     Handle::UpvalueIds,
     Handle::LocalUpvalueIds,
@@ -566,11 +571,13 @@ const LIVE_HANDLES: [Handle; 10] = [
     Handle::Generator,
     Handle::PendingReturn,
     Handle::PendingThrow,
+    // D-3: `Normal` is never stored by a writer; marked as the fail-safe.
+    Handle::PendingNormal,
 ];
 
 /// The suspended column: `generator` is the smoke check below (the owner
 /// survives whether or not the field is marked), so it is not in this list.
-const SUSPENDED_HANDLES: [Handle; 9] = [
+const SUSPENDED_HANDLES: [Handle; 10] = [
     Handle::This,
     Handle::UpvalueIds,
     Handle::LocalUpvalueIds,
@@ -580,6 +587,8 @@ const SUSPENDED_HANDLES: [Handle; 9] = [
     Handle::HomeClass,
     Handle::PendingReturn,
     Handle::PendingThrow,
+    // D-3: `Normal` is never stored by a writer; marked as the fail-safe.
+    Handle::PendingNormal,
 ];
 
 #[test]
@@ -639,4 +648,44 @@ fn suspended_frame_owner_generator_smoke() {
     });
     root_via_global(&mut vm, gen_id);
     assert!(collect_and_alive(&mut vm, gen_id));
+}
+
+/// D-2's fail-safe: a suspended frame whose `generator` is a *foreign*
+/// generator (no writer produces this) still roots it.  Unlike the owner
+/// smoke check, this cell can see `generator` marked in a suspended frame.
+#[test]
+fn suspended_frame_foreign_generator_is_rooted() {
+    assert!(suspended_frame_keeps(Handle::Generator, true));
+    assert!(
+        !suspended_frame_keeps(Handle::Generator, false),
+        "negative control: cleared field, the foreign generator is collected"
+    );
+}
+
+/// D-2's rule for `upvalue_slots`: an id outside `local_upvalue_ids` (no
+/// writer produces this) is still marked; observable through the object its
+/// upvalue's `Closed` value holds.
+fn upvalue_slots_keep(place: bool) -> bool {
+    let mut vm = test_vm();
+    let obj = vm.inner.alloc_object(ordinary(None));
+    let uv = closed_upvalue(&mut vm, obj);
+    let gen_id = alloc_generator(
+        &mut vm,
+        Some(SuspendedFrame {
+            frame: blank_frame(),
+            stack_slice: Vec::new(),
+            upvalue_slots: if place { vec![(uv, 0)] } else { Vec::new() },
+        }),
+    );
+    root_via_global(&mut vm, gen_id);
+    collect_and_alive(&mut vm, obj)
+}
+
+#[test]
+fn suspended_upvalue_slots_outside_local_ids_are_rooted() {
+    assert!(upvalue_slots_keep(true));
+    assert!(
+        !upvalue_slots_keep(false),
+        "negative control: id removed from upvalue_slots, the object is collected"
+    );
 }

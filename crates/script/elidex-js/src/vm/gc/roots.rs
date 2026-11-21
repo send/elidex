@@ -16,7 +16,7 @@ use super::super::value::StringId;
 use super::super::value::{JsValue, Object, ObjectId};
 #[cfg(feature = "engine")]
 use super::super::wrapper_intern::{MarkAgent, WrapperOwner, WrapperSubkey};
-use super::{mark_object, mark_upvalue, mark_value};
+use super::{mark_object, mark_value};
 
 /// Snapshot of all GC root sets, borrowed immutably from `VmInner`.
 pub(super) struct GcRoots<'a> {
@@ -276,42 +276,7 @@ pub(super) fn mark_roots(
 
     // (b) Call frame roots
     for frame in roots.frames {
-        mark_value(frame.this_value, obj_marks, work);
-        for &uv_id in frame.upvalue_ids.iter() {
-            mark_upvalue(uv_id, roots.upvalues, uv_marks, obj_marks, work);
-        }
-        for &uv_id in &frame.local_upvalue_ids {
-            mark_upvalue(uv_id, roots.upvalues, uv_marks, obj_marks, work);
-        }
-        if let Some(ref args) = frame.actual_args {
-            for &val in args {
-                mark_value(val, obj_marks, work);
-            }
-        }
-        if let Some(id) = frame.new_instance {
-            mark_object(id, obj_marks, work);
-        }
-        if let super::super::value::CallMode::Construct { new_target } = frame.mode {
-            mark_object(new_target, obj_marks, work);
-        }
-        if let Some(id) = frame.home_class {
-            mark_object(id, obj_marks, work);
-        }
-        if let Some(gen_id) = frame.generator {
-            mark_object(gen_id, obj_marks, work);
-        }
-        // Pending abrupt completion value (Return/Throw) — held across a
-        // finally body execution, only alive for that window but an
-        // independent root during it.
-        match frame.pending_completion.as_deref() {
-            Some(
-                super::super::value::FrameCompletion::Return(v)
-                | super::super::value::FrameCompletion::Throw(v),
-            ) => {
-                mark_value(*v, obj_marks, work);
-            }
-            Some(super::super::value::FrameCompletion::Normal(_)) | None => {}
-        }
+        super::mark_frame(frame, roots.upvalues, uv_marks, obj_marks, work);
     }
 
     // (c) Global variables

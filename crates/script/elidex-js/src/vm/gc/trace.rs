@@ -16,11 +16,12 @@
 //! [`super::mark_object`] / [`super::mark_upvalue`] primitives that
 //! this tracer calls back into.
 
+use super::super::coroutine_types::SuspendedFrame;
 use super::super::frame::Upvalue;
 #[cfg(feature = "engine")]
 use super::super::value::ObjectId;
 use super::super::value::{Object, ObjectKind, PropertyStorage, PropertyValue};
-use super::{mark_object, mark_upvalue, mark_value};
+use super::{mark_frame, mark_object, mark_upvalue, mark_value};
 
 /// Trace the work list: pop enqueued ObjectIds, mark their transitive references.
 ///
@@ -332,43 +333,21 @@ pub(super) fn trace_work_list(
                     mark_object(wrapper, obj_marks, work);
                 }
                 if let Some(susp) = &state.suspended {
-                    // The suspended frame carries its own set of roots —
-                    // this_value, upvalue_ids, actual_args, new_instance,
-                    // and the stack slice that was taken off the VM stack
-                    // at yield time.
-                    mark_value(susp.frame.this_value, obj_marks, work);
-                    for &uv_id in susp.frame.upvalue_ids.iter() {
-                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
-                    }
-                    for &uv_id in &susp.frame.local_upvalue_ids {
-                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
-                    }
-                    if let Some(ref args) = susp.frame.actual_args {
-                        for &v in args {
-                            mark_value(v, obj_marks, work);
-                        }
-                    }
-                    if let Some(id) = susp.frame.new_instance {
-                        mark_object(id, obj_marks, work);
-                    }
-                    if let super::super::value::CallMode::Construct { new_target } = susp.frame.mode
-                    {
-                        mark_object(new_target, obj_marks, work);
-                    }
-                    if let Some(id) = susp.frame.home_class {
-                        mark_object(id, obj_marks, work);
-                    }
-                    match susp.frame.pending_completion.as_deref() {
-                        Some(
-                            super::super::value::FrameCompletion::Return(v)
-                            | super::super::value::FrameCompletion::Throw(v),
-                        ) => {
-                            mark_value(*v, obj_marks, work);
-                        }
-                        Some(super::super::value::FrameCompletion::Normal(_)) | None => {}
-                    }
-                    for &v in &susp.stack_slice {
+                    // The frame's handles go through the one enumeration;
+                    // the stack slice and the open-upvalue slots are
+                    // `SuspendedFrame`'s own (a subset of the frame's
+                    // `local_upvalue_ids`; marked by D-2's rule).
+                    let SuspendedFrame {
+                        frame,
+                        stack_slice,
+                        upvalue_slots,
+                    } = susp;
+                    mark_frame(frame, upvalues, uv_marks, obj_marks, work);
+                    for &v in stack_slice {
                         mark_value(v, obj_marks, work);
+                    }
+                    for &(uv_id, _slot) in upvalue_slots {
+                        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
                     }
                 }
             }

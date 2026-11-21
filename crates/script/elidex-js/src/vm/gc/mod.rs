@@ -26,8 +26,9 @@
 //! - [`mod@sweep`] — post-mark slot reclamation + IC invalidation.
 //! - [`mod@collect`] — `VmInner::collect_garbage` orchestrator.
 //!
-//! Bit-vector helpers and the single-object mark primitives live in
-//! this file because both halves of the mark phase consume them.
+//! Bit-vector helpers, the single-object mark primitives and the
+//! frame-level primitive ([`mark_frame`]) live in this file because both
+//! halves of the mark phase consume them.
 //!
 //! ## Future evolution
 //!
@@ -46,8 +47,9 @@ mod trace;
 #[cfg(test)]
 mod tests;
 
-use super::frame::{Upvalue, UpvalueState};
-use super::value::{JsValue, ObjectId, UpvalueId};
+use super::coroutine_types::FrameCompletion;
+use super::frame::{CallFrame, FrameKind, HandlerEntry, Upvalue, UpvalueState};
+use super::value::{CallMode, FuncId, JsValue, ObjectId, UpvalueId};
 
 // ---------------------------------------------------------------------------
 // Bit-vector helpers
@@ -118,5 +120,107 @@ pub(super) fn mark_upvalue(
         if let UpvalueState::Closed(val) = upvalues[idx as usize].state {
             mark_value(val, obj_marks, work);
         }
+    }
+}
+
+/// Mark every GC handle a stored [`CallFrame`] holds.
+///
+/// Implements no abstract operation; it answers to ECMA-262 §9.9.2 Liveness
+/// (with §9.9.1 Objectives): the spec does not require a field to be marked,
+/// and Note 6 says engines use conservative approximations such as
+/// reachability.  Marking every handle field of a frame is that
+/// approximation, so no object a frame can still read is swept.  This is the
+/// one enumeration for a frame in either storage residency: a live frame on
+/// `VmInner::frames` ([`roots`]'s step (b)) and a suspended frame inside a
+/// `Generator`'s `SuspendedFrame` ([`trace`]'s `Generator` arm).
+///
+/// Completeness is compiler-checked: `CallFrame` and `HandlerEntry` are
+/// destructured without `..`, `FrameKind`, `CallMode` and `FrameCompletion`
+/// are matched without a wildcard, and every untraced field has its type
+/// pinned (`let _: &T = field;`), so adding, removing or retyping a field
+/// fails to compile here until it is classified.
+pub(super) fn mark_frame(
+    frame: &CallFrame,
+    upvalues: &[Upvalue],
+    uv_marks: &mut [u64],
+    obj_marks: &mut [u64],
+    work: &mut Vec<u32>,
+) {
+    let CallFrame {
+        upvalue_ids,
+        local_upvalue_ids,
+        this_value,
+        actual_args,
+        new_instance,
+        mode,
+        home_class,
+        generator,
+        pending_completion,
+        exception_handlers,
+        kind,
+        func_id,
+        ip,
+        base,
+        tdz_bits,
+        tdz_overflow,
+        cleanup_base,
+    } = frame;
+    // Untraced: no GC handle in these types (permanent / plain data).  Each
+    // type is pinned here.
+    let _: &FuncId = func_id;
+    let _: &usize = ip;
+    let _: &usize = base;
+    let _: &u64 = tdz_bits;
+    #[allow(clippy::borrowed_box)] // pin the exact type; `&[u64]` would accept any slice deref
+    let _: &Box<[u64]> = tdz_overflow;
+    let _: &usize = cleanup_base;
+    let _: &FrameKind = kind;
+    match kind {
+        FrameKind::Eval | FrameKind::Function => {}
+    }
+    for HandlerEntry {
+        catch_ip,
+        finally_ip,
+        stack_depth,
+    } in exception_handlers
+    {
+        let _: &Option<u32> = catch_ip;
+        let _: &Option<u32> = finally_ip;
+        let _: &usize = stack_depth;
+    }
+
+    mark_value(*this_value, obj_marks, work);
+    for &uv_id in upvalue_ids.iter() {
+        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+    }
+    for &uv_id in local_upvalue_ids {
+        mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
+    }
+    if let Some(args) = actual_args {
+        for &val in args {
+            mark_value(val, obj_marks, work);
+        }
+    }
+    if let Some(id) = new_instance {
+        mark_object(*id, obj_marks, work);
+    }
+    match mode {
+        CallMode::Call => {}
+        CallMode::Construct { new_target } => mark_object(*new_target, obj_marks, work),
+    }
+    if let Some(id) = home_class {
+        mark_object(*id, obj_marks, work);
+    }
+    if let Some(id) = generator {
+        mark_object(*id, obj_marks, work);
+    }
+    // Pending completion value: held across a finally body, an independent
+    // root during that window.  Every variant's value is marked (`Normal` is
+    // never stored here today; marking it is the fail-safe direction).
+    match pending_completion.as_deref() {
+        Some(
+            FrameCompletion::Normal(v) | FrameCompletion::Return(v) | FrameCompletion::Throw(v),
+        ) => mark_value(*v, obj_marks, work),
+        None => {}
     }
 }
