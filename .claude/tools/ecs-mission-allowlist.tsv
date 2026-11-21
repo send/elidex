@@ -36,32 +36,47 @@ T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numer
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numeric_reflect.rs	/// `long` IDL reflect is i32-clamped, mirroring Chromium / Firefox).
 T	#11-replace-child-self-records	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
 T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/update_steps.rs	// `<body>` during `blur`/`focusout` (the pre-A2a shell + real browsers both do
+T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
+T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// matching the conservative interpretation Chrome / Firefox use.
 N	-	crates/dom/elidex-dom-api/src/style.rs	/// (accepted divergence: Firefox preserves existing declarations on
 N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at defer slot
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs	/// establishment site (the interoperable behavior every browser ships): the
 E	-	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form/src/select/mod.rs	/// Stops at the first/last option (no wraparound, per native browser behavior).
+T	#11-core-browser-parity-deviations	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.
 T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/connector.rs	/// (h2c) is intentionally not supported, matching browser behavior.
 T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/cookie_jar.rs	// SameSite: default to Lax per modern browser behavior
 D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/cookie_jar.rs	/// Maximum cookies per domain (Chromium uses 180).
 D	#11-core-browser-parity-deviations	crates/net/elidex-net/src/preflight/mod.rs	/// (Chromium 7200s, Firefox 86400s). We pick **7200s** to match
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/parser/control_flow.rs	// V8: resolve Atom to string for user-facing error message
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/parser/expr_tests_validation.rs	// ── V8: Break/continue label display ──
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/coerce.rs	/// Error messages mirror V8's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/coerce.rs	/// `"{error_prefix}: {what} ..."` shape so callers can mirror V8's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/dispatch.rs	// V8 / SpiderMonkey error text for
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/error.rs	/// matches Chrome's WebIDL surface.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/array_buffer.rs	/// V8-shaped error message and width stays in lockstep with the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	// part, divergent from browser behaviour.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
 N	-	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	// (Chrome accepts non-object loosely; spec-strict rejects.)
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	// match Chrome / Firefox arg-count wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	/// ASCII-case-folds to lowercase (matches Chrome / Firefox + the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/flush.rs	// drain, observably one tick late vs Chrome.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// a TypeError matching Chrome / Firefox wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// the subtree (matches Blink's batch-upgrade isolation).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs	//! and `eprintln!`s it (matches Blink's batch isolation — one bad
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/document.rs	// `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/element_insert_adjacent.rs	/// is not an Element wrapper. Matches the Blink / Gecko message form.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event hand-rolled allocation + Chrome
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	/// Treating it as a no-op matches browser behaviour for unattached
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	// newState then oldState (matches Chrome DevTools enumeration).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target_dispatch.rs	/// order is `(newState, oldState)` per Chrome DevTools enumeration
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_extras.rs	// Chrome. Collapsing `null` into a coercion error would
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_extras.rs	// that the value is a Promise-shaped object (matches Chrome's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_misc.rs	// Chrome wording, mirrors PromiseRejectionEvent precedent).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_misc.rs	// check (Chrome / Firefox accept arbitrary objects, returning the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_modern/pointer.rs	// ±∞ is allowed at IDL level (matches Chrome / Firefox).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_ui.rs	// `undefined` — matching Chrome / Firefox where the IDL
@@ -70,36 +85,49 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/d
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// Firefox / Safari):
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// must therefore throw synchronously (verified on Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/form_data.rs	// values — matches Chromium / Firefox.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/headers/mod.rs	/// matching Chromium's wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// / `InvalidNodeKind`) are silent no-ops to match Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	//! match browser behaviour.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/idl_coerce.rs	/// matches Chromium / Firefox observable behaviour for
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// SyntaxError matching the Chrome / Firefox shape.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// to construct 'IntersectionObserver'" shape (Chrome parity);
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/multipart.rs	//! This matches Chromium / Firefox's "random boundary, no body
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/mutation_observer.rs	// both arguments required. Match Chrome/Firefox arg-count error
 N	-	crates/script/elidex-js/src/vm/host/navigator.rs	("product", "Gecko"),
 N	-	crates/script/elidex-js/src/vm/host/navigator.rs	//! (constant `"Mozilla"`), `appName` (`"Netscape"`), `product` (`"Gecko"`),
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/node_proto.rs	/// `IntersectionObserver` / `MutationObserver`). Matches Chrome's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/observer_common.rs	/// failed the `MutationObserver` brand check — matches Chrome).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/offscreen_canvas/mod.rs	// (Chrome, Firefox) throw RangeError at similar practical thresholds.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/range_proto.rs	/// canonical Chrome/Firefox "parameter is not of type 'Range'" message.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	// semantics (matches Chromium / Firefox `new
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	/// WebIDL dict-from-null semantics (matches Chromium's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/request_response/body_init.rs	// intent of Chromium's "ReadableStream upload not yet
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/request_response/mod.rs	/// matches Chromium / Firefox).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/storage.rs	// matches Chrome / Firefox when an underlying I/O fault
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/storage_event.rs	/// type as `Storage?`, but Chrome / Firefox / Safari all accept
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/structured_clone.rs	// attribute on any of them. Chrome / Firefox throw
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// message prefix so JS-visible errors match Chrome's wording.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// render Chrome-parity `parameter N` text in the rejection
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// silently process zero bytes — divergent from browser behaviour).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/url/mod.rs	// identity comparison holds (matches V8 + boa precedent).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/websocket.rs	//! TypeError with the Chrome / Firefox parity message
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/websocket.rs	/// 3. Any other string → `TypeError` with the Chrome / Firefox
 N	-	crates/script/elidex-js/src/vm/host/worker_scope.rs	("product", "Gecko"),
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_bigint.rs	/// [`super::coerce::to_index_u64`] with the V8-shape error prefix
 D	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_json/mod.rs	/// Release matches V8's ~1000 and was verified to hold for all three walkers
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_number.rs	// V8's "integer → radix-N" + optional fraction ".xxxx" approximation.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_number.rs	/// Format a finite number in `radix` (2..=36). Mirrors V8's behavior:
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/ops_element.rs	// (matches Chrome). Computed / Rule-source receivers
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/ops_element.rs	// indices short-circuit to `Undefined` (browsers do not
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_event_extras_constructor.rs	// check then surfaces the error. Chrome reports the same
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_fetch.rs	// 42)`, verified against Chrome / Firefox / Safari (R20.1).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_fetch.rs	// Chrome / Firefox / Safari: `try { fetch() } catch (e) { ... }`
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_file_api.rs	// file entries (Chrome behaviour).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_integration_fetch.rs	// (spec nullable; matches Chromium / Firefox behaviour).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/tests/tests_mutation_observer/setup.rs	// both required. Match Chrome/Firefox arg-count error message
 N	-	crates/script/elidex-js/src/vm/tests/tests_string_complement.rs	// and prototype chain differ from V8 but the own-property absence is
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/value.rs	/// only "throw a TypeError"); the wording matches Chrome's WebIDL
 N	-	crates/script/elidex-script-session/src/lib.rs	//! (`SpiderMonkey`, V8, etc.) and the elidex ECS-based DOM. It includes:
 T	#11-replace-child-self-records	crates/script/elidex-script-session/src/mutation/child_list.rs	// here while the spec queues two (`#11-replace-child-self-records`: Chromium
 T	#11-replace-child-self-records	crates/script/elidex-script-session/src/mutation/tests.rs	// Chromium unmeasured).
@@ -134,6 +162,9 @@ N	-	docs/design/en/10-network-architecture.md	| Third-party cookies | Blocked | 
 D	#11-design-docs-browser-lineage-rationale	docs/design/en/15-rendering-pipeline.md	The rendering pipeline proceeds in stages. Style resolution and layout computation are parallelized using rayon, following Servo's proven approach:
 D	#11-design-docs-browser-lineage-rationale	docs/design/en/17-animation-scroll.md	Steps 5–6 (Observers) may trigger further DOM mutations, which require re-flushing and potentially re-ticking animations. The FrameProducer caps this re-entrant loop (maximum 4 iterations, matching Chromium) to prevent infinite observer cycles.
 D	#11-design-docs-browser-lineage-rationale	docs/design/en/18-image-decode.md	/// Default: 1250px vertical, 2500px horizontal (matches Chrome).
+T	#11-core-browser-parity-deviations	docs/design/en/18-image-decode.md	| APNG | Core | png (APNG extension) | Animated PNG. All major browsers support. |
+T	#11-core-browser-parity-deviations	docs/design/en/18-image-decode.md	| JPEG XL | Not supported | — | Browser support unstable (Chrome added then removed). Reconsider when spec stabilizes. |
+T	#11-core-browser-parity-deviations	docs/design/en/18-image-decode.md	| WebP | Core | webp | Lossy + lossless + animated. Supported by all major browsers. |
 D	#11-design-docs-browser-lineage-rationale	docs/design/en/22-storage-cache.md	This follows Chrome's proven approach. The structured clone serialization format for values is shared with `postMessage` (Ch. 5 IPC) to avoid multiple serialization formats.
 D	#11-design-docs-browser-lineage-rationale	docs/design/en/22-storage-cache.md	| **Style sharing cache** | Renderer | Per-frame, ~1000 entries | Cleared on style recalc | Servo-inspired: siblings with identical style inputs share computed style. Avoids redundant property resolution. |
 N	-	docs/design/en/24-browser-shell.md	### 24.2.2 Browser Chrome (UI Layer)
@@ -176,6 +207,7 @@ N	-	docs/design/ja/10-network-architecture.md	| サードパーティCookie | �
 D	#11-design-docs-browser-lineage-rationale	docs/design/ja/15-rendering-pipeline.md	レンダリングパイプラインはステージで進行。スタイル解決とレイアウト計算はServoの実証済みアプローチに従いrayonで並列化：
 D	#11-design-docs-browser-lineage-rationale	docs/design/ja/17-animation-scroll.md	ステップ5–6（Observer）はさらなるDOM変更をトリガーしうるため、再フラッシュとアニメーション再tickが必要になりうる。FrameProducerはこの再入ループを上限設定（最大4回、Chromiumと同一）して無限Observerサイクルを防止。
 D	#11-design-docs-browser-lineage-rationale	docs/design/ja/18-image-decode.md	/// デフォルト：垂直1250px、水平2500px（Chrome準拠）。
+T	#11-core-browser-parity-deviations	docs/design/ja/18-image-decode.md	| JPEG XL | 未対応 | — | ブラウザサポートが不安定（Chrome実装後削除）。仕様安定時に再評価。 |
 D	#11-design-docs-browser-lineage-rationale	docs/design/ja/22-storage-cache.md	Chromeの実証済みアプローチに準拠。値のstructured cloneシリアライゼーション形式は`postMessage`（第5章IPC）と共有し、複数のシリアライゼーション形式を回避。
 D	#11-design-docs-browser-lineage-rationale	docs/design/ja/22-storage-cache.md	| **スタイル共有キャッシュ** | Renderer | フレーム単位、約1000エントリ | スタイル再計算時にクリア | Servoに着想：同一スタイル入力を持つ兄弟要素が計算スタイルを共有。冗長なプロパティ解決を回避。 |
 N	-	docs/design/ja/24-browser-shell.md	### 24.2.2 Browser Chrome（UIレイヤー）

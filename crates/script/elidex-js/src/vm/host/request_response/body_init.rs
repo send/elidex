@@ -133,7 +133,7 @@ pub(in crate::vm::host) fn extract_body_bytes(
             // up async lazy-drain.  Phase 2 only supports
             // ReadableStream as response *output* (Response.body /
             // Blob.stream()).  The error message matches the
-            // [evidence] intent of Chromium's "ReadableStream upload not yet
+            // intent of Chromium's "ReadableStream upload not yet
             // supported" — clear per-spec failure rather than a
             // silent string-coercion (which would land
             // `[object ReadableStream]` bytes on the wire).

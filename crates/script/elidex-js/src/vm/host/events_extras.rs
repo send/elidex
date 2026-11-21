@@ -305,7 +305,7 @@ fn native_promise_rejection_event_constructor(
     //   - `null` / `undefined` → WebIDL treats as an empty
     //     dictionary; the subsequent `required promise` check
     //     reports "required member promise is undefined", matching
-    //     Chrome [evidence].  Collapsing `null` into a coercion error would
+    //     Chrome.  Collapsing `null` into a coercion error would
     //     diverge from the spec.
     //   - Non-object primitive (number / string / bool) → WebIDL
     //     dictionary coercion error (`parameter 2 is not of type

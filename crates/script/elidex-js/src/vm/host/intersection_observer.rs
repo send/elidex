@@ -198,7 +198,7 @@ fn native_intersection_observer_constructor(
     // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
     // crate-side `register` returns `RootMarginParseError` (engine-
     // independent); the host wraps it in an interface-scoped
-    // SyntaxError matching the Chrome / Firefox shape [evidence].
+    // SyntaxError matching the Chrome / Firefox shape.
     let io_id = match ctx.host().intersection_observers.register(init) {
         Ok(id) => id.raw(),
         Err(err) => {
@@ -339,7 +339,7 @@ fn parse_intersection_observer_init(
     // `root` — Element | Document | null | undefined.  null/undefined
     // → viewport; an Element/Document arg is marshalled to its Entity.
     // The wrong-type error is re-scoped to the constructor's "Failed
-    // to construct 'IntersectionObserver'" shape (Chrome parity) [evidence];
+    // to construct 'IntersectionObserver'" shape (Chrome parity);
     // tightening the type to `Element or Document` (vs any Node) is
     // tracked under the IO spec-correctness defer slots.
     let raw_root = ctx.get_property_value(opts_id, PropertyKey::String(wk_root))?;

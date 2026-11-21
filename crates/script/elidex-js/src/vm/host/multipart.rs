@@ -32,7 +32,7 @@
 //! cannot predict the runtime nonce), and the boundary is always
 //! emitted with the leading `--` marker which would have to appear
 //! verbatim inside Blob bytes for the encoded body to be malformed.
-//! `[evidence]` This matches Chromium / Firefox's "random boundary, no body
+//! This matches Chromium / Firefox's "random boundary, no body
 //! scan" approach.
 //!
 //! Stdlib-only — no `getrandom` / `rand` workspace dependency

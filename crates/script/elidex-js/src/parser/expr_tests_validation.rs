@@ -448,7 +448,7 @@ fn parenthesized_destructuring_arrow_error() {
     );
 }
 
-// ── V8: Break/continue label display ── [evidence]
+// ── V8: Break/continue label display ──
 
 #[test]
 fn continue_non_iteration_label_error_display() {

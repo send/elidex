@@ -356,7 +356,7 @@ pub(super) fn is_blocked_by_guard(
 
 /// Extract `(name, value)` args from a 2-argument method call,
 /// coercing each via `ToString`.  Missing args → `TypeError`
-/// matching Chromium's wording `[evidence]`.
+/// matching Chromium's wording.
 pub(super) fn take_name_value_args(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],

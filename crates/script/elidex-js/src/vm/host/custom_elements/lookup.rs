@@ -126,7 +126,7 @@ pub(crate) fn native_ce_upgrade(
         return Ok(JsValue::Undefined);
     }
     // WebIDL `Node root` — required. A missing / non-Node arg throws
-    // a TypeError matching Chrome / Firefox wording. [evidence]
+    // a TypeError matching Chrome / Firefox wording.
     let root_value = args.first().copied().ok_or_else(|| {
         VmError::type_error(
             "Failed to execute 'upgrade' on 'CustomElementRegistry': \

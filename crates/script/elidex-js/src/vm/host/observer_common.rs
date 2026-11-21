@@ -76,7 +76,7 @@ use super::super::VmInner;
 /// `"Failed to execute '<method>' on '<interface>': Illegal invocation"`,
 /// with `<interface>` taken from the *expected* kind (so calling
 /// `mo.observe.call(intersectionObserverInstance, …)` reports the receiver
-/// failed the `MutationObserver` brand check — matches Chrome `[evidence]`).
+/// failed the `MutationObserver` brand check — matches Chrome).
 pub(crate) fn require_observer_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,

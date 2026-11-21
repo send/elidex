@@ -119,7 +119,7 @@ fn promise_rejection_event_requires_init_dict_and_promise_key() {
 fn promise_rejection_event_null_second_arg_fails_on_required_promise() {
     // WebIDL §3.2.17 dictionary coercion: `null` / `undefined`
     // are treated as an empty dictionary; the `required promise`
-    // check then surfaces the error.  Chrome reports the same [evidence]
+    // check then surfaces the error.  Chrome reports the same
     // text ("required member promise is undefined") for
     // `new PromiseRejectionEvent('r', null)` — a "not of type"
     // error for null would deviate from the spec.

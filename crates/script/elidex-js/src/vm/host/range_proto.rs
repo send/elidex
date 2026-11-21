@@ -239,7 +239,7 @@ pub(super) fn require_range_receiver(
 
 /// Recover a [`RangeId`] from a function argument (e.g.
 /// `compareBoundaryPoints(how, sourceRange)`).  Errors with the
-/// canonical Chrome/Firefox "parameter is not of type 'Range'" message `[evidence]`.
+/// canonical Chrome/Firefox "parameter is not of type 'Range'" message.
 fn require_range_arg(
     ctx: &NativeContext<'_>,
     arg: JsValue,
