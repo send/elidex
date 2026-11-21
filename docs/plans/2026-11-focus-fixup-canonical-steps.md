@@ -40,7 +40,7 @@ after the provenance PR lands (umbrella e1). That PR edits `content/event_handle
 | P5 | The canonical §6.6.4 transition exists: `focusing_steps` (`focus/update_steps.rs:106`), `unfocusing_steps` (`:165`), private `focus_update_steps` (`:175`), sink trait `FocusEventSink`; the shell sink `ShellFocusSink` (`content/focus.rs:108`, impl `:112-155`) dispatches `blur`+`focusout` / `focus`+`focusin` and consumes the snapshot in `dispatch_change_on_blur` (`:177`) | read at HEAD |
 | P6 | `elidex_form::AncestorCache` (`ancestor_cache.rs`, `HashMap<Entity, Option<Entity>>`) is cleared only when `session.flush` returned records (`lib.rs:599-601`); its readers are `toggle_radio` (`radio.rs:77`), `radio_arrow_navigate` (`:204`) and the group scan (`:132`), whose `None` arm already calls `resolve_form_owner` (`:134`); the shell holds it as `PipelineResult.ancestor_cache` (`lib.rs:255`; initialised `pipeline.rs:632`, `:715`, `:811`, `:911`) and passes it at `content/event_handlers.rs:139`, `:609`, `:654`, `:660` | `git grep -n 'AncestorCache\|ancestor_cache\|get_form_owner' -- crates` |
 | P8 | VM `focus()` gates on `is_focusable && is_in_document` (`crates/script/elidex-js/src/vm/host/html_element_proto.rs:302-305`) and writes the bit directly (`set_focus_bit`), seeding the snapshot; VM `blur()` is bit-level (`:351`, `focus::blur`); `is_focusable` (`focus/predicate.rs:205`) does not enforce C2 (`:176-180`) nor fieldset-inherited disabled (`:182-185`) | read at HEAD |
-| P9 | The change-on-blur snapshot exists only on text controls: `record_focus_snapshot` stores it iff `kind.is_text_control()` and removes it otherwise (`crates/dom/elidex-form/src/focus_snapshot.rs:53-63`); `is_text_control` = text / password / textarea / email / url / tel / search (`crates/dom/elidex-form-core/src/lib.rs:104-115`, no `Hidden`, no button kinds); a `type` flip to a non-text kind clears it at the `set_attribute` chokepoint (`crates/dom/elidex-form/src/reconciler.rs:154-162`, cell `reconciler_tests.rs` `e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot`); VM `type =` reaches it through `attr_set` (`html_input_proto.rs:853`) | read at HEAD; re-measured at `e0e18713` (after #597) |
+| P9 | The change-on-blur snapshot exists only on text controls: `record_focus_snapshot` stores it iff `kind.is_text_control()` and removes it otherwise (`crates/dom/elidex-form/src/focus_snapshot.rs:53-63`); `is_text_control` = text / password / textarea / email / url / tel / search (`crates/dom/elidex-form-core/src/lib.rs:104-115`, no `Hidden`, no button kinds); a `type` flip to a non-text kind clears it at the `set_attribute` chokepoint (`crates/dom/elidex-form/src/reconciler.rs:154-162`, cell `reconciler_tests.rs` `e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot`); VM `type =` reaches it through `attr_set` (`html_input_proto.rs:853`) | read at HEAD; re-measured at `e0e18713` (after #597). *Erratum (2026-11-21):* the clear and the kind-gated seed are the population defect DF-2 of `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (§6.2); its fix (slot `#11-change-on-blur-baseline-first-focus-value`, LR-2 known requirement 5) removes both and judges step 2.1's kind conjuncts at focus loss. Outcomes this memo derives from P9 (E5, §5 item 1, the §3 row) are unchanged, since Hidden and button kinds are excluded by that predicate; only the mechanism moves |
 | P10 | At `e0e18713` (after #597) the shell sink's `commit_change_on_blur` (`content/focus.rs:121`) calls `dispatch_change_on_blur` (`:179-186`), which fires `change` iff `elidex_form::take_change_on_blur` (`crates/dom/elidex-form/src/focus_snapshot.rs:87`) returns true and only dispatches. Step 2.1's predicate is the provenance PR's predicate (its D-1; model H), which this PR's fixup reaches through the sink's `commit_change_on_blur` | read at `e0e18713`; the provenance memo D-1 |
 
 ### §0.3 Premise errors (in the brief)
@@ -62,7 +62,7 @@ after the provenance PR lands (umbrella e1). That PR edits `content/event_handle
   frames (`toggle_radio_with_events`, `event_handlers.rs:650-663`, reads the cache after `set_focus`'s listeners ran), so
   any render-time invalidation leaves that window stale. D-8 removes the cache instead (292 (1)).
 - **E5 (rev 1's own, R3 / §3 last row)** — rev 1 said "a text→hidden `type` flip after an edit fires `change`". It does
-  not: the flip clears the snapshot at the `set_attribute` chokepoint (P9), and the `Hidden` state and button kinds never
+  not: the flip clears the snapshot at the `set_attribute` chokepoint (P9; mechanism corrected, P9 erratum), and the `Hidden` state and button kinds never
   carry one, so the "change event applies" conjunct of focus update step 2.1 holds structurally. The step-2.1 conjunct
   that is **not** met is a different one, "the user has changed the element's value" (P10): a script write of `value`
   while focused makes the next blur fire `change`. 252 (M5)'s question is answered for that conjunct (§4.5); PM 260 moved
@@ -242,7 +242,7 @@ Pairs:
 | WHATWG HTML §6.6.4 Processing model | focus update steps step 4 | Document entry: not a focusable area, focus event target = its Window → `focus` at Window (not fired, D-9); viewport entry: designated (bit cleared), no event; reentrant-wins gate | `update_steps.rs:220-245`; the Window event → A3 | ✗ | yes |
 | WHATWG HTML §6.6.4 Processing model | unfocusing steps steps 5, 6, 8 | 6 "not a focusable area → return" (why D-1 rejects them; omitted in elidex, E2); 8 both branches (system focus or not) as one (D-2) | `unfocusing_steps` step 8 → `focusing_steps_for_viewport` (NEW) | ✗ | yes |
 | WHATWG HTML §6.6.2 Data model | focusable area criteria; focus chain | predicate = `is_focusable`: C1, C3 (direct `disabled` only), C5 (attribute-reachable); C2, fieldset-inherited C3, CSS C5 not enforced | `focus/predicate.rs:205` (unchanged) | ✗ | yes |
-| WHATWG HTML §4.10.5.5 Common event behaviors | `change` when the control loses focus | change applies except buttons and Hidden-state inputs: structural — only text controls carry a snapshot, a `type` flip to a non-text kind clears it (P9, E5); pinned by the existing reconciler cell (P9) | `record_focus_snapshot` / reconciler `type` arm (unchanged) | ✓ | yes |
+| WHATWG HTML §4.10.5.5 Common event behaviors | `change` when the control loses focus | change applies except buttons and Hidden-state inputs: structural — only text controls carry a snapshot, a `type` flip to a non-text kind clears it (P9, E5; mechanism corrected, P9 erratum); pinned by the existing reconciler cell (P9) | `record_focus_snapshot` / reconciler `type` arm (unchanged) | ✓ | yes |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 8.1.7.3 html 6.6.4 html 6.6.2 html 4.10.5.5` (§8.1.7.3
 Processing model `#event-loop-processing-model`; §6.6.4 Processing model `#focus-processing-model`; §6.6.2 Data model
@@ -350,7 +350,7 @@ Hits: S2, S3, and the adjacent S9 (all fixed here). No other record-gated DOM co
 The design is the provenance PR's; the order and its reason are umbrella e1. What stays here is what the fixup path adds:
 
 1. The brief's example (text→hidden after an edit) is not the case: P9 clears the snapshot at the flip, so no `change`
-   fires on any path (E5); the existing reconciler cell pins it (P9).
+   fires on any path (E5; mechanism corrected, P9 erratum — the outcome stands); the existing reconciler cell pins it (P9).
 2. The case that is: a focused text control, a script `value` write, then a script-made non-focusability (`disabled`,
    `hidden` on it or an ancestor, `tabindex` removal on a non-control, …). Base A leaves it focused; base B resets it
    silently; this PR on a base without the provenance PR fires `change` at the next rendering update from script alone.
@@ -601,6 +601,7 @@ moved with the provenance design; the provenance memo answers Q7 (§4.2) and lis
 
 ## Changelog
 
+- *Erratum (2026-11-21)*: P9's mechanism corrected by `docs/plans/2026-11-change-on-blur-spec-rederivation.md` DF-2 (pointers at P9, the §3 row, §5 item 1); no outcome changes.
 - *Rev 5.1* (2026-11-03): C19 narrowed to ordering (PM 298); re-check MINs m1–m5; FF-4 clause (PM 295).
 - **Rev 5 (2026-11-03; PM 292 on the rev 4 plan-review: IMP 5 / MIN 15).** 292 (1): D-8 deletes `AncestorCache`
   instead of validating it on read (removed: the validity-stamp design, P7, §4.2's stamp text, the "only path" claim

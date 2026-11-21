@@ -46,7 +46,7 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 | backup | `$PMD/backup/` (global 変更) / pmo は scratchpad に取ってパスを報告 |
 | usage-pace | `~/.claude/hooks/usage-pace.py status` / `~/.claude/state/usage-pace.log` |
 
-driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない。
+driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない (Codex driver の lane は SSoT が lane dir にあり、`$MEM` 側の pointer は pmo が書く — §9)。
 
 ## 1. 起動 (`/pm`、compaction 後、restart 後)
 
@@ -63,7 +63,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
    確かめる。どれでもない項目は落ちている — 一覧に戻す。本 skill 自身は landing するまで必ずこの一覧に載る。
-4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す。
+4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す (Codex driver の lane は `ListAgents` に出ない — `/drive` の `codex.md` の nonce の往復で確かめる)。
    `/restart` 後は ref 同じ・名前が変わる、fresh session は両方変わる (旧名宛は届かない)。
    PM 自身が新しい session なら、MEMORY Active state 冒頭の PM 名の更新を pmo に渡し、全 lane に通知。
 5. **pmo**: `ListAgents` に `pmo` がいて応答すればそれを使う。いなければ `subagent_type: pmo` で 1 体
@@ -110,6 +110,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
+- Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
 
@@ -200,6 +202,8 @@ gh pr checks <N> -R send/elidex
 - [ ] review 3 channel を `/external-review` Step 1 で読む (reviewThreads は改ページして `totalCount` == 取得数)。
       skill の手順内の読み取りには `# converge-manual-ok`。未解決 thread は 0 か、各々に返信と理由
 - [ ] Codex の評価対象 commit == current head、かつ dry。silent 👍 は verdict でない
+- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head が merge する head の祖先で、その後の commit は gate file の disposition にある fix か main の merge だけ (Skip-OK の PR は push の go の依頼にある skip の理由で代える、PM 927 / 934)
+- [ ] gate の後に main の merge commit があれば `git show --remerge-diff <merge>` を読む。空 (clean) なら gate はやり直さない。空でない (conflict を解いた) なら、gate をやり直すかを PM が決める (PM 934)
 - [ ] **その PR の plan の landing 条件を読み直す** (PM 425 → 437): 対象は PR body、PR が実装する plan memo、
       その umbrella plan。memo は PR head の版を読む (`git fetch -q origin pull/<N>/head` の後
       `git show <headRefOid>:<path>`)。条件の語は日英両方の regex で引く:
@@ -221,7 +225,8 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
-- PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
+- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (driver 側は `/drive` の `codex.md` の merge 行、PM 911 / 918)。
+- PM が起こした PR も、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
 
@@ -247,6 +252,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
 - yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out (plan-review / review の 5 軸) も
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
+- Codex driver の lane の helper gate と relay の Claude 側の token は、Claude の cap に数える (PM 912)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
 
@@ -348,6 +354,8 @@ merge の分担、PR body の ratchet の行、landing report、handoff、止ま
 - その lane だけの連絡先 (関係する lane の session 名)。PM の名は MEMORY Active state 冒頭にあるので書かない
 
 brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
+
+Codex driver の lane では、brief に「repo `CLAUDE.md` → `/drive` → `/drive` の `codex.md` の順に読む」と書く。起動は sandbox の flag を渡せる形で、`orca terminal create --worktree path:<lane root> --command "<codex のフルパス> -s workspace-write --add-dir <lane dir> -C <lane root>"` の後に `orca orchestration worker-start --terminal <handle> --keep-open --spec …` (`worker-start --agent codex` は flag を渡せないので使わない、PM 935)。lane SSoT の置き場は `codex.md` で、`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
 
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 

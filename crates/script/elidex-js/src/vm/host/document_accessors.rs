@@ -14,8 +14,7 @@
 //!   getter applies WHATWG whitespace normalisation; setter creates
 //!   `<title>` if missing or no-ops if `<head>` is absent.
 //! - `doctype` — handler returns the first `DocumentType` child via
-//!   `EcsDom::node_kind_inferred` (legacy `DocTypeData` fallback
-//!   preserved).
+//!   `EcsDom::node_kind`.
 //! - `URL` / `documentURI` — `VmInner::navigation.current_url`
 //!   (navigation state, not DOM).
 //! - `readyState` — brand-checked, answers `"complete"` for every Document

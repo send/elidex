@@ -245,16 +245,11 @@ fn extract_node_entity(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<En
     if super::canvas::is_canvas_2d_context_wrapper(ctx.vm, id, entity) {
         return Err(NodeArgFail::NotANode);
     }
-    // Use the inferred kind so legacy DOM entities (payload present
-    // but no explicit `NodeKind` component) are accepted as Nodes —
-    // matches `normalize_mixin_arg`, `nodes_equal`, and
-    // `HostData::prototype_kind_for`.  `Window` and `Worker` are
+    // Brand by `NodeKind`.  `Window` and `Worker` are
     // `EventTarget`s but not Nodes, so they're rejected via
     // `NodeKind::is_node()`.  Destroyed entities return `None` here
     // and surface as the brand-check failure.
-    let kind = ctx
-        .host_if_bound()
-        .and_then(|h| h.dom().node_kind_inferred(entity));
+    let kind = ctx.host_if_bound().and_then(|h| h.dom().node_kind(entity));
     match kind {
         Some(k) if k.is_node() => Ok(entity),
         _ => Err(NodeArgFail::NotANode),

@@ -156,7 +156,7 @@ fn is_document_white_space(c: char) -> bool {
 /// are `:empty`.)
 fn matches_empty(entity: Entity, dom: &EcsDom) -> bool {
     for child in dom.children_iter(entity) {
-        match dom.node_kind_inferred(child) {
+        match dom.node_kind(child) {
             // Comments / PIs / doctype do not affect emptiness.
             Some(NodeKind::Comment | NodeKind::ProcessingInstruction | NodeKind::DocumentType) => {}
             // A text node is allowed only if its data is entirely document
