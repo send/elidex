@@ -134,10 +134,10 @@ pub(super) fn mark_upvalue(
 /// is the engine's own soundness, separate from the spec: sweeping an object
 /// a frame still holds frees its `ObjectId` for reuse while the frame still
 /// reads it, a use-after-free; so every handle a frame holds stays marked.
-/// This is the
-/// one enumeration for a frame in either storage residency: a live frame on
-/// `VmInner::frames` ([`roots`]'s step (b)) and a suspended frame inside a
-/// `Generator`'s `SuspendedFrame` ([`trace`]'s `Generator` arm).
+/// This is the one enumeration for a frame in either storage residency: a
+/// live frame on `VmInner::frames` ([`roots`]'s step (b)) and a suspended
+/// frame inside a `Generator`'s `SuspendedFrame` ([`trace`]'s `Generator`
+/// arm).
 ///
 /// Completeness is compiler-checked: `CallFrame` and `HandlerEntry` are
 /// destructured without `..`, `FrameKind`, `CallMode` and `FrameCompletion`
