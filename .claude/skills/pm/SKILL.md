@@ -110,7 +110,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
-- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出したら helper はそこで止まり、driver が当てた後の新しい head の依頼では Stage 4–5 だけを回す (`/pre-push`「Fix → re-verify」、PM 924)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
@@ -355,7 +355,7 @@ merge の分担、PR body の ratchet の行、landing report、handoff、止ま
 
 brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
 
-Codex driver の lane では、brief に「repo `CLAUDE.md` → `/drive` → `/drive` の `codex.md` の順に読む」と書き、`codex -C <lane root>` で起動する。lane SSoT の置き場は `codex.md` で、`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
+Codex driver の lane では、brief に「repo `CLAUDE.md` → `/drive` → `/drive` の `codex.md` の順に読む」と書く。起動は sandbox の flag を渡せる形で、`orca terminal create --worktree path:<lane root> --command "<codex のフルパス> -s workspace-write --add-dir <lane dir> -C <lane root>"` の後に `orca orchestration worker-start --terminal <handle> --keep-open --spec …` (`worker-start --agent codex` は flag を渡せないので使わない、PM 935)。lane SSoT の置き場は `codex.md` で、`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
 
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 
