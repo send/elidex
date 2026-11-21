@@ -1,4 +1,6 @@
 version: 2
+# Security fixes arrive as Dependabot security-update PRs (lock-only); policy:
+# the comment block at the top of `[workspace.dependencies]` in Cargo.toml.
 updates:
   - package-ecosystem: cargo
     directory: "/"
