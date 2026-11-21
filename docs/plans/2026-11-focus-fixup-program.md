@@ -269,10 +269,10 @@ two §3 rows. This section states what changed and why.
 
 ## Changelog
 
-- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections (§7 names the slot row as the
-  fix slice's record); errata per `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
 - *Pointer* (2026-11-22; no rev bump): §7 names the plan of the change-on-blur baseline slice
   (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`).
+- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections (§7 names the slot row as the
+  fix slice's record); errata per `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
 - *Erratum* (2026-11-21; no rev bump; PM 842): X2 corrected by the re-derivation's DF-2 (in-line pointer; §7).
 - *Rev 2.2* (2026-11-03): aligned to plan (1) design H (rev 3.1) and plan (2) rev 5.1 (C19 ordering only, PM 298):
   row (1), e1, X1, §3, PR-1, DoD 2, nested revs; stall contingency deleted (its STOP row is gone); CP-3 / CP-4 owner and x4 (PM 312).
