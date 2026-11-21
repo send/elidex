@@ -810,3 +810,22 @@ fn add_range_after_unbind_throws_not_panics() {
         "retained Selection.addRange after unbind must throw"
     );
 }
+
+#[test]
+fn add_range_unregistered_range_after_rebind_throws_invalid_state() {
+    // A Range kept across `unbind` is unregistered (registry cleared); after
+    // a rebind the Selection is reachable again while the Range stays
+    // unregistered — the Range natives' "detached" state.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.s = window.getSelection(); globalThis.r = new Range();")
+        .unwrap();
+    vm.unbind();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let name = eval_str(
+        &mut vm,
+        "try { s.addRange(r); 'none' } catch (e) { e.name }",
+    );
+    assert_eq!(name, "InvalidStateError");
+    vm.unbind();
+}

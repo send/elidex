@@ -594,6 +594,7 @@ fn native_selection_get_direction(
     let sid = match d {
         SelectionDirection::Forward => ctx.vm.well_known.selection_dir_forward,
         SelectionDirection::Backward => ctx.vm.well_known.selection_dir_backward,
+        // Spec value is "none"; slot `#11-selection-api-algorithm-conformance`.
         SelectionDirection::Directionless => ctx.vm.well_known.selection_dir_directionless,
     };
     Ok(JsValue::String(sid))

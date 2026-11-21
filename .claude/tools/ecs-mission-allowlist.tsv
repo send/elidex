@@ -37,7 +37,6 @@ T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numer
 T	#11-replace-child-self-records	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
 T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/update_steps.rs	// `<body>` during `blur`/`focusout` (the pre-A2a shell + real browsers both do
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
-T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// matching the conservative interpretation Chrome / Firefox use.
 N	-	crates/dom/elidex-dom-api/src/style.rs	/// (accepted divergence: Firefox preserves existing declarations on
 N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at defer slot
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs	/// establishment site (the interoperable behavior every browser ships): the

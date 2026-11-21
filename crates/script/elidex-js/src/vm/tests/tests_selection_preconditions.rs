@@ -13,7 +13,8 @@
 //! "InvalidStateError" exactly when the selection is empty. Those cells call
 //! it last, since on a non-empty selection it collapses the existing range
 //! in place (the Selection API creates a new range and leaves the old
-//! `Range` unchanged; that deviation is tracked with the PM).
+//! `Range` unchanged; that deviation is slot
+//! `#11-selection-api-algorithm-conformance`).
 
 #![cfg(feature = "engine")]
 #![allow(unsafe_code)]
@@ -157,8 +158,12 @@ fn add_range_two_root_range_aborts() {
              var r = document.createRange();\
              r.setStart(a.firstChild, 1); r.setEnd(b.firstChild, 2);\
              document.documentElement.appendChild(a);\
-             s.addRange(r);",
+             globalThis.twoRoot = r.startContainer.getRootNode() === document\
+                 && r.endContainer.getRootNode() === sr2;\
+             if (globalThis.twoRoot) s.addRange(r);",
         );
+        // The setup is two-root; only then is the abort meaningful.
+        assert_eq!(val(vm, "globalThis.twoRoot"), "true");
         assert_eq!(val(vm, "s.rangeCount"), "0");
         assert_eq!(val(vm, "s.anchorNode"), "null");
         assert_eq!(thrown(vm, "s.collapseToStart();"), "InvalidStateError");

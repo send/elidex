@@ -252,6 +252,8 @@ impl SelectionState {
     /// - `Backward` direction: anchor = range end, focus = range start.
     /// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
     ///   return range start for anchor in this case, so we follow suit.
+    ///
+    /// Directionless anchor/focus: see `#11-selection-select-all-children-steps`.
     pub fn anchor(
         &self,
         registry: &mut LiveRangeRegistry,
@@ -376,8 +378,8 @@ impl SelectionState {
     /// its unconditional `selectionchange`.
     ///
     /// Known deviation: the Selection API creates a new range and leaves
-    /// the old `Range` object unchanged; this mutates it in place. Tracked
-    /// with the PM (no slot id yet).
+    /// the old `Range` object unchanged; this mutates it in place. Slot
+    /// `#11-selection-api-algorithm-conformance`.
     pub fn collapse_to_start(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -397,7 +399,8 @@ impl SelectionState {
     /// existing range to its end boundary. Throws `InvalidStateError` when
     /// this is empty. Returns `Ok(true)` on every non-error path, as
     /// [`Self::collapse_to_start`] (including the in-place collapse and its
-    /// known deviation from the spec's new range, tracked with the PM).
+    /// known deviation from the spec's new range, slot
+    /// `#11-selection-api-algorithm-conformance`).
     pub fn collapse_to_end(
         &mut self,
         registry: &mut LiveRangeRegistry,
@@ -606,8 +609,8 @@ impl SelectionState {
 
     /// `Selection.removeRange(range)` per Selection API §3.
     /// `InvalidStateError` when `range` is not the current range. Known
-    /// deviation: the spec throws `NotFoundError` there; tracked with the
-    /// PM. Returns
+    /// deviation: the spec throws `NotFoundError` there; slot
+    /// `#11-selection-api-algorithm-conformance`. Returns
     /// `Ok(true)` on every non-error path (the range is dissociated).
     pub fn remove_range(&mut self, range_id: RangeId) -> Result<bool, SelectionError> {
         match self.active_range_id {
@@ -682,6 +685,7 @@ impl SelectionState {
                 reg_range.end_offset = range.start_offset;
             });
         }
+        // Direction reset: slot `#11-selection-api-algorithm-conformance`.
         self.direction = SelectionDirection::Directionless;
         Some(records)
     }
@@ -753,6 +757,8 @@ impl SelectionState {
 /// DOM §1.1 / §4.2.1: `node`'s root is the associated document (`node` is
 /// in its document tree; the associated document, not any document:
 /// tree-model tsel plan §0.5).
+/// Depth bound differs from `focus::is_in_document` (`find_tree_root` here,
+/// `MAX_ANCESTOR_DEPTH` there): `#11-capped-walker-deep-element-processing`.
 fn root_is_document(node: Entity, owner_document: Entity, dom: &EcsDom) -> bool {
     dom.find_tree_root(node) == owner_document
 }
@@ -795,15 +801,15 @@ fn range_roots_are_document(range: &Range, owner_document: Entity, dom: &EcsDom)
 ///
 /// A node with no parent (only the Document, after the root gate) is
 /// treated as contained iff both of the range's containers are that node.
-/// Earlier wording of this doc, which the code does not implement (known
-/// gap, tracked with the PM): contained iff the range covers the whole root,
-/// matching the conservative interpretation Chrome / Firefox use.
+/// Only the containers are compared. Known gap, slot
+/// `#11-selection-api-algorithm-conformance`: containsNode compares boundary
+/// points, (node, 0) and (node, node's length).
 fn node_fully_contained(range: &Range, node: Entity, dom: &EcsDom) -> bool {
     let Some(parent) = dom.get_parent(node) else {
         // Parentless: after the root gate only the Document reaches
         // here. Compares only the containers (both are `node`); it does
-        // not check that the range covers the whole root. Known gap,
-        // tracked with the PM.
+        // not check that the range covers the whole root. Known gap, slot
+        // `#11-selection-api-algorithm-conformance`.
         return range.start_container == node && range.end_container == node;
     };
     // Build a temporary range covering exactly `node` and compare both
