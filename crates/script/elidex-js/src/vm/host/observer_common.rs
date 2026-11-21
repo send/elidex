@@ -286,14 +286,12 @@ pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
             continue;
         };
         let observer_val = JsValue::Object(binding.instance);
+        // The freshly-built records array is rooted across the call as one
+        // of its `args` (`call_dispatch`'s entry scope); nothing allocates
+        // between `build` and the call, and nothing reads it after.  The
+        // batch root already covers `instance` + `callback`.
         let records_arr = build(&mut frame, prepared);
-        // Per-turn root for the freshly-built records array across the
-        // call (its identity-assert holds because `call` restores the
-        // stack). The batch root already covers `instance` + `callback`.
-        let mut records_guard = frame.push_temp_root(records_arr);
-        if let Err(err) =
-            records_guard.call(binding.callback, observer_val, &[records_arr, observer_val])
-        {
+        if let Err(err) = frame.call(binding.callback, observer_val, &[records_arr, observer_val]) {
             // Embedder-side diagnostic channel is deferred to
             // `#11-embedder-diagnostic-channel`; until then this
             // matches the boa-side stderr report path so the
@@ -301,7 +299,6 @@ pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
             // / Intersection / MediaQuery) stay consistent.
             eprintln!("[JS Observer Error] {err:?}");
         }
-        drop(records_guard);
     }
     drop(frame);
     vm.drain_microtasks();

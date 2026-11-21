@@ -12,8 +12,38 @@ use super::value::{FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueI
 use super::VmInner;
 
 impl VmInner {
-    #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
+    /// Dispatch a `[[Call]]` (or a native `[[Construct]]`) from Rust: the
+    /// one entry for every Rust-side call.
+    ///
+    /// The callee, `this` and `args` arrive as Rust values that may be
+    /// reachable from nothing else (the dispatcher's fallback has already
+    /// dropped the callee from the VM stack; `GetProp` has popped the
+    /// receiver that held a getter).  The callee's frame takes them only
+    /// after allocations (a rest-parameter array, a coroutine and its
+    /// wrapper), and `alloc_object` may collect before inserting, so all
+    /// three are rooted on the VM stack for the whole dispatch.  Rooting the callee
+    /// object keeps what it reaches alive too: a closure's upvalues, a
+    /// bound function's target, bound `this` and bound arguments
+    /// (`#11-vm-call-internal-callee-this-rooting`).  One scope here, not
+    /// one per caller, so a new caller is rooted without doing anything.
     pub(super) fn call_dispatch(
+        &mut self,
+        func_obj_id: ObjectId,
+        this: JsValue,
+        args: &[JsValue],
+        mode: super::value::CallMode,
+    ) -> Result<JsValue, VmError> {
+        let mut scope = self.push_stack_scope();
+        scope.stack.push(JsValue::Object(func_obj_id));
+        scope.stack.push(this);
+        scope.stack.extend_from_slice(args);
+        scope.call_dispatch_rooted(func_obj_id, this, args, mode)
+    }
+
+    /// [`Self::call_dispatch`]'s body, entered with the callee, `this`
+    /// and `args` rooted on the VM stack.
+    #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
+    fn call_dispatch_rooted(
         &mut self,
         func_obj_id: ObjectId,
         this: JsValue,
@@ -265,8 +295,14 @@ impl VmInner {
     /// every other entry; async + generator bodies are always
     /// `Function`-kind regardless of caller (§27.8/§27.10 completion
     /// machinery is not script-completion-value-shaped).
+    ///
+    /// Entry precondition: `this`, `args` and the callee whose
+    /// `upvalue_ids` these are must be rooted by the caller — reached only
+    /// from [`Self::call_dispatch`] (whose entry scope roots all three) and
+    /// `run_function` (no callee object, `undefined` `this`, no arguments).
+    /// A new caller must go through `call_dispatch` instead.
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
-    pub(crate) fn call_internal(
+    pub(super) fn call_internal(
         &mut self,
         func_id: FuncId,
         this: JsValue,
@@ -385,16 +421,13 @@ impl VmInner {
         };
 
         // Async / generator: the coroutine owns the frame (see
-        // `VmInner::create_coroutine`).  `this`, the callee (hence its
-        // upvalues) and `args` past `param_count` are not on the VM stack on
-        // this entry path,
-        // and not every caller roots them (e.g. microtask jobs do, via
-        // `current_microtask`; the bound-call fallback and `GetProp`'s
-        // getter call do not) — open as
-        // `#11-vm-call-internal-callee-this-rooting`.
-        // `actual_args` is a copy of `args`; `create_coroutine` roots it
-        // across its own allocations.  A
-        // coroutine frame is always `FrameKind::Function` (the
+        // `VmInner::create_coroutine`).  `call_dispatch`'s rooting scope,
+        // below `base`, holds the callee object as called, the caller's
+        // `this` and `args`; the frame's own `this` and closure are those
+        // or reachable from them (a bound function's target and bound
+        // `this`, an arrow's captured `this`).  `actual_args` is a copy of
+        // `args`; `create_coroutine` roots it across its own allocations.
+        // A coroutine frame is always `FrameKind::Function` (the
         // `debug_assert!` above), whatever `kind` was passed.
         if is_async || is_generator {
             let frame = CallFrame {
