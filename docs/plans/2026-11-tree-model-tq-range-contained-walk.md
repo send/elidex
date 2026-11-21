@@ -565,19 +565,19 @@ predicted from the same walk (the P1-light shape under M2: the raw sibling of `l
 the `compare_points` filter as in P1) and are checked at the final head (§10). U3 / V3 are not mutant killers (green
 at base); they pin that `extract` no longer depends on `apply_append_child`'s refusal.
 
-**Per-shape table (erratum 2026-11-22; one test per shape at `9f3a229e`; M1–M3 run there once each by the code-PR coder, every cell below observed; raw logs M{1,2,3}_{d,j}.log in the driver's scratchpad).**
+**Per-shape table (erratum 2026-11-22; one test per shape from `9f3a229e`; M1–M3 run once each by the code-PR coder at `9f3a229e` and again, after the /simplify test refactor, at `39290f25` with the identical result; the two after-shape extract rows (U3 P2c, V3 P2c; /code-review nit) were added at `76c8c1f0` and observed there under M1 and M3 only — M2 was not run on them; every other cell below observed).**
 For §10 item 2: ✗ = red under the mutant, · = green. Test names are the cell's name with the shape suffix; list them
-with `git diff bf113e6c 9f3a229e | /usr/bin/grep -E '^\+\s*fn [a-z_0-9]+\(\)'` → 26 lines, one per column entry below.
+with `git diff bf113e6c 9f3a229e | /usr/bin/grep -E '^\+\s*fn [a-z_0-9]+\(\)'` → 26 lines at `9f3a229e` (28 with the two P2c rows at `76c8c1f0`), one per column entry below.
 
 | Cell | Test (shape suffix) | M1 | M2 | M3 |
 |---|---|---|---|---|
 | U1 (a) / (b) / (c) / (d) | `next_in_preorder_global_does_not_enter_shadow_root_{a,b,c,d}` | ✗ / · / · / ✗ | · / ✗ / · / · | · / · / · / ✗ |
 | U2 P1 / P1-light / P1c | `delete_contents_over_host_leaves_shadow_root_linked_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
-| U3 P2 / P2-light | `extract_contents_over_host_leaves_shadow_root_linked_{p2,p2_light}` | · / · | · / · | · / · |
+| U3 P2 / P2-light / P2c | `extract_contents_over_host_leaves_shadow_root_linked_{p2,p2_light,p2c}` | · / · / · | · / · / (not run) | · / · / ✗ |
 | U4 P3a / P3b / P3c | `to_string_over_host_skips_shadow_tree_text_{p3a,p3b,p3c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
 | V1 P1 / P1-light / P1c | `delete_contents_over_closed_host_reports_no_shadow_root_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
 | V2 P5 / P5-light / P5c | `selection_delete_from_document_over_closed_host_reports_no_shadow_root_{p1,p1_light,p1c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
-| V3 P2 | `extract_contents_over_closed_host_reports_no_shadow_root` | · | · | · |
+| V3 P2 / P2c | `extract_contents_over_closed_host_reports_no_shadow_root{,_p2c}` | · / · | · / (not run) | · / ✗ |
 | V4 P3a / P3b / P3c | `range_to_string_skips_shadow_tree_text_{p3a,p3b,p3c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
 | V5 P4a / P4b / P4c | `selection_to_string_skips_shadow_tree_text_{p4a,p4b,p4c}` | ✗ / · / ✗ | · / ✗ / · | · / · / ✗ |
 | V6 | `selection_cross_root_set_base_and_extent_to_string_is_empty` | · | · | · |
