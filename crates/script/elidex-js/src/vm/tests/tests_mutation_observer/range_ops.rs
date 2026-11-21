@@ -584,3 +584,119 @@ fn selection_delete_from_document_intra_text_delivers_character_data_record() {
     assert_eq!(vm.eval("t.data === 'ho'").unwrap(), JsValue::Boolean(true));
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// tq — the contained-node walk takes tree children: a closed shadow root is
+// never a contained candidate (WHATWG DOM §5.6 *contained*, root clause).
+// ---------------------------------------------------------------------------
+
+/// Which stored order the host's light child and its shadow root take.
+#[derive(Clone, Copy)]
+enum Shape {
+    /// No light child (probe P1).
+    NoLight,
+    /// `light` appended before `attachShadow` (probe P1-light).
+    LightBefore,
+    /// `attachShadow` then `light` appended (probe P1c, plan §6.1).
+    LightAfter,
+}
+
+/// `root` has children (`pre` "pre", `h`, `post` "post"); `h` has a closed shadow root
+/// `sr` holding `sp` > "SHADOW"; the light child is Text "LIGHT". A
+/// `MutationObserver` `mo` observes `h` with `{childList: true}`.
+fn host_script(shape: Shape) -> String {
+    let before = matches!(shape, Shape::LightBefore);
+    let after = matches!(shape, Shape::LightAfter);
+    format!(
+        "globalThis.pre = document.createTextNode('pre'); \
+         globalThis.h = document.createElement('div'); \
+         globalThis.post = document.createTextNode('post'); \
+         root.appendChild(pre); root.appendChild(h); root.appendChild(post); \
+         globalThis.light = document.createTextNode('LIGHT'); \
+         if ({before}) h.appendChild(light); \
+         globalThis.sr = h.attachShadow({{mode: 'closed'}}); \
+         globalThis.sp = document.createElement('span'); \
+         sp.appendChild(document.createTextNode('SHADOW')); sr.appendChild(sp); \
+         if ({after}) h.appendChild(light); \
+         globalThis.records = []; \
+         globalThis.mo = new MutationObserver(function(r){{ globalThis.records = r; }}); \
+         mo.observe(h, {{childList: true}}); \
+         globalThis.rg = document.createRange(); \
+         rg.setStart(h, 0); \
+         var i = 0; while (root.childNodes[i] !== h) i++; \
+         rg.setEnd(root, i + 1);"
+    )
+}
+
+fn eval_bool(vm: &mut Vm, src: &str) -> bool {
+    vm.eval(src).unwrap() == JsValue::Boolean(true)
+}
+
+/// Shared expectation of the three shapes after the range deleted (or the
+/// selection deleted) its contents: no record names the shadow root or a
+/// node of its tree, and the shadow root stays the host's.
+fn assert_delete_over_host(vm: &mut Vm, shape: Shape) {
+    match shape {
+        Shape::NoLight => {
+            assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(0.0));
+        }
+        Shape::LightBefore | Shape::LightAfter => {
+            assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(1.0));
+            assert!(eval_bool(
+                vm,
+                "records[0].target === h && records[0].removedNodes.length === 1 \
+                 && records[0].removedNodes[0] === light"
+            ));
+            assert!(eval_bool(vm, "h.childNodes.length === 0"));
+        }
+    }
+    assert!(eval_bool(vm, "sp.isConnected"));
+    assert!(eval_bool(vm, "sr.host === h"));
+}
+
+#[test]
+fn delete_contents_over_closed_host_reports_no_shadow_root() {
+    for shape in [Shape::NoLight, Shape::LightBefore, Shape::LightAfter] {
+        let mut vm = Vm::new();
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+        vm.eval(&host_script(shape)).unwrap();
+        vm.eval("rg.deleteContents();").unwrap();
+        assert_delete_over_host(&mut vm, shape);
+        vm.unbind();
+    }
+}
+
+#[test]
+fn selection_delete_from_document_over_closed_host_reports_no_shadow_root() {
+    for shape in [Shape::NoLight, Shape::LightBefore, Shape::LightAfter] {
+        let mut vm = Vm::new();
+        let mut session = SessionCore::new();
+        let mut dom = EcsDom::new();
+        let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+        vm.eval(&host_script(shape)).unwrap();
+        vm.eval("var sel = window.getSelection(); sel.addRange(rg); sel.deleteFromDocument();")
+            .unwrap();
+        assert_delete_over_host(&mut vm, shape);
+        vm.unbind();
+    }
+}
+
+#[test]
+fn extract_contents_over_closed_host_reports_no_shadow_root() {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (_doc, _root) = setup_with_root(&mut vm, &mut session, &mut dom);
+    vm.eval(&host_script(Shape::NoLight)).unwrap();
+    vm.eval("globalThis.frag = rg.extractContents();").unwrap();
+    assert_eq!(
+        vm.eval("frag.childNodes.length").unwrap(),
+        JsValue::Number(0.0)
+    );
+    assert_eq!(vm.eval("records.length").unwrap(), JsValue::Number(0.0));
+    assert!(eval_bool(&mut vm, "sp.isConnected"));
+    assert!(eval_bool(&mut vm, "sr.host === h"));
+    vm.unbind();
+}

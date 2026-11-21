@@ -441,3 +441,39 @@ fn to_string_concatenates_text() {
     assert_eq!(eval_str(&mut vm, "r.toString()"), "hello");
     vm.unbind();
 }
+
+// ---------------------------------------------------------------------------
+// tq — `Range.prototype.toString` skips a closed shadow tree's text (the
+// contained-node walk takes tree children; WHATWG DOM §5.6 stringification).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn range_to_string_skips_shadow_tree_text() {
+    // (light placement, expected): P3a no light, P3b light before the root,
+    // P3c light after the root (plan §6, §6.1).
+    for (light, want) in [
+        ("none", "repo"),
+        ("before", "reLIGHTpo"),
+        ("after", "reLIGHTpo"),
+    ] {
+        let (mut vm, mut session, mut dom, doc) = setup();
+        unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+        vm.eval(&format!(
+            "globalThis.root = document.createElement('div'); document.appendChild(root); \
+             globalThis.pre = document.createTextNode('pre'); \
+             globalThis.h = document.createElement('div'); \
+             globalThis.post = document.createTextNode('post'); \
+             root.appendChild(pre); root.appendChild(h); root.appendChild(post); \
+             globalThis.light = document.createTextNode('LIGHT'); \
+             if ('{light}' === 'before') h.appendChild(light); \
+             globalThis.sr = h.attachShadow({{mode: 'closed'}}); \
+             globalThis.sp = document.createElement('span'); \
+             sp.appendChild(document.createTextNode('SHADOW')); sr.appendChild(sp); \
+             if ('{light}' === 'after') h.appendChild(light); \
+             globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2);"
+        ))
+        .unwrap();
+        assert_eq!(eval_str(&mut vm, "rg.toString()"), want, "light={light}");
+        vm.unbind();
+    }
+}

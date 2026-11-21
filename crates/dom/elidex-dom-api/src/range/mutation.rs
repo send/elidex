@@ -69,21 +69,27 @@ impl Range {
 
     /// Collect the **top-level** nodes contained in this range, in tree
     /// order, omitting any node whose parent is also contained — i.e. WHATWG
-    /// DOM §5.5 `deleteContents`/`extractContents` `nodesToRemove` = "all the
+    /// DOM §5.6 `deleteContents`/`extractContents` `nodesToRemove` = "all the
     /// nodes contained in this, in tree order, omitting any node whose parent
     /// is also contained". Shared by [`Self::delete_contents`] and
     /// [`Self::extract_contents`] so the two cannot diverge.
     ///
-    /// A node is **contained** (DOM §5.5 [`#contained`]) iff `(node, 0)` is
-    /// after the range start AND `(node, node's length)` is before the range
-    /// end. The preorder candidate walk is only an over-approximation — it
-    /// includes nodes *outside* the range (e.g. children before an element
-    /// `start_offset`, Codex PR418 R2) and merely-partially-contained nodes —
-    /// so each candidate is filtered through the canonical `compare_points`
-    /// containment test before the omit-nested dominance scan. (Codex PR418
-    /// R1: the dominance scan alone let a nested descendant emit a spurious
-    /// record; R2: the missing containment test let a pre-start sibling do
-    /// the same.)
+    /// A node is **contained** (DOM §5.6 [`#contained`]) iff its root is the
+    /// range's root, AND `(node, 0)` is after the range start, AND
+    /// `(node, node's length)` is before the range end. Each clause has one
+    /// enforcer:
+    ///
+    /// - root clause: the preorder candidate walk's two child steps
+    ///   (`next_in_preorder_global`) stay in the node tree, so a shadow tree's
+    ///   nodes are never candidates reached by descent;
+    /// - position clauses: the canonical `compare_points` test below. The walk
+    ///   is only an over-approximation of these — it includes nodes *outside*
+    ///   the range (e.g. children before an element `start_offset`, Codex
+    ///   PR418 R2) and merely-partially-contained nodes — so each candidate is
+    ///   filtered through `compare_points` before the omit-nested dominance
+    ///   scan. (Codex PR418 R1: the dominance scan alone let a nested
+    ///   descendant emit a spurious record; R2: the missing containment test
+    ///   let a pre-start sibling do the same.)
     ///
     /// [`#contained`]: https://dom.spec.whatwg.org/#contained
     fn contained_top_level_nodes(&self, dom: &EcsDom) -> Vec<Entity> {

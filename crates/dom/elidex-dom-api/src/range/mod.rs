@@ -570,13 +570,23 @@ fn child_index_in_ancestor(descendant: Entity, ancestor: Entity, dom: &EcsDom) -
 }
 
 /// Global pre-order next (not confined to a root).
+///
+/// The downward and sideways steps take the node tree's children
+/// (`children_iter` / `next_exposed_sibling`, which skip a host's shadow root),
+/// so the walk never enters a shadow tree from its host: WHATWG DOM §5.6
+/// *contained* ([`#contained`]) requires "node's root is range's root", and a
+/// shadow tree's nodes have the shadow root as their root. The upward step is
+/// unchanged: it climbs by the stored parent, so a walk that starts inside a
+/// shadow tree still leaves it (tracked by `#11-shadow-root-is-a-tree-root`).
+///
+/// [`#contained`]: https://dom.spec.whatwg.org/#contained
 fn next_in_preorder_global(current: Entity, dom: &EcsDom) -> Option<Entity> {
-    if let Some(child) = dom.get_first_child(current) {
+    if let Some(child) = dom.children_iter(current).next() {
         return Some(child);
     }
     let mut node = current;
     loop {
-        if let Some(sib) = dom.get_next_sibling(node) {
+        if let Some(sib) = dom.next_exposed_sibling(node) {
             return Some(sib);
         }
         node = dom.get_parent(node)?;

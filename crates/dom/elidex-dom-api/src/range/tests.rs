@@ -451,3 +451,165 @@ fn comment_delete_contents_adjusts_other_live_ranges() {
     })
     .expect("observer range present");
 }
+
+// ---------------------------------------------------------------------------
+// tq — the contained-node walk takes tree children (shadow roots are not
+// candidates; WHATWG DOM §5.6 *contained* root clause).
+// ---------------------------------------------------------------------------
+
+/// Which stored order the host's light child and shadow root take.
+#[derive(Clone, Copy, PartialEq)]
+enum LightShape {
+    /// No light child.
+    None,
+    /// Light child stored before the shadow root.
+    Before,
+    /// Light child stored after the shadow root (`attachShadow` then `appendChild`).
+    After,
+}
+
+struct HostTree {
+    dom: EcsDom,
+    body: Entity,
+    pre: Entity,
+    host: Entity,
+    post: Entity,
+    sr: Entity,
+    sp_text: Entity,
+    light: Option<Entity>,
+}
+
+/// `body` has children (`pre` "pre", `host`, `post` "post"); `host` has a closed shadow
+/// root holding `span` > "SHADOW"; the light child is "LIGHT".
+fn build_host_tree(shape: LightShape) -> HostTree {
+    let mut dom = EcsDom::new();
+    let body = dom.create_element_ownerless_fixture("body", Attributes::default());
+    let pre = dom.create_text_ownerless_fixture("pre");
+    let host = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let post = dom.create_text_ownerless_fixture("post");
+    dom.append_child(body, pre);
+    dom.append_child(body, host);
+    dom.append_child(body, post);
+    let mut light = None;
+    if shape == LightShape::Before {
+        let l = dom.create_text_ownerless_fixture("LIGHT");
+        dom.append_child(host, l);
+        light = Some(l);
+    }
+    let sr = dom.attach_shadow(host, ShadowRootMode::Closed).unwrap();
+    let sp = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let sp_text = dom.create_text_ownerless_fixture("SHADOW");
+    dom.append_child(sr, sp);
+    dom.append_child(sp, sp_text);
+    if shape == LightShape::After {
+        let l = dom.create_text_ownerless_fixture("LIGHT");
+        dom.append_child(host, l);
+        light = Some(l);
+    }
+    HostTree {
+        dom,
+        body,
+        pre,
+        host,
+        post,
+        sr,
+        sp_text,
+        light,
+    }
+}
+
+/// The P1 range: `(host, 0)` – `(body, index(host) + 1)`.
+fn host_range(t: &HostTree) -> Range {
+    let mut range = Range::new(t.host);
+    range.set_start(t.host, 0);
+    range.set_end(t.body, 2);
+    range
+}
+
+#[test]
+fn next_in_preorder_global_does_not_enter_shadow_root() {
+    // (a) no light child: host -> its next tree sibling.
+    let t = build_host_tree(LightShape::None);
+    assert_eq!(next_in_preorder_global(t.host, &t.dom), Some(t.post));
+    // (c) contrast: from the shadow root itself, its first child.
+    let first = t.dom.children_iter(t.sr).next();
+    assert!(first.is_some());
+    assert_eq!(next_in_preorder_global(t.sr, &t.dom), first);
+
+    // (b) light child stored before the root: l -> the host's sibling.
+    let t = build_host_tree(LightShape::Before);
+    assert_eq!(
+        next_in_preorder_global(t.light.unwrap(), &t.dom),
+        Some(t.post)
+    );
+
+    // (d) the after shape: the first stored child is the shadow root.
+    let t = build_host_tree(LightShape::After);
+    assert_eq!(next_in_preorder_global(t.host, &t.dom), t.light);
+}
+
+#[test]
+fn delete_contents_over_host_leaves_shadow_root_linked() {
+    for shape in [LightShape::None, LightShape::Before, LightShape::After] {
+        let mut t = build_host_tree(shape);
+        let parent_before = t.dom.get_parent(t.sr);
+        let mut range = host_range(&t);
+        let records = range.delete_contents(&mut t.dom);
+        match t.light {
+            None => assert!(records.is_empty(), "no node is contained"),
+            Some(l) => {
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].target, t.host);
+                assert_eq!(records[0].removed_nodes, vec![l]);
+            }
+        }
+        for r in &records {
+            assert!(!r.removed_nodes.contains(&t.sr));
+            assert!(!r.removed_nodes.contains(&t.sp_text));
+        }
+        assert_eq!(t.dom.get_parent(t.sr), parent_before);
+        assert_eq!(t.dom.get_shadow_root(t.host), Some(t.sr));
+        assert_eq!(t.dom.shadow_host(t.sr), Some(t.host));
+    }
+}
+
+#[test]
+fn extract_contents_over_host_leaves_shadow_root_linked() {
+    // No light child.
+    let mut t = build_host_tree(LightShape::None);
+    let mut range = host_range(&t);
+    let (out, records) = range.extract_contents(&mut t.dom);
+    assert_eq!(t.dom.children_iter(out).count(), 0);
+    assert!(records.is_empty());
+    assert_eq!(t.dom.get_shadow_root(t.host), Some(t.sr));
+    assert_eq!(t.dom.shadow_host(t.sr), Some(t.host));
+
+    // Light child before the root.
+    let mut t = build_host_tree(LightShape::Before);
+    let mut range = host_range(&t);
+    let (out, records) = range.extract_contents(&mut t.dom);
+    assert_eq!(
+        t.dom.children_iter(out).collect::<Vec<_>>(),
+        vec![t.light.unwrap()]
+    );
+    assert_eq!(t.dom.get_shadow_root(t.host), Some(t.sr));
+    assert_eq!(t.dom.shadow_host(t.sr), Some(t.host));
+    for r in &records {
+        assert!(!r.removed_nodes.contains(&t.sr));
+    }
+}
+
+#[test]
+fn to_string_over_host_skips_shadow_tree_text() {
+    for (shape, want) in [
+        (LightShape::None, "repo"),
+        (LightShape::Before, "reLIGHTpo"),
+        (LightShape::After, "reLIGHTpo"),
+    ] {
+        let t = build_host_tree(shape);
+        let mut range = Range::new(t.pre);
+        range.set_start(t.pre, 1);
+        range.set_end(t.post, 2);
+        assert_eq!(range.to_string(&t.dom), want);
+    }
+}
