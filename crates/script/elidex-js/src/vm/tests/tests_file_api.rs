@@ -659,7 +659,7 @@ fn file_list_item_nan_returns_first_entry() {
     // Copilot R1 regression: `item(NaN)` was returning null because
     // the bespoke `if !n.is_finite()` guard early-exited.  Per WebIDL
     // `unsigned long` ToUint32 §3.10.10, NaN → 0 — so on a non-empty
-    // list `item(NaN)` returns index 0, matching Chrome / Firefox.
+    // list `item(NaN)` returns index 0.
     let mut vm = Vm::new();
     assert!(eval_bool(
         &mut vm,

@@ -299,7 +299,7 @@ fn native_promise_rejection_event_constructor(
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
-    // WHATWG HTML §8.1.4.7 + WebIDL §3.10.23 dictionary coercion:
+    // WHATWG HTML §8.1.4.7 + WebIDL §3.2.17 dictionary coercion:
     //   - A missing second arg → arity error (dict with `required`
     //     member has no valid zero-arg form).
     //   - `null` / `undefined` → WebIDL treats as an empty
@@ -493,10 +493,9 @@ fn native_pop_state_event_constructor(
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "PopStateEvent")?;
     let opts_id = opts_object_id(init_arg);
-    // `state: any = null` (WHATWG HTML §7.2.7.2): missing / undefined
-    // both collapse to null (matches Chrome); user-supplied undefined
-    // is also coerced to null for parity (not strict WebIDL `any`
-    // pass-through, but observable-compatible).
+    // `state: any = null` (WHATWG HTML §7.2.7.2): missing and explicit
+    // `undefined` both yield the `= null` dictionary default (WebIDL §3.2.17;
+    // same rule as `CustomEvent.detail` in `events.rs`).
     let state_val = if let Some(opts_id) = opts_id {
         read_any(ctx, opts_id, ctx.vm.well_known.state, JsValue::Null)?
     } else {

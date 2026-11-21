@@ -645,7 +645,7 @@ fn c23_type_change_sanitize_rebaselines() {
     );
 }
 
-/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307).
+/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307). `[contrast]`
 #[test]
 fn c24_email_multiple_toggle_rebaselines() {
     writer_rebaselines(

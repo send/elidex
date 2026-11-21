@@ -640,8 +640,8 @@ fn native_ws_get_buffered_amount(
         .and_then(|hd| hd.websocket_states.get(&id))
         .map_or(0_u64, |s| s.buffered_amount);
     // `unsigned long long` → JS Number.  Values above 2^53 lose
-    // precision per the §9.3 IDL note ("the implementation might
-    // approximate", same as Chrome/Firefox).  See defer slot
+    // precision per WebIDL §3.2.4.8 (IDL → JS: the closest Number,
+    // ties to an even significand).  See defer slot
     // `#11-ws-buffered-amount-precision` for the BigInt path if WPT
     // ever fails on high-throughput streams.
     #[allow(clippy::cast_precision_loss)]
@@ -782,7 +782,7 @@ fn native_ws_send(
     //   3. String → USVString.
     //   4. Other primitive (number / bool / null / undefined / Symbol)
     //      → USVString via `ToString` (Symbol throws TypeError here,
-    //      matching Chrome / Firefox).
+    //      ECMA-262 ToString step 2, via WebIDL §3.2.10 step 2).
     let frame = match data_arg {
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
             ObjectKind::Blob | ObjectKind::File => {
@@ -884,7 +884,7 @@ impl Frame {
 ///
 /// Validation (runs BEFORE the state check so a CLOSING/CLOSED
 /// receiver still surfaces a bad-arg `InvalidAccessError` /
-/// `SyntaxError` — matches Chrome/Firefox):
+/// `SyntaxError` — close() steps 1–2 precede the step 3 state check):
 /// - `code` `u16`, if present, must equal 1000 or fall in 3000..=4999.
 ///   Anything else → `InvalidAccessError` (per §9.3.4 step 1).
 /// - `reason` `USVString`, if present, must be ≤ 123 **UTF-8 bytes**

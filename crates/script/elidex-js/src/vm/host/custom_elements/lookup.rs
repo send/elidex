@@ -174,7 +174,8 @@ pub(crate) fn native_ce_upgrade(
             }
         });
     }
-    // Each candidate failure is isolated per HTML §4.13.4 — a thrown
+    // Each candidate failure is isolated (HTML §4.13.6 catches and also
+    // reports it; this path does not report) — a thrown
     // constructor marks that element Failed and the remaining
     // candidates still upgrade. (Without this isolation, the first
     // throw would propagate via `?` and silently abandon every later
