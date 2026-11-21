@@ -36,8 +36,14 @@ use super::dom_selection_proto::{
 // ---------------------------------------------------------------------------
 
 /// Mutable access pattern for Selection methods that mutate state +
-/// registry + (optionally) read DOM.  Sets `selectionchange_pending`
-/// to `true` on success.  Engine-indep errors returned by the closure
+/// registry + (optionally) read DOM.  The closure returns the
+/// `SelectionState` method's own "did something" value; this function
+/// sets `selectionchange_pending` only on `Ok(true)` (Selection API §6.2:
+/// the event is scheduled when the selection is dissociated with its
+/// range, associated with a new range, or the associated range's boundary
+/// point is mutated — the last covers `collapse_to_start` /
+/// `collapse_to_end` mutating in place; a spec abort does none of them).
+/// Engine-indep errors returned by the closure
 /// (as [`SelectionError`]) are mapped to the corresponding
 /// `DOMException` here so the engine-indep crate stays free of
 /// VM-side intern dependencies.
@@ -52,18 +58,18 @@ use super::dom_selection_proto::{
 /// wrapper id is in `range_instances` — while preventing unbounded
 /// growth of registry entries in tight `sel.collapse(n,0);
 /// sel.collapse(n,1); ...` loops that never materialise a wrapper.
-fn mutate_selection<F, R>(
+fn mutate_selection<F>(
     ctx: &mut NativeContext<'_>,
     method: &'static str,
     f: F,
-) -> Result<R, VmError>
+) -> Result<(), VmError>
 where
     F: FnOnce(
         &mut SelectionState,
         &mut elidex_dom_api::LiveRangeRegistry,
         &elidex_ecs::EcsDom,
         Entity,
-    ) -> Result<R, SelectionError>,
+    ) -> Result<bool, SelectionError>,
 {
     if ctx.host_if_bound().is_none() {
         return Err(VmError::dom_exception(
@@ -94,7 +100,7 @@ where
         let state = sel_slot.as_mut().expect("just initialised");
         f(state, registry, dom, doc)
     };
-    let value = outcome.map_err(|e| map_selection_error(ctx, e, method))?;
+    let did_something = outcome.map_err(|e| map_selection_error(ctx, e, method))?;
     let new_id = ctx
         .host()
         .selection_state
@@ -108,8 +114,10 @@ where
             }
         }
     }
-    ctx.host().selectionchange_pending = true;
-    Ok(value)
+    if did_something {
+        ctx.host().selectionchange_pending = true;
+    }
+    Ok(())
 }
 
 /// `deleteFromDocument` needs `&mut EcsDom` (the spec algorithm
@@ -131,13 +139,18 @@ fn delete_selection_contents(
         ));
     }
     let host = ctx.host();
+    let doc = host.document();
     if host.selection_state.is_none() {
         host.selection_state = Some(SelectionState::new());
     }
-    let records = {
+    let outcome = {
         let (dom_mut, registry, sel_slot) = host.split_dom_mut_live_ranges_and_selection();
         let state = sel_slot.as_mut().expect("just initialised");
-        state.delete_from_document(registry, dom_mut)
+        state.delete_from_document(registry, dom_mut, doc)
+    };
+    // `None` = the spec's "do nothing" branch: no records, no event.
+    let Some(records) = outcome else {
+        return Ok(());
     };
     // Single delivery mechanism: route the childList records the engine-indep
     // `delete_from_document` produced through the same chokepoint as the Range
@@ -159,30 +172,26 @@ pub(super) fn native_selection_add_range(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "addRange")?;
     let range_id = arg_range(ctx, args.first().copied(), "addRange")?;
-    // We need the range's owner document AND the selection's owner
-    // document to decide the no-op case.  Pull both from registered
-    // state.
-    let host = ctx.host();
-    let sel_owner = host.document();
-    let (dom, registry, sel_slot) = host.split_dom_live_ranges_and_selection();
-    if sel_slot.is_none() {
-        *sel_slot = Some(SelectionState::new());
+    // WebIDL §3.2.15 Interface types step 1: interface conversion (`arg_range`) succeeds for any Range; an
+    // unregistered id is the Range natives' "detached" state, so it throws the
+    // same detached-Range error they do, named on 'Selection'
+    // (`detached_range_error_on`; one issue, one way).
+    // Unbound: skip the pre-check (HostData access would panic); the
+    // `mutate_selection` guard below throws like the other Selection natives.
+    if ctx.host_if_bound().is_some() {
+        let host = ctx.host();
+        let (dom, registry, _sel_slot) = host.split_dom_live_ranges_and_selection();
+        if registry.with_range(range_id, dom, |_, _| ()).is_none() {
+            return Err(super::range_proto::detached_range_error_on(
+                ctx,
+                "Selection",
+                "addRange",
+            ));
+        }
     }
-    let range_owner = registry
-        .with_range(range_id, dom, |r, _| r.owner_document)
-        .ok_or_else(|| {
-            VmError::type_error(
-                "Failed to execute 'addRange' on 'Selection': parameter is not of type 'Range'.",
-            )
-        })?;
-    let changed =
-        sel_slot
-            .as_mut()
-            .expect("just initialised")
-            .add_range(range_owner, sel_owner, range_id);
-    if changed {
-        ctx.host().selectionchange_pending = true;
-    }
+    mutate_selection(ctx, "addRange", |s, reg, dom, doc| {
+        Ok(s.add_range(reg, dom, doc, range_id))
+    })?;
     Ok(JsValue::Undefined)
 }
 
@@ -206,8 +215,7 @@ pub(super) fn native_selection_remove_all_ranges(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "removeAllRanges")?;
     mutate_selection(ctx, "removeAllRanges", |s, _reg, _dom, _doc| {
-        s.remove_all_ranges();
-        Ok(())
+        Ok(s.remove_all_ranges())
     })?;
     Ok(JsValue::Undefined)
 }
@@ -218,10 +226,7 @@ pub(super) fn native_selection_empty(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "empty")?;
-    mutate_selection(ctx, "empty", |s, _reg, _dom, _doc| {
-        s.empty();
-        Ok(())
-    })?;
+    mutate_selection(ctx, "empty", |s, _reg, _dom, _doc| Ok(s.empty()))?;
     Ok(JsValue::Undefined)
 }
 

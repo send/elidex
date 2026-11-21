@@ -164,6 +164,7 @@ mod tests_resize_observer;
 mod tests_rest_param;
 mod tests_screen;
 mod tests_selection;
+mod tests_selection_preconditions;
 #[cfg(feature = "engine")]
 mod tests_service_worker;
 mod tests_service_worker_client;
