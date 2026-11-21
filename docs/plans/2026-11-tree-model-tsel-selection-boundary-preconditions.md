@@ -286,7 +286,7 @@ concept-document-tree`, its first and fourth paragraphs; `dfn dom "in a document
 (webref 外 (raw cache, selection-api 2026-06-11); cache line 239, and likewise 249, 259, 269, 289, 298-299, 322,
 764), the ReSpec link to the dfn *document tree* (`#concept-document-tree`), not to `#in-a-document-tree`, and
 names "the document associated with this" (webref 外 (raw cache, selection-api 2026-06-11); cache lines 634-635,
-342, 780-781, where the source marks up "the <a>document</a> associated with [=this=]") where it means that
+342, 780-781; the source marks up "the <a>document</a> associated with [=this=]" at 342 and 634, and writes it without the link at 780-781) where it means that
 document (`selectAllChildren()` step 2, `addRange()` step 1, `containsNode()`) but not in these clauses. For the
 associated document: the definite article; §2's note "It could be in a shadow tree of the same document."; and
 §2's "Every document with a browsing context has a unique selection associated with it." (webref 外 (raw cache,
@@ -413,7 +413,7 @@ line 458, `extend()` 530, `setBaseAndExtent()` 585, `selectAllChildren()` 624, `
 (in particular no "not present" answer for an IDL block, which `webref idl` cannot be trusted to give where the
 block has multi-line extended attributes, PM 896).
 
-**Breadth**: K=2 specs (DOM, Selection API), M=19 rows (Rev 1.3 widens the §2 Definition row with the range association, K1; no new row). The Selection API rows are "unmapped-label" for preflight
+**Breadth**: K=2 specs (DOM, Selection API), M=19 rows (the §3 table only; the Selection API §6.2 row label and the WebIDL §3.7.7 cite of the rewritten `set_base_and_extent` comment are in §3.2, not in the coverage-map input) (Rev 1.3 widens the §2 Definition row with the range association, K1; no new row). The Selection API rows are "unmapped-label" for preflight
 (its label table has no Selection API entry); their citations are the `dfn selection-api` lookups above.
 **Split decision**: single PR (a terminal slice of the umbrella).
 
@@ -444,7 +444,7 @@ returned, and the verdict. Selection API headings and dfns come from `webref hea
 `body` cannot render it); its step numbers and prose come from the raw cache and carry the marker. Cites of this
 memo's own sections, of the umbrella, of the census and of other plans are not spec cites and are not rows. Cites
 that quote the code's comments (`§3.1`, `WebIDL §3.7.6`, …) are rows with the verdict on the code (§8 L-8 holds
-their population). 51 rows (S 33, D 14, W 3, H 1). Mismatches in the memo's own cites: 4, each fixed in Rev 1.4
+their population). 53 rows (S 34, D 15, W 3, H 1; S34 and D15 added after the final Axis 4 re-check found *forwards* / *backwards* and *connected* unlisted). Mismatches in the memo's own cites: 4, each fixed in Rev 1.4
 (S2, D8, D14, W1). Mismatches in the code's cites: S4, W2, W3, H1; of them `tsel`'s code PR fixes the ones in the
 doc comments it rewrites (the S4 sites of §8 L-8's removed list, and W2's `selection.rs:376`), and the rest stay
 with the sweep.
@@ -484,6 +484,7 @@ with the sweep.
 | S31 | *selection* ("Every document … has a unique selection") | §0.5 | `dfn selection-api selection` → §2 `#dfn-selection` | ok |
 | S32 | step numbers: `collapse()` 1-6, `extend()` 1, 2, 5-7, 9, `setBaseAndExtent()` 1, 2, 5, 7, `selectAllChildren()` 1-5, 7, `addRange()` 1-3 | §0.1, §3, §4.1, §0.2 | webref 外 (raw cache, selection-api 2026-06-11): the `<li>` order under each `<dfn>` (cache lines 458-489, 530-583, 585-622, 624-656, 334-350) | ok |
 | S33 | raw-cache line cites (§3 Lookups; §0.1 items 3, 8; §0.5; §0.3 item 5; §2; §4.2; §11 P-12, P-19) | as listed | webref 外 (raw cache, selection-api 2026-06-11): each `<dfn>` line of §3 Lookups, 475 / 537 / 598, 319-323 / 348 / 135-142, 99-100 / 179-181, 1043-1047, 239 … 764, 322-323, 233-299 read at the cited line | ok |
+| S34 | *forwards* / *backwards* | §0.2, §11 P-14 | `dfn selection-api forwards` → §2 Definition `#dfn-forwards`; `dfn selection-api backwards` → §2 `#dfn-backwards` | ok |
 | D1 | "WHATWG DOM §5.6 Interface Range" | §3 | `heading dom 5.6` → §5.6 Interface Range `#interface-range` | ok |
 | D2 | *set the start or end of a range to a boundary point*, "set the start" steps 1, 2, 4, 4.1 | §0.1 item 1, §3, §4.1, §7 E13 | `dfn dom "set the start"` → §5.6 `#concept-range-bp-set`; steps from `body dom concept-range-bp-set` | ok |
 | D3 | `deleteContents()` step 1, steps 4-8 | §0.2, §3, §4.1 | `dfn dom "deleteContents()"` → §5.6 `#dom-range-deletecontents`; steps from `body dom dom-range-deletecontents` | ok |
@@ -498,8 +499,9 @@ with the sweep.
 | D12 | "WHATWG DOM §1.1 Trees", "DOM §1.1" | §3, §4.1 code | `heading dom 1.1` → §1.1 Trees `#trees` | ok |
 | D13 | *root* (of a tree) | §3, §4.1 | `dfn dom root` → §1.1 `#concept-tree-root` (for tree) | ok |
 | D14 | "DOM's removing steps … and inserting steps" | §2 LRR × ROOT | `dfn dom "removing steps"` → §4.2.3 `#concept-node-remove-ext` (the hook other specs define, not the live-range adjustment); `dfn dom "live range pre-remove steps"` → §5.6 `#live-range-pre-remove-steps`, run by *remove* step 3 (`dfn dom remove` → §4.2.3 `#concept-node-remove`; `body dom concept-node-remove`); `dfn dom insert` → §4.2.3 `#concept-node-insert` | fixed: "*live range pre-remove steps* (§5.6, run by *remove* step 3, §4.2.3) … *insert* (§4.2.3)" |
+| D15 | *connected* | §4.1 table | `dfn dom connected` → §4.2.2 Shadow tree `#connected` | ok |
 | W1 | "`[SameObject]` holds" (for `getRangeAt()`) | §4.2 | `dfn webidl SameObject` → §3.3.12 [SameObject] `#SameObject`; `body webidl SameObject`: "appears on a read only attribute" | fixed: `getRangeAt()` is an operation; the rule is the Selection API's "a reference to (not a copy of) this's range" |
-| W2 | "WebIDL §3.7.6" (the code's, for argument conversion) | §8 L-8 (`selection.rs:376`, `dom_selection_mutation.rs:234`) | `heading webidl 3.7.6` → §3.7.6 Attributes `#js-attributes`; `heading webidl 3.7.7` → §3.7.7 Operations `#js-operations`, whose steps pass the arguments to the overload resolution algorithm (`body webidl js-operations` step 5; `dfn webidl "overload resolution algorithm"` → §3.6, which converts left to right) | the code's cite is wrong: `selection.rs:376` sits in `set_base_and_extent`'s rewritten doc comment and is fixed by the code PR to "WebIDL §3.7.7 Operations" (§4.1); `:234` left to the sweep |
+| W2 | "WebIDL §3.7.6" (the code's, for argument conversion) | §8 L-8 (`selection.rs:376`, `dom_selection_mutation.rs:234`) | `heading webidl 3.7.6` → §3.7.6 Attributes `#js-attributes`; `heading webidl 3.7.7` → §3.7.7 Operations `#js-operations`, whose steps pass the arguments to the overload resolution algorithm (`body webidl js-operations`, the operation-function step "Let <operation, values> be the result of passing S and args to the overload resolution algorithm"; `dfn webidl "overload resolution algorithm"` → §3.6, which converts left to right) | the code's cite is wrong: `selection.rs:376` sits in `set_base_and_extent`'s rewritten doc comment and is fixed by the code PR to "WebIDL §3.7.7 Operations" (§4.1); `:234` left to the sweep |
 | W3 | "WebIDL §3.10" (the code's, for ToUint32) | §8 L-8 (`dom_selection_proto.rs:412`) | `heading webidl 3.10` → §3.10 Observable array exotic objects `#js-observable-arrays` | the code's cite is wrong; left to the sweep (`tsel` does not edit that comment) |
 | H1 | "HTML §8.1.7.1 ("selection task source")" (the code's) | §8 L-8 (`dom_selection_proto.rs:661`) | `heading html 8.1.7.1` → §8.1.7.1 Definitions `#definitions-3`; `dfn html "task source"` → §8.1.7.1 `#task-source`; `dfn html "selection task source"` → no dfn; the Selection API queues on the "user interaction task source" (webref 外 (raw cache, selection-api 2026-06-11); cache line 1071) | the heading is right, the named task source is not HTML's; outside the §3.x property of L-8; left to the sweep (`tsel` does not edit that comment) |
 
@@ -513,7 +515,7 @@ Two predicates, one existing and one private (NEW), each against the existing re
 | Spec question | `tsel` uses | Existing relation it was checked against | Same relation? |
 |---|---|---|---|
 | the associated document is a shadow-including inclusive ancestor of the node (facet 3; paraphrase of the three step texts quoted in §0.1 item 3) | `crate::focus::is_in_document(dom, node, owner_document)` (`focus/sot.rs:69`), **reused** | itself; and `EcsDom::find_tree_root_composed(node) == owner_document` (`walkers.rs:432`, DOM §4.8 *shadow-including root*), which Rev 1.2 wrapped in a NEW `in_document_shadow_including` | yes: `is_in_document` climbs the stored parent to `document`, and at base a shadow root's stored parent is its host, so it is shadow-including (census §3 row R-8: the same question as *connected*, for one given document, classed shadow-including, and at base S, equal); at `ta` its step takes `shadow_including_parent` (census, "K"), so it stays the same relation through `ta` and `ts`. A second predicate for it would be a second home; Rev 1.2's NEW wrapper is dropped. Its doc comment's "light-tree ancestor chain" wording is not the relation it computes; `ta`'s census row R-8 restates it (§8 L-3), `tsel` does not edit `focus/sot.rs` |
-| node's root is the document associated with this / the node is in the document tree (facets 2, 4-7; a paraphrase, not a quote: the step texts quoted in §0.1 items 2 and 4-7 state it negated ("is not the document", "not in the document tree"), all but `deleteFromDocument()`; row 1 is marked the same way) | `root_is_document(node, owner_document, dom)` (NEW, private): `dom.find_tree_root(node) == owner_document` | `element/document_base.rs:226` `in_document_light_tree(dom, entity)`: `find_tree_root(entity)` is *a* `Document` node | no: `in_document_light_tree` is the any-document reading, `root_is_document` the associated document (§0.5, rung 2); they differ exactly for a node of another document (E4, E13, J15; mutant M24). Not merged; neither is `ta`'s or `ts`'s to unify, since the difference is the reading, not the storage |
+| node's root is the document associated with this / the node is in the document tree (facets 2, 4-7; a paraphrase, not a quote: the step texts quoted in §0.1 items 2 and 4-7 state it negated (is not the document / not in the document tree — words of the steps, cited there with the marker), all but `deleteFromDocument()`; row 1 is marked the same way) | `root_is_document(node, owner_document, dom)` (NEW, private): `dom.find_tree_root(node) == owner_document` | `element/document_base.rs:226` `in_document_light_tree(dom, entity)`: `find_tree_root(entity)` is *a* `Document` node | no: `in_document_light_tree` is the any-document reading, `root_is_document` the associated document (§0.5, rung 2); they differ exactly for a node of another document (E4, E13, J15; mutant M24). Not merged; neither is `ta`'s or `ts`'s to unify, since the difference is the reading, not the storage |
 
 ```rust
 /// DOM §1.1 / §4.2.1: `node`'s root is the associated document (`node` is in its document tree;
@@ -608,7 +610,7 @@ numbers they carry today (R1 decision record K5; sweep `project_selection-api-ci
 into the next Selection/Range work touching these files"). The flat-§3 rule is for §3's members only: a comment
 that cites the `selectionchange` clause cites "Selection API §6.2" (re-check decision record M1; §3.2 row S2).
 `set_base_and_extent`'s rewritten doc comment also carries "Per WebIDL §3.7.6" (`selection.rs:376`, §3.7.6 is
-Attributes); the rewrite cites "WebIDL §3.7.7 Operations" (`heading webidl 3.7.7`; its step 5 passes the arguments
+Attributes); the rewrite cites "WebIDL §3.7.7 Operations" (`heading webidl 3.7.7`; its operation-function steps pass the arguments ("Let <operation, values> be the result of passing S and args to the overload resolution algorithm", `body webidl js-operations`)
 to the overload resolution algorithm, which converts them left to right; §3.2 row W2). The sites this removes from
 the sweep's population are listed in §8 L-8. `direction_between` and `node_fully_contained` keep their raw writes: they build temporary comparison
 ranges, not Selection ranges.
