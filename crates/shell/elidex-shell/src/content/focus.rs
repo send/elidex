@@ -130,8 +130,8 @@ impl FocusEventSink for ShellFocusSink<'_> {
     }
 
     fn commit_change_on_blur(&mut self, old: Entity) {
-        // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
-        // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
+        // §6.6.4 step 2.1 — whether `change` fires is `elidex_form::take_change_on_blur`'s
+        // verdict (it consumes the snapshot); this only dispatches (a no-op sink — the VM, PR-A2c — leaves it
         // intact). `change` fires while `old` is still the designated focused
         // area (its FOCUS bit still set; elidex clears it after `change`, a
         // deviation from the spec's steps 2.2-2.4 text),

@@ -23,6 +23,10 @@
 //! provenance mark. Only [`crate::apply_user_edit`] sets it; no non-user writer
 //! does.
 //!
+//! "The plan" below is `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`
+//! (its B-2, QB-1..3, O-B1 and §4.4); "the re-derivation" is
+//! `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (D-4, R-2, PE-2).
+//!
 //! The blur's verdict is computed in one place, [`take_change_on_blur`]; every
 //! focus sink calls it and only dispatches `change`.
 
@@ -31,12 +35,11 @@ use elidex_ecs::{EcsDom, Entity};
 use crate::{FormControlKind, FormControlState};
 
 /// The change-on-blur provenance of a focused `input` / `textarea` element.
-/// Which elements carry it is [`record_focus_snapshot`]'s rule (B-2 of the plan
-/// above); auto-cleaned on despawn. The field is private: only this module
+/// Which elements carry it is [`record_focus_snapshot`]'s rule (B-2 of the plan); auto-cleaned on despawn. The field is private: only this module
 /// writes it (seed, mark, take).
 ///
 /// No focus-time copy of the value is kept: an unmarked baseline would never
-/// be read, so the first mark stores the pre-edit value instead (plan D-1,
+/// be read, so the first mark stores the pre-edit value instead (D-1 of `docs/plans/2026-11-change-on-blur-user-provenance.md`,
 /// PM 393).
 pub struct FocusValueSnapshot(Option<String>);
 
@@ -107,7 +110,11 @@ fn change_on_blur_kind_applies(kind: FormControlKind) -> bool {
         // Text/Search (§4.10.5.1.2), Telephone, URL, Email, Password, Date,
         // Month, Week, Time, Local Date and Time, Number, Range: "The input and
         // change events apply" (QB-2), and none defines an input activation
-        // behavior (R-2).
+        // behavior (R-2). An `<input type=image>` also lands on this arm:
+        // `FormControlKind::from_type_str` maps `image` to `TextInput` (there is
+        // no Image Button state), although HTML says of the Image Button state
+        // "The input and change events do not apply" — slot
+        // `#11-input-type-keyword-state-mapping` (O-B1 of the plan).
         FormControlKind::TextInput
         | FormControlKind::Search
         | FormControlKind::Tel
@@ -277,13 +284,15 @@ mod tests {
         assert_eq!(snap(&dom, input), Snap::Baseline("x".to_string()));
     }
 
-    /// The plan §4.4 truth table: one row per [`FormControlKind`], with the
+    /// The plan's §4.4 truth table: one row per [`FormControlKind`], with the
     /// spec ground of the expected verdict, stated independently of
-    /// `change_on_blur_kind_applies`. Coverage of a new variant is a compile-time
-    /// fact: [`row`] is an exhaustive `match` (no wildcard), so a new variant
-    /// fails to compile until it is given a row index, and
-    /// `truth_table_rows_are_indexed_by_row` checks that index points at the
-    /// variant's own row.
+    /// `change_on_blur_kind_applies`. What is enforced: [`row`] (next to this
+    /// table) is an exhaustive `match` with no wildcard, so a new variant fails
+    /// to compile there and its table row is added in the same edit;
+    /// `truth_table_rows_are_indexed_by_row` checks every existing row's index
+    /// agrees with `row`; `TRUTH_TABLE`'s length is the `26` in its type. What
+    /// stays manual: writing the row itself (that the table has a row for the
+    /// variant is not a compile-time fact).
     const TRUTH_TABLE: [(FormControlKind, bool); 26] = {
         use FormControlKind as K;
         [
@@ -425,7 +434,10 @@ mod tests {
         let button = control(&mut dom, FormControlKind::Button, "");
         record_focus_snapshot(&mut dom, button);
         assert_eq!(snap(&dom, button), Snap::Unmarked, "seeded");
-        set_value(&mut dom, button, "x");
+        // Mark it with a user edit so the kind is the only reason for `false`:
+        // the snapshot is marked and the value differs from the mark.
+        user_append(&mut dom, button, "x");
+        assert_eq!(snap(&dom, button), Snap::Baseline(String::new()), "marked");
         assert!(!take_change_on_blur(&mut dom, button));
     }
 }

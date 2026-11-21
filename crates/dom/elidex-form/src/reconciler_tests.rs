@@ -207,7 +207,7 @@ fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
     use crate::test_support::user_append;
     let (mut dom, e) = setup("input", &[("value", value)]);
     record_focus_snapshot(&mut dom, e);
-    let end = value.chars().count();
+    let end = value.len();
     dom.world_mut()
         .get::<&mut FormControlState>(e)
         .unwrap()
@@ -220,9 +220,11 @@ fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
 #[test]
 fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
     // DC-16u (plan B-7, R-2): a `type` change writes nothing to the
-    // change-on-blur component, so the snapshot survives a flip text →
-    // checkbox; the kind at focus loss decides, and a Checkbox defines an input
-    // activation behavior, so the verdict is `false`.
+    // change-on-blur component, so a marked snapshot survives a flip text →
+    // checkbox with its mark; the value differs from it, so the kind at focus
+    // loss is the only reason for `false` (a Checkbox defines an input
+    // activation behavior).
+    use crate::test_support::{snap, user_append, Snap};
     use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
@@ -230,12 +232,21 @@ fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
         state.set_value("typed".to_string());
     }
     record_focus_snapshot(&mut dom, e);
+    let end = "typed".len();
+    dom.world_mut()
+        .get::<&mut FormControlState>(e)
+        .unwrap()
+        .set_cursor(end);
+    user_append(&mut dom, e, "a");
+    assert_eq!(snap(&dom, e), Snap::Baseline("typed".to_string()));
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
-    assert!(
-        crate::test_support::snap(&dom, e) == crate::test_support::Snap::Unmarked,
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Baseline("typed".to_string()),
         "a `type` flip writes nothing to the focus snapshot"
     );
+    with_fcs(&dom, e, |s| assert_ne!(s.value(), "typed"));
     assert!(!take_change_on_blur(&mut dom, e), "Checkbox at focus loss");
 }
 
