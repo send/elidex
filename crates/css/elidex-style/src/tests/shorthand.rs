@@ -567,6 +567,7 @@ fn column_rule_omit_initial_corners() {
         Some("dashed #008000".to_string())
     );
     // ALL initial ⇒ keep first (width); `3px` vs the specified `medium`
+    // (R2, `#11-css-declared-value-serialization-fidelity`)
     assert_eq!(
         serialize_parsed("column-rule", "column-rule: medium none currentcolor"),
         Some("3px".to_string())

@@ -53,6 +53,8 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.
 N	-	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	// (Chrome accepts non-object loosely; spec-strict rejects.)
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/define.rs	/// ASCII-case-folds to lowercase (matches Chrome / Firefox + the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/flush.rs	// drain, observably one tick late vs Chrome.
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// the subtree (matches Blink's batch-upgrade isolation).
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs	//! and `eprintln!`s it (matches Blink's batch isolation — one bad
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/document.rs	// `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event hand-rolled allocation + Chrome
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
@@ -72,6 +74,7 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_sl
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	//! match browser behaviour.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/idl_coerce.rs	/// matches Chromium / Firefox observable behaviour for
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/mutation_observer.rs	// both arguments required. Match Chrome/Firefox arg-count error
 N	-	crates/script/elidex-js/src/vm/host/navigator.rs	("product", "Gecko"),
 N	-	crates/script/elidex-js/src/vm/host/navigator.rs	//! (constant `"Mozilla"`), `appName` (`"Netscape"`), `product` (`"Gecko"`),
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/offscreen_canvas/mod.rs	// (Chrome, Firefox) throw RangeError at similar practical thresholds.

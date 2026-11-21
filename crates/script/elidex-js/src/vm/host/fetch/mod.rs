@@ -107,8 +107,8 @@ impl VmInner {
 /// error, pre-flight abort, invalid `signal`) all reject the
 /// returned Promise rather than throwing synchronously, matching
 /// the WHATWG Fetch contract that `fetch()` returns a Promise for
-/// every well-formed call.  The exceptions are WebIDL
-/// binding-level checks that run *before* the method body and
+/// every well-formed call.  The exceptions — a recorded deviation, as
+/// WebIDL "create an operation function" rejects these too — are checks that
 /// must therefore throw synchronously (verified on Chrome /
 /// Firefox / Safari):
 ///

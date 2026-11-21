@@ -140,7 +140,7 @@ pub(crate) fn native_ce_upgrade(
     // per HTML §4.13.4. Each candidate's constructor exception is
     // isolated (eprintln + continue) rather than propagated so a
     // single bad element does not abort the remaining candidates in
-    // the subtree (HTML §4.13.6: an upgrade reaction's exception is caught).
+    // the subtree (matches Blink's batch-upgrade isolation).
     let mut candidates: Vec<elidex_ecs::Entity> = Vec::new();
     {
         let host = ctx.host();

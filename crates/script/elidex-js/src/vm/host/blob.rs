@@ -575,7 +575,8 @@ pub(crate) fn parse_blob_options_type(
                     let raw = ctx.vm.strings.get_utf8(sid);
                     // ASCII-only validation — if any non-ASCII byte,
                     // fall back to empty.  FileAPI §3.1 Blob() constructor
-                    // step 3.1 is narrower (outside U+0020–U+007E → empty).
+                    // step 3.1 is narrower (outside U+0020–U+007E → empty);
+                    // the deviation is the module doc's MIME type item.
                     let type_sid = if raw.bytes().all(|b| b.is_ascii()) {
                         let lower = raw.to_ascii_lowercase();
                         if lower == raw {

@@ -39,7 +39,7 @@
 //!   owned record data, and (c) a `build` closure that marshals that
 //!   owned data into the JS Array once the whole batch is rooted.
 //! - [`read_dict_field`] — `undefined → None`, anything else →
-//!   `Some(value)` WebIDL §3.10.7 dictionary-member reader, hoisted
+//!   `Some(value)` WebIDL §3.2.17 dictionary-member reader, hoisted
 //!   from the original `mutation_observer.rs` site.  Used by all
 //!   three observer init-dict parsers.
 //!
@@ -308,11 +308,11 @@ pub(crate) fn deliver_to_observer_callbacks<R, L, P, B>(
 }
 
 // ---------------------------------------------------------------------------
-// WebIDL §3.10.7 dictionary-member read
+// WebIDL §3.2.17 dictionary-member read
 // ---------------------------------------------------------------------------
 
 /// Look up an own / prototype-chain property by `StringId`, returning
-/// `None` for `undefined` (per WebIDL §3.10.7 dictionary semantics —
+/// `None` for `undefined` (per WebIDL §3.2.17 dictionary semantics —
 /// an `undefined` value means "member not present", default applies).
 /// Other values pass through to the caller for type coercion.
 ///

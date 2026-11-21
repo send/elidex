@@ -299,7 +299,7 @@ fn native_promise_rejection_event_constructor(
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
-    // WHATWG HTML §8.1.4.7 + WebIDL §3.10.23 dictionary coercion:
+    // WHATWG HTML §8.1.4.7 + WebIDL §3.2.17 dictionary coercion:
     //   - A missing second arg → arity error (dict with `required`
     //     member has no valid zero-arg form).
     //   - `null` / `undefined` → WebIDL treats as an empty
