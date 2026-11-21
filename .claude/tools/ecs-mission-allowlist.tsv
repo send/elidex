@@ -23,6 +23,7 @@ D	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/
 T	#11-core-browser-parity-deviations	crates/api/elidex-api-crypto/src/tests/rsa/roundtrip.rs	// A CRT-less (d-only) private JWK is a DataError: every browser requires the
 N	-	crates/api/elidex-api-sw/src/sync.rs	//! Background Sync (WICG proposal — Chrome/Edge implemented).
 D	#11-design-docs-browser-lineage-rationale	crates/core/elidex-ecs/src/dom/mod.rs	/// This is the Servo-style version cache invalidation mechanism: any tree
+T	#11-core-browser-parity-deviations	crates/core/elidex-plugin/src/shorthand.rs	/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor`
 N	-	crates/core/elidex-render/src/builder/walk.rs	// without style emitted no chrome/transform/clip pre-C-1 — preserved).
 N	-	crates/core/elidex-render/src/builder/walk.rs	// ── Chrome + overflow clip + content, emitted over a per-entity *fragment
 T	#11-core-browser-parity-deviations	crates/css/elidex-css-anim/src/parse.rs	// Browsers accept unitless 0 for backwards compatibility with
@@ -76,6 +77,7 @@ N	-	crates/script/elidex-js/src/vm/host/navigator.rs	//! (constant `"Mozilla"`),
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/offscreen_canvas/mod.rs	// (Chrome, Firefox) throw RangeError at similar practical thresholds.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	// semantics (matches Chromium / Firefox `new
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	/// WebIDL dict-from-null semantics (matches Chromium's
+T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/request_response/mod.rs	/// matches Chromium / Firefox).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/storage.rs	// matches Chrome / Firefox when an underlying I/O fault
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/storage_event.rs	/// type as `Storage?`, but Chrome / Firefox / Safari all accept
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/structured_clone.rs	// attribute on any of them. Chrome / Firefox throw
@@ -209,6 +211,7 @@ N	-	docs/plans/2026-07-s5-6-flip-boa-deletion.md	Servo-style ancestor-propagatin
 N	-	docs/plans/2026-07-s5-6-flip-boa-deletion.md	harness; remainder = chrome/ipc/quota/key_map/app/iframe/scroll/focus unit files, mostly
 N	-	docs/plans/2026-07-session-history-slice-A-content-phase-separation.md	- **Chrome-button traversals** (`app/navigation.rs:596` `handle_chrome_action`) reach the same `peek_*` /
 N	-	docs/plans/2026-07-session-history-slice-B-app-phase-separation.md	- **Chrome-button traversals** (`app/navigation.rs::handle_chrome_action`) reach the same
+T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	/// §6.7.2 step 2). Verified vs Blink: `column-rule: medium none currentcolor`
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	re-verified against Blink at their PRs — the *rule* is expected to hold (keep first
 T	#11-core-browser-parity-deviations	docs/plans/2026-07-shorthand-multicol-omit-initial.md	underspecified for the all-initial corners (I-D), so Blink is the cited source
 N	-	docs/plans/2026-07-shorthand-value-kind-gate.md	'initial 4px')` → `cssText === ""` (Blink rejects its own getter output as

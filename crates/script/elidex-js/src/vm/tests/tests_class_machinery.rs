@@ -309,7 +309,7 @@ fn extends_conditional_null_takes_constructor_path() {
 // can't drift on bound-chain unwrapping. The user-visible surface
 // for the divergence today is small — `class B extends Bound`
 // throws at class-def time per spec (Bound has no `prototype`
-// property → protoParent is undefined → TypeError, step 8.h.ii) —
+// property → protoParent is undefined → TypeError, ClassDefinitionEvaluation step 8.h.ii) —
 // so the shared helper protects against future construct callers
 // (e.g. a `Reflect.construct(Bound, args, NewTarget)` path) seeing
 // the inconsistency.
