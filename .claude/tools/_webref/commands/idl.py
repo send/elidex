@@ -46,40 +46,48 @@ def _scan_attr_line(line: str, depth: int) -> tuple[int, str | None]:
     return depth, None
 
 
-def _scan_definition(line: str, depth: int, in_comment: bool) -> tuple[int, bool, bool]:
+def _scan_definition(line: str, depth: int, mode: str) -> tuple[int, str, bool]:
     """Advance over `line` of a definition: track `{`/`}` depth, ignoring
-    string literals and `//` / `/* */` comments. Returns (depth, in_comment,
-    ended); the definition ends at the first `;` at depth 0 (the `;` that
-    closes `callback X = ...(...);`, `enum E { ... };` and `interface X { ... };`
-    alike, wherever the closing text sits on its line)."""
+    string literals and `//` / `/* */` comments. `mode` is where the previous
+    line ended: "code", "comment" (inside `/* */`) or "string" (inside `"..."`).
+    Returns (depth, mode, ended); the definition ends at the first `;` at
+    depth 0 (the `;` that closes `callback X = ...(...);`, `enum E { ... };`
+    and `interface X { ... };` alike, wherever it sits on its line).
+
+    Web IDL string = /"[^"]*"/ : no escapes (a `\\` is an ordinary character,
+    so `"\\"` is a complete string), and a string may span lines."""
     i, n = 0, len(line)
     while i < n:
-        two = line[i:i + 2]
-        if in_comment:
+        if mode == "comment":
             end = line.find("*/", i)
             if end < 0:
-                return depth, True, False
-            i, in_comment = end + 2, False
+                return depth, mode, False
+            i, mode = end + 2, "code"
             continue
+        if mode == "string":
+            end = line.find('"', i)
+            if end < 0:
+                return depth, mode, False
+            i, mode = end + 1, "code"
+            continue
+        two = line[i:i + 2]
         ch = line[i]
         if two == "//":
             break
         if two == "/*":
-            in_comment = True
+            mode = "comment"
             i += 2
             continue
         if ch == '"':
-            i += 1
-            while i < n and line[i] != '"':
-                i += 2 if line[i] == "\\" else 1
+            mode = "string"
         elif ch == "{":
             depth += 1
         elif ch == "}":
             depth -= 1
         elif ch == ";" and depth <= 0:
-            return depth, in_comment, True
+            return depth, mode, True
         i += 1
-    return depth, in_comment, False
+    return depth, mode, False
 
 
 def extract_idl_blocks(text: str, iface: str) -> list[str]:
@@ -101,7 +109,7 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
     depth = 0  # open `[` count of the attribute list being accumulated
     in_block = False
     bdepth = 0  # `{` depth of the matching definition being copied
-    in_comment = False  # inside a `/* */` comment of that definition
+    mode = "code"  # scan state at the end of the previous line (`_scan_definition`)
 
     for line in text.splitlines():
         if not in_block:
@@ -127,7 +135,7 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
                     # The definition ends at the `;` at brace depth 0, which
                     # may already be on the declaration line (`enum E { "a" };`,
                     # `callback C = ...;`).
-                    bdepth, in_comment, ended = _scan_definition(decl_text, 0, False)
+                    bdepth, mode, ended = _scan_definition(decl_text, 0, "code")
                     if ended:
                         out.append("")
                     else:
@@ -143,7 +151,7 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
         # unconditionally (must NOT be buffered, else they get dropped at the
         # next non-[ line).
         out.append(line)
-        bdepth, in_comment, ended = _scan_definition(line, bdepth, in_comment)
+        bdepth, mode, ended = _scan_definition(line, bdepth, mode)
         if ended:
             in_block = False
             out.append("")

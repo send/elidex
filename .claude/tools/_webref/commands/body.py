@@ -4,11 +4,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..cache import FetchError, cached_fetch_url, copy_date
+from ..cache import FetchError, cached_fetch
 from ..extractor import extract_section_body
-from ..respec import (SOURCE_NONE_LINE, Outcome, is_rendered_respec,
-                      is_unrendered_respec, miss_is_final, source_line,
-                      unreachable_names)
+from ..respec import (SOURCE_NONE_LINE, Outcome, classify_respec,
+                      miss_is_final, source_line, unreachable_names)
 from ..resolver import resolve_body_candidates
 
 
@@ -42,29 +41,31 @@ def cmd_body(args: argparse.Namespace) -> None:
             record.append(Outcome("catalog", "unreachable", str(e)))
             break
         try:
-            data = cached_fetch_url(cand.url)
+            fetched = cached_fetch(cand.url)
         except FetchError as e:
             first_error = first_error or e
             record.append(Outcome(cand.label, "unreachable", str(e)))
             continue
         last = cand
+        data = fetched.data
+        kind = classify_respec(data)
         found, text = extract_section_body(data, anchor)
         # An unrendered ReSpec source's hand-written `<section id=...>` would
         # print raw markup; only rendered text may answer, else go on to the
         # generator (the catalog is consulted only when the loop gets here).
-        if is_unrendered_respec(data):
+        if kind == "unrendered":
             found = False
-            record.append(Outcome(cand.label, "unrendered"))
+            record.append(Outcome(cand.label, "unrendered", date=fetched.date))
         elif found:
-            record.append(Outcome(cand.label, "hit"))
+            record.append(Outcome(cand.label, "hit", date=fetched.date))
             # Every ReSpec-path answer names its source and the date of the
             # fetched copy on the first line: a fallback by its label, the
             # first page by the rendered marker in its bytes (no catalog).
-            if cand.label or is_rendered_respec(data):
-                print(source_line(cand.label, data, copy_date(cand.url), record[:-1]))
+            if cand.label or kind == "rendered":
+                print(source_line(cand.label, data, record[-1].date, record[:-1]))
             break
         else:
-            record.append(Outcome(cand.label, "miss"))
+            record.append(Outcome(cand.label, "miss", date=fetched.date))
         if miss_is_final(cand.label, data):
             break
     if last is None:

@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _webref import cache as cache_mod  # noqa: E402
 from _webref import cli as cli_mod  # noqa: E402
 from _webref import resolver as resolver_mod  # noqa: E402
-from _webref.cache import FetchError, NotFound  # noqa: E402
+from _webref.cache import Fetched, FetchError, NotFound  # noqa: E402
 from _webref.commands import body as body_mod  # noqa: E402
 from _webref.commands import idl as idl_mod  # noqa: E402
 from _webref.commands.idl import _IDL_DECL_RE, extract_idl_blocks  # noqa: E402
@@ -157,8 +157,8 @@ class IdlExtAttrTests(unittest.TestCase):
 
     def test_mutant_one_line_block_never_closes(self):
         text = 'enum E { "a" };\ninterface After {\n};\n'
-        m = mutate(idl_mod, "bdepth, in_comment, ended = _scan_definition(decl_text, 0, False)",
-                   "bdepth, in_comment, ended = 0, False, False")
+        m = mutate(idl_mod, 'bdepth, mode, ended = _scan_definition(decl_text, 0, "code")',
+                   'bdepth, mode, ended = 0, "code", False')
         self.assertIn("interface After {", m.extract_idl_blocks(text, "E"))
         self.assertNotIn("interface After {", extract_idl_blocks(text, "E"))
 
@@ -187,8 +187,24 @@ class IdlExtAttrTests(unittest.TestCase):
         self.assertEqual(extract_idl_blocks(text, "X")[-2:], ["};", ""])
         self.assertEqual(len(extract_idl_blocks(text, "X")), 5)
 
+    def test_backslash_is_not_an_escape_in_idl_strings(self):
+        # Web IDL: string = /"[^"]*"/ — `"\\"` is a complete string.
+        text = 'enum E { "\\" };\ninterface After {\n};\n'
+        self.assertEqual(extract_idl_blocks(text, "E"), ['enum E { "\\" };', ""])
+
+    def test_mutant_backslash_escape_rule_restored(self):
+        m = mutate(idl_mod, "end = line.find('\"', i)\n            if end < 0:\n                return depth, mode, False\n            i, mode = end + 1",
+                   "end = next((j for j in range(i, n) if line[j] == '\"' and line[max(j - 1, 0)] != chr(92)), -1)\n            if end < 0:\n                return depth, mode, False\n            i, mode = end + 1")
+        text = 'enum E { "\\" };\ninterface After {\n};\n'
+        self.assertNotEqual(m.extract_idl_blocks(text, "E"), extract_idl_blocks(text, "E"))
+
+    def test_string_spanning_lines_hides_its_semicolon(self):
+        text = 'enum E {\n  "a\n;b",\n  "c"\n};\ninterface After {\n};\n'
+        self.assertEqual(extract_idl_blocks(text, "E"),
+                         ["enum E {", '  "a', ';b",', '  "c"', "};", ""])
+
     def test_mutant_line_shape_end_swallows_following_definitions(self):
-        m = mutate(idl_mod, "bdepth, in_comment, ended = _scan_definition(line, bdepth, in_comment)",
+        m = mutate(idl_mod, "bdepth, mode, ended = _scan_definition(line, bdepth, mode)",
                    'ended = line.strip() == "};"')
         text = ("callback LongCb = undefined (\n  long a\n);\n\n"
                 "interface After {\n  attribute long a;\n};\n")
@@ -308,7 +324,7 @@ class CandidateTests(unittest.TestCase):
 class BodyLoopTests(unittest.TestCase):
     """`cmd_body`'s one candidate loop, with fetches faked as FetchError."""
 
-    def run_cmd_body(self, candidates, pages, module=body_mod, anchor="dom-x-foo"):
+    def run_cmd_body(self, candidates, pages, module=body_mod, anchor="dom-x-foo", date=None):
         calls: list[str] = []
 
         def fetch(url: str) -> bytes:
@@ -320,7 +336,8 @@ class BodyLoopTests(unittest.TestCase):
 
         buf = io.StringIO()
         exit_msg = None
-        with mock.patch.object(module, "cached_fetch_url", fetch), \
+        with mock.patch.object(module, "cached_fetch",
+                           lambda u: Fetched(fetch(u), date or TODAY)), \
              mock.patch.object(module, "resolve_body_candidates",
                                lambda s, a: (a, candidates)), \
              contextlib.redirect_stdout(buf):
@@ -417,7 +434,7 @@ class BodyLoopTests(unittest.TestCase):
     def test_mutant_unrendered_nightly_hit_accepted(self):
         raw = (b'<html><head><script>var respecConfig = {};</script></head><body>'
                b'<section id="dom-x-foo"><p>RAW respec markup.</p></section></body></html>')
-        mutant = mutate(body_mod, "if is_unrendered_respec(data):",
+        mutant = mutate(body_mod, 'if kind == "unrendered":',
                         "if False:")
         out, calls, _ = self.run_cmd_body(self.RESPEC, {NIGHTLY: raw, GEN: RENDERED},
                                           module=mutant)
@@ -595,7 +612,7 @@ class LazyCatalogTests(unittest.TestCase):
         buf = io.StringIO()
         msg = None
         webref_data = sys.modules["_webref.sources.webref_data"]
-        with mock.patch.object(body_mod, "cached_fetch_url", fetch), \
+        with mock.patch.object(body_mod, "cached_fetch", lambda u: Fetched(fetch(u), TODAY)), \
              mock.patch.object(webref_data, "cached_fetch_url", fetch), \
              mock.patch.object(webref_data, "_INDEX", None), \
              mock.patch.object(resolver_mod, "webref_resolve_body_url",
@@ -676,7 +693,7 @@ class LazyCatalogTests(unittest.TestCase):
         fetch = self.index_fetch({NIGHTLY: RENDERED}, calls, index=[])
         webref_data = sys.modules["_webref.sources.webref_data"]
         buf = io.StringIO()
-        with mock.patch.object(body_mod, "cached_fetch_url", fetch), \
+        with mock.patch.object(body_mod, "cached_fetch", lambda u: Fetched(fetch(u), TODAY)), \
              mock.patch.object(webref_data, "cached_fetch_url", fetch), \
              mock.patch.object(webref_data, "_INDEX", None), \
              mock.patch.object(body_mod, "resolve_body_candidates", m.resolve_body_candidates), \
@@ -755,19 +772,17 @@ class OutcomeRecordTests(unittest.TestCase):
                       respec_mod.source_line("tr", TR, TODAY,
                                              [respec_mod.Outcome(None, "unreachable", "boom")]))
 
-    def test_source_date_is_the_copy_date_not_today(self):
+    def test_source_date_is_the_fetched_copys_date_not_today(self):
         d = datetime.date(2025, 1, 2)
         for pages, first in (({NIGHTLY: RENDERED}, "rendered ReSpec page as served"),
                              ({NIGHTLY: UNRENDERED, GEN: RENDERED}, "ED rendered via spec-generator")):
-            with mock.patch.object(body_mod, "copy_date", lambda u: d):
-                out, _, _ = self.body(self.RESPEC, pages)
+            out, _, _ = self.body(self.RESPEC, pages, date=d)
             self.assertEqual(out.splitlines()[0], f"# source: {first} (2025-01-02)")
 
     def test_mutant_date_is_today(self):
-        m = mutate(body_mod, "copy_date(cand.url)", "__import__('datetime').date.today()")
-        d = datetime.date(2025, 1, 2)
-        with mock.patch.object(body_mod, "copy_date", lambda u: d):
-            out, _, _ = self.body(self.RESPEC, {NIGHTLY: RENDERED}, module=m)
+        m = mutate(body_mod, "record[-1].date", "__import__('datetime').date.today()")
+        out, _, _ = self.body(self.RESPEC, {NIGHTLY: RENDERED}, module=m,
+                              date=datetime.date(2025, 1, 2))
         self.assertNotIn("2025-01-02", out.splitlines()[0])
 
     def test_text_empty_hit_still_names_source_first(self):
@@ -777,43 +792,94 @@ class OutcomeRecordTests(unittest.TestCase):
         self.assertTrue(out.startswith("# source: rendered ReSpec page as served"))
 
 
-class UnrenderedByPropertyTests(unittest.TestCase):
-    """R2: rendered marker -> rendered; ReSpec script or respecConfig ->
-    unrendered; else ordinary."""
+class ClassifyRespecTests(unittest.TestCase):
+    """R2: one classifier, fixed precedence: generator meta -> rendered; ReSpec
+    loader script or respecConfig -> unrendered; `id="respecDocument"` ->
+    rendered; else ordinary."""
 
     EXT = (b'<html><head><script src="https://www.w3.org/Tools/respec/respec-w3c" '
            b'class="remove" async></script></head><body><section id="dom-x-foo">'
            b'<p>{{Foo}}</p></section></body></html>')
+    # Shaped like the cached dx-prof-1.0 / dx-prof-conneg nightlies: hand-written
+    # ReSpec source whose <body> carries id="respecDocument", a loader script,
+    # and no generator meta.
+    DX = (b'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+          b'<script class="remove" src="https://www.w3.org/Tools/respec/respec-w3c" '
+          b'async></script></head><body id="respecDocument" class="h-entry">'
+          b'<section id="dom-x-foo"><p>{{Foo}}</p></section></body></html>')
+    classify = staticmethod(lambda h: respec_mod.classify_respec(h))
 
-    def test_external_config_is_unrendered(self):
-        self.assertTrue(respec_mod.is_unrendered_respec(self.EXT))
-        self.assertTrue(respec_mod.is_unrendered_respec(
-            b"<script src='js/respec-w3c.js'></script>"))
-        self.assertTrue(respec_mod.is_unrendered_respec(
-            b"<script src=respec-w3c.js class=remove></script>"))
+    def test_loader_script_is_unrendered(self):
+        self.assertEqual(self.classify(self.EXT), "unrendered")
+        for src in (b"js/respec-w3c.js", b"//www.w3.org/Tools/respec/respec-w3c-common",
+                    b"https://www.w3.org/Tools/respec/respec-w3c-common.js",
+                    b"respec-w3c.js?v=3"):
+            with self.subTest(src=src):
+                self.assertEqual(self.classify(b"<script src='" + src + b"'></script>"),
+                                 "unrendered")
+        self.assertEqual(self.classify(b"<script src=respec-w3c.js class=remove></script>"),
+                         "unrendered")
+
+    def test_only_a_src_attribute_naming_a_respec_build_is_a_loader(self):
+        for h in (b"<script src='js/irrespective.js'></script>",
+                  b'<script data-src="respec-w3c.js"></script>',
+                  b"<script src='respec-config.js'></script>",
+                  b"<script src='https://cdn.jsdelivr.net/gh/w3c/respec-vc@3.5.1/dist/main.js'></script>",
+                  b"<script src='/respec/index.html'></script>"):
+            with self.subTest(h=h):
+                self.assertEqual(self.classify(h), "ordinary")
 
     def test_inline_config_is_unrendered(self):
-        self.assertTrue(respec_mod.is_unrendered_respec(UNRENDERED))
+        self.assertEqual(self.classify(UNRENDERED), "unrendered")
 
-    def test_rendered_is_not_unrendered_even_with_script_and_config(self):
+    def test_hand_written_respec_source_with_respecDocument_is_unrendered(self):
+        self.assertEqual(self.classify(self.DX), "unrendered")
+
+    def test_respecDocument_alone_is_rendered(self):
+        self.assertEqual(self.classify(b'<div id="respecDocument"><h2>x</h2></div>'), "rendered")
+
+    def test_generator_meta_outranks_loader_and_config(self):
         both = (b'<meta name="generator" content="ReSpec 35.0">'
                 b'<script src="respec-w3c.js"></script><script>respecConfig</script>')
-        self.assertTrue(respec_mod.is_rendered_respec(both))
-        self.assertFalse(respec_mod.is_unrendered_respec(both))
-        old = b'<div id="respecDocument"><h2>x</h2></div>'
-        self.assertTrue(respec_mod.is_rendered_respec(old))
-        self.assertFalse(respec_mod.is_unrendered_respec(old))
+        self.assertEqual(self.classify(both), "rendered")
 
-    def test_ordinary_pages_are_neither(self):
+    def test_ordinary_pages(self):
         for h in (RENDERED_PLAIN, b"<html><body><script src='app.js'></script></body></html>"):
-            self.assertFalse(respec_mod.is_unrendered_respec(h))
-            self.assertFalse(respec_mod.is_rendered_respec(h))
+            self.assertEqual(self.classify(h), "ordinary")
+
+    def test_mutant_respecDocument_before_loader(self):
+        m = mutate(respec_mod,
+                   '    if _has_respec_loader(html) or b"respecConfig" in html:\n        return "unrendered"\n'
+                   '    if b\'id="respecDocument"\' in html:\n        return "rendered"\n',
+                   '    if b\'id="respecDocument"\' in html:\n        return "rendered"\n'
+                   '    if _has_respec_loader(html) or b"respecConfig" in html:\n        return "unrendered"\n')
+        self.assertEqual(m.classify_respec(self.DX), "rendered")
+        self.assertEqual(self.classify(self.DX), "unrendered")
 
     def test_mutant_config_literal_only(self):
-        m = mutate(respec_mod, "return bool(_RESPEC_SCRIPT_RE.search(html)) or b\"respecConfig\" in html",
-                   'return b"respecConfig" in html')
-        self.assertFalse(m.is_unrendered_respec(self.EXT))
-        self.assertTrue(respec_mod.is_unrendered_respec(self.EXT))
+        m = mutate(respec_mod, 'if _has_respec_loader(html) or b"respecConfig" in html:',
+                   'if b"respecConfig" in html:')
+        self.assertEqual(m.classify_respec(self.EXT), "ordinary")
+        self.assertEqual(self.classify(self.EXT), "unrendered")
+
+    def test_mutant_data_src_and_substring_accepted(self):
+        m = mutate(respec_mod, "(?<![-\\w])src", "src",
+                   "_LOADER_NAME_RE.fullmatch(name)", "'respec' in name")
+        self.assertEqual(m.classify_respec(b'<script data-src="respec-w3c.js"></script>'),
+                         "unrendered")
+        self.assertEqual(m.classify_respec(b"<script src='irrespective.js'></script>"),
+                         "unrendered")
+
+    def test_miss_is_final_uses_the_classifier(self):
+        self.assertTrue(respec_mod.miss_is_final(None, RENDERED))
+        self.assertFalse(respec_mod.miss_is_final(None, self.DX))
+        self.assertFalse(respec_mod.miss_is_final("generator", RENDERED))
+
+    def test_hand_written_source_hit_is_not_accepted_in_body(self):
+        out, calls, _ = BodyLoopTests.run_cmd_body(
+            self, BodyLoopTests.RESPEC, {NIGHTLY: self.DX, GEN: RENDERED})
+        self.assertEqual(calls, [NIGHTLY, GEN])
+        self.assertNotIn("{{Foo}}", out)
 
     def test_external_config_nightly_hit_is_not_accepted_in_body(self):
         out, calls, _ = BodyLoopTests.run_cmd_body(
@@ -822,8 +888,10 @@ class UnrenderedByPropertyTests(unittest.TestCase):
         self.assertNotIn("{{Foo}}", out)
 
 
-class CopyDateTests(unittest.TestCase):
+class FetchedDateTests(unittest.TestCase):
+    """The date is a property of the fetched copy (`cache.Fetched.date`)."""
     URL = "https://example.invalid/copy-date/"
+    LM = "Tue, 03 Mar 2026 10:00:00 GMT"
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -838,38 +906,78 @@ class CopyDateTests(unittest.TestCase):
         import hashlib
         self.key = hashlib.sha1(self.URL.encode()).hexdigest()
 
-    def test_last_modified_wins(self):
-        (self.dir / self.key).write_bytes(b"x")
-        (self.dir / f"{self.key}.meta").write_text(
-            json.dumps({"last_modified": "Tue, 03 Mar 2026 10:00:00 GMT"}))
-        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date(2026, 3, 3))
+    class Resp(io.BytesIO):
+        def __init__(self, data, headers):
+            super().__init__(data)
+            self.headers = headers
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
 
-    def test_falls_back_to_when_the_entry_was_stored(self):
+    def fetch(self, mod=cache_mod, *, resp=None, error=None):
+        def urlopen(req, timeout=None):
+            if error is not None:
+                raise error
+            return resp
+        with mock.patch.object(mod.urllib.request, "urlopen", urlopen):
+            return mod.cached_fetch(self.URL)
+
+    def store(self, meta, age_date=None):
         import os
-        body = self.dir / self.key
-        body.write_bytes(b"x")
-        (self.dir / f"{self.key}.meta").write_text("{}")
-        ts = datetime.datetime(2025, 7, 8, 12, 0).timestamp()
-        os.utime(body, (ts, ts))
-        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date(2025, 7, 8))
+        (self.dir / self.key).write_bytes(b"old")
+        (self.dir / f"{self.key}.meta").write_text(json.dumps(meta))
+        if age_date:
+            ts = datetime.datetime.combine(age_date, datetime.time(12)).timestamp()
+            os.utime(self.dir / self.key, (ts, ts))
 
-    def test_unreadable_meta_or_no_entry_is_today(self):
-        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date.today())
-        (self.dir / f"{self.key}.meta").write_text("not json")
-        self.assertEqual(cache_mod.copy_date(self.URL), datetime.date.today())
+    def not_modified(self):
+        return urllib.error.HTTPError(self.URL, 304, "nm", {}, None)
 
-    def test_bad_last_modified_falls_back_without_raising(self):
-        (self.dir / self.key).write_bytes(b"x")
-        (self.dir / f"{self.key}.meta").write_text(json.dumps({"last_modified": "garbage"}))
-        self.assertIsInstance(cache_mod.copy_date(self.URL), datetime.date)
+    def test_200_with_last_modified_is_that_date(self):
+        f = self.fetch(resp=self.Resp(b"new", {"Last-Modified": self.LM}))
+        self.assertEqual((f.data, f.date), (b"new", datetime.date(2026, 3, 3)))
 
-    def test_mutant_ignores_last_modified(self):
-        m = mutate(cache_mod, 'lm = meta.get("last_modified") if isinstance(meta, dict) else None',
-                   "lm = None")
-        (self.dir / self.key).write_bytes(b"x")
-        (self.dir / f"{self.key}.meta").write_text(
-            json.dumps({"last_modified": "Tue, 03 Mar 2026 10:00:00 GMT"}))
-        self.assertNotEqual(m.copy_date(self.URL), datetime.date(2026, 3, 3))
+    def test_200_without_last_modified_uses_the_response_date_then_today(self):
+        f = self.fetch(resp=self.Resp(b"n", {"Date": "Mon, 02 Feb 2026 10:00:00 GMT"}))
+        self.assertEqual(f.date, datetime.date(2026, 2, 2))
+        f = self.fetch(resp=self.Resp(b"n", {}))
+        self.assertEqual(f.date, datetime.date.today())
+
+    def test_304_etag_only_is_revalidated_today_not_first_store_date(self):
+        self.store({"etag": '"x"'}, age_date=datetime.date(2025, 7, 8))
+        f = self.fetch(error=self.not_modified())
+        self.assertEqual((f.data, f.date), (b"old", datetime.date.today()))
+
+    def test_304_keeps_the_stored_last_modified(self):
+        self.store({"etag": '"x"', "last_modified": self.LM}, age_date=datetime.date(2025, 7, 8))
+        self.assertEqual(self.fetch(error=self.not_modified()).date, datetime.date(2026, 3, 3))
+
+    def test_cache_write_failure_dates_the_fetched_response_not_the_old_meta(self):
+        old = "Sat, 01 Feb 2025 10:00:00 GMT"
+        self.store({"last_modified": old})
+        # No conditional headers are sent when the stored meta is unusable, but
+        # here the meta is valid: the server answers 200 with a new copy.
+        with mock.patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
+            f = self.fetch(resp=self.Resp(b"new", {"Last-Modified": self.LM}))
+        self.assertEqual((f.data, f.date), (b"new", datetime.date(2026, 3, 3)))
+
+    def test_mutant_date_reread_from_meta_after_the_fetch(self):
+        old = "Sat, 01 Feb 2025 10:00:00 GMT"
+        self.store({"last_modified": old})
+        m = mutate(cache_mod, "            return Fetched(data, date)\n",
+                   "            return Fetched(data, _http_date(json.loads(meta_path.read_text('utf-8')).get('last_modified')) or date)\n")
+        with mock.patch.object(Path, "write_bytes", side_effect=OSError("disk full")):
+            f = self.fetch(m, resp=self.Resp(b"new", {"Last-Modified": self.LM}))
+        self.assertEqual(f.date, datetime.date(2025, 2, 1))  # the mutant is wrong
+
+    def test_no_cache_env_dates_the_response(self):
+        with mock.patch.dict("os.environ", {"ELIDEX_WEBREF_NO_CACHE": "1"}):
+            f = self.fetch(resp=self.Resp(b"n", {"Last-Modified": self.LM}))
+        self.assertEqual(f.date, datetime.date(2026, 3, 3))
+
+    def test_cached_fetch_url_still_returns_bytes(self):
+        with mock.patch.object(cache_mod.urllib.request, "urlopen",
+                               lambda r, timeout=None: self.Resp(b"abc", {})):
+            self.assertEqual(cache_mod.cached_fetch_url(self.URL), b"abc")
 
 
 if __name__ == "__main__":
