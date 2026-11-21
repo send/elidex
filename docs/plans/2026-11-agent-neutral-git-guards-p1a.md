@@ -133,9 +133,8 @@ branch.
     `GIT_CONFIG_PARAMETERS`, both of which reroute (measured, §3.2). Codex: PLAN row 4's adapter (P2). Both are
     global changes applied by the PM / user, not by this PR — cut-over prerequisites (§7.1 step A2). A command
     adapter sees commands only: indirect forms (`include.path` pointing at a file that sets the key, a direct file
-    write into `config.worktree`) are not prevented, nor are the command shapes whose cwd the Claude guard misreads
-    (a write inside `{ …; }` or after `pushd`, `bash -lc`; its docstring lists them, and PM 930 leaves its deny
-    unwidened). `--check` detects the persistent ones of both kinds.
+    write into `config.worktree`) are not prevented, nor are the shapes whose cwd the Claude guard misreads (bypass-guard
+    memo §4.8, "`scan()`'s deny is not widened"). `--check` detects the persistent ones of both kinds.
   - **The Codex sandbox caveat.** PLAN §6 item 5 (as revised by PM 877) gives the Codex driver's workspace-write
     sandbox the `.git` common dir. A session that can write there can rewrite a shim in `<common dir>/hooks` or a
     worktree's `config.worktree` by a plain file write, which no command adapter sees. Such a write is detected,
@@ -260,9 +259,8 @@ only for elidex).
   their pass-through defers only when every git call of the command is derived and `installed(wt)` is true for each
   one's cwd (§4.1, §7.1 step A4); any other command keeps the Claude hook.
 - V3, V4 [P1b]: P1b memo §2.
-- V5 [P1a]. The adapter-layer prevention of I4 (the bypass-guard memo §4.8 patch: prevented for the command shapes
-  its `scan()` reads — the shapes whose cwd it misreads are listed in its docstring and not widened, PM 930 — and
-  detected by `--check` for every persistent reroute) is in place before `:24` / `:30` pass through; the `--check`
+- V5 [P1a]. The adapter-layer prevention of I4 (the bypass-guard memo §4.8 patch: prevented for the shapes its `scan()`
+  reads, not widened to the others (that memo), and detected by `--check` for every persistent reroute) is in place before `:24` / `:30` pass through; the `--check`
   PM-pass item runs from shim install on. Without both, the pass-through makes I4 an unwatched hole for agents.
 - V6 [P1a]. `:30` passes through only after pre-commit is installed — by construction, as V2.
 
@@ -717,17 +715,11 @@ commands and record line the PM gives you; no agent can run it. Before A2, check
 
 **The pass-through (A4).** `git-push-branch-guard.sh` (`:24`) and `cargo-fmt-precommit.sh` (`:30`) gain one early
 exit, taken only when `pass_through_defers(cmd, cwd, installed)` of `~/.claude/hooks/git-hook-bypass-guard.py`
-returns true (bypass-guard memo §4.8, PM 922 / PM 930); otherwise, and on any error, the hook runs unchanged.
-**The rule (PM 930): defer only on shapes whose cwd is derived positively; an unknown shape does not defer.** The
-function is true only when all three hold:
+returns true (bypass-guard memo §4.8, PM 922 / PM 930; its rule: defer only on derivable shapes); otherwise, and on any
+error, the hook runs unchanged. The function is true only when all three hold:
 - **Every git call is derived.** `git_segments(cmd, cwd)` — the iterator that file's `scan()` is built on, nested
-  `bash -c` / `sh -c` / `eval` segments included — sets no mark. It marks every shape whose cwd it does not derive or
-  whose git call it does not yield: a subshell or `$( … )`, a leading assignment or wrapper (`GIT_DIR=…`, `env -C …`,
-  `sudo …`), a reserved word (`if`, `{`), `pushd` / `popd` / `export` / `eval`, a `git` token in an argument position
-  (`xargs … git`), a `cd` other than an unconditional `cd <literal dir>` (`cd -`, a `$` in the target, a `cd` after
-  `&&`), a git option before the subcommand other than `-C <literal dir>` and a few options that do not change the
-  repository (`--git-dir`, `--work-tree`, `-c`), a shell other than `<sh> -c` (`bash -lc`). The list is the
-  bypass-guard memo §4.8's. A command with no git call does not defer either.
+  `bash -c` / `sh -c` / `eval` segments included — sets no mark, and yields at least one git segment. The marks are
+  owned by the bypass-guard memo §4.8, "Defer only on derivable shapes (PM 930)"; they are not restated here.
 - **Every effective cwd** (the hook JSON's `cwd`, a preceding `cd`, `git -C <dir>`, as `git_segments` derives it) is
   in scope by that file's `in_scope`. The pass-through imports that file by path and calls `pass_through_defers`; it
   copies neither the derivation nor `SCOPE_ROOTS` / `SCOPE_PARENT`. (Two copies of the roots exist today — that file and
@@ -737,18 +729,14 @@ function is true only when all three hold:
   --installed`, with that cwd as the process cwd — and only exit 0 counts. A failed read stops at `&&` (a pipe into
   `bash -s` would run an empty program, which exits 0 and would read as installed).
 
-Then exit 0 and let the git hook decide. A command it does not defer runs the Claude hook as today; where the git
-hook decides as well, the double guard is harmless (IV1). The `settings.json` entries stay.
-**Blast radius**: these hooks run for every repository on this machine and protect lexime and others (incidents
-lexime #332 / #350 / #354). For the git calls in the command text, nothing changes outside elidex: the hook defers
-only when every one of them is derived and runs in an installed elidex worktree, so a git call that runs, or may
-run, anywhere else keeps the Claude hook — from an installed worktree, `git status && env -C <another repository> git
-push origin HEAD:main` is marked and keeps it (before PM 930 it deferred). Inside elidex a worktree the shims do not
-reach keeps the Claude hook too. Two assumptions bound this: a relative `cd <dir>` is derived with an empty
-`CDPATH`, and a git call that is not in the command text at all (inside a script, or run by a `!` git alias) is seen by
-neither the walker nor the Claude hook, as today. The edit is global and the PM's / user's (`~/.claude` CLAUDE.md
-"変更の blast radius": state it, back up first); if those files are dotfiles-managed, it goes through the dotfiles
-session.
+Then exit 0 (the git hook decides); any other command keeps the Claude hook (IV1). The `settings.json` entries stay.
+**Blast radius**: these hooks run for every repository on this machine and protect lexime and others (incidents lexime #332
+/ #350 / #354). For the git calls in the command text, nothing changes outside elidex: the hook defers only when every one
+of them is derived (the marks, bypass-guard memo §4.8) and runs in an installed elidex worktree. Inside elidex a worktree
+the shims do not reach keeps the Claude hook too. Two assumptions bound this: a relative `cd <dir>` is derived with an empty
+`CDPATH` (that memo), and a git call not in the command text (inside a script, or run by a `!` git alias) is seen by neither
+the walker nor the Claude hook, as today. The edit is global and the PM's / user's (`~/.claude` CLAUDE.md "変更の blast
+radius": state it, back up first); if those files are dotfiles-managed, it goes through the dotfiles session.
 
 ### §7.2 P1b cut-over
 
@@ -786,13 +774,13 @@ type `! git -C /Users/kazuaki/repos/send.sh/elidex -c core.hooksPath=/dev/null -
 confirm it prints the git version with no deny (control: the PM runs the same command as a Bash tool call and it is
 denied, `-c core.hooksPath` in scope; a control that is not denied makes the check void). Until the check passes,
 the user's own terminal is the only form.
-**What the check shows, and what it does not.** It shows one thing: the bypass guard's PreToolUse decision does not
-deny a `! <command>`. That guard is registered without an `if` filter (`settings.json:113`), and the control shows it
-is live for a Bash tool call; whether, for `! <command>`, the hook is not run or runs and reaches no deny, the check
-cannot tell apart ("no deny" is also what a guard that fails open yields), and the bypass needs only the outcome. It
-shows nothing about the entries filtered by `"if": "Bash(gh *)"` — the head guard `:36` (`settings.json:37`) and the
-PostToolUse sync / cleanup `:136` / `:142` (`settings.json:137`, `:143`). Neither break-glass kind relies on them:
-the merge commands run the post-merge scripts themselves (P1b memo §7.4).
+**What the check shows, and what it does not.** It proves only the bypass guard's PreToolUse decision: no deny for a
+`! <command>`. That guard has no `if` filter (`settings.json:113`) and the control shows it is live for a Bash tool
+call; whether, for `! <command>`, the hook is not run or runs and reaches no deny, the check cannot tell apart ("no
+deny" is also what a fail-open guard yields), and the bypass needs only the outcome. It says nothing about the
+entries carrying an `"if"` filter: `:24` / `:30` (`"Bash(git *)"`, `settings.json:25`, `:31`) and `:36` / `:136` / `:142`
+(`"Bash(gh *)"`, `settings.json:37`, `:137`, `:143`). Neither break-glass kind relies on them: the merge commands run
+the post-merge scripts themselves (P1b memo §7.4).
 
 **Merge (P1b, D32).** P1b memo §7.4.
 
@@ -896,9 +884,8 @@ No question is open. Each former question was decided by the driver (lens conver
   guard; `scan()` and the §7.1 pass-through both use it (bypass-guard memo §4.8, D41).
 - **PM 930** (after the delta attestation of the PM 922 revision): the pass-through defers only on shapes whose cwd
   `git_segments()` derives positively, and any mark keeps the Claude hook (§7.1, D41; bypass-guard memo §4.8, "Defer
-  only on derivable shapes"); `scan()`'s deny is not widened, and its docstring lists its blind spots (I4, V5); the
-  break-glass actor rule rests on PM 908 / PM 916 themselves, and `:36` is described by what it does, not as an
-  enforcement (§7.4; P1b memo D32).
+  only on derivable shapes"); `scan()`'s deny is not widened (I4, V5); the break-glass actor rule rests on PM 908 /
+  PM 916 themselves, and `:36` is described by what it does, not as an enforcement (§7.4; P1b memo D32).
 
 ## §9 Layering and what is not touched
 
