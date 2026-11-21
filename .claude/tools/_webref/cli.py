@@ -8,7 +8,7 @@ import argparse
 import json
 import sys
 
-from .cache import NotFound
+from .cache import FetchError, NotFound
 from .commands.aoid import cmd_aoid
 from .commands.agent_brief import cmd_agent_brief
 from .commands.agent_policy import cmd_agent_policy
@@ -127,7 +127,26 @@ def build_parser() -> argparse.ArgumentParser:
             "(e.g. IteratorClose) is auto-resolved to its sec-* anchor. "
             "Output preserves <ol>/<ul> numbering and headings; cross-ref "
             "tags are kept as text only. Cached chapter HTML lives in the "
-            "shared ~/.cache/elidex-webref/ HTTP cache (conditional GET)."
+            "shared ~/.cache/elidex-webref/ HTTP cache (conditional GET). "
+            "Sources are tried in order, the first that carries the anchor "
+            "wins: ReSpec specs: nightly ED -> W3C spec-generator rendering "
+            "of it -> TR release (the catalog is consulted only when the "
+            "nightly misses or is unrendered; rendered / unrendered / ordinary "
+            "is `respec.classify_respec`). Every "
+            "ReSpec-path answer's first line is `# source:`, naming the source "
+            "and the date of the fetched copy (`cache.Fetched`: Last-Modified, "
+            "else the response Date; after a 304, the stored Last-Modified, "
+            "else the day it was revalidated): `rendered ReSpec page as served`, `ED rendered via "
+            "spec-generator`, or `TR <published date>` with the reason the "
+            "earlier sources did not answer (e.g. `ED unreachable: ...`). "
+            "Limit: the spec-generator may fail (HTTP 500) for some EDs "
+            "(aom, netinfo, savedata, ...); the output then says the source "
+            "was unreachable and the anchor's absence is unverified. Other "
+            "pages print no `# source:` line; "
+            "tc39: multipage chapter -> single page; others: one "
+            "URL. Hosts contacted: raw.githubusercontent.com (webref data), "
+            "the spec's own host, www.w3.org (spec-generator and /TR/), "
+            "cdn.jsdelivr.net (tc39 biblio) and tc39.es for tc39."
         ),
     )
     b.add_argument("shortname", help="e.g. html, dom, ecma262")
@@ -249,12 +268,14 @@ def main() -> None:
     try:
         args.func(args)
     except NotFound as e:
-        # Safety net for the few raw `fetch_json` paths that let NotFound
-        # bubble (the `specs` keyword search + the lazy catalog load in
-        # `_data_index`, both hitting `index.json`). Per-spec data-kind
-        # fetches go through `fetch_data`, which exits with its own
-        # diagnostic. Convert here to a clean CLI exit instead of a traceback.
+        # Safety net: any NotFound from a library path that does not handle
+        # it itself (e.g. raw `fetch_json`, the catalog load). Convert here
+        # to a clean CLI exit instead of a traceback.
         sys.exit(f"webref: fetch failed: {e}")
+    except FetchError as e:
+        # HTTP / network failure from `cache.cached_fetch_url`; the message is
+        # already `webref: ...`.
+        sys.exit(str(e))
     except json.JSONDecodeError as e:
         sys.exit(f"webref: invalid JSON from upstream: {e}")
     except KeyboardInterrupt:
