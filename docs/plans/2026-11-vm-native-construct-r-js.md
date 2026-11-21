@@ -11,9 +11,9 @@ the row keyed by that id) asks for (umbrella §4.2: "R-JS's per-PR plan is that 
 says otherwise; line numbers appear only as "at `<sha>`". `git diff --stat 7af70b68 378633f6` touches, of this memo's
 files, only `vm/interpreter_call.rs` and `vm/natives_generator.rs`; `git diff --stat 378633f6 3cbd5b88` touches none
 of them (the `data_transfer` split, `events_modern/mod.rs`, `tests_events_modern.rs` and the umbrella); §6.1 and the
-umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). One in-flight plan is read as a claim: the R-0b per-PR plan
-(branch `vm-r0b-frame-roots` @ `c2e3dd5f`, Rev 2.1, not on main). Landing order: R-0b's plan lands before R-JS-1
-starts, or this cite is re-pointed to its main path when it lands (PM 899 / PM 904: no repo cite to a local path).
+umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). The R-0b per-PR plan is
+`docs/plans/2026-11-vm-r0b-frame-root-enumeration.md` (Rev 2.3; this memo read it as a claim at Rev 2.1 `c2e3dd5f`,
+before it landed, and R-0b's plan PR re-points this cite; PM 899 / PM 904: no repo cite to a local path).
 Each child re-reads its anchors at its own base; where a child's base must contain one of them, the child says so (§8).
 
 **Spec numbers.** Every ECMA-262 number below is printed by `.claude/tools/webref aoid ecma262 <AO>` or `heading
