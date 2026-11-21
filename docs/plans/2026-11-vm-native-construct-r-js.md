@@ -971,4 +971,4 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
 
 ## §13. Plan-review dispositions
 
-The per-finding disposition tables for plan-review R1 (at `bee45988`), the R1-fix re-check (at `58b666a6`) and the Rev 3.1 re-check (at `b8029ab9`), with the additions-ledger summary, are kept outside the memo as review records: `elidex-pm-trial/handoff/ncons/r-js-plan-dispositions-r1-r3x.md` (verbatim from `b13ea4c6` lines 972-1071). The additions ledger is `elidex-pm-trial/handoff/ncons/r-js-additions-ledger-rev3x.md`. Nothing in them is a plan statement; every fix they record is in §0–§12 above.
+The per-finding disposition tables for plan-review R1 (at `bee45988`), the R1-fix re-check (at `58b666a6`) and the Rev 3.1 re-check (at `b8029ab9`), with the additions-ledger summary, are kept in the tracked companion `docs/plans/2026-11-vm-native-construct-r-js-dispositions.md` (verbatim from `b13ea4c6` lines 972-1071; PM 899). Nothing in them is a plan statement; every fix they record is in §0–§12 above.
