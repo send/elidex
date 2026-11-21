@@ -42,6 +42,14 @@ interface Other {
 interface Target {
   attribute long z;
 };
+
+[Exposed=Window] interface XRMesh {
+  readonly attribute long w;
+};
+
+[SecureContext] partial interface Navigator {
+  readonly attribute long n;
+};
 """
 
 
@@ -87,6 +95,18 @@ class IdlExtAttrTests(unittest.TestCase):
         out = extract_idl_blocks(IDL, "Target")
         self.assertEqual(out[0], "interface Target {")
         self.assertNotIn(" SecureContext]", out)
+
+    def test_same_line_attrs_and_decl_found_by_name(self):
+        out = extract_idl_blocks(IDL, "XRMesh")
+        self.assertEqual(out[0], "[Exposed=Window] interface XRMesh {")
+        self.assertIn("  readonly attribute long w;", out)
+        nav = extract_idl_blocks(IDL, "Navigator")
+        self.assertEqual(nav[0], "[SecureContext] partial interface Navigator {")
+
+    def test_mutant_depth_blind_misses_same_line_block(self):
+        self.assertEqual(depth_blind_extract(IDL, "XRMesh"), [])
+        self.assertNotEqual(depth_blind_extract(IDL, "XRMesh"),
+                            extract_idl_blocks(IDL, "XRMesh"))
 
     def test_nested_bracket_in_attribute_argument(self):
         # Synthetic: the measured corpus (356 IDL extracts) has no nested `[`,

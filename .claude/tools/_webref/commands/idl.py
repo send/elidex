@@ -18,19 +18,26 @@ _IDL_DECL_RE = re.compile(
 )
 
 
-def _bracket_delta(line: str) -> int:
-    """Net `[` minus `]` on `line`, ignoring string literals ("...")."""
-    delta = 0
+def _scan_attr_line(line: str, depth: int) -> tuple[int, str | None]:
+    """Advance the bracket depth over `line`, ignoring string literals.
+
+    Returns (new_depth, rest) where `rest` is the text after the `]` that
+    balanced the list on this line (None when the list is still open or did
+    not close here), so `[Exposed=Window] interface X {` yields rest
+    ` interface X {`.
+    """
     in_str = False
-    for ch in line:
+    for i, ch in enumerate(line):
         if ch == '"':
             in_str = not in_str
         elif not in_str:
             if ch == "[":
-                delta += 1
+                depth += 1
             elif ch == "]":
-                delta -= 1
-    return delta
+                depth = max(depth - 1, 0)
+                if depth == 0:
+                    return 0, line[i + 1:]
+    return depth, None
 
 
 def extract_idl_blocks(text: str, iface: str) -> list[str]:
@@ -40,7 +47,7 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
     Extended-attribute lists are accumulated by bracket depth, from the line
     that opens `[` until the line where it is balanced again, so a list split
     over several lines (`[Exposed=Window,\n LegacyOverrideBuiltIns]`) is kept
-    whole. Attributes of a non-matching block never leak into the next block.
+    whole, and a declaration on the closing line is recognised. Attributes of a non-matching block never leak into the next block.
     """
     iface_re = re.compile(rf"\b{re.escape(iface)}\b")
 
@@ -56,8 +63,17 @@ def extract_idl_blocks(text: str, iface: str) -> list[str]:
             # lstrip() so an indented list between blocks still buffers (and is
             # dropped by the next non-decl line) rather than silently discarded.
             if depth > 0 or line.lstrip().startswith("["):
-                buf.append(line)
-                depth = max(depth + _bracket_delta(line), 0)
+                depth, rest = _scan_attr_line(line, depth)
+                # Same-line form `[Exposed=Window] interface X {`: once the
+                # list closes, the remainder may itself be the declaration.
+                if rest is not None and _IDL_DECL_RE.match(rest.lstrip()):
+                    if iface_re.search(rest):
+                        out.extend(buf)
+                        out.append(line)
+                        in_block = True
+                    buf = []
+                else:
+                    buf.append(line)
                 continue
             if _IDL_DECL_RE.match(line):
                 if iface_re.search(line):
