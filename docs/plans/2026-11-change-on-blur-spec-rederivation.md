@@ -1,7 +1,7 @@
 # Change-on-blur — model H re-derived from HTML (spec → ECS principles → evidence)
 
 Slot `#11-change-on-blur-model-spec-rederivation` (owner Layout; PM 432, PM 842), with
-`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.7, 2026-11-21. Branch
+`#11-implicit-submission-commits-change` folded in (PM 842). Rev 3.8, 2026-11-21. Branch
 `layout-change-on-blur-rederivation`. **Docs only**: this memo changes no code and plans no code change (PM 842).
 
 **Defect this memo removes.** The landed change-on-blur model **H** (#597, `e0e18713`) names a measurement of one
@@ -198,26 +198,28 @@ None new. The memo touches existing ones: it leaves two pairs intact, and DF-2 c
 | WHATWG HTML §8.1.7.2 Queuing tasks | queue an element task | → queue a global task | observation only, O-3 | ✗ | yes |
 | WHATWG HTML §8.1.7.3 Processing model | event loop step 2.1 | the task queue is chosen in an implementation-defined manner | observation only, O-3 | ✗ | yes |
 | CSS COLOR 4 §16.2.1 HTML-compatible serialization of sRGB values | 6-digit hex serialization | opaque black serializes as `"#000000"` | boundary only; DC-19 | ✗ | no |
+| CSS COLOR 4 §4 Representing Colors: the <color> type | the definition of *opaque black* | opaque black is `rgb(0 0 0 / 100%)` | boundary only; DC-19 (Q19) | ✗ | no |
 
 Numbers and titles: `.claude/tools/webref coverage-map html 6.6.4 html 4.10.5.5 html 4.10.22.2 html 4.10.11 html 4.10.7
-html 4.10.5.1.12 html 4.10.5.1.13 html 2.3.4.3 html 4.10.5.1.14 html 4.10.5.1.15 html 4.10.5.1.16 html 4.10.5.1.20 html 4.10.23 html 2.1.4 html 4.10.18.1 uievents 3.3.2 html 4.10.5 html 6.6.6 html 8.1.7.2 html 8.1.7.3 css-color-4 16.2.1` (run 2026-11-21; anchors `#focus-processing-model`,
+html 4.10.5.1.12 html 4.10.5.1.13 html 2.3.4.3 html 4.10.5.1.14 html 4.10.5.1.15 html 4.10.5.1.16 html 4.10.5.1.20 html 4.10.23 html 2.1.4 html 4.10.18.1 uievents 3.3.2 html 4.10.5 html 6.6.6 html 8.1.7.2 html 8.1.7.3 css-color-4 16.2.1 css-color-4 4` (run 2026-11-21; anchors `#focus-processing-model`,
 `#common-input-element-events`, `#implicit-submission`, `#the-textarea-element`, `#the-select-element`,
 `#number-state-(type=number)`, `#range-state-(type=range)`, `#floating-point-numbers`,
 `#color-state-(type=color)`, `#checkbox-state-(type=checkbox)`, `#radio-button-state-(type=radio)`, `#reset-button-state-(type=reset)`,
 `#resetting-a-form`, `#dom-trees`, `#a-form-control's-value`, `#events-focusevent-event-order`,
 `#the-input-element`, `#focus-management-apis`, `#queuing-tasks`, `#event-loop-processing-model`,
-`#HTML-compatible-serialization-of-srgb`).
-Breadth (verified 2026-11-21): `coverage-map` prints "spec=3 (css-color-4, html, uievents), step=21 entries" and
-"K≥4 or M≥20 → 分割推奨"; the preflight counts the 24 rows and prints "SPLIT-RECOMMENDED (K>=4 or M>=20)". Not taken:
+`#HTML-compatible-serialization-of-srgb`, `#color-type`).
+Breadth (verified 2026-11-21): `coverage-map` prints "spec=3 (css-color-4, html, uievents), step=22 entries" and
+"K≥4 or M≥20 → 分割推奨"; the preflight counts the 25 rows and prints "SPLIT-RECOMMENDED (K>=4 or M>=20)". Not taken:
 the memo is one docs PR that adds no mechanism (§1 Shape), and the rows §4.10.5.1.12, §4.10.5.1.13, §2.3.4.3,
-§4.10.5.1.14 and CSS COLOR 4 §16.2.1 are boundary-only citations for DC-19 and for the two examples of DF-2 (iii)
+§4.10.5.1.14, CSS COLOR 4 §16.2.1 and CSS COLOR 4 §4 are boundary-only citations for DC-19 and for the two examples of DF-2 (iii)
 that add no cell (§6.2). Also looked up: `webref dfn html 'unload a document'` →
 §7.5.9 Unloading documents; `webref body html unloading-documents | /usr/bin/grep -c -i 'focus\|blur\|change event'`
-→ 0 (control: `-c -i 'unload'` on the same output → 25). The preflight does not know the label `UIEVENTS` that
-`coverage-map` prints, so it skips that row; its number and title were checked by hand
+→ 0 (control: `-c -i 'unload'` on the same output → 25). The preflight does not know the labels `UIEVENTS` and `CSS COLOR 4` that
+`coverage-map` prints, so it skips those 3 rows ("unmapped-label rows: 3"); their numbers and titles were checked by hand
 (`.claude/tools/webref heading uievents 3.3` → §3.3.2 Focus Event Order `#events-focusevent-event-order`). The
-CSS COLOR 4 row was checked by `.claude/tools/webref dfn css-color-4 'HTML-compatible serialization is requested'`
-→ §16.2.1 HTML-compatible serialization of sRGB values.
+CSS COLOR 4 rows were checked by `.claude/tools/webref dfn css-color-4 'HTML-compatible serialization is requested'`
+→ §16.2.1 HTML-compatible serialization of sRGB values, and `.claude/tools/webref dfn css-color-4 'opaque black'` →
+§4 Representing Colors: the <color> type `#opaque-black`.
 
 ### §3.1 Normative text quoted
 
@@ -241,8 +243,9 @@ Each quote is copied from the output of the named command.
 | Q14 | `resetting-a-form` | "Each resettable element defines its own reset algorithm. Changes made to form controls as part of these algorithms do not count as changes caused by the user (and thus, e.g., do not cause input events to fire)." |
 | Q15 | `the-input-element` (*update an input element's type*) | "1. If oldState put the value IDL attribute in the value mode, element's value is not the empty string, and newState puts the value IDL attribute in either the default mode or the default/on mode, then set element's value content attribute to element's value. 2. Otherwise, if oldState put the value IDL attribute in any mode other than the value mode, and newState puts the value IDL attribute in the value mode, then set the value of element to the value of its value content attribute, if there is one, or the empty string otherwise, and then set element's dirty value flag to false. 3. Otherwise, if oldState put the value IDL attribute in any mode other than the filename mode, and newState puts the value IDL attribute in the filename mode, then set the value of element to the empty string. … 6. Invoke the value sanitization algorithm for element, if one is defined for newState." |
 | Q16 | `color-state-(type=color)`; `update-a-color-well-control-color` | "The value IDL attribute is in mode value." "The value sanitization algorithm is as follows: Run update a color well control color for the element." Its steps: "2. Let value be the result of running these steps: 1. If element's dirty value flag is false, then return the result of getting an attribute by namespace and local name given null, "value", and element. 2. Return element's value. 3. Let color be the result of parsing value. 4. If color is failure, then set color to opaque black. 5. Set element's value to the result of serializing a color well control color given element and color." Serializing: with no `alpha` attribute and the Limited sRGB `colorspace` (the missing value default), "set htmlCompatible to true" |
-| Q17 | `the-input-element`; `.claude/tools/webref body css-color-4 color-serialization-html-compatible-serialization-is-requested`; `body css-color-4 opaque-black` | "An input element's dirty value flag must be set to true whenever the user interacts with the control in a way that changes the value." CSS COLOR 4 §16.2.1: "A seven-character string consisting of the character "#", followed immediately by the two-digit hexadecimal representations of the red component, the green component, and the blue component, in that order, using ASCII lower hex digits."; "opaque black is defined as the color rgb(0 0 0 / 100%)" |
+| Q17 | `the-input-element`; `.claude/tools/webref body css-color-4 color-serialization-html-compatible-serialization-is-requested` | "An input element's dirty value flag must be set to true whenever the user interacts with the control in a way that changes the value." CSS COLOR 4 §16.2.1: "A seven-character string consisting of the character "#", followed immediately by the two-digit hexadecimal representations of the red component, the green component, and the blue component, in that order, using ASCII lower hex digits." |
 | Q18 | `range-state-(type=range)`; `number-state-(type=number)`; `floating-point-numbers` | Range: "The value sanitization algorithm is as follows: If the value of the element is not a valid floating-point number, then set it to the best representation, as a floating-point number, of the default value."; "The default value is the minimum plus half the difference between the minimum and the maximum, unless the maximum is less than the minimum, in which case the default value is the minimum."; "The default minimum is 0." "The default maximum is 100."; "The default step is 1 (allowing only integers, unless the min attribute has a non-integer value)." Number: "The value sanitization algorithm is as follows: If the value of the element is not a valid floating-point number, then set it to the empty string instead." §2.3.4.3: "best representation of the number n as a floating-point number is the string obtained from running ToString(n)." Both states: "The value IDL attribute is in mode value." |
+| Q19 | `.claude/tools/webref body css-color-4 opaque-black` | CSS COLOR 4 §4 Representing Colors: the <color> type: "opaque black is defined as the color rgb(0 0 0 / 100%)" |
 
 ### §3.2 User-input touch audit
 
@@ -514,8 +517,9 @@ and are cited by C-id; C6's expectation flips (DF-1 (a)). These existing tests a
   rewritten (expected value unchanged; the allowlist's class-E row for it is pruned with it).
 - `record_clears_stale_snapshot_when_no_longer_text_control` (`focus_snapshot.rs:223`) asserts the removal at a
   non-text re-seed that requirement 5 deletes, so it is replaced by a cell for the population rule (DF-2).
-- `no_snapshot_for_non_text_control` (`focus_snapshot.rs:246`) asserts that the seed of a Button leaves no snapshot
-  (`Snap::Absent`). Under requirement 5 the seed does not test the kind, so that assertion inverts; the test is
+- `no_snapshot_for_non_text_control` (`focus_snapshot.rs:246`) asserts that the seed of an `<input>` of kind Button
+  (`test_support::control` creates an `input` element) leaves no snapshot (`Snap::Absent`). The element is in LR-2's
+  Population, and under requirement 5 the seed does not test its kind, so that assertion inverts; the test is
   rewritten to assert the judgement: `take_change_on_blur` is `false` because the predicate at focus loss excludes
   the kind, not because no component exists.
 - `e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot` (`crates/dom/elidex-form/src/reconciler_tests.rs:212`)
@@ -572,8 +576,8 @@ at the seed and at each `type` change (P4, P14, P16). Three sequences where the 
     none. The expected value `change` is K-first's, decided by D-3, as for DC-19; the example adds no cell.
   - *Through Color* (DC-19). Text → color is value mode to value mode: steps 1–3 do not apply, and step 6 runs the
     Color sanitization (Q16). The user's edit set the dirty value flag (Q17), so the value read is `"a"`; it does not
-    parse as a CSS color, so the color is opaque black, and with no `alpha` attribute and the default Limited sRGB
-    `colorspace` it is serialized as `"#000000"` (Q16, Q17). Color → text is value mode to value mode again; the Text
+    parse as a CSS color, so the color is opaque black (Q16; its definition, Q19), and with no `alpha` attribute and
+    the default Limited sRGB `colorspace` it is serialized as `"#000000"` (Q16, Q17). Color → text is value mode to value mode again; the Text
     sanitization ("Strip newlines from the value",
     `webref body html 'text-(type=text)-state-and-search-state-(type=search)'`) leaves `"#000000"`. `V` = `"#000000"` ≠ `F0` = `""`, and a non-user write (the
     Color sanitization) changed the value, so the sequence is in §4.1's mixed class: L and K-first fire, K-last
@@ -610,7 +614,8 @@ key routing by the live kind, P15). No guard stops the edit of a control that be
 *What `F0` is* (reading R-3, marked): the spec says "what it was when the control was first focused", and the control
 was first focused in a non-text state. The memo reads `F0` as the control's value (§4.10.18.1, its internal state) at
 that instant, whatever the state. Today nothing is stored for a non-text kind, so there is no `F0` to compare with.
-The input type change steps may then write the value (§4.10.5 The input element, step 2: "if oldState put the value
+The input type change steps may then write the value (§4.10.5 The input element, *update an input element's type*
+step 2: "if oldState put the value
 IDL attribute in any mode other than the value mode, and newState puts the value IDL attribute in the value mode,
 then set the value of element to the value of its value content attribute, if there is one, or the empty string
 otherwise"); that write is a non-user write between first focus and the user's edit, so with a `value` attribute the
@@ -625,7 +630,7 @@ the value.
 | DC-15 (new) | `<input id=b>`; UA focus `b`; user types `1`; script `b.type = "number"` (value `"1"`); UA blur | `change` | [spec] Q1 at focus loss, under R-2: `change` applies to the Number state, the user changed the value while focused, `"1"` ≠ `""` | none |
 | DC-16 (control) | `<input id=b>`; UA focus; user types `a`; script `b.type = "checkbox"`; UA blur | no `change` at blur | [spec] under R-2 (E-18): the Checkbox state has a defined input activation behavior | none (green) |
 | DC-18 (new; DF-2 (iii) through Checkbox) | `<input id=b>`, `<input id=c>`; UA focus `b`; user types `a` (`input`); script `b.type = "checkbox"`; script `b.type = "text"` (value `"a"`); UA blur | `change` at blur | [spec] under R-2: the conjuncts at focus loss, `V` = `"a"` (Q15 steps 1–2, which write `"a"` over `"a"`), and `"a"` ≠ `F0` = `""`; no non-user write changes the value, so every reading gives `change` (§4.1) | no `change` |
-| DC-19 (new; DF-2 (iii) through Color) | `<input id=b>`, `<input id=c>`; UA focus `b`; user types `a` (`input`); script `b.type = "color"` (value `"#000000"`); script `b.type = "text"` (value `"#000000"`); UA blur | `change` at blur | [spec] under R-2 for the conjuncts at focus loss and for `V` = `"#000000"` (Q15 step 6, Q16, Q17); D-3 for the comparison: `"#000000"` differs from the value just before the first user edit (`""`); K-last would give none (§4.1) | no `change` |
+| DC-19 (new; DF-2 (iii) through Color) | `<input id=b>`, `<input id=c>`; UA focus `b`; user types `a` (`input`); script `b.type = "color"` (value `"#000000"`); script `b.type = "text"` (value `"#000000"`); UA blur | `change` at blur | [spec] under R-2 for the conjuncts at focus loss and for `V` = `"#000000"` (Q15 step 6, Q16, Q17, Q19); D-3 for the comparison: `"#000000"` differs from the value just before the first user edit (`""`); K-last would give none (§4.1) | no `change` |
 
 ### §6.3 The corrections, stated once
 
@@ -697,14 +702,16 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
   - *Remaining question, exact.* (1) The IME commit path (`message_dispatch.rs:365` →
     `crates/shell/elidex-shell/src/content/ime.rs:117-152`) was not traced through its dispatch order. (2) A queued
     element task is runnable only while its document is fully active; whether a turn can reach the `input` dispatch
-    after its own `keydown` listener made the document not fully active was not traced. Both go to the PM (LR-4).
+    after its own `keydown` listener made the document not fully active was not traced. LR-4 appends each question
+    to the named slot ((1) `#11-ime-commit-event-order-and-input-type` / (2) `#11-text-edit-primitives-report-change`)
+    unless the PM homes it elsewhere, so a dismissal of O-3 does not lose either question.
 - **O-4 The snapshot's population is `is_text_control`; step 2.1's (under R-2) is every `input` to which `change`
   applies and that has no defined input activation behavior**, which also covers Number, Range and the date / time
   kinds. **Not a defect while the kind does not change during focus**: those kinds have no user edit path (P12), so
   "the user has changed the element's value" cannot hold for them and step 2.1 cannot fire. Number's missing edit
   path is `#11-number-input-user-edit-path`. **A defect when the kind changes during focus**: DF-2. A future user
-  edit path for one of those kinds writes the same component with no step of its own: under LR-2's known
-  requirement 5 every `input` carries it from the seed, and the funnel marks it.
+  edit path for one of those kinds writes the same component with no step of its own: every element of
+  LR-2's Population (stated there once) carries it from the seed, and the funnel marks it.
 
 ## §7. Ledger records (applied by the PM at landing)
 
@@ -721,7 +728,9 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
   stale, and the allowlist only shrinks."
 - **LR-2 → `#11-change-on-blur-baseline-first-focus-value`: amend the registered row** (registered by PM 861 from
   this memo's draft, with DF-2 made a facet of the DF-1 slot). Owner Layout and Re-eval-date 2026-12-15 are
-  unchanged. The amendment, against the row's current text:
+  unchanged. The fix is a per-PR slice of the focus-fixup umbrella; until the slice's own plan memo exists, the slot
+  row (this LR-2) is the slice's record; the umbrella's §1.2 is not rewritten (§8 rule). The amendment, against the
+  row's current text:
   - *DF-1 (a)*: unchanged (cells DC-1, DC-8, DC-10).
   - *DF-1 (b)*: replace "decided by D-3 (user) — when the user's edits net to nothing and the value differs from the
     first-focus value; expected values of DC-2..DC-7, DC-9, DC-11, DC-13 follow D-3" with: "**not a defect**: when
@@ -742,7 +751,11 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
     user-change mark (re-decides PM 393), the seed before `focus` / `focusin` listeners, the VM `focus()` seed
     (`html_element_proto.rs`) follows the same rule, a redundant focus does not re-seed, population decided at focus
     loss." with:
-    "Population (stated once; requirements 1 and 5 refer to it): every `input` and every `<textarea>` (memo D-4).
+    "Population (stated once; requirements 1 and 5 and the memo's other statements of it refer to it): every `input`
+    element and every `<textarea>` element (memo D-4), decided by the element, not by an `input`'s kind. Elements
+    that carry `FormControlState` at the seed and are neither (`<select>`, `<button>`, `<output>`, `<meter>`,
+    `<progress>`) get no write. The same definition is used where the seed writes the component and where focus loss
+    reads it.
     Known requirements:
     1. one component holds the first-focus value and the user-change mark, on every control of the population from
        the seed (re-decides PM 393 D1, and the overwrite half of PM 307's approval, "initial = before"; memo LR-6).
@@ -754,12 +767,13 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
        rule. The seed rule lives in one place in an engine-independent crate (`elidex-form` or `elidex-dom-api`);
        the VM host and the shell sink only call it (Layering mandate);
     4. a redundant focus does not re-seed (E-17);
-    5. no write chooses the population by kind: the seed does not test the kind, and a `type` change does not clear
-       the component (the fix deletes the `is_text_control` test in `record_focus_snapshot` and the reconciler's
-       `type`-arm call to `clear_focus_snapshot`). Whether `change` fires is decided only inside
-       `take_change_on_blur`, by one predicate over the kind at focus loss: step 2.1's conjuncts "the change event
-       applies to the element, and the element does not have a defined activation behavior", under reading R-2
-       (memo §0.5), with `<textarea>` included (memo D-4)."
+    5. no write chooses the population by kind: the seed writes every element of the Population (above) and does
+       not test an `input`'s kind, and a `type` change does not clear the component (the fix deletes the
+       `is_text_control` test in `record_focus_snapshot` and the reconciler's `type`-arm call to
+       `clear_focus_snapshot`). Whether `change` fires is decided only inside `take_change_on_blur`, on an element of
+       the same Population, by one predicate over an `input`'s kind at focus loss: step 2.1's conjuncts "the change
+       event applies to the element, and the element does not have a defined activation behavior", under reading R-2
+       (memo §0.5); a `<textarea>` takes the same predicate (memo D-4)."
   - *Allowlist rows*: replace "`focus_snapshot.rs:71` (E, reclassified by the code PR), `change-on-blur-user-provenance.md:199`,
     `focus-fixup-program.md:44` / `:163`" with "three class-E rows (slot `-`), each a code comment that names the
     measurement as the ground (memo §6.1): the doc comment of `note_user_value_change` in `focus_snapshot.rs`, and in
@@ -794,12 +808,14 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
     greps in §6.4 O-1).
   - *O-2 (i) (defect: yes)* → already homed: `#11-blur-focus-cleared-before-blur-event` (PM 861). No new record.
     O-2 (ii): resolved by #652; nothing to record.
-  - *O-3 (not shown to be a defect)* → home or dismiss. The two paths not traced go to the PM. They are outside this
+  - *O-3 (not shown to be a defect)* → home or dismiss the observation. The two paths not traced are outside this
     memo: its scope is the grounds of H (PM 842, docs only), H begins at the mark, and the `input` task model is not
     an element of H. A slice that already rewrites each path is where it would be traced: (1) the IME commit's
     dispatch order, by the slice of `#11-ime-commit-event-order-and-input-type` (it reorders `ime.rs`'s dispatch);
     (2) the fully-active check before `input`, by the slice of `#11-text-edit-primitives-report-change` (its D4
-    makes one `input` dispatch site). The PM decides whether those slots take them.
+    makes one `input` dispatch site). LR-4 appends each question to the named slot
+    (`#11-ime-commit-event-order-and-input-type` / `#11-text-edit-primitives-report-change`) unless the PM homes it
+    elsewhere; the append does not depend on whether O-3 is homed or dismissed, so a dismissal loses neither question.
   - *O-4 (not a defect while the kind does not change during focus)* → no new record: the kind-change part is DF-2
     (LR-2), and a future edit path for Number is owned by `#11-number-input-user-edit-path` (LR-5).
 - **LR-5 → `#11-focus-change-user-validity`, `#11-vm-host-synthetic-dom-event-dispatch`,
@@ -819,7 +835,10 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
   - *PM 307*
     - Withdraw: (b), W6 recorded as an accepted divergence, no slot, reopen if another engine matches. Ground lost:
       "the spec defines no baseline" (step 2.1 names the value at first focus), and its reopen condition is an
-      engine's behaviour, not an acceptance criterion. C24's outcome itself holds on D-3 (DC-9).
+      engine's behaviour, not an acceptance criterion. C24's outcome itself holds on D-3 (DC-9). Plan (1)'s W6
+      record ends "Reopen if another engine is measured and agrees with Chromium. [history]"; its `[history]` tag
+      rests on this withdrawal: if the PM narrows the withdrawal of (b), this line is class T again and is rebound to
+      an open slot at landing.
     - Withdraw: "initial = before" in the approved deviation, the overwrite of the first-focus value by the value
       before the first user edit (plan (1) D-1: "the first mark always overwrote it"). It contradicts Q1 under every
       reading: class (a) needs the first-focus value at focus loss (DF-1 (a)). Re-decided in the slice (LR-2, known
@@ -834,7 +853,10 @@ the ID). Ledger checks are `/usr/bin/grep -n -i <term>` over the slot ledger
       replace as a non-change (PE-5), so the spec, not a probe, grounds it; plan (1) §6 N6 ("not run; PM 393, to run
       later") falls with it (§8).
     - Stays in force: D2's outcome (identical-text replace is not a value change), D3 + D4
-      (`#11-text-edit-primitives-report-change`) and the slots it registered.
+      (`#11-text-edit-primitives-report-change`), and the pre-existing slots it registered:
+      `#11-text-control-modifier-chords-insert`, `#11-maxlength-truncated-input-data` and
+      `#11-keydown-focus-move-edit-target` (archive W45 :213). PM 393 also registered
+      `#11-implicit-submission-commits-change`, which LR-3 closes, so it is not among the slots that stay.
 - **LR-7 → the PM: decide D-3** (§4.1) — **answered by PM 866** (2026-11-20) and PM 870 (2026-11-21): K-first,
   recorded in §0.4 D-3; the cells whose Ground is D-3 (§6.1, §6.2) take its outcome, and DF-1 (b) is not a defect.
   PM 870: the user was told S* as FYI and may revisit D-3; a revisit is a new decision. Nothing remains open under
@@ -860,7 +882,7 @@ section and by a quoted fragment.
 | plan (1) | E1 | textarea ground (§4.2); the correction line is tagged `[contrast]` ("the ground is not browser behaviour [contrast]"): it states that the ground is *not* browser behaviour |
 | plan (1) | D-1 | erratum: one line per correction, pointers to §4.1, §6.1, §6.3 and LR-6 |
 | plan (1) | §3 textarea row; §4.3 opening and table header; §4.4 | grounds corrected (PE-4, PE-5, §4.2) |
-| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags, read through one banner at the memo's head; W6 erratum: the cited ground does not hold, LR-6 for PM 307, C24's outcome by D-3 (DC-9) |
+| plan (1) | §5.2 closing paragraph; R3; §6 pre-step heading and the W6 record; §8 first bullet; §10 Q-1; changelog Rev 3 | `[history]` tags, read through one banner at the memo's head; W6 erratum: the cited ground does not hold, LR-6 for PM 307, C24's outcome by D-3 (DC-9); the `[history]` tag on the W6 record's reopen line depends on LR-6's withdrawal of PM 307 (b) (LR-6, PM 307: narrowed → class T, rebound at landing) |
 | plan (1) | §1 (b) ("settled by measurement") | `[history]` tag; erratum pointing to D-3 (§0.4) |
 | plan (1) | D-3 ("they carry no snapshot (P2)"); I3 ("reconciler type-flip clear, non-text re-seed"); I7 ("only `is_text_control` kinds carry a snapshot"); I7 × I1 ("a non-text control passed to it has no snapshot to mark") | erratum pointer at each: the population by kind is DF-2 (§6.2); LR-2 known requirement 5 |
 | plan (1) | §7 "Seed gap" ("recorded as a known property, not a defect") | erratum pointer: a defect, DF-2 (i) (§6.2), under reading R-3 |
@@ -874,7 +896,7 @@ section and by a quoted fragment.
 
 1. `python3 .claude/skills/elidex-plan-review/preflight.py <memo>` exits 0 for this memo, the umbrella and plan (1).
 2. `python3 .claude/tools/ecs_mission_ratchet.py` → `ok (495 allowlisted, 0 new, 0 stale)` (run 2026-11-21 on this
-   revision, rev 3.7), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
+   revision, rev 3.8), with no class-T row left for `#11-change-on-blur-model-spec-rederivation` or
    `#11-change-on-blur-baseline-first-focus-value`
    (`/usr/bin/grep -c 'change-on-blur-model-spec-rederivation\|change-on-blur-baseline-first-focus-value' .claude/tools/ecs-mission-allowlist.tsv`
    → 0; control: the same command with `blur-focus-cleared-before-blur-event` → 1).
@@ -885,6 +907,14 @@ section and by a quoted fragment.
 
 ## Changelog
 
+- *Rev 3.8* (2026-11-21): /pre-push Stage 5 (`/elidex-review`) MIN fixes; no decision, expected value or cell
+  changes. LR-2: the slot row is the fix slice's record until its plan memo exists (umbrella §7 points to it); the
+  Population is defined once (every `input` and `<textarea>` element, by element; no write to the other
+  `FormControlState` elements), and requirement 5, O-4 and §6.1's `no_snapshot_for_non_text_control` refer to it.
+  §6.4 O-3 / LR-4: the two untraced questions are appended to the named slots unless the PM homes them elsewhere.
+  §6.2: *update an input element's type* step 2. §3.1: Q17's opaque-black sentence moved to Q19 (CSS COLOR 4 §4
+  Representing Colors: the <color> type); §3 gains that row (25 rows, 22 steps). LR-6: PM 393's remaining slots
+  named; PM 307 (b) names the W6 reopen line's dependence (and §8's W6 row).
 - *Rev 3.7a* (2026-11-21): plan (2) (`2026-11-focus-fixup-canonical-steps.md`) gets the same erratum as plan (1)'s
   I3 / I7: its P9 states the type-flip clear as structure; pointers at P9, E5, the §3 row and §5 item 1; outcomes
   unchanged. §8 and DoD 3 (5 files) updated.

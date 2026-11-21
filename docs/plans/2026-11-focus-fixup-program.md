@@ -262,14 +262,15 @@ two §3 rows. This section states what changed and why.
 - **What differs.** Stated once, in the re-derivation's §6: DF-1 (the baseline: its class (a) is decided by the
   spec text; its class (b) is decided by D-3 there, §0.4, and is not a defect) and DF-2 (the
   snapshot's population across a `type` change). The fix is a separate code PR, planned as a slice of this
-  umbrella. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
+  umbrella (until the slice's plan memo exists, its record is the slot row, the re-derivation's LR-2; §1.2 is not
+  rewritten). What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
 - **The measurements** of plan (1) §6 stay as `[history]`. Apart from X2, no invariant, edge or DoD item of this
   umbrella changes.
 
 ## Changelog
 
-- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections; errata per
-  `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
+- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections (§7 names the slot row as the
+  fix slice's record); errata per `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
 - *Erratum* (2026-11-21; no rev bump; PM 842): X2 corrected by the re-derivation's DF-2 (in-line pointer; §7).
 - *Rev 2.2* (2026-11-03): aligned to plan (1) design H (rev 3.1) and plan (2) rev 5.1 (C19 ordering only, PM 298):
   row (1), e1, X1, §3, PR-1, DoD 2, nested revs; stall contingency deleted (its STOP row is gone); CP-3 / CP-4 owner and x4 (PM 312).
