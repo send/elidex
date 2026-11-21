@@ -110,7 +110,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
-- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。
+- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出したら helper はそこで止まって patch を返し、Stage 4–5 は driver が当てた後の新しい head の依頼で回す (PM 924)。
 - 行 6 の lane が Codex driver なら、読んだ verdict を Orca で driver に渡す (PM 912)。
 
 ## 3. 役割の境界
