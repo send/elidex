@@ -305,16 +305,19 @@ pub(super) fn detached_range_error(ctx: &NativeContext<'_>, method: &'static str
 }
 
 /// [`detached_range_error`] for a method of another `interface` that takes a
-/// detached Range argument (e.g. `Selection.addRange`); the one home of the
-/// message format.
+/// detached Range argument (e.g. `Selection.addRange`). The one home of the
+/// detached-Range detail; the "Failed to execute" format is the shared
+/// [`super::dom_exception::invalid_state_error`] factory.
 pub(super) fn detached_range_error_on(
     ctx: &NativeContext<'_>,
     interface: &'static str,
     method: &'static str,
 ) -> VmError {
-    VmError::dom_exception(
+    super::dom_exception::invalid_state_error(
         ctx.vm.well_known.dom_exc_invalid_state_error,
-        format!("Failed to execute '{method}' on '{interface}': the Range has been detached"),
+        interface,
+        method,
+        "the Range has been detached",
     )
 }
 

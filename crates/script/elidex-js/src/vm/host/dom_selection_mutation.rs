@@ -174,7 +174,8 @@ pub(super) fn native_selection_add_range(
     let range_id = arg_range(ctx, args.first().copied(), "addRange")?;
     // WebIDL §3.2.15 Interface types step 1: interface conversion (`arg_range`) succeeds for any Range; an
     // unregistered id is the Range natives' "detached" state, so it throws the
-    // same `detached_range_error` they do (one issue, one way).
+    // same detached-Range error they do, named on 'Selection'
+    // (`detached_range_error_on`; one issue, one way).
     // Unbound: skip the pre-check (HostData access would panic); the
     // `mutate_selection` guard below throws like the other Selection natives.
     if ctx.host_if_bound().is_some() {

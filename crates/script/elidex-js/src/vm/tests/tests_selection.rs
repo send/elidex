@@ -827,5 +827,13 @@ fn add_range_unregistered_range_after_rebind_throws_invalid_state() {
         "try { s.addRange(r); 'none' } catch (e) { e.name }",
     );
     assert_eq!(name, "InvalidStateError");
+    let message = eval_str(
+        &mut vm,
+        "try { s.addRange(r); 'none' } catch (e) { e.message }",
+    );
+    assert_eq!(
+        message,
+        "Failed to execute 'addRange' on 'Selection': the Range has been detached"
+    );
     vm.unbind();
 }
