@@ -10,11 +10,12 @@
 #![cfg(test)]
 
 use super::super::coroutine_types::{FrameCompletion, GeneratorStatus, SuspendedFrame};
-use super::super::frame::{CallFrame, FrameKind, Upvalue, UpvalueState};
+use super::super::frame::{CallFrame, Upvalue, UpvalueState};
 use super::super::shape;
+use super::super::tests::forged_frame;
 use super::super::value::{
-    CallMode, FuncId, FunctionObject, GeneratorState, JsValue, Object, ObjectId, ObjectKind,
-    Property, PropertyStorage, PropertyValue, UpvalueId,
+    CallMode, FunctionObject, GeneratorState, JsValue, Object, ObjectId, ObjectKind, Property,
+    PropertyStorage, PropertyValue, UpvalueId,
 };
 use super::super::Vm;
 
@@ -410,8 +411,8 @@ fn gc_correctness_under_stress() {
 
 // ── Frame-root neutrality cells (R-0b) ────────────────
 //
-// Each cell hand-builds a `CallFrame` (the way `forged_frame` in
-// `vm/tests/tests_with_call_mode.rs` does) whose only reference to a fresh
+// Each cell builds a `CallFrame` with the shared `forged_frame` helper
+// (`vm/tests/helpers.rs`) whose only reference to a fresh
 // object is one handle field, runs a collection, and asks whether the object
 // is still allocated.  Two residencies: a live frame on `VmInner::frames`,
 // and a frame stored in a rooted `Generator`'s `SuspendedFrame`.  The
@@ -435,26 +436,12 @@ enum Handle {
     PendingNormal,
 }
 
-/// A frame with no handle set.
-fn blank_frame() -> CallFrame {
-    CallFrame {
-        func_id: FuncId(0),
-        ip: 0,
-        base: 0,
-        upvalue_ids: std::sync::Arc::from([] as [UpvalueId; 0]),
-        local_upvalue_ids: Vec::new(),
-        this_value: JsValue::Undefined,
-        exception_handlers: Vec::new(),
-        tdz_bits: 0,
-        tdz_overflow: Box::default(),
-        actual_args: None,
-        cleanup_base: 0,
-        new_instance: None,
-        mode: CallMode::Call,
-        home_class: None,
-        kind: FrameKind::Function,
-        generator: None,
-        pending_completion: None,
+/// A `SuspendedFrame` holding `frame` and nothing else.
+fn suspended(frame: CallFrame) -> SuspendedFrame {
+    SuspendedFrame {
+        frame,
+        stack_slice: Vec::new(),
+        upvalue_slots: Vec::new(),
     }
 }
 
@@ -487,7 +474,7 @@ fn frame_holding(vm: &mut Vm, handle: Handle, place: bool) -> (ObjectId, CallFra
     } else {
         vm.inner.alloc_object(ordinary(None))
     };
-    let mut f = blank_frame();
+    let mut f = forged_frame(0, Vec::new());
     if place {
         match handle {
             Handle::This => f.this_value = JsValue::Object(obj),
@@ -538,9 +525,7 @@ fn live_frame_keeps(handle: Handle, place: bool) -> bool {
     let mut vm = test_vm();
     let (obj, f) = frame_holding(&mut vm, handle, place);
     vm.inner.frames.push(f);
-    let alive = collect_and_alive(&mut vm, obj);
-    vm.inner.frames.pop();
-    alive
+    collect_and_alive(&mut vm, obj)
 }
 
 /// Suspended residency: the frame sits in a `Generator`'s `SuspendedFrame`,
@@ -548,14 +533,7 @@ fn live_frame_keeps(handle: Handle, place: bool) -> bool {
 fn suspended_frame_keeps(handle: Handle, place: bool) -> bool {
     let mut vm = test_vm();
     let (obj, f) = frame_holding(&mut vm, handle, place);
-    let gen_id = alloc_generator(
-        &mut vm,
-        Some(SuspendedFrame {
-            frame: f,
-            stack_slice: Vec::new(),
-            upvalue_slots: Vec::new(),
-        }),
-    );
+    let gen_id = alloc_generator(&mut vm, Some(suspended(f)));
     root_via_global(&mut vm, gen_id);
     collect_and_alive(&mut vm, obj)
 }
@@ -575,8 +553,9 @@ const LIVE_HANDLES: [Handle; 11] = [
     Handle::PendingNormal,
 ];
 
-/// The suspended column: `generator` is the smoke check below (the owner
-/// survives whether or not the field is marked), so it is not in this list.
+/// The suspended column: `Handle::Generator` is not in this list because that
+/// row would build a *separate* generator; it is covered by its own test,
+/// `suspended_frame_foreign_generator_is_rooted`.
 const SUSPENDED_HANDLES: [Handle; 10] = [
     Handle::This,
     Handle::UpvalueIds,
@@ -636,16 +615,12 @@ fn suspended_frame_negative_control_collects() {
 fn suspended_frame_owner_generator_smoke() {
     let mut vm = test_vm();
     let gen_id = alloc_generator(&mut vm, None);
-    let mut f = blank_frame();
+    let mut f = forged_frame(0, Vec::new());
     f.generator = Some(gen_id);
     let ObjectKind::Generator(state) = &mut vm.inner.get_object_mut(gen_id).kind else {
         unreachable!("alloc_generator allocates a Generator");
     };
-    state.suspended = Some(SuspendedFrame {
-        frame: f,
-        stack_slice: Vec::new(),
-        upvalue_slots: Vec::new(),
-    });
+    state.suspended = Some(suspended(f));
     root_via_global(&mut vm, gen_id);
     assert!(collect_and_alive(&mut vm, gen_id));
 }
@@ -672,9 +647,8 @@ fn upvalue_slots_keep(place: bool) -> bool {
     let gen_id = alloc_generator(
         &mut vm,
         Some(SuspendedFrame {
-            frame: blank_frame(),
-            stack_slice: Vec::new(),
             upvalue_slots: if place { vec![(uv, 0)] } else { Vec::new() },
+            ..suspended(forged_frame(0, Vec::new()))
         }),
     );
     root_via_global(&mut vm, gen_id);

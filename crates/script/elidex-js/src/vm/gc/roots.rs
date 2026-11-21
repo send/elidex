@@ -16,7 +16,7 @@ use super::super::value::StringId;
 use super::super::value::{JsValue, Object, ObjectId};
 #[cfg(feature = "engine")]
 use super::super::wrapper_intern::{MarkAgent, WrapperOwner, WrapperSubkey};
-use super::{mark_object, mark_value};
+use super::{mark_frame, mark_object, mark_value};
 
 /// Snapshot of all GC root sets, borrowed immutably from `VmInner`.
 pub(super) struct GcRoots<'a> {
@@ -276,7 +276,7 @@ pub(super) fn mark_roots(
 
     // (b) Call frame roots
     for frame in roots.frames {
-        super::mark_frame(frame, roots.upvalues, uv_marks, obj_marks, work);
+        mark_frame(frame, roots.upvalues, uv_marks, obj_marks, work);
     }
 
     // (c) Global variables

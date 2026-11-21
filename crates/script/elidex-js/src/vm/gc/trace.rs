@@ -13,8 +13,8 @@
 //! Sweep + IC invalidation + the `collect_garbage` orchestrator
 //! stay in [`super::sweep`] / [`super::collect`] alongside the
 //! bit-vector helpers and the single-object [`super::mark_value`] /
-//! [`super::mark_object`] / [`super::mark_upvalue`] primitives that
-//! this tracer calls back into.
+//! [`super::mark_object`] / [`super::mark_upvalue`] /
+//! [`super::mark_frame`] primitives that this tracer calls back into.
 
 use super::super::coroutine_types::SuspendedFrame;
 use super::super::frame::Upvalue;
