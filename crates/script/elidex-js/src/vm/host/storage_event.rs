@@ -1,4 +1,4 @@
-//! `StorageEvent` interface (WHATWG HTML §11.4.2) — VM thin binding.
+//! `StorageEvent` interface (WHATWG HTML §12.2.4) — VM thin binding.
 //!
 //! ## Shape
 //!
@@ -16,10 +16,10 @@
 //!
 //! ## Dispatch (out of scope for this slot)
 //!
-//! Per WHATWG §11.2.5 step 8, a `setItem` / `removeItem` / `clear`
-//! mutation fires a `storage` event on **other** Documents in the
-//! same origin — never on the originating document.  In a
-//! single-VM world the event is unobservable from the originating
+//! HTML §12.2.1, “broadcast”, steps 3–4 queue a task to fire a `storage`
+//! event at each other matching Window. Both storage types require matching
+//! origins and types. Session storage also requires the same traversable.
+//! In a single-VM world the event is unobservable from the originating
 //! script; cross-VM fan-out via the shell broker is tracked at
 //! `#11-storage-event-broker`.  This file ships only the
 //! constructor + class definition; the dispatch path is left absent.

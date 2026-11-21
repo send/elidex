@@ -1,4 +1,4 @@
-//! `Storage` interface (WHATWG HTML §11.2) — VM thin binding.
+//! `Storage` interface (WHATWG HTML §12.2.1) — VM thin binding.
 //!
 //! ## Layering
 //!

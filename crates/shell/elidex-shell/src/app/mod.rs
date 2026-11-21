@@ -354,7 +354,7 @@ pub struct App {
     /// App at least authority. `Some` only in the threaded path (built in
     /// [`Self::init_browser_db`]); inline/legacy modes have no SW → `None`.
     origin_storage: Option<elidex_storage_core::OriginStorageManager>,
-    /// Process-wide `localStorage` backend (WHATWG HTML §11.2), disk-backed +
+    /// Process-wide `localStorage` backend (WHATWG HTML §12.2.3), disk-backed +
     /// origin-scoped. Owned once at the browser-process level (mirroring the
     /// shared `CookieJar` on the `NetworkProcessHandle`) and cloned to every
     /// spawned content thread so same-origin tabs share ONE in-memory registry

@@ -296,7 +296,7 @@ mod engine_feature {
         /// `(callback, instance)` binding per `IntersectionObserver` ID.
         /// Same contract as [`Self::resize_observer_bindings`].
         pub(crate) intersection_observer_bindings: HashMap<u64, ObserverBinding>,
-        /// Origin-scoped `localStorage` backend (WHATWG HTML §11.2).
+        /// Origin-scoped `localStorage` backend (WHATWG HTML §12.2.3).
         /// Wrapped in `Arc` so multiple `HostData` instances (e.g. one
         /// per browsing-context VM) can share a single per-process
         /// manager + on-disk JSON tree.  `None` until the embedder
@@ -318,7 +318,7 @@ mod engine_feature {
         /// headless / unit-test VMs still work (per-VM, lost on
         /// `Vm::unbind`).
         cache_backend: Option<Arc<CacheBackend>>,
-        /// Per-VM `sessionStorage` backing (WHATWG HTML §11.2). In
+        /// Per-VM `sessionStorage` backing (WHATWG HTML §12.2.2). In
         /// memory only; cleared on `Vm::unbind` (the spec models
         /// sessionStorage as scoped to a browsing context, so the
         /// existing bind/unbind cycle expresses that boundary).

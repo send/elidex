@@ -615,11 +615,10 @@ define_well_known_strings! {
     }
 
     "Storage / StorageEvent (slot #11-storage-web)" {
-        // Constructor / global identifier names (WHATWG HTML §11.2).
+        // Constructor / global identifier names (WHATWG HTML §12.2).
         // `localStorage` / `sessionStorage` are accessor properties
-        // installed on `Window.prototype` (matching the
-        // `[SameObject]` semantics of the Storage interface — the
-        // getter returns a single cached wrapper per area).
+        // installed on `Window.prototype` (each getter returns its
+        // document's cached wrapper).
         local_storage_global => "localStorage",
         session_storage_global => "sessionStorage",
         storage_global => "Storage",
@@ -634,9 +633,8 @@ define_well_known_strings! {
         // `key` / `oldValue` / `newValue` / `url` already live in
         // earlier sections and are reused here.
         storage_area => "storageArea",
-        // DOMException name surfaced when `setItem` exceeds the
-        // 5 MiB origin quota (WHATWG HTML §11.2.1 +
-        // `StorageError::quota_exceeded` round-trip).  Pre-interned
+        // DOMException name surfaced when `setItem` cannot store a value
+        // (WHATWG HTML §12.2.1, step 4 of `setItem`).  Pre-interned
         // here so the `vm/host/storage.rs` quota path can produce
         // the DOMException without a per-call `strings.intern(...)`.
         dom_exc_quota_exceeded_error => "QuotaExceededError",

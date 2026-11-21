@@ -370,7 +370,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // 64 + 1 (M4-12 slot #11-storage-web:
-                // Storage.prototype, WHATWG HTML §11.2). Chains to
+                // Storage.prototype, WHATWG HTML §12.2.1). Chains to
                 // `Object.prototype`. Cached `localStorage` /
                 // `sessionStorage` instances are rooted via separate
                 // slots below.
@@ -379,7 +379,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // 65 + 1 = 66 (M4-12 slot #11-storage-web:
-                // StorageEvent.prototype, WHATWG HTML §11.4.2).
+                // StorageEvent.prototype, WHATWG HTML §12.2.4).
                 // Chains to `Event.prototype`.
                 #[cfg(feature = "engine")]
                 self.storage_event_prototype,

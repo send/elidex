@@ -1,4 +1,4 @@
-//! WHATWG HTML §11.2 Web Storage backend (`localStorage` + `sessionStorage`).
+//! WHATWG HTML §12.2 Web Storage backend (`localStorage` + `sessionStorage`).
 //!
 //! Engine-independent algorithm + persistence. JS bindings live in the
 //! engine crate (`elidex-js::vm::host::storage`), which delegates here so
@@ -23,7 +23,8 @@
 //!
 //! ## Quota
 //!
-//! Per WHATWG §11.2.1 the storage quota is per-origin, ~5 MB. We track
+//! Storage Standard §4.1 recommends 5 MiB per `localStorage` or `sessionStorage`
+//! bottle. We track
 //! `byte_size` incrementally (sum of `key.len() + value.len()` in UTF-8
 //! bytes — same convention as the boa precedent that this module
 //! supersedes). [`STORAGE_QUOTA_BYTES`] is the cap; `set` returns
@@ -51,11 +52,10 @@ use crate::error::StorageError;
 
 /// Per-origin storage quota in UTF-8 bytes (sum of key + value lengths).
 ///
-/// 5 MiB matches WHATWG HTML §11.2.1 wording ("around five megabytes")
-/// and the de-facto browser baseline.
+/// Storage Standard §4.1 recommends 5 MiB per Web Storage bottle.
 pub const STORAGE_QUOTA_BYTES: usize = 5 * 1024 * 1024;
 
-/// Discriminates the two `Storage` flavours per WHATWG HTML §11.2.
+/// Discriminates the two `Storage` flavours per WHATWG HTML §12.2.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StorageArea {
     /// Persistent, origin-scoped, shared across documents in the same origin.

@@ -645,13 +645,13 @@ pub(crate) struct VmInner {
     /// `register_selection_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) selection_prototype: Option<ObjectId>,
-    /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
+    /// `Storage.prototype` (WHATWG HTML §12.2.1).  Chains to
     /// `Object.prototype` and carries `getItem` / `setItem` /
     /// `removeItem` / `clear` / `key` / `length`.  `None` until
     /// `register_storage_global()` runs during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) storage_prototype: Option<ObjectId>,
-    /// `StorageEvent.prototype` (WHATWG HTML §11.4.2).  Chains to
+    /// `StorageEvent.prototype` (WHATWG HTML §12.2.4).  Chains to
     /// `Event.prototype`.  `None` until
     /// `register_storage_event_global()` runs.
     #[cfg(feature = "engine")]
