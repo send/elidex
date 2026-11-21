@@ -1,5 +1,5 @@
 # R-JS — ECMAScript `[[Construct]]`, the this-binding and SuperCall (per-PR plan, native-construct umbrella §4.2)
-Status: **plan (pre-implementation), Rev 3.1** (re-check at `58b666a6` folded per PM 886, §13.1; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
+Status: **plan (pre-implementation), Rev 3.2** (re-check at `b8029ab9` folded per PM 892 with an additions ledger, §13.2; re-check at `58b666a6` folded per PM 886, §13.1; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
 for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4. Umbrella:
 `docs/plans/2026-11-vm-native-construct-contract.md` (ratified at #643 `b46a030c`, PM 811 / PM 818). This memo is the
 derivation the repo ledger row `#11-vm-derived-constructor-this-binding` (`docs/plans/2026-07-vm-p4-slot-ledger.md`,
@@ -62,18 +62,18 @@ ecma262 <n>` (§12 M-1), step prose by `webref body`. Rows are keyed by AO name.
 Each row changes a ratified surface, so it is a design change under this memo's `/elidex-plan-review`, not a clerical
 edit (PM 880). The reviewer checks the row's text against the code at `3cbd5b88` and the spec cites named. **Approval
 scope:** PM 880's go named the umbrella's §1.2 / §8.3 only; **PM 883 D2 widens it** to RS-2 and §8.1's four rows (RS-1);
-D1 adds RS-6 … RS-8; PM 886 adds RS-9 (the sweep).
+D1 adds RS-6 … RS-8; PM 886 adds RS-9 (the sweep); PM 892 folds Rev 3.2's corrections into RS-3 and RS-9 (no new surface).
 
 | # | Surface (file, heading) | Old → new | Grounds |
 |---|---|---|---|
 | RS-1 | umbrella §1.2 "Unchanged", §8.1 rows `call_dispatch`, `call_internal`, `push_js_call_frame`, `construct_synchronous`, §8.3; history §0.2 Rev 1.7 (1), (3) | "R-JS and R-NAT do not touch `call_dispatch`" / "`call_dispatch`'s arms (`vm/interpreter_call.rs:17`)" → R-NAT, R-JS-2, R-JS-3 do not; R-JS-1 changes one expression of `call_dispatch_rooted`'s Function arm (`:46` / `:64` / `:68` at `3cbd5b88`; wrapper `:29`). §8.1: `call_internal` "its three `new_instance: None` frame literals (`:385`, `:420`, `:469`)" → R-JS-1 the `this` type and `this_value` (`:399`), R-JS-2 the one `new_instance: None` (`:415`; the coroutine frame is a struct update); `push_js_call_frame` "frame literals (`:619`, `:671`, `:718`)" → one literal (`:569`), parameter `:480`, field `:581`, and R-JS-3's frame-first push; `construct_synchronous` "R-JS drops `receiver` / `pre_alloc_instance`" → R-JS-2 the tail, R-JS-3 **deletes** it; `call_dispatch`'s "`:241-246`" → the `WasmExportedFunction` arm `:267` | C-1; PM 880 Q-2; PM 883 D2; §6.1 |
 | RS-2 | umbrella §3, row "ECMA-262 §10.4.1.2 [[Construct]]"; §0.2 Rev 1.7 (2) | "`admit_construct` (unchanged)" → `admit_construct`'s one chain walk (steps 1-4 and step 5's test; its visitor is also given each link, newTarget passed in) + the entry (uses the remapped newTarget) | C-2; PM 883 D2; §4.3.1 |
-| RS-3 | entry memo `docs/plans/2026-07-vm-p4-es-language-completeness.md`, cited-sections table, [C11] / [C13] "Used by"; umbrella §4.2 split bullets; Rev 1.7 (4) | entry memo [C11] "R-JS (…): steps 3, 6.a, 9-17" → "steps 2-6.a, 9-17, the step-6.b call point"; [C13] "SuperCall steps 6-9, the step-12 call point" (kept). Umbrella §4.2 "[C11] steps 3, 6.a and 12-17" → "steps 2-6.a and 9-17"; "Stays with 2ab: InitializeInstanceElements" → its body (R-JS places the call points) | §3 (step 2 = R-JS-2's kind, step 4 = R-JS-3's push, 9-11 = R-JS-2's frame removal); checker and family test (§12 M-6). **Net against main (`3cbd5b88`):** the entry memo's two R-JS entries are an **addition** (the quoted "old" [C11] text was introduced by this PR's `bee45988` and is not on main); the umbrella's [C11] range and "Stays with 2ab" are on main and are replaced |
+| RS-3 | entry memo `docs/plans/2026-07-vm-p4-es-language-completeness.md`, cited-sections table, [C11] / [C13] "Used by"; umbrella §4.2 split bullets; Rev 1.7 (4) | entry memo [C11] "R-JS (…): steps 3, 6.a, 9-17" → "steps 2-6.a, 9-17, the step-6.b call point and its step-6.c exit"; [C13] "SuperCall steps 6-9, the step-12 call point" (kept). Umbrella §4.2 "[C11] steps 3, 6.a and 12-17" → "steps 2-6.a, 6.c and 9-17"; "Stays with 2ab: InitializeInstanceElements" → its body (R-JS places the call points) | §3 (step 2 = R-JS-2's kind, step 4 = R-JS-3's push, 6.c = R-JS-3's removal of the frame when the step-6.b call is abrupt, step 9 = R-JS-2's frame removal, steps 10-11 its completion handling; 6.c and the step-9 / 10-11 split are Rev 3.2, re-check A4, `webref body` §12 M-1); checker and family test (§12 M-6). **Net against main (`3cbd5b88`):** the entry memo's two R-JS entries are an **addition** (the quoted "old" [C11] text was introduced by this PR's `bee45988` and is not on main); the umbrella's [C11] range and "Stays with 2ab" are on main and are replaced |
 | RS-4 | the reviewed test expectation `extends_null_default_ctor_is_base` (D-17b R4 G4-2) | `new X() instanceof X` → TypeError | C-3; spec rung 1, ClassDefinitionEvaluation steps 18 / 14.a.4 (PM 880 Q-3) |
 | RS-5 | umbrella §0.2 history order; §4.2 "may yield children"; §9.1 step 6; §7 `data_transfer.rs` row; §9.1 step 8 | rows 1.5, 1.7, 1.6 → 1.5, 1.6, 1.7; "it may yield children along those axes" → three children, one plan-review; step 6 names R-JS = R-JS-3's landing; R-0c "targets 11-21" → landed #654 `3cbd5b88` | R1 A5 / A3 MINs; §8. **Net against main (`3cbd5b88`):** the history order is an **addition** (row 1.7 does not exist on main; this PR's `bee45988` placed it before 1.6, Rev 3 after it); the other three are on main and are replaced |
 | RS-6 | slice-plan `docs/plans/2026-07-vm-p4-slice-plan.md` row **C** (`:961` at `bee45988`), its complement classification | "the child of `#11-vm-derived-constructor-this-binding` that owns the `[[ThisBindingStatus]]` representation delivers it on the **call frame**, not a binding cell" → that child (R-JS-1) delivers **row C's first record kind**: a Function Environment Record is a declarative Environment Record (§9.1.1.3), so `ObjectKind::ThisEnvironment` is the kind C's derivation extends, never a second capture mechanism beside it; the old text kept as a ⚠ note | D1 (i), §1.3.4; made in this PR |
-| RS-7 | repo ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` row `#11-vm-derived-constructor-this-binding` (`:293`) | "The status on the call frame is the artifact" → "The status on the function's this-environment record is the artifact: held inline by the call frame, a shared `ObjectKind::ThisEnvironment` record once an arrow observes it — the first record kind of umbrella C's representation (R-JS plan §1.3, PM 883 D1)"; three phrasings of "on the frame" and the [C11] range likewise (landing list §9) | D1 (i); applied by the recorder at R-JS's plan landing |
-| RS-9 | the sweep of the old facts (PM 886): (a) the this-binding status / representation is "on the call frame"; (b) `construct_synchronous` survives R-JS ("loses both parameters", "becomes a caller of the single entry", "R-JS changes D-4's arguments"); (c) R-JS edits `call_internal` / `push_js_call_frame` "for `new_instance` only". Sites: slice-plan rows **S** (two sites), **1a**, **2a**, **2ab**, **9a** and the 2ab ordering paragraph; umbrella §1.2 (In list, `construct_synchronous` row), §1.4 P-11, §2.1 A6×A7, E-9, §4.2 (One entry; the representation sentence; umbrella 3's split bullet; 1aa), §8.1 `invoke_upgrade`, §8.4, history 1.7 (6); repo ledger `:293` / `:333` (landing list A1 / A5) | Old: as quoted at each site at `58b666a6` (e.g. umbrella §1.2 "loses both parameters; becomes a caller of the single entry"; §4.2 "R-JS edits the same two functions (`call_internal`, `push_js_call_frame`; §8.1) for `new_instance` only"; slice-plan S "the `[[ThisBindingStatus]]` representation on the call frame") → new: a pointer to the full statement or a one-line correction in place. **The full statement lives once:** (a) in RS-6 / RS-7 and §1.3; (b) and (c) in umbrella §8.1's rows and RS-1. Umbrella 3's overlap reading is kept: `home_class`, its `None` in `call_internal` and its rooting stay as they are | PM 886 (one sweep, pointer-or-one-line); re-check A5 N1 / N2 |
+| RS-7 | repo ledger `docs/plans/2026-07-vm-p4-slot-ledger.md` row `#11-vm-derived-constructor-this-binding` (`:293`) | "The status on the call frame is the artifact" → "The status on the function's this-environment record is the artifact: held inline by the call frame, a shared `ObjectKind::ThisEnvironment` record once an arrow observes it — the first record kind of umbrella C's representation (R-JS plan §1.3, PM 883 D1)"; the row's other clauses likewise — three more "on the frame" phrasings, the [C11] range, 2ab's share, the kind's home and `construct_synchronous`'s fate (landing list A1 items 2-8, §9) | D1 (i); applied by the recorder at R-JS's plan landing |
+| RS-9 | the sweep of the old facts (PM 886): (a) the this-binding status / representation is "on the call frame"; (b) `construct_synchronous` survives R-JS ("loses both parameters", "becomes a caller of the single entry", "R-JS changes D-4's arguments"); (c) R-JS edits `call_internal` / `push_js_call_frame` "for `new_instance` only". Sites: slice-plan rows **S** (two sites), **1a**, **2a**, **2ab**, **9a** and the 2ab ordering paragraph; umbrella §1.2 (In list, `construct_synchronous` row), §1.4 P-11, §2.1 A6×A7, §2.2 E-9, §4.2 (One entry; the representation sentence; umbrella 3's split bullet; 1aa), §8.1 `invoke_upgrade`, §8.4, history 1.7 (6); repo ledger `:293` / `:333` (landing list A1 / A5); PM ledger `:248`, `:254`, `:257` (landing list C2, at R-JS-3's landing: they describe today's tree). Rev 3.2 (re-check A5): row S's wording agrees with row C ("inline on the frame until an arrow observes it, then a shared cell"); 1a's stack-layout evidence and 2ab's E-10 cite are re-pointed; history 1.7 (6) names fact (a)'s sites and PM 886 | Old: as quoted at each site at `58b666a6` (e.g. umbrella §1.2 "loses both parameters; becomes a caller of the single entry"; §4.2 "R-JS edits the same two functions (`call_internal`, `push_js_call_frame`; §8.1) for `new_instance` only"; slice-plan S "the `[[ThisBindingStatus]]` representation on the call frame") → new: a pointer to the full statement or a one-line correction in place. **The full statement lives once:** (a) in RS-6 / RS-7 and §1.3; (b) and (c) in umbrella §8.1's rows and RS-1. Umbrella 3's overlap reading is kept: `home_class`, its `None` in `call_internal` and its rooting stay as they are | PM 886 (one sweep, pointer-or-one-line); re-check A5 N1 / N2 |
 | RS-8 | S / N canonical rows: slice-plan rows **3** (`:951`), **C** (`:961`, two sites), **N** (`:971`); repo ledger `:286` (N), `:287` (S) | slice-plan C: "put a field on `FunctionObject` beside the `captured_this` that already exists" → add a field to the record reached through `FunctionObject::this_env`; the I-7 sentence's "a field beside the `captured_this`" → R-JS-1's kind / `this_env`. Rows 3 / N and ledger `:286` / `:287` describe today's tree ("no … beside `captured_this`") and stay true until R-JS-1: each gains a forward pointer, not a rewrite (slice-plan rows here; ledger rows in the landing list) | D1; §1.3.2 |
 
 ## §1. Derivation
@@ -117,8 +117,9 @@ conforming case into a ReferenceError) and is what removes pre-allocation (axis 
   implementation needs a decision this memo does not make returns to plan-review for that delta (Step 4.5). Each child
   PR runs `/pre-push` and a single-pass Codex.
 - **Docstrings, every child.** Each new or rewritten symbol that implements an AO step (R-JS-1: `ThisBinding`,
-  `ThisEnvironment`, `FrameThisEnv`, `this_binding`, `bind_this`, `this_env_for_call`, `Op::reads_this_environment`;
-  R-JS-2: `ConstructorKind`, `complete_construct`; R-JS-3: the entry, the helper, `initialize_instance_elements`) names
+  `ThisEnvironment`, `FrameThisEnv`, `this_binding`, `this_env_for_call`, `Op::reads_this_environment`;
+  R-JS-2: `ConstructorKind`, `complete_construct`; R-JS-3: the entry, the helper, `initialize_instance_elements`,
+  `bind_this`, `ThisBinding::Uninitialized` with GetThisBinding's step 2 in `this_binding`) names
   the AO by name and its number from `webref aoid` / `heading` at the child's base (CLAUDE.md "Spec citation").
 
 ### §1.3 The representation (axis 1)
@@ -128,7 +129,8 @@ sets uninitialized for every non-lexical function, OrdinaryCallBindThis §10.2.1
 entry). Its readers are the three §9.4.3 consumers: ResolveThisBinding (`this`), GetSuperConstructor /
 MakeSuperPropertyReference (`super`, §13.3.7.2 step 1, §13.3.7.3 step 1, §13.3.7.1 SuperProperty step 1), GetNewTarget (`new.target`,
 §9.4.5 step 1). An arrow's own environment is lexical (OrdinaryFunctionCreate §10.2.3 step 9), so its consumers reach
-the enclosing non-arrow function's record. A fourth caller, PerformEval (§19.2.1.1 step 11.a, direct eval), is
+the enclosing non-arrow function's record. Two further callers: SuperCall step 7 (`thisER`, which step 9 binds; its op
+is already `Reads` through steps 1 and 3, §1.3.3), and PerformEval (§19.2.1.1 step 11.a, direct eval), which is
 unreachable today (core exposes no JS-level `eval`, `vm/frame.rs` `CallFrame::kind`'s doc); when a strict direct eval
 lands, the op that performs it is classified as reading the record (§1.3.3), so an arrow containing one captures.
 
@@ -154,15 +156,25 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   `ObjectKind::PromiseCombinatorState` (shared by every combinator step). Reasons over a new arena: tracing and sweep
   come from the existing object GC (one `trace_work_list` arm), no new mark bitmap threaded through `mark_frame` /
   `mark_value`, and no touch of `vm/gc/collect.rs` (2064 lines) or `VmInner`'s field list. Not lesson #276: the state
-  shape is unique (no other kind holds a this-binding). **Invariant, by type:** the handle is
-  `ThisEnvId(ObjectId)` (NEW, `vm/frame.rs`; private field, no conversion to `JsValue`, one accessor `object_id()`
-  for `vm::gc` and the three `VmInner` accessors (§1.3.3); one constructor `ThisEnvId::for_new_cell(ObjectId)`,
-  `pub(in crate::vm)` — Rust visibility cannot narrow it to one function, so "only `create_closure` wraps an
-  `ObjectId`" is the §4.1 DoD's grep on that constructor). Holders (all NEW, §4.1): `CallFrame::this_env` (`FrameThisEnv::Cell`),
+  shape is unique (no other kind holds a this-binding). **Invariant — by type where Rust can state it, by a
+  standing wire where it cannot** (Rev 3.2, re-check A3): the handle is `ThisEnvId(ObjectId)` (NEW, `vm/frame.rs`),
+  whose field is private to `vm/frame.rs`, so a `ThisEnvId` can be made only there. That module holds the one
+  `impl VmInner` block that touches the record: the boxing step `box_this_environment` (NEW, the only expression
+  that builds a `ThisEnvId`, called by `create_closure`, §1.3.3) and the accessors (§1.3.3), which read the private
+  field directly. The one way out, `ThisEnvId::object_id()` (`pub(in crate::vm)`), exists for the collector:
+  its callers are `vm/gc/` only. Rust cannot narrow that further (`pub(in path)` admits only an ancestor module,
+  and `vm::frame` and `vm::gc` share only `crate::vm`), nor stop another module from allocating an
+  `ObjectKind::ThisEnvironment` object, so those two facts are wire #5's record half (born in R-JS-2, §4.2; R-JS-1's
+  DoD greps hold them at R-JS-1's landing). Holders (all NEW, §4.1): `CallFrame::this_env` (`FrameThisEnv::Cell`),
   `FunctionObject::this_env`, `JsCalleeInfo::this_env`, `CallIC::this_env` (§4.1). A `JsValue` can come from it only
-  through `object_id()`, so the check is that method's callers (§4.1 DoD), not a review convention.
+  through `object_id()`, so the check is that method's callers, not a review convention.
 - **Types** (NEW, `vm/frame.rs`, beside `UpvalueState`):
-  - `ThisBinding { Uninitialized, Initialized(JsValue) }` — the non-lexical [[ThisBindingStatus]] with [[ThisValue]].
+  - `ThisBinding { Initialized(JsValue) }` — the non-lexical [[ThisBindingStatus]] with [[ThisValue]]. R-JS-1 and
+    R-JS-2 produce only `initialized` (the pre-allocation contract binds every construct frame at entry), so
+    `Uninitialized` lands in R-JS-3 with its first constructor, the derived frame push (§4.3.1, §4.3.3): a variant no code
+    constructs fails `mise run ci` (`mise.toml:19`, `cargo clippy --workspace -- -D warnings`, lib targets: a test
+    that constructs it does not count; CLAUDE.md "dead code は接続するか削除", no `#[allow(dead_code)]`). Every
+    `match` over `ThisBinding` is exhaustive, so the compiler lists the arms R-JS-3 adds.
   - `ThisEnvironment { binding: ThisBinding }` — the record. R-JS defines one field; §1.3.2 is the room left.
   - `FrameThisEnv { Inline(ThisEnvironment), Cell(ThisEnvId), Unobserved }` — `CallFrame::this_env` (NEW; replaces
     `this_value`). A non-arrow frame starts `Inline`; it becomes `Cell` when an arrow that observes it is created in the
@@ -176,8 +188,8 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   clean it up); with no host-side fact there is nothing for `HostData` to hold. It is per-VM object-arena state, so it
   lives in the object arena and is collected by the object GC, as upvalues and `PromiseCombinatorState` are.
 - **Why inline-until-observed, not a cell per call:** a cell per non-arrow call is one allocation on every call for
-  state almost always unshared. The inline and the cell form are one type behind one accessor pair (§1.3.3), and the
-  only site that converts is `create_closure` (one site, one direction). It is the record's storage, not a second
+  state almost always unshared. The inline and the cell form are one type behind the accessors (§1.3.3), and the
+  only site that converts is `box_this_environment`, called by `create_closure` (one site, one direction). It is the record's storage, not a second
   representation.
 
 #### §1.3.2 Room for S, N and umbrella 3 (stated, not built)
@@ -220,12 +232,22 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
     walks through a static block, which the compiler emits as its own non-arrow function (a child `FunctionCompiler`,
     called with the class as `this`), so it would over-mark the arrow (R1 A2 MIN). Defined at emission, both are right
     by construction: every position the compiler emits into is covered, and only emitted reads count.
-  - Bytes written outside the funnel: `synthesize_default_class_ctor`'s literal bytecode (`compiler/expr_class.rs`,
-    `Op::SuperCallSpread as u8`) builds non-arrow functions only, whose flag is `false` by definition; the DoD lists
-    every raw op-byte write in `compiler/` (§4.1).
-- **`create_closure` (`vm/ops.rs`):** for an arrow with the flag: if the current frame's `this_env` is `Inline(r)`,
-  allocate `ObjectKind::ThisEnvironment(r)` and set the frame to `Cell(id)`; if it is `Cell(id)`, reuse `id`;
-  `Unobserved` is impossible by the transitive flag (`debug_assert!`, `VmError::internal` in release). The arrow's
+  - **The funnel holds by type** (Rev 3.2, re-check A2 MIN-2). At `3cbd5b88` `FunctionCompiler::bytecode` is `pub`
+    (`compiler/function.rs:19`) and other modules touch it: operand bytes after an emit (`expr_object.rs:40`, `:45`,
+    `expr_class.rs:390`, `:409`, `:650`, each the flags byte of `DefineGetter` / `DefineSetter` / a define op), a
+    jump patch (`stmt.rs:619-620`) and trailing-op reads (`expr_function.rs:255-256`, `:326-327`, `mod.rs:126-127`);
+    `git grep -n -P '\.bytecode\b' 3cbd5b88 -- crates/script/elidex-js/src/compiler ':!*/function.rs'` → these 13
+    lines (control: `function.rs:134`, `self.bytecode.push(op.to_byte())`, hits without the exclusion). None writes an op
+    byte today, but nothing stops the next one. R-JS-1 makes the field private to `compiler/function.rs`: the flags
+    bytes go through the existing `emit_u16_u8` (op, index, flags), the switch patch through a `patch_jump_to(pos,
+    target)` beside `patch_jump`, the reads through one `ends_with_return()`. Then every byte of a
+    `FunctionCompiler`'s bytecode is written in `compiler/function.rs`, and every op byte there through `push_op`.
+  - Bytes outside any `FunctionCompiler`: `synthesize_default_class_ctor`'s literal bytecode (`compiler/expr_class.rs`,
+    `Op::SuperCallSpread as u8`) builds non-arrow functions only, whose flag is `false` by definition (§4.1 DoD).
+- **`create_closure` (`vm/ops.rs`):** for an arrow with the flag it calls `box_this_environment()` (`vm/frame.rs`,
+  §1.3.1): if the current frame's `this_env` is `Inline(r)`, allocate `ObjectKind::ThisEnvironment(r)` and set the
+  frame to `Cell(id)`; if it is `Cell(id)`, reuse `id`; `Unobserved` is impossible by the transitive flag
+  (`debug_assert!`, `VmError::internal` in release). The arrow's
   `FunctionObject::this_env` (NEW) `= Some(id)`, replacing `captured_this`. Rooting: during the cell's allocation the
   binding's value is still in the frame (`Inline`); between the cell's allocation and the frame write there is none;
   the function object's allocation follows with the cell held by the frame.
@@ -237,15 +259,23 @@ either block on C's undated derivation or pre-empt it (One issue, one way). The 
   `do_new` (`vm/ops.rs`, `push_js_call_frame` with the pre-allocated instance), `construct_synchronous`
   (`vm/dispatch_class.rs`, its `push_js_call_frame` with the receiver), `run_function` (`vm/interpreter.rs`,
   `call_internal` with `FrameKind::Eval`, a non-arrow frame): each passes `FrameThisEnv::Inline(Initialized(v))`.
-- **Accessors (`VmInner`, NEW) — three, each resolving `Inline` / `Cell`:** `this_binding(&self, env: &FrameThisEnv)
-  -> Result<ThisBinding, VmError>` (by the env, not a frame index, so it also reads a frame already popped: the return step, §4.2),
-  `bind_this(frame_idx, v) -> Result<(), VmError>` (BindThisValue: ReferenceError when already `Initialized`), and
-  the transitional `overwrite_this_for_pre_allocation(frame_idx, v)` (below). Every reader of the frame's `this` goes
-  through them (`Op::PushThis`, `dispatch_super_inner`, the return step, `create_closure`); no reader matches
-  `FrameThisEnv` itself. `Unobserved` resolves to `VmError::internal`.
+- **Accessors (`VmInner`, NEW, in `vm/frame.rs`'s block, §1.3.1), each resolving `Inline` / `Cell`.** R-JS-1 has
+  two: `this_binding(&self, env: &FrameThisEnv) -> Result<JsValue, VmError>` (GetThisBinding's own result, the value
+  or a throw; by the env, not a frame index, so it also reads a frame already popped: the return step, §4.2) and the
+  transitional `overwrite_this_for_pre_allocation(frame_idx, v)` (below). R-JS-3 adds the third, `bind_this(frame_idx,
+  v) -> Result<(), VmError>` (BindThisValue: ReferenceError when already initialized), **with its first caller**
+  (SuperCall step 9, §4.3.3), and GetThisBinding's step 2 (`Uninitialized` → ReferenceError) in `this_binding`'s
+  body, so no caller of `this_binding` changes. `bind_this` is not in R-JS-1: until R-JS-3 nothing calls it (the
+  only SuperCall write is the transitional one), and `VmInner` is `pub(crate)` (`vm/mod.rs:190` at `3cbd5b88`), so an
+  uncalled method fails `mise run ci` (`mise.toml:19` runs `cargo clippy --workspace -- -D warnings` on lib targets;
+  test callers do not count) unless marked `#[allow(dead_code)]` — and CLAUDE.md says dead code is connected or
+  deleted (PM 892). Every reader of the frame's `this` goes through `this_binding` (`Op::PushThis`,
+  `dispatch_super_inner`, the return step); `create_closure` reaches the record only through `box_this_environment`;
+  outside `vm/frame.rs` only the collector's `mark_frame` classifier matches `FrameThisEnv` (§4.1). `Unobserved`
+  resolves to `VmError::internal`.
 - **The transitional writer (R-JS-1 → R-JS-3).** Under R-JS-1 and R-JS-2 the pre-allocation contract stands, so
-  `dispatch_super_inner` replaces `Initialized(pre_alloc)` with `Initialized(result)`, which `bind_this` refuses by
-  design. That one write is `overwrite_this_for_pre_allocation(frame_idx, v)` (NEW, `VmInner`, doc: "today's swap,
+  `dispatch_super_inner` replaces `Initialized(pre_alloc)` with `Initialized(result)`, which BindThisValue refuses by
+  design (step 2; R-JS-3's `bind_this`). That one write is `overwrite_this_for_pre_allocation(frame_idx, v)` (NEW, `VmInner`, doc: "today's swap,
   not BindThisValue; deleted by R-JS-3"), with one caller; R-JS-3 deletes it and wire #5's extension checks it is gone
   (§4.3 DoD). It writes the record, so arrows see the swap (C1-10, C1-11).
 
@@ -301,7 +331,7 @@ Eight axes (the umbrella's A1-A10 restricted to R-JS, plus the two the derivatio
 ### §2.1 Pairs (28)
 | Pair | Intersection |
 |---|---|
-| B1×B2 | the three accessors (§1.3.3) resolve `Inline` / `Cell`; BindThisValue writes the shared cell, so an arrow created before `super()` reads the bound value (E-4) |
+| B1×B2 | the accessors (§1.3.3; `bind_this` from R-JS-3) resolve `Inline` / `Cell`; BindThisValue writes the shared cell, so an arrow created before `super()` reads the bound value (E-4) |
 | B1×B3 | the return step reads the binding through `this_binding(&frame.this_env)` on the popped frame (§4.2); for a frame whose record was boxed it reads the cell, the same value |
 | B1×B4 | the entry pushes the frame with `Inline(Initialized(thisArg))` (base) or `Inline(Uninitialized)` (derived); nothing else creates a record |
 | B1×B5 | the cell is an object traced by one `trace_work_list` arm (its binding's value); frames mark `Cell(id)` and `Inline(Initialized(v))` in `mark_frame` (R-0b); `FunctionObject::this_env` is marked in the Function arm (replacing `captured_this`, `vm/gc/trace.rs`) |
@@ -369,8 +399,8 @@ child (the #650 practice).
 | ECMA-262 §10.1.14 GetPrototypeFromConstructor ( ctor, intrinsicDefaultProto ) | 2-6 | Object / non-Object (single realm: step 5 GetFunctionRealm is the VM's one realm) | helper phase 1 (NEW, R-JS-3) | ✓ | yes |
 | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation | SuperCall 1, 3, 5-9, 12 | step 6 before step 9; step 12 seam; steps 2 / 4 unchanged (1a / 1b) | `dispatch_super_inner` (R-JS-1 rebind, R-JS-3 bind) | ✓ | yes |
 | ECMA-262 §13.3.7.2 GetSuperConstructor ( ) | 1-5 | `home_class`'s [[GetPrototypeOf]] (unchanged; umbrella 3 owns the field) | `dispatch_super_inner` | ✓ | yes |
-| ECMA-262 §9.1.1.3.1 BindThisValue ( envRecord, value ) | 2-4 | already initialized → ReferenceError | `bind_this` (NEW, R-JS-1; called by SuperCall in R-JS-3) | ✓ | yes |
-| ECMA-262 §9.1.1.3.3 GetThisBinding ( ) | 2-3 | uninitialized → ReferenceError | `this_binding` (NEW, R-JS-1); `Op::PushThis`, return step 15 (R-JS-2 / R-JS-3) | ✓ | yes |
+| ECMA-262 §9.1.1.3.1 BindThisValue ( envRecord, value ) | 2-4 | already initialized → ReferenceError | `bind_this` (NEW, R-JS-3, with its one caller, SuperCall) | ✓ | yes |
+| ECMA-262 §9.1.1.3.3 GetThisBinding ( ) | 2-3 | uninitialized → ReferenceError | `this_binding` (NEW, R-JS-1; step 2's ReferenceError with `Uninitialized`, R-JS-3); `Op::PushThis`, return step 15 (R-JS-2) | ✓ | yes |
 | ECMA-262 §9.1.2.4 NewFunctionEnvironment ( func, newTarget ) | 3-4 | lexical / uninitialized | `FrameThisEnv` at frame push (R-JS-1, R-JS-3) | ✓ | no |
 | ECMA-262 §9.4.3 GetThisEnvironment ( ) | 1-2 (2.1-2.5) | resolved at arrow creation, one hop | `create_closure`, `this_env_for_call` (R-JS-1) | ✓ | yes |
 | ECMA-262 §9.4.4 ResolveThisBinding ( ) | 1-2 | — | `Op::PushThis` (R-JS-1 accessor, R-JS-3 status) | ✓ | yes |
@@ -398,8 +428,9 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
 
 ### §4.1 R-JS-1 — the this-environment record (axis 1)
 **Changes.**
-- `vm/frame.rs`: `ThisBinding`, `ThisEnvironment`, `ThisEnvId`, `FrameThisEnv` (NEW); `CallFrame::this_value` →
-  `this_env`.
+- `vm/frame.rs`: `ThisBinding` (one variant, §1.3.1), `ThisEnvironment`, `ThisEnvId`, `FrameThisEnv` (NEW);
+  `CallFrame::this_value` → `this_env`; the `impl VmInner` block with `box_this_environment`, `this_binding` and
+  `overwrite_this_for_pre_allocation` (§1.3.1, §1.3.3).
 - `vm/object_kind.rs`: `ObjectKind::ThisEnvironment` (NEW) variant `ThisEnvironment(ThisEnvironment)` ( doc: internal, never a
   `JsValue`). Every exhaustive `match` over `ObjectKind` gains its arm (population: §10 S-1).
 - `vm/value.rs`: `FunctionObject::captured_this` → `this_env: Option<ThisEnvId>`; `JsCalleeInfo::captured_this` →
@@ -411,20 +442,22 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
 - `vm/ops.rs` `create_closure`: the boxing rule (§1.3.3); `captured_this` deleted.
 - Frame-entry writers outside `this_env_for_call` (§1.3.3): `do_new` (`vm/ops.rs`), `construct_synchronous`'s
   `push_js_call_frame` (`vm/dispatch_class.rs`), `run_function` (`vm/interpreter.rs`) pass `Inline(Initialized(v))`.
-- `vm/dispatch.rs`: `Op::PushThis` reads `this_binding(&frame.this_env)`; `Initialized(v)` → push `v`. (`Uninitialized`
-  cannot occur before R-JS-3; the arm already returns ReferenceError for it, so R-JS-3 changes no arm.)
+- `vm/dispatch.rs`: `Op::PushThis` pushes `this_binding(&frame.this_env)`'s value and routes its `Err` through
+  `throw_error`. R-JS-3 changes no arm: GetThisBinding's ReferenceError arrives inside `this_binding` (§4.3.3).
 - `vm/dispatch_class.rs` `dispatch_super_inner`: the receiver read and the rebind go through the accessors; under the
   pre-allocation contract the rebind stays today's overwrite, now of the record's binding, through the one
   transitional writer `overwrite_this_for_pre_allocation` (§1.3.3; R-JS-3 replaces it with BindThisValue);
   `new_instance` is still updated (R-JS-2 deletes it).
 - `vm/gc/mod.rs` `mark_frame` (R-0b): `this_env` classified — `Inline(Initialized(v))` → `mark_value`, `Cell(id)` →
-  `mark_object`, `Inline(Uninitialized)` / `Unobserved` → nothing (an exhaustive `match`, R-0b §4's discipline);
+  `mark_object`, `Unobserved` → nothing (an exhaustive `match`, R-0b §4's discipline; R-JS-3 adds
+  `Inline(Uninitialized)` → nothing with the variant);
   `vm/gc/trace.rs`: the Function arm marks `this_env` instead of `captured_this`; a `ThisEnvironment` arm marks
   `Initialized(v)`.
 - `vm/natives_generator.rs`, `vm/tests/tests_with_call_mode.rs`, `vm/gc/tests.rs`: struct literals (§10 S-2).
 - Compiler (§1.3.3, the emission rule): `bytecode/opcode.rs` `Op::reads_this_environment` (exhaustive, no wildcard;
   precedent `Op::operand_size`, exhaustive at `3cbd5b88`); `compiler/function.rs` `push_op` (every `emit*` helper),
-  the flag, its copy in `finish`; `compiler/expr_function.rs` (arrows); `bytecode/compiled.rs` (+ every
+  the flag, its copy in `finish`, `bytecode` private with `patch_jump_to` and `ends_with_return` (§1.3.3; their
+  callers in `expr_object.rs`, `expr_class.rs`, `stmt.rs`, `expr_function.rs`, `mod.rs`); `compiler/expr_function.rs` (arrows); `bytecode/compiled.rs` (+ every
   `CompiledFunction {` literal, `git grep -n -P 'CompiledFunction \{' 3cbd5b88` → 11 lines, `bytecode/disasm.rs`
   included). The scope visitor is not touched.
 - `vm/ops.rs`'s two `#11-vm-ecma262-ao-section-renumber-sweep` sites (the slot's list at `1146380f`: `vm/ops.rs:264`
@@ -466,23 +499,28 @@ Rust reaches it (C3-8). Adjacent pre-existing lax surface: `Op::NewSpread` is a 
   initializers are not compiled today, `compile_class`'s `Property` arm), so the arrow is `Unobserved` (Rust); a static
   field `() => class { static x = this }` is emitted into the arrow, so it captures and completes without
   `VmError::internal`. Its value is today's lexical `this`, not the class (DefineField §7.3.32 step 3.a calls the
-  initializer with the class as receiver): that deviation is `#11-step9-class-extras`'s, and the cell asserts
-  completion only, re-expected there.
+  initializer with the class as receiver): that deviation is `#11-step9-class-extras`'s (Slice 2ac, the static
+  initializer's receiver), and the cell asserts completion only, re-expected there (landing list A6 / B2 item 4).
 - C1-15 controls (Rust): `() => class { static { this } }` and `() => ({ m(){ return this } })` leave the arrow
   `Unobserved` (the read is in a non-arrow child); `() => () => this` marks both arrows; a mutant
   `reads_this_environment(PushThis) = No` turns C1-3c red.
 
 **DoD.** All cells green; `git grep -n -w captured_this` → 0 (the field and its readers, `git grep -n -w
 captured_this 3cbd5b88 -- crates/script/elidex-js/src` → 18 lines today); every **creation** of a
-`ThisEnvironment` cell is in `create_closure`: `git grep -n 'ThisEnvId::for_new_cell('` → its definition and
-`create_closure` only, and `git grep -n 'ObjectKind::ThisEnvironment('` → `create_closure`'s allocation (the one
-construction) plus match patterns only — the trace arm (`vm/gc/trace.rs`), the `Cell` resolution of the three accessors
-(`this_binding`, `bind_this`, `overwrite_this_for_pre_allocation`), each S-1 exhaustive-`match` arm, and test asserts
-(any other construction fails the DoD); `git grep -n -w object_id -- crates/script/elidex-js/src/vm`
-restricted to `ThisEnvId` callers → the GC mark sites and the three accessors only (§1.3.1); every raw op-byte write in
+`ThisEnvironment` cell is `box_this_environment`'s: `git grep -n -P '\bbox_this_environment\('` → its definition
+(`vm/frame.rs`) and `create_closure` only, and `git grep -n 'ObjectKind::ThisEnvironment('` → that function's
+allocation (the one construction) plus match patterns only — the trace arm (`vm/gc/trace.rs`), the `Cell`
+resolution of the two accessors (`this_binding`, `overwrite_this_for_pre_allocation`, both in `vm/frame.rs`), each
+S-1 exhaustive-`match` arm, and test asserts (any other construction fails the DoD; wire #5's record half keeps it,
+§4.2); `ThisEnvId`'s field has no visibility modifier (private to `vm/frame.rs`); `git grep -n -P
+'\bobject_id\(\)' -- crates/script/elidex-js/src/vm` restricted to `ThisEnvId` receivers → `vm/gc/` sites only
+(§1.3.1); `FunctionCompiler::bytecode` has no visibility modifier, so `git grep -n -P '\.bytecode\b' --
+crates/script/elidex-js/src/compiler ':!*/function.rs'` → 0 (control: the 13 lines at `3cbd5b88`, §1.3.3), and `git
+grep -n 'to_byte()' -- crates/script/elidex-js/src/compiler` → one write, in `push_op` (reads classified); the remaining raw op bytes in
 `compiler/` (`git grep -n -P 'Op::\w+ as u8' -- crates/script/elidex-js/src/compiler`, control: `expr_class.rs`'s
-default constructors hit) is in a non-arrow function or routed through `push_op`; `overwrite_this_for_pre_allocation`
-has one caller; `mise run ci` green.
+default constructors hit) are the default-constructor literals (non-arrow functions) and reads (`ends_with_return`,
+unit-test asserts), classified per hit; `overwrite_this_for_pre_allocation` has one caller; `git grep -n -w
+bind_this` → 0 (it lands with its caller, R-JS-3); `mise run ci` green.
 
 ### §4.2 R-JS-2 — the return step and `[[ConstructorKind]]` (axis 3)
 **Changes.**
@@ -495,7 +533,8 @@ has one caller; `mise run ci` green.
   §1.3.3 — no frame index; between the pop and that read nothing allocates, and the step-14 / step-15 errors allocate
   only on paths that discard the binding), §10.2.2 steps 12-17: Object → it; `Base` → the binding's value (step 13 thisArg; the base
   binding is bound once at entry and never rebound); `Derived`: non-`undefined` → TypeError (14), else
-  `this_binding` → ReferenceError if `Uninitialized` (15; unreachable until R-JS-3), else the value (16-17).
+  `? this_binding` (15; its ReferenceError arrives with `Uninitialized` in R-JS-3, inside `this_binding`), the value
+  (16-17).
 - **Two drivers, one step.** (a) Inline: `complete_inline_frame` (`vm/dispatch.rs`) moves to `vm/construct.rs`,
   becomes fallible, pops the frame and truncates to `cleanup_base` first (step 9), then applies the step when the
   frame's `mode` is `Construct`; its five call sites (`git grep -n 'complete_inline_frame(' 7af70b68` → 5 lines: 4
@@ -508,7 +547,10 @@ has one caller; `mise run ci` green.
   frame literals; `push_js_call_frame` loses the parameter.
 - `vm/ops.rs` `do_new`: the native branch's substitution stays (today's contract) until R-JS-3 moves it.
 - `.claude/tools/native-ctor-guard-trip-wire.sh`: **wire #5 born** (umbrella §4.6): `new_instance`,
-  `pre_alloc_instance` → 0 under `crates/script/elidex-js/src`, with a control mutant in the same commit.
+  `pre_alloc_instance` → 0 under `crates/script/elidex-js/src`; and its **record half** (§1.3.1, R-JS-1's invariant
+  kept standing): no `ObjectKind::ThisEnvironment(` construction outside `vm/frame.rs` (other occurrences are match
+  patterns), and no `ThisEnvId::object_id()` caller outside `vm/gc/`. A control mutant for each check in the same
+  commit (a construction in `vm/ops.rs`; an `object_id()` call in `vm/dispatch.rs`).
 
 **Cells** (in `vm/tests/tests_construct_return.rs`, NEW):
 - C2-1 `class A {} class B extends A { constructor(){ super(); return 1 } }` → TypeError — red (instance) → green.
@@ -525,7 +567,8 @@ has one caller; `mise run ci` green.
   extends (h) {}; new Y()` → TypeError (both), and `class Z extends null { constructor(){ return
   Object.create(Z.prototype) } } new Z() instanceof Z` (both).
 
-**DoD.** Cells green; wire #5 (first half) and its mutant; `git grep -n -w -e new_instance -e pre_alloc_instance` → 0
+**DoD.** Cells green; wire #5 (its R-JS-2 checks: `new_instance` / `pre_alloc_instance` and the record half) and its
+mutants; `git grep -n -w -e new_instance -e pre_alloc_instance` → 0
 outside the wire; `mise run ci` green.
 
 ### §4.3 R-JS-3 — the construct entry (axis 2)
@@ -535,8 +578,8 @@ outside the wire; `mise run ci` green.
 `get_prototype_from_constructor(new_target, default_proto) -> Result<ObjectId, VmError>` (§10.1.14: a full `? Get`,
 so a getter runs; non-Object → the default). Docstrings name the AO, numbers from `webref` (umbrella §4.3).
 
-- **Admission** (EvaluateNew step 5 / SuperCall step 5 / Web IDL §3.12 step 3): `admit_construct`, unchanged, outside
-  `[[Construct]]`.
+- **Admission** (EvaluateNew step 5 / SuperCall step 5 / Web IDL §3.12 step 3): `admit_construct`, outside
+  `[[Construct]]`; its IsConstructor classification is unchanged, and it passes newTarget through (next bullet, RS-2).
 - **§10.4.1.2 step 5**: if newTarget is the callee as passed or any bound link of its chain, newTarget becomes the
   target; otherwise unchanged (C-2). **Mechanism: the visitor's signature changes, no second walk** (R1 A3 MIN).
   `walk_bound_chain` (`vm/dispatch_class.rs`) is the one depth loop for both forms; its visitor at `3cbd5b88` receives
@@ -550,7 +593,13 @@ so a getter runs; non-Object → the default). Docstrings name the AO, numbers f
   - `Base`: `proto = ? get_prototype_from_constructor(newTarget, %Object.prototype%)` (§10.2.2 step 3), `thisArg =`
     OrdinaryObjectCreate(proto) (in R-JS an `Ordinary` allocation; R-NAT's phase 2 is not needed for it), the frame
     pushed with `Inline(Initialized(thisArg))` (steps 4-6.a), then the InitializeInstanceElements call point (6.b,
-    `initialize_instance_elements(thisArg, func)` (NEW), body Slice 2ab's, `#11-step9-class-extras`). The
+    `initialize_instance_elements(thisArg, func)` (NEW), body Slice 2ab's, `#11-step9-class-extras`); if it is
+    abrupt, the frame is popped and the error is the caller's (6.c: calleeContext removed, `? initializeResult`).
+    **In R-JS-3 the body is empty, and says so**: elidex functions carry no [[Fields]] / [[PrivateMethods]] yet
+    (instance field initializers are not compiled, `compile_class`'s `Property` arm), so steps 1-4 iterate nothing
+    and the function returns `Ok(())`; its docstring names the AO, the slot and that its parameters (`_obj`,
+    `_ctor` until then: an unread parameter is a warning under `-D warnings`) are read by 2ab's body. It is the seam umbrella §2.2 E-10 ratifies (two callers, the two-call-site DoD), not an unwired stub;
+    6.c is unreachable until 2ab, and is written now because it belongs to the call point. The
   `compile_class` markers this seam makes stale (`compiler/expr_class.rs`, the `Property` arm's "for simplicity we skip
   instance field initializers for now" and "Non-static properties: skip") are retagged to `#11-step9-class-extras` in
   R-JS-3 (that slot's adoption terms ask for the in-code retag).
@@ -588,10 +637,13 @@ This closes R-1: today `do_new` allocates the instance with GC off and then `pus
 array while the instance is only in Rust locals (`this`, `new_instance`).
 
 #### §4.3.3 GetThisBinding / BindThisValue
-- `Op::PushThis`: R-JS-1's arm, unchanged; `Uninitialized` becomes reachable here and throws ReferenceError via
-  `throw_error` (catchable in the frame).
+- `ThisBinding::Uninitialized` (NEW here, §1.3.1) with its first constructor, the derived frame push (§4.3.1), and
+  GetThisBinding's step 2 in `this_binding`'s body (`Uninitialized` → ReferenceError); the exhaustive matches over
+  `ThisBinding` / `FrameThisEnv` gain their arms (`mark_frame`, the trace arm, the accessors). `Op::PushThis`: R-JS-1's
+  arm, unchanged; the ReferenceError comes out of `this_binding` and is thrown via `throw_error` (catchable in the
+  frame); the return step's step 15 likewise.
 - `dispatch_super_inner`: `result = construct(superCtor, args, newTarget)` (step 6; errors in the derived frame), then
-  `bind_this` (step 9; ReferenceError in the derived frame), then `initialize_instance_elements(result, func)` (12),
+  `bind_this` (step 9, NEW here with this caller, §1.3.3; ReferenceError in the derived frame), then `initialize_instance_elements(result, func)` (12),
   then push `result`. Nothing before `construct` mutates state (keeps P0a-1's reading, umbrella §8.1).
 
 #### §4.3.4 The upgrade (`vm/host/custom_elements/upgrade.rs` `invoke_upgrade`)
@@ -662,7 +714,8 @@ in the 1321-line `tests_custom_elements.rs`):
 **DoD.** Cells green; `#11-vm-do-new-instance-rooting` closed (C3-9; the upgrade item answered by C3-17);
 `#11-vm-derived-constructor-this-binding` retired (§7.1); wire #5 extended with its mutant (no construct-entry `this`
 parameter; `overwrite_this_for_pre_allocation` → 0); `git grep -n 'initialize_instance_elements('` → the definition
-and two calls; `git grep -n -w construct_synchronous` → 0; **one GetPrototypeFromConstructor** (R1 A3 IMP): if
+and two calls; `git grep -n -P '\bbind_this\('` → the definition and `dispatch_super_inner`'s call; `git grep -n
+'ThisBinding::Uninitialized'` → the derived frame push as the one construction, the rest match patterns; `git grep -n -w construct_synchronous` → 0; **one GetPrototypeFromConstructor** (R1 A3 IMP): if
 `#11-vm-generator-instance-prototype-from-function` landed first with its own `? Get` of `prototype` in
 `vm/natives_generator.rs` (EvaluateGeneratorBody's OrdinaryCreateFromConstructor), R-JS-3 converges it onto the
 phase-1 helper, and the census of Rust-side `prototype` reads for instance creation in `vm/` (S-6) lists the helper
@@ -686,7 +739,9 @@ Under 1000 and touched: `vm/value.rs` 968 (field renames, net 0), `vm/ops.rs` 93
 `vm/ops_property.rs` 572, `compiler/function.rs` 473, `vm/host/custom_elements/upgrade.rs` 461,
 `vm/dispatch_class.rs` 391, `vm/tests/tests_class_machinery.rs` 391, `vm/host/custom_elements/html_element.rs` 344
 (docstrings), `vm/dispatch_ic.rs` 342, `compiler/expr_function.rs` 338, `vm/interpreter.rs` 311, `bytecode/compiled.rs`
-231, `vm/frame.rs` 221, `vm/gc/mod.rs` 122, `vm/ic.rs` 60. New: `vm/construct.rs`, the helper module, four test files.
+231, `vm/frame.rs` 221 (gains the record types and the one `impl VmInner` block, §1.3.1), `vm/gc/mod.rs` 122,
+`vm/ic.rs` 60; Rev 3.2's funnel (§1.3.3, R-JS-1, at `3cbd5b88`): `compiler/stmt.rs` 712, `compiler/mod.rs` 354,
+`compiler/expr_object.rs` 189 (one-line call changes each). New: `vm/construct.rs`, the helper module, four test files.
 `vm/ops.rs` gains the boxing branch (R-JS-1) and loses `do_new`'s pre-allocation (R-JS-3); it stays under 1000 by the
 child's own measure, which each PR re-runs.
 
@@ -708,7 +763,7 @@ caller). The `ObjectKind::HostObject` definition is untouched by all three.
 
 ### §6.2 Stack-safety, P0a-2b, 1aa / 1ac, umbrella 3, S / N, C
 - **P0a-1** (umbrella §9.1 step 5 dates its implementation 11-28; step 6 reads that date as its landing; R-JS-1
-  starts the day it lands, §8 rule (a)): its cell
+  starts the day it lands, R-0b being on main by then, §8 rule (a)): its cell
   `rl_cp1_entry_failure_no_callee_effect` enters through `call_construct_native` / `construct_synchronous`; R-JS-3
   re-points it to `construct` (mechanical, umbrella §8.1). `with_call_mode`: unchanged (R-JS calls it).
   `dispatch_super_inner`: nothing mutates before `construct` (P0a-1's reading kept).
@@ -771,37 +826,44 @@ landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (
 | R-JS-2 | 11-30 … 12-01 | 12-02 | main with R-JS-1 |
 | R-JS-3 | 12-02 … 12-04 | **12-05** (= R-JS) | main with R-JS-2 |
 
-Rules the dates follow: **(a)** R-JS-1 starts on §9.1 step 6's start day, the day P0a-1 is on main (step 5 dates
-P0a-1's *implementation* 11-28 and step 6 reads that date as its landing, so 11-28 assumes P0a-1 lands that day; a
-later landing moves R-JS-1 to it; R-0b, step 3, is on main from 11-24); **(b)** each child is cut from main on the day its predecessor lands and starts then
+Rules the dates follow: **(a)** R-JS-1 starts on the later of P0a-1's and R-0b's landings, since it edits R-0b's
+`mark_frame` (§4.1) and §9.1 step 6 starts R-JS at P0a-1's (step 5 dates P0a-1's *implementation* 11-28 and step 6
+reads that date as its landing, so 11-28 assumes P0a-1 lands that day; R-0b, step 3, targets 11-24, so the later is
+P0a-1's while R-0b holds; a later landing of either moves R-JS-1 to it); **(b)** each child is cut from main on the day its predecessor lands and starts then
 (§1.2 order, no stacked branches), so a child's landing day is its successor's start; **(c)** the last child's
 landing is R-JS's 12-05 (§9.1 step 6); **(d)** the window is split by size: R-JS-3 (the entry, rooting, the upgrade)
 gets three days, R-JS-1 and R-JS-2 two each, and each child's days include its `/pre-push` and single-pass Codex
 (§1.2). A child that slips moves its successors day for day; when that would move R-JS-3 past 12-05, the slip is
 reported to the PM with the §9.1 step 6 consequences (steps 10-15 and §5.4's R-JS-keyed Re-eval proposals). A slip
-of P0a-1 past 11-28 moves all three (rule (a)).
+of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
 
 ## §9. Ledger / erratum edits
-**Made in this PR** (PM 880, PM 883; each a reviewed item, §0.3):
-- **Entry memo**, [C11] / [C13] "Used by" cells (RS-3), with the umbrella §5.4 paragraph marked done.
-- **Umbrella Rev 1.7** (RS-1, RS-2, RS-3, RS-5): §1.2 "Unchanged", §3's §10.4.1.2 row, §4.2 (three children, the
-  [C11] range, 2ab's body), §8.1's four rows, §8.3, §7's and §9.1's R-0c, §9.1 step 6, the §0.2 history row and order.
-  Line count held at 999: every erratum replaces text on its own line.
+**Made in this PR** (PM 880, PM 883, PM 886, PM 892; each a reviewed item, §0.3):
+- **Entry memo**, [C11] / [C13] "Used by" cells (RS-3; [C11] with 6.c, Rev 3.2), with the umbrella §5.4 paragraph
+  marked done.
+- **Umbrella Rev 1.7** (RS-1, RS-2, RS-3, RS-5, RS-9): §1.2 "Unchanged", §3's §10.4.1.2 row, §4.2 (three children,
+  the [C11] range with 6.c, 2ab's body), §8.1's four rows, §8.3, §7's and §9.1's R-0c, §9.1 step 6, the §0.2 history
+  row (with (4)'s step split and (6)'s sites, Rev 3.2) and order; the RS-9 sites. Line count held at 999: every
+  erratum replaces text on its own line.
 - **Slice plan** (RS-6, RS-8): row C's classification, its S / N clause and its I-7 sentence; forward pointers in rows
-  3 and N. **RS-9 sweep** (PM 886): slice-plan rows S, 1a, 2a, 2ab, 9a, the 2ab ordering paragraph; the umbrella sites
-  listed in RS-9; ledger `:293` / `:333` through the landing list (A1, A5).
+  3 and N. **RS-9 sweep** (PM 886): slice-plan rows S, 1a, 2a, 2ab, 9a, the 2ab ordering paragraph (Rev 3.2: row S's
+  wording, 1a's stack-layout pointer, 2ab's E-10 cite).
 
 **Listed, not made** — the recorder's list is
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/pending-at-landing/r-js-plan.md` (old → new text per line):
 - **Repo ledger** (`docs/plans/2026-07-vm-p4-slot-ledger.md`, rows by id): `#11-vm-derived-constructor-this-binding`
-  (RS-7: "on the call frame" phrasings, the [C11] range; at R-JS-3's landing, retired naming the three child PRs);
-  `#11-vm-declarative-environment-and-capture-representation` (the edge, §1.3.4); `#11-vm-arrow-lexical-new-target`
-  / `#11-vm-arrow-lexical-super` (forward pointers, RS-8).
+  `:293` (A1 items 1-8, RS-7 / RS-9: the "on the call frame" phrasings, the [C11] range, 2ab's share, the kind's
+  home, `construct_synchronous`'s callers; at R-JS-3's landing, retired naming the three child PRs);
+  `#11-vm-declarative-environment-and-capture-representation` (A2, the edge, §1.3.4); `#11-vm-arrow-lexical-new-target`
+  / `#11-vm-arrow-lexical-super` (A3 / A4, forward pointers, RS-8); `#11-vm-construct-isconstructor-check` `:333`
+  (A5, RS-9); `#11-step9-class-extras` `:23` (A6: R-JS-3's call points and retag, C1-14's re-expectation).
 - **PM ledger**: `#11-vm-do-new-instance-rooting` — Trigger "R-JS-3"; "umbrella §8.3 stands, PM 875" → "§8.3 stands
   except R-JS-1's Function-arm expression (PM 880)"; the upgrade clause "probably rooted via `HostData::wrapper_cache`
   … not measured yet" → measured (§4.3.5), the remaining question is C3-17's. S / N pointer rows: "the record is
   R-JS-1's" (§7.2); C's pointer row: the edge; `#11-vm-generator-instance-prototype-from-function`: the helper edge
-  and R-JS-3's convergence if it lands first (§7.2).
+  and R-JS-3's convergence if it lands first (§7.2); `#11-step9-class-extras` (B2 item 4, as A6). At R-JS-3's
+  landing (C2): rows `:248`, `:254` (`#11-vm-call-depth-guard`), `:257`
+  (`#11-vm-native-callback-reentry-single-loop`) re-pointed from `construct_synchronous` to `VmInner::construct`.
 - **D-17b R4 G4-2** (`extends_null_default_ctor_is_base`): superseded by C-3 at R-JS-2.
 
 **Umbrella items left for a later revision, each with its trigger** (R1 A3 MIN):
@@ -829,7 +891,9 @@ of P0a-1 past 11-28 moves all three (rule (a)).
   meaning, not by what its dispatch arm reads today (controls: `Op::PushThis`, and `GetSuperProp` / `SetSuperProp` /
   `GetSuperElem`, whose stub arms read nothing at `3cbd5b88`): the `Reads` side of `Op::reads_this_environment` must
   contain every one. Cross-check: every op whose dispatch arm reads the frame's `this_value`, `mode` (newTarget) or
-  `home_class` (`vm/dispatch*.rs`) is in the list.
+  `home_class` (`vm/dispatch*.rs`) is in the list, except `Op::Closure`: its arm reads the frame's `this_value` to
+  capture it (`create_closure`, `vm/ops.rs:878-879` at `3cbd5b88`), which is the propagation, so it is
+  `ByChildConstant` (§1.3.3) — the cross-check's one expected non-`Reads` hit (Rev 3.2, re-check A2 MIN-3).
 
 ## §11. PM questions (answered, PM 880; PM 883 on plan-review R1)
 - **Q-1 Three children, one plan-review** (§1.2): confirmed; each child is its own PR implementing this plan. Dates set
@@ -863,6 +927,10 @@ of P0a-1 past 11-28 moves all three (rule (a)).
   (steps 1-17, for RS-3), `sec-super-keyword-runtime-semantics-evaluation` (SuperCall 1-13), and (C-2)
   `sec-bound-function-exotic-objects-construct-argumentslist-newtarget`. Rev 3.1 (2026-11-21): `aoid` MakeSuperPropertyReference
   (§13.3.7.3), GetSuperConstructor (§13.3.7.2), GetThisEnvironment (§9.4.3); `body` MakeSuperPropertyReference (step 1).
+  Rev 3.2 (2026-11-21): `body` on `sec-ecmascript-function-objects-construct-argumentslist-newtarget` (step 6.c's
+  abrupt exit; step 9 alone removes calleeContext, 10-11 handle the completion) and
+  `sec-super-keyword-runtime-semantics-evaluation` (SuperCall steps 1, 3 and 7: GetNewTarget, GetSuperConstructor,
+  GetThisEnvironment).
 - **M-2 counts** at `7af70b68` under `crates/script/elidex-js/src`: `git grep -n -P '<pattern>' 7af70b68` →
   `CallFrame \{` 7, `CompiledFunction \{` 11, `FunctionObject \{` 3, `captured_this` 18, `new_instance` 19,
   `pre_alloc` 7, `construct_synchronous\(` 3, `complete_inline_frame\(` 5, `push_js_call_frame\(` 7,
@@ -895,7 +963,11 @@ of P0a-1 past 11-28 moves all three (rule (a)).
   `emit*` helpers' operands (`compiler/function.rs`; `Op::Closure` via `emit_u16`), the frame-entry writers
   (`git grep -n -P 'push_js_call_frame\(|call_internal\(' 3cbd5b88`: `do_new`, `construct_synchronous`, `run_function`, the IC
   calls, the Function arm); PM ledger rows
-  `#11-vm-do-new-instance-rooting` and `#11-vm-generator-instance-prototype-from-function` (`grep -n -F`).
+  `#11-vm-do-new-instance-rooting` and `#11-vm-generator-instance-prototype-from-function` (`grep -n -F`). Rev 3.2:
+  `mise.toml:19` (`cargo clippy --workspace -- -D warnings`); `vm/mod.rs:190` (`pub(crate) struct VmInner`);
+  `compiler/function.rs:19` (`pub bytecode`) and the 13 outside touches (§1.3.3's command); `vm/ops.rs:878-879`
+  (`create_closure` reads `this_value`); PM ledger `:248`, `:254`, `:257`, `:289`, `:1740`, `:1752` and repo ledger
+  `:23` (`grep -n -F` / `grep -c -F` on each landing-list old text → 1).
 
 ## §13. Plan-review R1 dispositions (at `bee45988`; CRIT 0 / IMP 5 / MIN 25 / FP 3)
 Record: `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-plan-review-r1-bee45988.md`. Each finding
@@ -956,3 +1028,44 @@ checked against the files at `58b666a6`, main at `3cbd5b88`, or `webref` before 
 | A2 MIN §4.1 DoD hit lists | fixed: "creation"; hit list named; three accessors; `ThisEnvId::for_new_cell` visibility | §1.3.1, §4.1 DoD |
 | A2 MIN frame-entry writers unnamed | fixed: `do_new`, `construct_synchronous`, `run_function` | §1.3.3, §4.1 |
 | A2 MIN accessor for a popped frame | fixed: `this_binding(&FrameThisEnv)`, no allocation between pop and read | §1.3.3, §4.2 |
+
+### §13.2 Re-check of the Rev 3.1 delta (at `b8029ab9`; CRIT 0 / IMP 1 / MIN 19 — A2 3, A5 7 + 1, A3 5, A4 3 — and a label note), folded per PM 892
+Record: `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-recheck-r31-b8029ab9.md`. Each claim was
+checked against `3cbd5b88`, the files at `b8029ab9`, or `webref` before it was folded (§12 M-1, M-9 Rev 3.2); none
+was false. **Additions ledger** (PM 892):
+`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/ncons/r-js-additions-ledger-rev3x.md` — 52 rows (21 for Rev
+3.1's additions, 31 for Rev 3.2's) over the memo, umbrella, slice plan, entry memo and landing list; **dead additions
+found 2, fixed 2**: `bind_this` (the IMP) and `ThisBinding::Uninitialized` (found by the ledger: no construction
+before R-JS-3's derived push, the same clippy ground); **contradictions found 9, resolved 9** (the `FrameThisEnv`
+matcher claim vs `mark_frame`; the converter site; PushThis's "arm already returns ReferenceError"; `mark_frame`'s
+`Inline(Uninitialized)` arm in R-JS-1; `complete_construct`'s step 15; a §4.3.3 → §4.3.1 cross-reference; §5's file
+list; §6.2's start rule; the landing list's drifted PM-ledger line numbers). Intentional, listed there: umbrella §4.6's
+birth list and `:448`, PM ledger `:245` / `:270`, the §13 / §13.1 history rows, `initialize_instance_elements`'s
+unread parameters.
+
+| Finding | Disposition | Where |
+|---|---|---|
+| A3 IMP `bind_this` dead until R-JS-3 | fixed (PM 892): `bind_this` lands in R-JS-3 with its caller; R-JS-1 has two accessors. Ground: CLAUDE.md "dead code は接続するか削除", `mise.toml:19` clippy `-D warnings` on lib targets, `VmInner` `pub(crate)` (`vm/mod.rs:190`). The ledger found the same for `ThisBinding::Uninitialized` (fixed alike; `this_binding` returns the value or a throw, so R-JS-3 changes no caller) | §1.2, §1.3.1, §1.3.3, §3, §4.1 DoD, §4.3.3, §4.3 DoD |
+| A2 MIN-1 DoD grep cannot match `fn for_new_cell(` | fixed by the A3 uncertain MIN's change: the constructor is gone; the DoD greps `\bbox_this_environment\(` | §4.1 DoD |
+| A2 MIN-2 `FunctionCompiler::bytecode` is `pub`; raw-byte grep misses `to_byte()` writes | fixed: R-JS-1 makes the field private (13 outside touches re-routed through `emit_u16_u8`, `patch_jump_to`, `ends_with_return`); DoD on the field, `to_byte()` and classified `as u8` hits | §1.3.3, §4.1, §4.1 DoD, §5 |
+| A2 MIN-3 S-7 cross-check vs `Closure` = `ByChildConstant` | true (`create_closure` reads `this_value`, `vm/ops.rs:878-879`): `Closure` is the cross-check's one expected non-`Reads` hit | §10 S-7 |
+| A5 MIN-1 slice-plan row S "not the call frame" | fixed (PM 892): "inline on the frame until an arrow observes it, then a shared cell", as row C / RS-7 / §1.3.1 | slice plan row S, RS-9 |
+| A5 MIN-2 history 1.7 (6) | fixed: fact (a)'s sites (§1.2 In, §4.2), §2.2 E-9 (was "§2.1 … E-9"), grounds PM 886 / PM 892 | umbrella `:69` |
+| A5 MIN-3 RS-7 "three phrasings" | fixed: "landing list A1 items 2-8" | RS-7 |
+| A5 MIN-4 §9 Made / Listed | fixed: ledger edits only under "Listed"; `:333` (A5), A1 items 6-8, A6 added | §9 |
+| A5 MIN-5 PM ledger `:248` / `:254` / `:257` | fixed (PM 892): landing list C2, at R-JS-3's landing, old texts `grep -c -F` = 1 each; `:245` / `:270` judged past measurements (not re-pointed) | landing list C2, §9 |
+| A5 MIN-6 A1 item 6 cites Rev 1.7 (4) | fixed both ways: (4) now records 2ab's body / R-JS's call points, and item 6 also cites RS-3 | umbrella `:69`, landing list A1.6 |
+| A5 MIN-7 slice-plan "umbrella §4.2 E-10" | fixed: "umbrella §2.2 E-10, §4.2" | slice plan 2ab |
+| A5 MIN (uncertain) 1a's stack-layout evidence | fixed: the form moves to `VmInner::construct`'s `[newTarget, ctor, args…]` (§4.3.2 item 1) | slice plan 1a |
+| A5 label note umbrella `:133` | no change (a live §1.2 row, as the note says) | — |
+| A3 MIN §4.3.1 "admit_construct, unchanged" vs RS-2 | fixed: its IsConstructor classification is unchanged; it passes newTarget through | §4.3.1 |
+| A3 MIN C1-14 / call points / retag not in a `#11-step9-class-extras` landing line | fixed: landing list A6 (repo `:23`) and B2 item 4 (PM `:289`); C1-14's value is Slice 2ac's | landing list, §4.1 C1-14, §9 |
+| A3 MIN (uncertain) one-time DoD greps for the record's creation / `object_id()` | fixed: creation by type (`ThisEnvId`'s field private to `vm/frame.rs`, built only by `box_this_environment` there); what Rust cannot state (`object_id()` callers ⊆ `vm/gc/`, no `ObjectKind::ThisEnvironment` construction elsewhere) is wire #5's record half, born in R-JS-2 | §1.3.1, §4.2 |
+| A3 MIN §8 rule (a) ignores R-0b | fixed: the later of P0a-1's and R-0b's landings | §8, §6.2 |
+| A3 MIN `initialize_instance_elements` is effectively a no-op | stated: empty body (no [[Fields]] / [[PrivateMethods]] yet), its parameters unread until 2ab, 6.c unreachable until then; the ratified seam (E-10), not an unwired stub | §4.3.1 |
+| A4 MIN (uncertain) "a fourth caller, PerformEval" | fixed: SuperCall step 7 named too (`webref body`); its op is already `Reads` | §1.3 |
+| A4 MIN (uncertain) [C11] omits step 6.c | fixed: "2-6.a, 6.c and 9-17" / "the step-6.b call point and its step-6.c exit" in the memo, umbrella `:457`, entry memo `:54`, landing list A1.5; §4.3.1 states the exit | RS-3, §4.3.1 |
+| A4 MIN "steps 9-11's frame removal" | fixed: step 9 removes calleeContext, steps 10-11 handle the completion | umbrella `:69` (4), RS-3 |
+
+The Rev 3.1 dispositions in §13.1 that named `ThisEnvId::for_new_cell` and "three accessors" are superseded by the
+rows above (kept as the record of Rev 3.1).
