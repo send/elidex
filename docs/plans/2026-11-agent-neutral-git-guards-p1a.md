@@ -1,20 +1,29 @@
-# Plan — P1: agent-neutral git guards and the merge wrapper
+# Plan — P1a: agent-neutral git hooks (and what P1a and P1b share)
 
 ## §0 Status
+
+**Pair (PM 908)**: the P1 plan is two memos, one per PR. This one is **P1a**, and it is also the one home of
+everything the two slices share (the program and scope of §0, the goal and non-goals of §1, the axes of §2, the
+sources, breadth and measurements of §3, the rung of §5, the E2E sites and setup of §7 / §7.5, §7.3, the records
+of §8, §9, §10 and §11). The P1b slice is `docs/plans/2026-11-agent-neutral-git-guards-p1b.md` (the **P1b memo**), which refers
+here instead of restating. Section numbers are those of the single memo the pair was split from, so a section or
+table row absent here is in the P1b memo, and a reference into it names that memo. Ids (the items of the axes
+I–VI, F and T, D1–D42, Q0–Q5, E1–E24, M1–M7, the steps A0–A4 and B0–B3) are unique across the pair; an id not
+defined in one memo is defined in the other.
 
 **Program**: the Codex-lane program. Its driver memo lives **outside this repository**:
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/PLAN.md` (PM 872). It is the ratified program
 memo (its line 3: ratified by the user, PM 873; it points at §10 of this memo for its errata), and PM 874 ordered
-this per-PR memo. This memo is the plan for its phase **P1** (PLAN §5 P1, rows 1, 2, 3, 5, 6, 7, 8 and 17 of
+this per-PR memo. This memo and the P1b memo are the plan for its phase **P1** (PLAN §5 P1, rows 1, 2, 3, 5, 6, 7, 8 and 17 of
 PLAN §1).
 **Scope source**: PM 873 / 874, restructured by PM 893; plan-review round 2 added PM 900 (the bypass-guard extension
 of §4.8, approved by the user) and the PM's A2-scope decision. The scope is not re-opened here; §8 records the
 decisions.
-**Slices (PM 893, overturning PM 874's "single PR")**: two PRs under this one memo, **P1a first**.
+**Slices (PM 893, overturning PM 874's "single PR")**: two PRs, one memo each since PM 908, **P1a first**.
 - **P1a — git hooks**: `pre-push`, `pre-commit`, the shim, the installer (`install-githooks`, `--check`), the
   ratchet's `--rev` mode, their tests, and the one-line `--check` standing item in the PM skill (D33). Cut-over §7.1,
   which also applies the global bypass-guard patch this memo carries (§4.8; the PM applies it, it is not in the PR).
-- **P1b — merge wrapper**: `merge-pr` and its tests. Cut-over §7.2.
+- **P1b — merge wrapper**: `merge-pr` and its tests. Cut-over P1b memo §7.2.
 - **The seam**: this memo's own II × III intersection is empty — `merge-pr` pushes nothing, so no pre-push
   decision meets a merge decision (§2 pair table). The two slices share only the test-isolation helper (T4), which
   P1a adds and P1b imports. §2 stays one section; each invariant is tagged **[P1a]**, **[P1b]** or **[both]**.
@@ -49,8 +58,8 @@ Files (all (NEW) unless marked):
 | P1a | `.claude/tools/test_ecs_mission_ratchet.py` (MODIFIED) | control + mutant for `--rev` (695 lines today; the addition keeps it under 1000) |
 | P1a | `mise.toml` `[tasks.install-githooks]` (MODIFIED) | runs `origin/main`'s `install.sh` with `bash -c` after a read that must succeed (§4.7); not part of `[tasks.ci]` |
 | P1a | `.claude/skills/pm/SKILL.md` (MODIFIED) | one line in §4: `mise run install-githooks -- --check` in every PM pass from shim install on (D33) — in P1a, not P3, so the standing item is in the PM procedure before anything is installed |
-| P1b | `.claude/tools/agent/merge-pr` | `merge-pr [--dry-run] <PR>`: refuses unless run from the `main` worktree's copy, byte-identical to `origin/main`'s; PM go token, a dry Codex verdict on the head with 0 unresolved Codex threads, `mergeStateStatus`, every CI check complete and green, no merge queue; then `gh pr merge --squash --match-head-commit`, then the existing post-merge sync and cleanup scripts. `--dry-run` runs every check and prints the merge command instead of running it |
-| P1b | `.claude/tools/agent/test_merge_pr.py` | control + mutant tests for the wrapper |
+
+P1b's files (`merge-pr`, `test_merge_pr.py`): P1b memo §1.
 
 **Non-goals.**
 - Installing the shim into the shared repository, or changing any Claude hook (cut-over, §7, PM / user after merge).
@@ -64,8 +73,8 @@ Files (all (NEW) unless marked):
   4. `.github/workflows/ci.yml` `trip-wires` job comment (`ci.yml:191-194`) and `tools` job comment
      (`ci.yml:275-278`): "merging still rests on the CLAUDE.md convention of eyeballing CI" — becomes `merge-pr`.
   5. `.claude/skills/drive/SKILL.md` §6 step 4 (`drive:127`): raw `gh pr merge … --match-head-commit` — becomes the
-     `merge-pr` invocation of §4.4 (with `ELIDEX_PM_DIR`).
-  6. `.claude/skills/pm/SKILL.md` §4: the go token (file name with the full 40-hex sha, §7.2), PM-merged PRs
+     `merge-pr` invocation of P1b memo §4.4 (with `ELIDEX_PM_DIR`).
+  6. `.claude/skills/pm/SKILL.md` §4: the go token (file name with the full 40-hex sha, P1b memo §7.2), PM-merged PRs
      (`pm:224`) through `merge-pr`, and Dependabot PRs (`pm:223`: the CI/tools lane runs them, PM 240) through
      `merge-pr` after the CI/tools lane posts `@codex review` (D35). The `--check` standing item is P1a's line, not
      P3's.
@@ -207,103 +216,7 @@ branch.
   CI `check` (`cargo fmt --all -- --check`).
 - VI6 [P1a]. `--no-verify` / `-n` skips the hook (git-commit(1)); not stoppable from inside git.
 
-**III — merge decision order and TOCTOU** [P1b]. `merge-pr [--dry-run] <PR>` does, in this order, reading the PR
-head `H` exactly once:
-1. Usage: optionally `--dry-run`, then exactly one argument, all digits. Else exit 2 (the cleanup script needs a
-   number, and a URL or branch argument would need a second resolution of the PR).
-2. Invocation site (§4.4): the worktree holding the running file (`git -C "$(dirname "$0")" rev-parse
-   --show-toplevel`) must be the worktree that has `refs/heads/main` checked out (`git worktree list
-   --porcelain`). Else refuse, naming both. A PR worktree is never the site.
-3. Self check: `git fetch origin main`, then the running file must be byte-identical to
-   `git show origin/main:.claude/tools/agent/merge-pr`. Else refuse with the remedy
-   `git -C <main worktree> merge --ff-only origin/main` (a PR must not be able to weaken its own merge gate;
-   decided Q2). A failed fetch or a missing blob refuses too.
-4. PM dir: `ELIDEX_PM_DIR` must be set and name an existing directory. Else refuse (decided Q1; who sets it: §4.4).
-5. `gh pr view <PR> -R <repo> --json number,state,isDraft,baseRefName,headRefOid,mergeStateStatus,statusCheckRollup`
-   → `H` (40 hex). `state` must be `OPEN`.
-6. Merge queue: `gh api graphql` for `repository.mergeQueue(branch: <baseRefName>)`; non-null → refuse. Assumption
-   (not re-fetched): `main` has no merge queue today; with one, `gh pr merge` would enqueue instead of merging, and
-   the pin and step 13 would mean something else.
-7. Go token: the file `$ELIDEX_PM_DIR/handoff/codex-lanes/go/<PR>-<H>` must exist, with `H` the full 40-hex sha
-   (PLAN §6 decision 6; Claude drivers use it too). A token naming another sha of the same PR is reported by name
-   ("go is for `<sha>`, head is `H`"). No prefix matching.
-8. **Codex on `H`** (PM 893). The reviewer values — `bot_login`, `trigger`, `assessed_commit_marker`,
-   `dry_verdict_match`, `error_verdict_match`, `status_comment_match`, `body_finding_match` — are read from
-   `git show origin/main:.claude/skills/external-converge/project.md` § reviewer by the overlay rule of §4.4 (a
-   missing or empty key refuses). All three channels are read in full (REST `--paginate --slurp` flattened with
-   `add`; GraphQL `reviewThreads` page by page). **Every bot item is admitted** — each formal review and each issue
-   comment by `bot_login`, whatever its body; nothing is filtered by the marker, because a findings comment can carry
-   none (the "four issue-comment shapes" of `~/.claude/skills/external-review/SKILL.md`: a heading plus
-   `/blob/<sha>/…#L` links, no marker). Passes only if all of:
-   - a. **0 unresolved Codex review threads**, on any head: threads whose first comment's author is the bot
-     (GraphQL login without `[bot]`) and `isResolved == false`. Ground: the dry verdict covers two of the three
-     channels — the overlay's `dry_verdict_match` bullet records `#494` R2, `dry_verdict: true` beside three
-     unresolved threads carrying real findings.
-   - b. `T` = `created_at` of the latest issue comment by an author other than the bot whose body **contains** the
-     `trigger` text (literal containment, not equality and not a regex — the global resolver's rule; the bot's own
-     boilerplate quotes the trigger, hence the author condition); none → the epoch.
-   - c. **Each item's assessed sha, derived as the global resolver derives it**: the `assessed_commit_marker`
-     followed by a backticked 7–40-hex sha; else the first `/blob/<sha>/` link in the body; else, for a formal
-     review, its `commit_id`. Items matching `error_verdict_match` or `status_comment_match` are set aside first
-     (neither verdict nor finding). The round = the items newer than `T` whose sha names `H` (compared on the shorter
-     length, at least 7). **An item newer than `T` with no derivable sha is a finding item** (fail-safe, driver
-     decision for round 2): it cannot be placed on a head, so it cannot be shown not to be about `H`. The global
-     resolver drops such an item from the pass, which is safe for a loop that polls again but would be a fail-open
-     for a merge. Remedy: read it, then a new trigger opens a new round.
-   - d. The round holds at least one dry verdict (an issue comment matching `dry_verdict_match`) and **no finding
-     item**: no review body matching the body-finding detector (the generic `/blob/<sha>/…#L<n>` pattern ∪
-     `body_finding_match`), no bot issue comment in the round that is neither dry, error nor status, and no item of
-     c's no-sha kind. Dry vs findings is decided across every item, not by the latest one (#492).
-
-   The review-summary comment's `Completed` row is **not** an assessment: "a status widget reading completed is not
-   a verdict" (`~/.claude/skills/external-review/SKILL.md`, the reviewer-neutral rules; the overlay lists the row
-   under `non_verdict_signals`). **This departs from the head guard's lexime #332 branch**, which counts that row
-   so a merge after a post-review push (e.g. a merge from `main`) does not read as stale and train the operator
-   onto `# merge-stale-ok`. Here every merged head needs its own trigger and dry verdict. Why: the canonical rule
-   says the widget carries no verdict — it cannot report findings, and the overlay's `non_verdict_signals` names the
-   `Completed` row with its canonical paragraph ("No comment and no review on head means not reviewed", `#525`, the
-   `#524` auto-review that ended at `Completed` with no comment); the merge cannot be undone and nothing is behind
-   it; and `merge-pr` itself has no override to train onto (D30, D32). That last reason holds for the whole merge
-   path **only after the `:36` approval** (§7.3): until then a Claude driver can still run a raw `gh pr merge`,
-   whose head guard honours `# merge-stale-ok` (IV5, the stated gap). The cost is one `@codex review` per merged
-   head, which the overlay's "Never wait on auto-review — always fire one trigger" already makes the procedure.
-9. `mergeStateStatus == CLEAN`. Anything else, including values not known today, refuses.
-10. CI: every entry of `statusCheckRollup` is complete and green, and there is at least one entry. Both shapes are
-    read: a `CheckRun` is green when `status == COMPLETED` and `conclusion` ∈ {`SUCCESS`, `NEUTRAL`, `SKIPPED`}; a
-    `StatusContext` is green when `state == SUCCESS`. A pending, failed, cancelled or unrecognised entry, or an
-    unknown `__typename`, refuses (decided Q3: CLAUDE.md Workflow "CI 全 pass を目視確認してから squash merge", made
-    mechanical). ⚠ Unmeasured assumption: that pending or failed non-required checks also make `mergeStateStatus`
-    `UNSTABLE`. Step 10 does not rely on it — §6 feeds `CLEAN` together with a pending check and expects a refusal.
-11. `--dry-run`: print the step 12 command (with `H`) and "would merge", exit 0, stop here (decided Q4).
-12. `gh pr merge <PR> -R <repo> --squash --match-head-commit <H> --delete-branch=false`. Never `--auto`, `--admin`,
-    `-d`. `--match-head-commit` is the server-side pin: if the head moved after step 5, GitHub refuses the merge.
-13. `gh pr view <PR> -R <repo> --json state,headRefOid` → `MERGED` and head `H`. Only then step 14. If step 12 exited
-    non-zero but step 13 shows `MERGED` at `H` (a lost response after a server-side merge), step 14 runs and a
-    warning is printed.
-14. Run `~/.claude/hooks/post-merge-sync-main.sh`, then `~/.claude/hooks/post-merge-cleanup-branch.sh`, each once,
-    with stdin `{"tool_input":{"command":"gh pr merge <PR>"},"cwd":"<caller's pwd -P>"}`, the caller's cwd as the
-    process cwd, and `CLAUDE_PROJECT_DIR` passed through unchanged when the caller has it. Both scripts locate the
-    main worktree with `git worktree list` from the process cwd; the cleanup script keeps the caller's own worktree
-    using `.cwd`, `CLAUDE_PROJECT_DIR` and `lsof` — so a PR branch held by the live session that ran `merge-pr` is
-    left in place. Print each script's `additionalContext`. A missing script prints a note; a script's non-zero exit
-    prints a note; neither changes the exit code. The sync fast-forwards the worktree that holds the running
-    `merge-pr`, which may rewrite that file: measured, git's fast-forward writes a new inode and a running `bash`
-    keeps reading the old one (§3.2); independently of that, the script's body is one function called on its last
-    line (`main "$@"; exit $?`), so `bash` has parsed all of it before step 14 runs.
-
-Exit codes: 0 merged, or `--dry-run` with every check passed; 1 refused at steps 2–10 (nothing merged); 2 usage;
-3 step 12 failed and the PR is not merged.
-- III1 [P1b]. TOCTOU between step 5 and step 12 on the head: closed by the pin. Every check (token, Codex, state,
-  CI) is about the same `H`, and the server merges only `H`.
-- III2 [P1b]. TOCTOU on `mergeStateStatus` between step 9 and step 12 (base moved, a check run flipped): **not**
-  pinned by the server. If the base moved and the PR still merges cleanly, the squash includes a base nobody tested
-  together with `H` — the same exposure as today's manual merge. Stated limit.
-- III3 [P1b]. A new Codex item posted between step 8 and step 12 is about `H` or a later head; a later head is
-  caught by the pin. A finding posted on `H` in that window is not seen (the same window as a manual merge).
-- III4 [P1b]. **Trust model of the go token**: it guards against accidents and sandboxed agents. A session that can
-  write `$ELIDEX_PM_DIR` — an unsandboxed Claude session can — can write its own token. Stated limit (D36).
-- III5 [P1b]. **No override flag.** Break-glass is a raw merge by the PM, recorded (§7.4); this also covers a broken
-  `merge-pr` on `origin/main`, whose fix PR is merged that way.
+**III — merge decision order and TOCTOU** [P1b]: P1b memo §2 (steps 1–14, exit codes, III1–III5).
 
 **IV — coexistence with the Claude hooks** [both] (shim installed; the Claude hooks not yet changed, or changed
 only for elidex).
@@ -318,24 +231,13 @@ only for elidex).
   *real* index lists; pre-commit checks the blobs of the index git commits from (VI1). They differ on partial
   staging and on `git commit <path>` / `git commit -a`. Until step A4 a deliberate skip needs both opt-outs
   (`# fmt-ok` and VI3's value); after it, in an installed elidex worktree, only VI3's.
-- IV3 [P1b]. `merge-pr` is invisible to the Claude merge hooks: its invocation text (`… merge-pr 655`) does not match
-  their trigger `gh[[:space:]]+pr[[:space:]]+merge`, and the `gh pr merge` it runs is a child process, not a tool
-  call. So the Claude PreToolUse head / delete-branch guards (lines 36, 42) do not double-decide, and the PostToolUse
-  sync / cleanup (lines 136, 142) do not run a second time.
-- IV4 [P1b]. The PostToolUse entries carry `"if": "Bash(gh *)"` (`settings.json:137`, `:143`), so they run only for a
-  command Claude Code's matcher reads as a `gh` command. If one command line both calls `merge-pr` and holds such a
-  `gh pr merge <N>` command, the scripts run a second time after the wrapper's run. Sync is silent on that run
-  **only if the first run fast-forwarded** local `main` (it exits when local `main` already equals `origin/main`,
-  sync line 35); if the first run refused (a dirty tree), the second prints the same note again. Cleanup is silent
-  **only if the first run removed the worktree**: it then finds no worktree holding the branch, `branch -D` fails silently, and it prints
-  nothing (cleanup lines 59–62, 116–120); if the first run left the worktree in place (a live session holds it), the
-  second run prints the same note again. Harmless either way.
+- IV3, IV4 [P1b]: P1b memo §2.
 - IV5 [both]. **Two coexistences the approved scope cannot end** (PM 893 (1)); each has an owner, a trigger and an
   end. This is the strangler state "One issue, one way" forbids, so the memo names them instead of hiding them.
   - **Merge (the stated gap).** Until the `:36` approval (§7.3) a Claude driver can still run a raw
     `gh pr merge`. Its only guard is `gh-pr-merge-head-guard.sh`, which allows a PR with no Codex assessment and
     fails open on any `gh` error (its header, lines 14–16), counts the summary row's `Completed` (its lexime #332
-    branch), honours `# merge-stale-ok` (header lines 18–19), and asks for no go token. So on that path step 8's
+    branch), honours `# merge-stale-ok` (header lines 18–19), and asks for no go token. So on that path `merge-pr` step 8's
     "no override to train onto" and V × F's "a fail-closed layer on merge" do **not** hold; they hold for the whole
     merge path only after `:36`. Owner: the PM, who carries `:36` to the user. Trigger: P1b's merge (from then on
     `merge-pr` exists and the raw path is the second procedure). Not pulled into this scope.
@@ -349,10 +251,7 @@ only for elidex).
 - V1 [P1a]. Nothing is installed before P1a is merged (an installed shim would pass everywhere: I3).
 - V2 [P1a]. The shim goes in before any Claude hook stops deciding. For `:24` / `:30` this holds by construction:
   their pass-through defers only where `installed(wt)` is true (§4.1, §7.1 step A4).
-- V3 [P1b]. Raw `gh pr merge` is denied or adapted (Claude side, `:36`) before the PostToolUse merge entries
-  (`:136`, `:142`) change; the reverse order leaves raw merges without sync / cleanup. Both are §7.3 items.
-- V4 [P1b]. The post-merge scripts stay in `~/.claude/hooks/` whatever happens to their PostToolUse entries:
-  `merge-pr` calls them.
+- V3, V4 [P1b]: P1b memo §2.
 - V5 [P1a]. The adapter-layer prevention of I4 (the §4.8 patch: prevented for direct commands, detected by
   `--check`) is in place before `:24` / `:30` pass through; the `--check` PM-pass item runs from shim install on.
   Without both, the pass-through makes I4 an unwatched hole for agents.
@@ -382,8 +281,8 @@ only for elidex).
 | P1a | shim: `--show-toplevel` | not called | the shim reads `origin/main`'s blob, which needs no work tree; pre-push needs none either (refs and `--rev` only), so a bare repository is judged too |
 | P1a | installer: the invoking worktree's hooks path is not `<common dir>/hooks`, or a non-shim hook is already there | refuse | writing elsewhere would act on other repositories (a global `core.hooksPath`) or on one worktree only, or replace someone's hook |
 | P1a | `--check`: a worktree whose hooks path cannot be resolved, or `origin/main`'s `shim.sh` cannot be read | listed, exit 1 | `installed(wt)` is false when it cannot be shown true |
-| P1b | merge-pr: every `gh` / `jq` / fetch failure, a wrong invocation site, a running file that differs from `origin/main`'s, a reviewer key missing in the overlay, no dry Codex verdict on `H` after the last trigger, an unresolved Codex thread, a merge queue, a `mergeStateStatus` other than `CLEAN`, a check not complete and green, `ELIDEX_PM_DIR` unset or missing, a token for another sha | **refuse** | the wrapper *is* the merge, which cannot be undone. The current head guard fails open (its header, lines 14–16) because it sits in front of a merge a human still decides; here nothing is behind |
-| P1b | merge-pr: post-merge script missing or failing | note, exit 0 | the merge already happened |
+
+The P1b rows (`merge-pr`): P1b memo §2.
 
 **T — the test harness** [both] (CI `tools` job, `scripts/python-suites.sh`).
 - T1 [both]. Members are tracked `test_*.py`, found by glob; every test must run and pass (a skip is red).
@@ -411,7 +310,6 @@ only for elidex).
 | slice | pair | intersection |
 |---|---|---|
 | P1a | I × II | every push from every worktree and branch is judged by `origin/main`'s ref rules (I2), the same for every branch, old ones included; the ratchet's capture set is the pushed commit's own (I5, stated limit) |
-| — | I × III | `merge-pr` is not a git hook; its analogue of I5 (a PR weakening the copy that merges it) is closed by step 2 (site) and step 3 (`origin/main`'s bytes) |
 | both | I × IV | in a worktree with I4's override, `installed(wt)` is false, so the Claude hooks keep deciding there (no pass-through); in other repositories nothing changes |
 | P1a | I × V | the installer writes one file per hook name into the shared hooks dir, so installation is all-worktrees-at-once; there is no per-worktree rollout |
 | P1a | I × VI | pre-commit, like pre-push, is `origin/main`'s copy; the staged config it reads (VI4) is the branch's, so the rule is shared and the edition is the commit's |
@@ -423,12 +321,7 @@ only for elidex).
 | P1a | II × VI | the ratchet at push reads the pushed commit (II9) and pre-commit reads the index (VI1): neither reads the working tree, so what was committed is what is judged at push |
 | P1a | II × F | every ref rule fails closed; only the ratchet's environment error fails open, and it runs only after every ref rule has passed |
 | P1a | II × T | each II case is a real `git push` into a local bare repository, so the stdin the hook reads is git's own, not a fixture |
-| P1b | III × IV | IV3: the wrapper's command text is outside the Claude merge hooks' trigger; IV4: the only double run is harmless |
-| P1b | III × V | the go token protocol starts when the PM starts writing tokens (§7.2 step B3); until then `merge-pr` refuses every PR |
-| — | III × VI | none: `merge-pr` makes no local commit (the squash is server-side) |
-| P1b | III × F | every step before step 12 fails closed; after step 12 nothing refuses, because a merge cannot be refused afterwards |
-| P1b | III × T | the fake `gh` serves recorded response shapes (the head review on page 2 as in #487; a `Completed` summary row as in lexime #332, which must now refuse; a finding and a dry verdict seconds apart as in #492; a marker-less findings comment as in #506 R88; both rollup shapes, the `StatusContext` one built from the GraphQL reference, §4.6) and acts as the server for `--match-head-commit`: it refuses when its head moved |
-| both | IV × V | IV is the state between §7.1 step A1 and step A4 for push / commit, and between §7.2 step B3 and the §7.3 approvals for merge |
+| both | IV × V | IV is the state between §7.1 step A1 and step A4 for push / commit, and between P1b memo §7.2 step B3 and the §7.3 approvals for merge |
 | both | IV × VI | IV2: the two commit checks differ on partial staging and temporary indexes until step A4 |
 | both | IV × F | in IV the stricter answer wins, so a fail-open on one layer is covered by the other where both look |
 | both | IV × T | the tests cannot run the Claude hooks (they live outside the repository); IV is checked by the PM's E2E only |
@@ -438,6 +331,8 @@ only for elidex).
 | P1a | VI × F | the only fail-open in VI is rustfmt not running, behind CI `check`; a missing config fails closed |
 | P1a | VI × T | each VI case is a real `git commit` (with a pathspec, `-a`, partial staging) in a scratch repository, with the stub rustfmt |
 | both | F × T | each fail direction is a test case: the stub rustfmt and a fake `python3` that cannot start cover the warn-and-pass paths, fake `gh` errors cover refusal |
+
+The pairs with III (I × III, III × IV, III × V, III × VI, III × F, III × T): P1b memo §2.
 
 ## §3. Spec coverage map
 
@@ -473,14 +368,8 @@ memo).
 | git §CONFIGURATION FILE (git-config(1), "Includes") | `include.path` | an included file's `core.hooksPath` applies | I4 detection (`--check`), §4.8 blind spot | measured: a `--worktree include.path` and a `-c include.path=` both reroute; `--git-path hooks` follows the include | yes |
 | rustfmt §OPTIONS (`rustfmt --help`, 1.10.0) | `--check` | the help says it exits 1 when formatting is required | **not used on stdin**: measured exit 0 with a diff on stdin (§3.2) — the help says the opposite of the stdin behaviour | measured | yes |
 | rustfmt §OPTIONS (`rustfmt --help`, 1.10.0) | `--config-path` | "Recursively searches the given path for the rustfmt.toml config file" | VI4: a temp dir holding the staged `.rustfmt.toml` | measured: finds `.rustfmt.toml` in the dir on stdin input | yes |
-| gh §FLAGS (gh pr merge) | `--match-head-commit SHA` | head must match | `merge-pr` step 12 | ✓ | yes (PR number) |
-| gh §FLAGS (gh pr merge) | `--squash`, `--delete-branch=false` | no `--auto`, `--admin`, `-d` | `merge-pr` step 12 argv | ✓ | yes |
-| gh §FLAGS (gh api) | `--paginate --slurp` | pages as an array of arrays | `merge-pr` step 8 | ✓ | no |
-| GitHub GraphQL §OBJECTS (PullRequest) | `mergeStateStatus` | `CLEAN` only | `merge-pr` step 9 | allow-list, so completeness of the enum is not relied on | no |
-| GitHub GraphQL §OBJECTS (PullRequest) | `headRefOid`, `state`, `isDraft`, `baseRefName` | `OPEN` before, `MERGED` after | `merge-pr` steps 5, 13 | ✓ | no |
-| GitHub GraphQL §OBJECTS (PullRequest) | `statusCheckRollup` | `CheckRun` (`status`, `conclusion`) and `StatusContext` (`state`); green = `COMPLETED` + `SUCCESS` / `NEUTRAL` / `SKIPPED`, or `SUCCESS`; at least one entry | `merge-pr` step 10 | allow-list, so the enums' completeness is not relied on; an unknown `__typename` refuses | no |
-| GitHub GraphQL §OBJECTS (PullRequestReviewThread) | `isResolved`, first comment's `author.login` | unresolved bot thread count | `merge-pr` step 8a | ✓ (login without `[bot]` in GraphQL, per the overlay) | no |
-| GitHub GraphQL §OBJECTS (Repository) | `mergeQueue(branch:)` | null when the branch has no merge queue | `merge-pr` step 6 | assumption: `main` has none today | no |
+
+The gh and GitHub GraphQL rows: P1b memo §3.
 
 **Breadth**: K=4 (git, gh, rustfmt, GitHub GraphQL), M=30. The preflight's SPLIT-DEFAULT (K≥6 or M≥30; reached by
 M=30 since round 2's rows) is answered by the two slices and the separate global patch — no single PR carries more
@@ -618,59 +507,7 @@ each with its own message: finding, usage, error).
 
 ### §4.4 merge-pr [P1b]
 
-As §2 III, steps 1–14. The repository for `-R` is `gh repo view --json nameWithOwner` in the caller's cwd, read once.
-The script's body is one function, called on the last line (`main "$@"; exit $?`), so a rewrite of the file during
-step 14's sync cannot change what runs (§2 III step 14).
-
-**The overlay rule (step 8), stated once.** The § reviewer section of `origin/main`'s
-`.claude/skills/external-converge/project.md` is the lines from `## reviewer` to the next `## ` heading. A key's
-bullet is a line starting `` - `<key>`: ``; its value is the **first backtick span after that colon** on the same
-line (a key with no such bullet, two bullets, or an empty span refuses). How each value is used — the global
-resolver's use, written once in the script:
-
-| key | used as |
-|---|---|
-| `bot_login` | literal; REST compares it whole, GraphQL compares it with a trailing `[bot]` removed |
-| `trigger` | literal containment in an issue comment's body (step 8b) |
-| `assessed_commit_marker` | regex prefix, followed by `` [^`]*`([0-9a-f]{7,40}) `` (step 8c) |
-| `dry_verdict_match`, `error_verdict_match`, `status_comment_match` | regex searched in the body (jq `test`) |
-| `body_finding_match` | regex, OR-ed with the always-on generic `/blob/[0-9a-f]{7,40}/[^)[:space:]]*#L[0-9]+` |
-
-**Where the values are canonical.** `external-review/project.md` § reviewer also writes `bot_login`, `trigger`,
-`assessed_commit_marker` and `dry_verdict_match`; it defers to `external-converge/project.md` for the trigger
-policy, for how to read the dry verdict, and for the values of the other keys. `merge-pr` reads
-`external-converge/project.md` only — the file that declares itself canonical — and `test_merge_pr.py` asserts that
-the four values written in both files are equal, so the second copy cannot drift silently.
-
-**Codex drivers' invocation form.** The Codex execpolicy matches an argv prefix (`prefix_rule(pattern=[…])` in
-`~/.codex/rules/default.rules`), which a `$(…)` in the command cannot satisfy. So a Codex driver runs the literal
-form `bash /Users/kazuaki/repos/send.sh/elidex/.claude/tools/agent/merge-pr <PR>` with `ELIDEX_PM_DIR` from its
-launch environment, and §7.2 B1's allow rule names exactly `["bash",
-"/Users/kazuaki/repos/send.sh/elidex/.claude/tools/agent/merge-pr"]`. If the `main` worktree ever moves, step 2
-refuses the old path (it is no longer the `main` worktree) and the rule is updated with the move.
-
-**Invocation site and how it is found** (step 2). The running copy is the one in the worktree that has `main`
-checked out — today `/Users/kazuaki/repos/send.sh/elidex` — run from the caller's own cwd:
-
-```sh
-ELIDEX_PM_DIR=<pm dir> bash "$(git worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch refs\/heads\/main$/{print w; exit}')/.claude/tools/agent/merge-pr" <PR>
-```
-
-Not a `mise` task: `mise run` resolves the task in the caller's checkout, which for a driver is its PR worktree —
-the site step 2 refuses. The caller's cwd stays the driver's own worktree on purpose: step 14 hands it to the
-cleanup script, which keeps the worktree of the live session (item D15 of PM 893).
-**Who keeps the site current**: every merge through `merge-pr` ends with `post-merge-sync-main.sh` (step 14), which
-fast-forwards that worktree to `origin/main`; if it is behind anyway (a merge made elsewhere, a dirty tree the sync
-refused), step 3 refuses with the `merge --ff-only` remedy. Step 3 is the reconciliation: the site check says
-*which* copy runs, the self check says that copy is `origin/main`'s.
-**Who sets `ELIDEX_PM_DIR`**: the PM, in the kickoff brief of every driver, Claude and Codex. A Claude Bash call does
-not keep exports, so Claude drivers write it on the invocation line as above; Codex drivers have it in the launch
-environment (or on the line). The E2E setup sets it (§7.5).
-
-Because of step 3, a PR that changes `merge-pr` is merged with `origin/main`'s copy; P1b itself, before which
-`origin/main` has no copy, is merged by hand — the last raw merge outside break-glass. The Codex-head logic is
-written once, here; the copy in the global `gh-pr-merge-head-guard.sh` stays until the §7.3 `:36` approval
-(IV5).
+P1b memo §4.4.
 
 ### §4.5 Ratchet `--rev` [P1a]
 
@@ -726,22 +563,12 @@ orchestrates.** This is the one statement of the rule (II9, I5 and §6 refer her
   that it ran and its `--rev` argument) are reached through `PATH` and the scratch `origin/main`; a fake `python3`
   that exits 1 covers the interpreter-cannot-start path.
 - `test_ecs_mission_ratchet.py` [P1a]: the `--rev` cases of §6.
-- `test_merge_pr.py` [P1b]: a fake `gh` on `PATH` serving fixture responses by argv and recording every argv; a fake
-  `HOME` with stub post-merge scripts that record their stdin, cwd and `CLAUDE_PROJECT_DIR`; a temp PM dir for
-  tokens; a scratch repository whose `origin` is a local bare repository holding the script and the overlay file on
-  `main`, with `main` checked out in its main worktree, so steps 2–3 run locally. The scratch `origin`'s overlay is
-  the **tracked** `.claude/skills/external-converge/project.md` of the test's own checkout, committed into the scratch
-  `main` at test time (not a copy kept in the test), and one test runs the §4.4 overlay rule on that tracked file
-  and asserts every key yields a non-empty value of its kind (a literal, or a regex that compiles), and that the
-  four keys written in both overlays are equal (§4.4) — so an edit that breaks the format is red in CI. Fixture
-  sources: the recorded Codex shapes named in the III × T row; the `StatusContext` entry is built from the GitHub
-  GraphQL reference (`StatusContext`: `__typename`, `context`, `state`), because no rollup recorded in this
-  repository holds one — the PR names the reference page and its fetch date in the fixture file.
+- `test_merge_pr.py` [P1b]: P1b memo §4.6.
 - `isolated_git.py` [P1a, imported by P1b]: T4; loaded by path (`importlib.util.spec_from_file_location`, as
   `test_ecs_mission_ratchet.py` does).
 - Mutants: each mutant is a one-line text replacement in a temp copy of the script. The harness asserts the
   replaced text occurs exactly once before applying it (so a later edit of the script cannot turn a mutant into a
-  no-op), runs the case named in §6 against the mutated copy, and asserts the case's verdict flips.
+  no-op), runs the case named in §6 (or P1b memo §6) against the mutated copy, and asserts the case's verdict flips.
 - Each PR re-derives the `tools` job's `timeout-minutes` from its own run, per the rule in that job's comment.
 
 ### §4.7 mise task [P1a]
@@ -1005,36 +832,19 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D10 | P1a | rustfmt cannot run → warn and pass | principle as D5 (CI `check` fmt step); incident #487's "trains around the guard" |
 | D11 | P1a | shim runs `origin/main`'s copy with `bash -c`; passes while `origin/main` has none, read only from an exit-0 empty answer; an error rejects (I2, I3) | PM 893 (C5): removes the uncommitted-edit and old-branch fail-open; git docs (exec bit); principle: unknowns by fail-safe direction (round 2, A3 MIN); measured absence answers (§3.2) |
 | D12 | P1a | installer refuses a hooks path other than `<common dir>/hooks` and a foreign hook; reports worktrees where `installed(wt)` is false; `installed(wt)` compares bytes with `origin/main`'s `shim.sh`, no earlier version accepted; every caller runs `origin/main`'s `install.sh` | Security by structure; measured `core.hooksPath` and `extensions.worktreeConfig`; CLAUDE.md "後方互換性は維持しない" (no earlier shim accepted); One issue, one way (one predicate, round 2 A2-2 / A3 MIN) |
-| D13 | P1b | merge-pr order of §2 III; `H` read once | drive skill §6 steps 2–4 (`merge at head <sha>`, re-check head and `mergeStateStatus`, `--match-head-commit`); PM scope |
-| D14 | P1b | no Codex assessment → refuse (the current hook allows) | principle: unknown falls to refuse where nothing is behind; incident #367 |
-| D15 | P1b | every `gh` / `jq` error → refuse | as D14 |
-| D16 | P1b | `mergeStateStatus` allow-list `CLEAN` | as D14 (an enum value added later refuses) |
-| D17 | P1b | `--delete-branch=false` written out | incident lexime #354 (`gh-pr-merge-delete-branch-worktree-guard.sh` header) |
-| D18 | P1b | post-merge: the existing scripts, once, with the JSON, the caller's cwd and its `CLAUDE_PROJECT_DIR` | PM scope; PM 893 (D15); the scripts' own interface (sync lines 18–28, cleanup lines 32–47, 70–79) |
-| D19 | P1b | the Codex-head logic lives once, in `merge-pr`; the global copy goes with the §7.3 `:36` approval | One issue, one way |
 | D20 | both | tests: real git, stub rustfmt, fake gh, isolated by construction (T4) | the `tools` job boundary comment (T3); the user rule that fixtures take the real shape; PM 893 (C11) |
 | D21 | both | PLAN.md is the ratified program memo (Q0) | PM 873 (user approved the whole plan), PM 874 (ordered this memo); PLAN.md:3 |
-| D22 | P1b | `ELIDEX_PM_DIR` required; unset or missing → refuse (Q1); set by the PM's kickoff | principle: the merge is irreversible, so an unknown falls to refuse; PM 893 (D14) |
-| D23 | P1b | `merge-pr` refuses unless byte-identical to `origin/main`'s copy, after a fetch (Q2) | Security by structure: a PR must not be able to weaken its own merge gate |
-| D24 | P1b | every CI check complete and green, both rollup shapes, besides `CLEAN` (Q3) | CLAUDE.md Workflow "CI 全 pass を目視確認してから squash merge", made mechanical; PM 893 (C7) |
-| D25 | P1b | `--dry-run` runs every check and prints the merge command (Q4) | the PM's E2E needs the good path on a real PR without an irreversible act |
 | D26 | P1a | a tag moved forward passes (Q5) | tags are not part of the PR / merge flow; stated limit |
 | D27 | both | two slices, P1a first; the seam is the empty II × III | PM 893 (A1) |
 | D28 | P1a | the ratchet reads the pushed tree (`--rev`), once per distinct pushed sha; every verdict input is `<sha>`'s (its whole module on its materialised tree), the running copy only orchestrates; a ratchet deleted on the branch rejects | PM 893 (C6); round 2 A2-1 (driver decision: one source for every verdict input); fail-safe direction (A3 MIN) |
 | D29 | P1a | `ELIDEX_FMT_OK` must equal the staged tree | PM 893 (E22): an opt-out covers one commit |
-| D30 | P1b | Codex: dry verdict on `H` after the last trigger, no finding in any channel, 0 unresolved Codex threads; the `Completed` row is not an assessment; every bot item admitted, its sha derived as the global resolver (marker → first `/blob/<sha>/` → `commit_id`), a round item with no sha is a finding; the trigger by literal containment from a non-bot author | PM 893 (C7); canonical rule in the global external-review SKILL; #492 (latest item does not win), #494 R2 (threads), #525 (`Completed`); round 2 A5-1 (driver decision: no-sha item = finding) |
-| D31 | P1b | reviewer values read from `origin/main`'s `external-converge/project.md` § reviewer, not copied into the script | One issue, one way (the overlay is their canonical site) |
-| D32 | P1b | no override flag; break-glass = a recorded raw merge by the PM (§7.4); its post-merge sync / cleanup is the PM's, by where the merge ran | PM 893 (C8); round 2 A3 / A2 MIN |
 | D33 | P1a | `--check` is a standing PM-pass item, through the PM's own invocation; its line in `.claude/skills/pm/SKILL.md` lands in P1a | PM 893 (C9): hand-run git stays possible after P2; round 2 A5 MIN (in the PM procedure before P3) |
-| D34 | P1b | invocation site = the `main` worktree's copy, run from the caller's cwd | PM 893 (D13); step 2 refuses a PR worktree |
-| D35 | P1b | Dependabot PRs get a `@codex review` from the CI/tools lane, which runs them (`pm:223`, PM 240), then `merge-pr` | PM 893 (E29); no Dependabot exemption, no break-glass for them; round 2 A5 MIN (the lane, not the PM) |
-| D36 | P1b | the go token's trust model is accidents + sandboxed agents | PM 893 (E28); stated limit III4 |
-| D37 | P1b | a merge queue on the base refuses | PM 893 (E24): main has none today |
 | D38 | P1a | the §4.8 bypass-guard patch: the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
 | D39 | P1a | P1a break-glass: the PM, in a terminal, `--no-verify`, recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
 | D41 | P1a | the pass-through defers only when every git segment's effective cwd is in scope and installed; it imports the bypass guard's derivation and `in_scope` | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots) |
-| D42 | P1b | the go token path stays `$ELIDEX_PM_DIR/handoff/codex-lanes/go/<PR>-<H>` | PLAN §6 decision 6 fixes `$PMD/handoff/codex-lanes/go/<PR>-<sha>` (ratified, PM 873); round 2 Axis 1 MIN answered by it |
+
+The P1b rows (D13–D19, D22–D25, D30–D32, D34–D37, D42): P1b memo §5.
 
 ## §6 Control / mutant table
 
@@ -1081,23 +891,8 @@ case must kill.
 | P1a | VI5 merge | — | conflicted merge concluded with `git commit`, unformatted resolution staged → rejected | exit 0 when `MERGE_HEAD` exists |
 | P1a | D10 env | `rustfmt --version` fails → pass with warning | blob rustfmt cannot parse | treat every rustfmt non-zero as an environment error (bad case passes) |
 | both | T4 isolation | a scratch repository under the test's temp dir | the helper is handed the real repository → the test fails | drop the common-dir comparison |
-| P1b | step 1 usage | — | `merge-pr abc`, `merge-pr` → exit 2, fake `gh` saw no `pr merge` | accept any argument |
-| P1b | step 2 site | the copy in the scratch repository's `main` worktree | the same bytes run from a linked worktree's checkout → exit 1, names both | drop the site check |
-| P1b | step 3 self check | running copy equals `origin/main`'s blob | running copy differs by one byte; `origin/main` has no copy; the fetch fails | drop the comparison; compare against the working-tree file instead of `origin/main` |
-| P1b | step 4 PM dir | `ELIDEX_PM_DIR` set to an existing dir | unset; set to a missing dir | default to a path; test only "set" |
-| P1b | step 6 merge queue | `mergeQueue` null | `mergeQueue` non-null → exit 1 | skip the query |
-| P1b | step 7 token | token `<PR>-<H>` present | none; token for an older sha; token named with a 7-char sha | glob `<PR>-*`; prefix compare |
-| P1b | step 8 Codex | dry verdict comment on `H` after the last trigger, 0 unresolved Codex threads; the same with the head review only on page 2 (#487 shape); the trigger inside a longer human comment ("fixed X. @codex review") counts | only a `Completed` summary row on `H` (lexime #332 shape); dry verdict + one unresolved Codex thread; dry verdict older than the last trigger; a finding comment and a dry verdict seconds apart (#492); a marker-less findings comment (heading + `/blob/<H>/…#L` link) beside a dry verdict (#506 R88 shape); a bot comment newer than the trigger with no marker and no blob link that is neither error nor status; a bot comment quoting the trigger is not a trigger (the dry verdict before the human trigger stays stale); verdict on an older sha; overlay key missing; `gh api` exits non-zero | accept the summary row; ignore threads; latest item wins (the #492 case passes); filter comments by the marker (the #506 case passes); drop items with no sha (the no-sha case passes); trigger by equality (the longer-comment control fails); trigger from any author (the bot's quote resets `T`); drop the trigger cut-off; drop `--paginate` (fake serves page 1 only without it); empty assessment → allow |
-| P1b | §4.4 overlay rule | the tracked `external-converge/project.md` yields every key, each value of its kind; the four keys shared with `external-review/project.md` are equal | a fixture overlay with a key's bullet missing, doubled, or with an empty span → exit 1, names the key | take the line's first backtick span (it is the key's own name); accept the last of two bullets |
-| P1b | step 9 state | `CLEAN` | `UNSTABLE`, `BLOCKED`, `DIRTY`, `BEHIND`, `DRAFT`, `UNKNOWN`, `HAS_HOOKS`, `FOO` | deny-list `DIRTY\|BLOCKED` |
-| P1b | step 10 CI | `CheckRun` entries `COMPLETED` + `SUCCESS` / `NEUTRAL` / `SKIPPED`; a `StatusContext` `SUCCESS` | `CLEAN` with a pending `CheckRun`; a `FAILURE`; a `StatusContext` `PENDING`; empty rollup; unrecognised conclusion; unknown `__typename` | check only failed entries (pending passes); read only `conclusion` (the `StatusContext` cases pass); allow an empty rollup |
-| P1b | step 11 dry run | `--dry-run` with every check passing prints the step 12 argv, exit 0, fake `gh` saw no `pr merge`, no post-merge run | `--dry-run` with a failing check → exit 1 | `--dry-run` handled before the checks (prints "would merge" with a failing check) |
-| P1b | step 12 argv | merge argv exactly `pr merge <PR> -R <repo> --squash --match-head-commit <H> --delete-branch=false` | — | drop `--match-head-commit` |
-| P1b | III1 TOCTOU | — | fake moves the head between view and merge → fake refuses the pinned merge → exit 3, no post-merge run | drop `--match-head-commit` (fake then merges) |
-| P1b | step 13 lost response | merge exits non-zero, then view says `MERGED` at `H` → post-merge runs, warning | merge exits non-zero, view says `OPEN` → exit 3 | run post-merge whenever step 12 ran |
-| P1b | step 14 post-merge | sync then cleanup, once each; recorded stdin's command matches `gh[[:space:]]+pr[[:space:]]+merge[[:space:]]+[0-9]+` (cleanup's own trigger), `.cwd` is the caller's `pwd -P`, `CLAUDE_PROJECT_DIR` arrives unchanged | — | command text `gh pr merge` without the number; scripts run in `$HOME` instead of the caller's cwd; `env -u CLAUDE_PROJECT_DIR` |
-| P1b | step 14 missing | scripts absent → exit 0 with a note | — | exit non-zero when a script is absent |
-| P1b | IV3 | `merge-pr 655` (the documented invocation) does not match the PostToolUse trigger | — | (pin on the usage string; a rename that adds `gh pr merge` to it fails) |
+
+The P1b rows (`merge-pr` steps 1–14, the overlay rule, III1, IV3): P1b memo §6.
 
 ## §7 Cut-over (PM / user, after each merge) and the E2E cases
 
@@ -1137,16 +932,7 @@ back up first); if those files are dotfiles-managed, it goes through the dotfile
 
 ### §7.2 P1b cut-over
 
-| step | action | state after it | safe because |
-|---|---|---|---|
-| B0 | P1b merges (by hand, through the Claude hooks as today — the last raw merge outside break-glass) | `merge-pr` on `origin/main` | nothing calls it yet |
-| B1 | prerequisite, P2-owned (PM / user): the Codex execpolicy allow list (PM 877 / 878, `~/.codex/rules`) must not include `gh pr merge`; it allows exactly the argv prefix `["bash", "/Users/kazuaki/repos/send.sh/elidex/.claude/tools/agent/merge-pr"]`, the literal form of §4.4 (a `prefix_rule` cannot match the `$(…)` form) | Codex drivers cannot raw-merge without a prompt | the wrapper is the only merge path Codex is allowed |
-| B2 | E2E M1–M6 (§7.5) | unchanged | M1–M6 stop before step 12 |
-| B3 | **only after B1**: the PM starts writing go tokens and puts `ELIDEX_PM_DIR` in every kickoff (§4.4); drivers merge with `merge-pr` (M7) | wrapper path live; raw `gh pr merge` still possible for Claude drivers (IV5, the stated gap) | the raw path keeps its Claude guards; a Codex driver has no raw path (B1) |
-
-**For the PM, the token's writer**: the file name is `<PR>-<H>` with `H` the **full 40-hex** head sha
-(`gh pr view <PR> --json headRefOid -q .headRefOid`), under `$ELIDEX_PM_DIR/handoff/codex-lanes/go/`. A 7-character
-or any other prefix is refused (step 7). The file's content is not read.
+P1b memo §7.2.
 
 ### §7.3 Needs a further user approval (not in the approved scope)
 
@@ -1156,7 +942,7 @@ them to the user:
 | line | today | would become |
 |---|---|---|
 | `:13` | amend / force deny on flag text (inline jq) | the force half: the same elidex-scoped pass-through (pre-push II5 covers `-f` and `+<refspec>`); **the amend half stays everywhere** |
-| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. If adopted, break-glass (§7.4) runs outside the Claude Bash tool, so no PostToolUse entry fires for it: its sync and cleanup are the PM's, by hand, as §7.4 says |
+| `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. If adopted, break-glass (P1b memo §7.4) runs outside the Claude Bash tool, so no PostToolUse entry fires for it: its sync and cleanup are the PM's, by hand, as P1b memo §7.4 says |
 | `:42` | delete-branch worktree guard | in elidex, inert once raw merges are denied (`merge-pr` writes `--delete-branch=false`); kept as is under the adapter form |
 | `:136`, `:142` | PostToolUse sync / cleanup | unchanged entries; the scripts stay (V4). Under the deny form they never fire for elidex merges; under the adapter form they keep serving raw merges. Changed only after `:36` (V3) |
 
@@ -1164,15 +950,7 @@ them to the user:
 
 Both kinds are the PM's hand action with a record; neither is an override flag, and neither is run by an agent.
 
-**Merge (P1b, D32).** There is no override in `merge-pr`. When a merge must happen that `merge-pr` refuses —
-including a broken `merge-pr` on `origin/main`, whose fix PR is merged this way — the PM runs, by hand,
-`gh pr merge <N> -R send/elidex --squash --match-head-commit <H> --delete-branch=false`, and records it in
-PORTFOLIO with a decision number and the reason. **The post-merge sync and cleanup depend on where that command
-runs**, and are the PM's either way: run as a Claude Bash tool call, the PostToolUse entries (`:136`, `:142`) run
-them as today; run in a terminal (or under the §7.3 deny form, which forces that), nothing runs them, and the PM
-runs both scripts by hand from its own cwd with step 14's stdin:
-`printf '{"tool_input":{"command":"gh pr merge <N>"},"cwd":"%s"}' "$(pwd -P)" | ~/.claude/hooks/post-merge-sync-main.sh`,
-then the same into `post-merge-cleanup-branch.sh`.
+**Merge (P1b, D32).** P1b memo §7.4.
 
 **Push / commit (P1a, D39).** A broken pre-push, pre-commit or ratchet on `origin/main` rejects the push (or the
 commit) of its own fix branch, and `--no-verify` is denied to agents (`git-hook-bypass-guard.py`). Then the PM, by
@@ -1231,16 +1009,8 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E22 | P1a | E20 without `GIT_BYPASS_GUARD_EXTRA_SCOPE`, from a repository outside the scope (a scratch `git init` under `$S`, or a lexime worktree, read only) | deny, as before A4 |
 | E23 | P1a | E20 after `git -C $S/repo update-ref refs/remotes/origin/main <a commit before P1a>` (the read of `install.sh` fails) | deny, as before A4 |
 | E24 | P1a | after A2, in the shared repository: the §4.8 E2E line | as §4.8 states |
-| M1 | P1b | `merge-pr <open PR>` with no token (`ELIDEX_PM_DIR=$S/pm`) | exit 1, "no go token"; PR still open |
-| M2 | P1b | token for an older sha of that PR (in `$S/pm`) | exit 1, names both shas |
-| M3 | P1b | token for head (in `$S/pm`), no dry Codex verdict on head after the last trigger | exit 1, names the Codex condition |
-| M4 | P1b | token for head, `mergeStateStatus` not `CLEAN`, or a check pending | exit 1, names the state or the check |
-| M5 | P1b | a copy of `merge-pr` saved under `$S` and run from there | exit 1, invocation site |
-| M6 | P1b | `merge-pr --dry-run <PR>` on a PR the PM has approved (`ELIDEX_PM_DIR` = the real PM dir, token written) | exit 0, prints the `gh pr merge … --match-head-commit <H> --delete-branch=false` command; the PR is still open |
-| M7 | P1b | the first real merge the PM approves after B3, run by the driver from its own PR worktree (cwd = the worktree its live session holds) | merged; sync and cleanup notes printed once; the PR's worktree is **left in place** and the cleanup note says so; no PostToolUse notes in the Claude transcript for that command |
 
-M1–M6 stop before step 12 of §2 III, so they are safe on a real open PR. The head-moves race (III1) is not
-reproducible by hand; it is covered by the test with the fake server.
+M1–M7 [P1b]: P1b memo §7.5.
 
 ## §8 Decided (formerly open questions)
 
@@ -1248,25 +1018,17 @@ No question is open. Each former question was decided by the driver (lens conver
 
 - **Q0** PLAN.md is the ratified program memo (driver memo) — PM 873 (the user approved the whole Codex-lane plan;
   PM confirmed), PM 874 (ordered this per-PR memo); PLAN.md:3 records it. PLAN §6 decision 5 (Codex driver
-  sandbox) was revised by PM 877/878; P1 does not depend on it except §7.2 step B1.
-- **Q1** `ELIDEX_PM_DIR` is required; unset or a missing directory refuses (§2 III step 4). Ground: the merge is
-  irreversible, so an unknown falls to refuse.
-- **Q2** `merge-pr` refuses unless the running file is byte-identical to `origin/main`'s copy, after a fetch (step
-  3). Ground: Security by structure — a PR must not be able to weaken its own merge gate.
-- **Q3** Every CI check must be complete and green, besides `mergeStateStatus == CLEAN` (step 10). Ground: CLAUDE.md
-  Workflow "CI 全 pass を目視確認してから squash merge", made mechanical. Unmeasured assumption kept: that pending
-  or failed non-required checks give `UNSTABLE`; step 10 does not rely on it and §6 tests `CLEAN` + pending.
-- **Q4** `--dry-run` runs every check and prints the merge command without running it (step 11); the PM's E2E uses
-  it on a real PR (§7.5 M6). Ground: the good path needs a check that is not an irreversible act.
+  sandbox) was revised by PM 877/878; P1 does not depend on it except P1b memo §7.2 step B1.
+- **Q1–Q4** (`merge-pr`): P1b memo §8.
 - **Q5** A tag moved forward passes II5: accepted as a stated limit, named in §1 non-goals. Ground: tags are not
   part of the PR / merge flow.
 - **PM 893** (plan-review round 1; labels such as "(C5)" or "(E22)" name the items of that round's decision list,
   sections A–E, items 1–29): two slices, P1a first (D27); pre-commit as its own axis VI; cut-over limited to
   `:24` / `:30` as an elidex-scoped pass-through, the rest in §7.3; shim runs `origin/main`'s copy (D11); ratchet
-  `--rev` (D28); the Codex requirement of step 8 and the `Completed` row departure (D30); no override, break-glass
-  recorded (D32); `--check` standing (D33); the Codex execpolicy prerequisite (§7.2 B1); tests isolated by
+  `--rev` (D28); the Codex requirement of `merge-pr` step 8 and the `Completed` row departure (D30); no override, break-glass
+  recorded (D32); `--check` standing (D33); the Codex execpolicy prerequisite (P1b memo §7.2 B1); tests isolated by
   construction (T4, D20); invocation site (D34); `ELIDEX_PM_DIR` set by the PM's kickoff (D22); `CLAUDE_PROJECT_DIR`
-  forwarded (D18); the full-sha token told to the PM (§7.2); both rollup shapes (D24); `ELIDEX_FMT_OK` per
+  forwarded (D18); the full-sha token told to the PM (P1b memo §7.2); both rollup shapes (D24); `ELIDEX_FMT_OK` per
   invocation (D29); token trust model (D36); Dependabot through `@codex review` (D35); merge queue refuses (D37).
 - **PM 900 and the PM's A2-scope decision** (plan-review round 2): the user approved the bypass-guard extension; its
   scope is the whole write grammar of `core.hooksPath` plus `GIT_CONFIG_PARAMETERS`, with tests per form, negative
@@ -1274,7 +1036,7 @@ No question is open. Each former question was decided by the driver (lens conver
   rule does not overlap them silently; the PM applies it at P1a cut-over with the shim (§4.8, D38).
 - **Round 2 driver decisions** (the open choices of the round-2 findings): A3-1 the raw-merge gap until `:36` is
   stated with owner and trigger, `:36` not pulled into scope (IV5, D40); A3-2 the P1a break-glass (§7.4, D39); A5-1
-  the assessed-sha derivation and the no-sha item as a finding (step 8c, D30); A2-1 every `--rev` verdict input
+  the assessed-sha derivation and the no-sha item as a finding (`merge-pr` step 8c, D30); A2-1 every `--rev` verdict input
   from `<sha>` (§4.5, D28); A2-2 `installed(wt)` by bytes, no earlier version, and the Codex sandbox caveat (§4.1,
   I4, D12); A2-3 the pass-through per git segment (§7.1, D41); the go token path kept, PLAN §6 decision 6 being its
   ground (D42).
@@ -1288,12 +1050,7 @@ PM, outside them). The one modified tool is `.claude/tools/ecs_mission_ratchet.p
 mode is unchanged).
 
 **Two runtime dependencies cross the repository boundary**; each has a contract and an owner:
-- **Tracked → global.** `merge-pr` (tracked) runs `~/.claude/hooks/post-merge-sync-main.sh` and
-  `post-merge-cleanup-branch.sh` (global) with a hand-built PostToolUse payload (step 14: `.tool_input.command`,
-  `.cwd`, the process cwd, `CLAUDE_PROJECT_DIR`). The contract is that interface (sync lines 18–28, cleanup lines
-  32–47 and 70–79); its owner is the owner of `~/.claude/hooks` (PM / user, through the dotfiles session if those
-  files are dotfiles-managed), who keeps it or changes `merge-pr` with it. `test_merge_pr.py` pins the payload
-  `merge-pr` sends; a missing or failing script is a note, never a refusal (F).
+- **Tracked → global** (`merge-pr` → the post-merge scripts): P1b memo §9.
 - **Global → tracked.** After §7.1 A4 the global `:24` / `:30` hooks run `origin/main`'s `install.sh --installed`.
   The contract is §4.1's: exit 0 / 1, silent on 0, runnable in the §4.7 form from any worktree; its owner is this
   repository (the CI/tools lane), and `test_githooks.py` pins it. A change to it is a change to a global hook's
@@ -1332,7 +1089,7 @@ wrong or incomplete:
 - **§1 row 5**: the ratchet as it stands reads the working tree, not the pushed commit; P1a adds `--rev` so pre-push
   judges the pushed commit (II9).
 - `$PMD` is used throughout PLAN but not defined in it; a tracked script needs it from the environment (Q1); the PM
-  sets it in each kickoff (§4.4).
+  sets it in each kickoff (P1b memo §4.4).
 - **§5 P1** ("1 PR"): two slices, P1a (git hooks) then P1b (merge wrapper) (PM 893).
 - **§1 preamble** ("shim は script が無い古い branch では通す"): the shim runs `origin/main`'s copy, so old branches
   are guarded too (PM 893; I2).
@@ -1340,7 +1097,7 @@ wrong or incomplete:
 - **§5 P1 completion and §6 item 3** ("`set:24,30` の Claude hook 撤去"): an elidex-scoped pass-through instead of
   removal (PM 893; §7.1 A4); `set:13,36,42,136,142` need a further user approval (§7.3).
 - **§1 row 6** (wrapper: "Codex 評価 head == head"): a dry verdict on the head after the last trigger with 0
-  unresolved Codex threads; the summary row's `Completed` is not an assessment (PM 893; §2 III step 8).
+  unresolved Codex threads; the summary row's `Completed` is not an assessment (PM 893; P1b memo §2 III step 8).
 - **§6 item 5** (Codex sandbox: add-dir の `.git` common dir): a session that can write the common dir can rewrite a
   shim or a worktree's `config.worktree` by a file write, which no command adapter sees; it is detected by
   `--check` (bytes and hooks path, §4.1), not prevented (I4).
@@ -1367,7 +1124,7 @@ re-pointed to a scratch bare repository, and `git init` repositories with `HOME`
   `python3 -c`.
 - `/usr/bin/time -p python3 .claude/tools/ecs_mission_ratchet.py` in this worktree.
 - `git help githooks` (pre-merge-commit), `git help push` (`--no-verify`), `git help merge-base` (OPERATION MODES).
-- `gh pr view --json` field list (no merge-queue field: hence the GraphQL query of step 6).
+- `gh pr view --json` field list (no merge-queue field: hence the GraphQL query of `merge-pr` step 6).
 - Round 2 (2026-11-21): the probe scripts of §3.2's round-2 list, in `git init` repositories under the session
   scratchpad (`HOME`, `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`; deleted afterwards): each `git config`
   form followed by `git -C <linked wt> rev-parse --path-format=absolute --git-path hooks`; `GIT_CONFIG_PARAMETERS`
