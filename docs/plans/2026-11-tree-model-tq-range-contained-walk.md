@@ -549,12 +549,12 @@ the MO cells read records in a second `eval` after the first one's microtask che
 `range_ops.rs` cells do.
 
 **Mutants** (run at the final head only, at most 2 in parallel):
-- M1 `range/mod.rs:574` back to `dom.get_first_child(current)` → red: U1 (a) and (d), U2 / V1 / V2 P1 shape, U2 /
+- M1 `next_in_preorder_global`'s child step (`range/mod.rs:574` at base, `:584` at `39290f25`) back to `dom.get_first_child(current)` → red: U1 (a) and (d), U2 / V1 / V2 P1 shape, U2 /
   V1 / V2 P1c shape, U4 / V4 / V5 no-light shape, U4 / V4 / V5 P3c / P4c shape (V2 P1c and V5 P4c: erratum
   2026-11-22, measured at `9f3a229e`).
-- M2 `range/mod.rs:579` back to `dom.get_next_sibling(node)` → red: U1 (b), U2 / V1 / V2 P1-light shape, U4 / V4 / V5
+- M2 `next_in_preorder_global`'s sibling step (`range/mod.rs:579` at base, `:589` at `39290f25`) back to `dom.get_next_sibling(node)` → red: U1 (b), U2 / V1 / V2 P1-light shape, U4 / V4 / V5
   light shape (V2 P1-light: erratum 2026-11-22, measured at `9f3a229e`).
-- M3 `range/mod.rs:574` = `dom.get_first_child(current).filter(|c| !dom.is_shadow_root(*c))` ("`None` if the first
+- M3 `next_in_preorder_global`'s child step (`range/mod.rs:574` at base, `:584` at `39290f25`) = `dom.get_first_child(current).filter(|c| !dom.is_shadow_root(*c))` ("`None` if the first
   stored child is a shadow root") → red: U1 (d), U2 P1c shape, U4 P3c shape, V1 P1c, V2 P1c, V4 P3c, V5 P4c (V2 P1c
   and V5 P4c: erratum 2026-11-22, measured at `9f3a229e`; both are after-shape cells, as §6.1's M3 kills on P5c /
   P4c). Green on every other shape (it equals `tq` there, §6.1).
