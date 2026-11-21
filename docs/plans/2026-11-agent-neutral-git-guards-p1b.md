@@ -310,7 +310,7 @@ Where each E2E case runs (M1–M7 included) and the unsafe orders: P1a memo §7 
 
 | step | action | state after it | safe because |
 |---|---|---|---|
-| B0 | P1b merges (by hand, through the Claude hooks as today — the last raw merge outside break-glass) | `merge-pr` on `origin/main` | nothing calls it yet |
+| B0 | P1b merges (by hand, through the Claude hooks as today — the last raw merge outside break-glass). Its PR also edits `.claude/skills/drive/codex.md` (PM 935): in the row "merge (`/drive` §6 の 4)" it drops the "P1b 着地まで" interim (Codex drivers return to `/drive` §6 with `merge-pr` and the go token). If `codex.md` is not on `main` yet, that edit passes to the P3 PR and the PM checks it at the second landing (P1a §7.1 A0 states the same for its rows) | `merge-pr` on `origin/main` | nothing calls it yet |
 | B1 | prerequisite, P2-owned (PM / user): the Codex execpolicy allow list (PM 877 / 878, `~/.codex/rules`) must not include `gh pr merge`; it allows exactly the argv prefix `["bash", "/Users/kazuaki/repos/send.sh/elidex/.claude/tools/agent/merge-pr"]`, the literal form of §4.4 (a `prefix_rule` cannot match the `$(…)` form) | Codex drivers cannot raw-merge without a prompt | the wrapper is the only merge path Codex is allowed |
 | B2 | E2E M1–M6 (§7.5) | unchanged | M1–M6 stop before step 12 |
 | B3 | **only after B1**: the PM starts writing go tokens and puts `ELIDEX_PM_DIR` in every kickoff (§4.4); drivers merge with `merge-pr` (M7) | wrapper path live; raw `gh pr merge` still possible for Claude drivers (IV5, the stated gap) | the raw path keeps its Claude guards; a Codex driver has no raw path (B1) |
