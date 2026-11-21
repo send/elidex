@@ -452,7 +452,7 @@ is at or over 1000, and the largest after the cells (`tests_selection.rs`, about
 
 From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this plan PR adds there (below):
 
-- **At `tq`** (umbrella `:1100-1101`; PM 882 (1)). The text, verbatim, in the umbrella §7.4 style:
+- **At `tq`** (umbrella §7.4 "At `tq`", `:1100-1101` at `4918a6c7`; PM 882 (1)). The text, verbatim, in the umbrella §7.4 style:
 
   > `#11-shadow-root-accepted-as-ref-or-old-child`: gains "Range path closed by tq (<sha>, <date>): both deleting
   > natives, `Range.prototype.deleteContents` (`native_range_delete_contents`, elidex-js
@@ -470,7 +470,7 @@ From umbrella §7.4 at `4918a6c7`, by reference only, plus the one item this pla
 - (N6) (umbrella `:1089-1099`, "at `tq`'s landing or at this umbrella's ratify, whichever is first"): ratify came
   first; the PM's landing list records it as applied on `4918a6c7` (pmo 8, 2026-11-20). Nothing left for `tq`.
 
-- **At `tq`, added by this plan PR** (umbrella `:1102-1103`; erratum carried by this plan PR (PM 882 (2)), reviewed
+- **At `tq`, added by this plan PR** (umbrella §7.4 "At `tq`", the two added lines, `:1104-1105` at `a9fc6d83`; erratum carried by this plan PR (PM 882 (2)), reviewed
   in plan-review R1's re-check). The text, verbatim:
 
   > `#11-range-compare-points-shadow-index`: gains "D13 (b) (the walk) fixed by tq (<sha>, <date>); (a) stays tc's";
