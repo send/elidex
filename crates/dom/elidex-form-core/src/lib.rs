@@ -173,7 +173,7 @@ impl FormControlKind {
     /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
     /// `file`, `hidden`, button-typed) the attribute exists but has
     /// no effect — including for the constraint-validation barring
-    /// rule of §4.10.20.3.
+    /// rule of §4.10.5.3.3.
     #[must_use]
     pub fn readonly_applies(self) -> bool {
         matches!(
@@ -421,7 +421,7 @@ pub struct FormControlState {
     /// - `Some(Some(re))` — valid compiled regex.
     pub cached_pattern_regex: Option<Option<Arc<regex::Regex>>>,
     /// Custom validity message set via `setCustomValidity(message)`
-    /// (HTML §4.10.20.2).  `None` means no custom error;
+    /// (HTML §4.10.21.3).  `None` means no custom error;
     /// `Some(empty)` is also "no custom error" per spec — both
     /// trigger `customError = false`.
     pub custom_validity_message: Option<String>,

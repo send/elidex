@@ -1140,7 +1140,7 @@ define_well_known_strings! {
         // dispatch, carrying the populated `FormData` on the
         // `FormDataEvent.formData` slot.
         formdata_event => "formdata",
-        // `invalid` event name (HTML §4.10.20.4).  Fired by
+        // `invalid` event name (HTML §4.10.21.3).  Fired by
         // `checkValidity()` / `reportValidity()` when constraint
         // validation rejects a candidate control.
         invalid_event => "invalid",

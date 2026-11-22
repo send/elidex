@@ -23,9 +23,9 @@
 //!   `willValidate` / `checkValidity()` / `reportValidity()` /
 //!   `setCustomValidity()`) is installed by
 //!   `VmInner::install_constraint_validation_mixin` from Phase 9.
-//!   `<fieldset>` is a candidate for the mixin even though it is
-//!   not itself "submittable" — `willValidate` returns `false` and
-//!   the methods short-circuit per HTML §4.10.20.3.
+//!   The fieldset exposes the API (HTML §4.10.15). It is not submittable,
+//!   so `willValidate` returns false and `checkValidity()` and
+//!   `reportValidity()` return true (HTML §4.10.21.1 and §4.10.21.3).
 
 #![cfg(feature = "engine")]
 

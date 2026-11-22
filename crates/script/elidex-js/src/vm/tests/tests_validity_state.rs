@@ -320,9 +320,8 @@ fn validity_valid_defaults_to_true_when_no_form_control_state() {
 
 #[test]
 fn validation_message_empty_for_barred_controls() {
-    // R16 F1 regression — `validationMessage` is empty for any
-    // control barred from constraint validation, mirroring the
-    // `validity.*` and `willValidate` gating (HTML §4.10.20.2).
+    // R16 F1 regression — HTML §4.10.21.3, validationMessage getter
+    // step 1, returns the empty string for a barred control.
     let out = run("var i = document.createElement('input'); \
          i.required = true; \
          i.disabled = true; \
@@ -350,7 +349,7 @@ fn validity_anchor_flags_false_for_barred_controls() {
 
 #[test]
 fn check_validity_returns_true_when_inside_disabled_fieldset() {
-    // R7 F1 regression — HTML §4.10.20.3: a control inside a
+    // R7 F1 regression — HTML §4.10.19.5: a control inside a
     // disabled `<fieldset>` is barred from constraint validation,
     // so checkValidity returns true and no `invalid` event fires
     // even when the control would otherwise fail (required+empty).
@@ -368,7 +367,7 @@ fn check_validity_returns_true_when_inside_disabled_fieldset() {
 
 #[test]
 fn check_validity_returns_true_for_hidden_input_even_when_required() {
-    // F9 regression — HTML §4.10.20.3 bars `<input type=hidden>`
+    // F9 regression — HTML §4.10.5.1.1 bars `<input type=hidden>`
     // from constraint validation regardless of `required`.
     // checkValidity must return true (no candidate, no validation
     // ran), and no `invalid` event must be dispatched.
@@ -384,7 +383,7 @@ fn check_validity_returns_true_for_hidden_input_even_when_required() {
 
 #[test]
 fn check_validity_returns_true_for_readonly_text_input() {
-    // R21 regression — HTML §4.10.20.3: `readonly` bars constraint
+    // R21 regression — HTML §4.10.5.3.3 and §4.10.11: `readonly` bars constraint
     // validation when the attribute applies to the kind (text /
     // textarea / etc), so a readonly required-empty text input
     // returns `checkValidity() == true` and `willValidate == false`,

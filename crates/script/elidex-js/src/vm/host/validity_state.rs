@@ -1,5 +1,5 @@
 //! `ValidityState` wrapper + `ConstraintValidation` mixin install
-//! (HTML §4.10.20.3 / §4.10.20.4).
+//! (HTML §4.10.21.3).
 //!
 //! ## Layering
 //!
@@ -179,7 +179,7 @@ fn with_validity<F: FnOnce(&elidex_form::ValidityState) -> bool>(
     Ok(JsValue::Boolean(f(&validity)))
 }
 
-// `is_constraint_validation_candidate` (HTML §4.10.20.3) hoisted to
+// `is_constraint_validation_candidate` (HTML §4.10.21.1) hoisted to
 // `elidex_form::is_constraint_validation_candidate` per CLAUDE.md
 // "Layering mandate" — pure spec predicate belongs in the
 // engine-independent crate.
@@ -404,9 +404,8 @@ fn native_get_validation_message(
         .ok()
         .filter(|state| elidex_form::is_constraint_validation_candidate(state, entity, dom))
         .map_or_else(String::new, |state| {
-            // HTML §4.10.20.2: `validationMessage` is empty for
-            // controls barred from constraint validation (matches
-            // the with_validity / willValidate gating).  Custom
+            // HTML §4.10.21.3: `validationMessage` is empty for
+            // controls barred from constraint validation. Custom
             // error wins; otherwise produce a stub diagnostic from
             // the failed flag.  Browser-quality localised messages
             // are deferred to the UA shell.
@@ -438,7 +437,7 @@ fn native_get_will_validate(
         return Ok(JsValue::Boolean(false));
     };
     let dom = ctx.host().dom();
-    // HTML §4.10.20.3 "candidate for constraint validation"
+    // HTML §4.10.21.1 "candidate for constraint validation"
     // — centralised in `elidex_form::is_constraint_validation_candidate`.
     let candidate = dom
         .world()
@@ -462,7 +461,7 @@ fn native_check_validity(
         .ok()
         .is_none_or(|state| {
             // Spec: a control that is not a candidate for constraint
-            // validation always returns true (HTML §4.10.20.3).  The
+            // validation always returns true (HTML §4.10.21.3).  The
             // candidate predicate is centralised in
             // `elidex_form::is_constraint_validation_candidate`.
             if !elidex_form::is_constraint_validation_candidate(&state, entity, dom) {
@@ -471,7 +470,7 @@ fn native_check_validity(
             elidex_form::validate_control(&state).is_valid()
         });
     if !valid {
-        // HTML §4.10.20.4 step 1.b: fire a synthetic `invalid`
+        // HTML §4.10.21.3, check validity step 1.1: fire a synthetic `invalid`
         // event at the element (cancelable=true, bubbles=false).
         // Listeners can `preventDefault()` to suppress the UA's
         // default validation reporting; `checkValidity()` itself
@@ -494,7 +493,7 @@ fn native_report_validity(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Headless mode — no UA validation popup.  Returns
-    // checkValidity's result (HTML §4.10.20.4 step 3 fallback).
+    // checkValidity's result (HTML §4.10.21.3).
     native_check_validity(ctx, this, args)
 }
 
