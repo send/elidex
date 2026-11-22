@@ -153,7 +153,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
 - **PR 0 (this)**: foundational relocation + trait slot (behavior-preserving).
 - **PR 1**: MulticolHandler — `column-rule` / `columns` (ordered omit-initial, own
   initials).
-- **PR 2**: FlexHandler — `flex-flow` (+ `flex` keyword cases none/auto/initial).
+- **PR 2 (2026-11 staging erratum, PM 928/929)**: [Flex declared-value serialization](2026-11-shorthand-flex-omit-initial.md) covers `flex-flow` and all supported `flex` triples, including numeric factors and keyword cases. The Flex shorthand parser and shared declaration-order correction each land in a separately planned and reviewed prerequisite PR. Either prerequisite may land first. PR 2 changes family readback and shares the omit-initial helper with Multicol.
 - **PR 3**: TextHandler — `text-decoration`.
 - **PR 4**: BoxHandler — `border` (nested 4-side + omit-initial).
 - **PR 5+**: layered/grid (BackgroundHandler `background`; `font`; GridHandler
