@@ -588,7 +588,7 @@ pub(crate) struct VmInner {
     /// `selectorText` accessors and `style` accessor.
     #[cfg(feature = "engine")]
     pub(crate) css_style_rule_prototype: Option<ObjectId>,
-    /// `StyleSheetList.prototype` (CSSOM §6.8) — `length` accessor +
+    /// `StyleSheetList.prototype` (CSSOM §6.2.2) — `length` accessor +
     /// `item` method.
     #[cfg(feature = "engine")]
     pub(crate) style_sheet_list_prototype: Option<ObjectId>,

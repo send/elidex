@@ -765,7 +765,7 @@ impl DomApiHandler for RuleStyleCssText {
 /// Collect all stylesheet-owning element entities (`<style>` and loaded
 /// `<link rel="stylesheet">`) in document (tree) order. Backs the
 /// host-side `document.styleSheets` indexed-property exotic and `item`
-/// (CSSOM §6.8 — the sheets are returned in tree order).
+/// (CSSOM §6.2 orders document-associated sheets in tree order after HTTP Link sheets).
 #[must_use]
 pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> {
     let mut out = Vec::new();
@@ -814,8 +814,8 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     let is_style = dom.with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
     });
-    // CSSOM §6.8: `document.styleSheets` enumerates every element with an
-    // associated CSS style sheet, in tree order. A `<link rel="stylesheet">`
+    // CSSOM §§6.2 and 6.2.3 include document-associated sheets in tree order.
+    // A `<link rel="stylesheet">`
     // gains one once its resource loads (CSSOM §6.3) — signalled by the
     // `LinkStylesheet` component attached by the resource loader. The
     // component lookup short-circuits behind the tag match — a `<style>`

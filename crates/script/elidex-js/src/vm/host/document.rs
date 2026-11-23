@@ -462,8 +462,7 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     // (shell-driven via `HostDriver::set_visibility`).
     ("hidden", native_document_get_hidden),
     ("visibilityState", native_document_get_visibility_state),
-    // CSSOM §6.8 — `document.styleSheets`.  Returns a fresh
-    // `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
+    // CSSOM §6.2.3 defines document.styleSheets. See the getter for wrapper identity.
     (
         "styleSheets",
         super::cssom_sheet::native_document_get_style_sheets,
