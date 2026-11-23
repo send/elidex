@@ -1,15 +1,9 @@
 //! HTML §"reflect" enumerated-attribute canonical-value mapping
 //! (slot `#11-tags-T2a-url-bearing`).
 //!
-//! WHATWG HTML §2.3.5 ("enumerated attributes") defines per-attribute
-//! tables where the IDL getter returns:
-//!
-//! 1. The exact canonical keyword for any case-insensitive ASCII
-//!    match of the content attribute against a known keyword.
-//! 2. The **invalid-value default** when the attribute is present but
-//!    the value matches no keyword.
-//! 3. The **missing-value default** when the attribute is absent
-//!    (passed as `None`).
+//! HTML §2.3.3 defines how keywords and defaults determine an enumerated
+//! attribute's state. For IDL reflection limited to known values, §2.6.1
+//! defines how the getter uses the state's canonical keyword.
 //!
 //! This module hosts the shared canonicalisation routine plus the
 //! per-IDL-attribute tables consumed by HTMLImageElement /
@@ -31,7 +25,7 @@
 //! crate.
 
 /// Canonicalise an enumerated-attribute raw value against a known keyword
-/// table.  Performs ASCII case-insensitive match per HTML §2.3.5.
+/// table.  Performs ASCII case-insensitive match per HTML §2.3.3.
 ///
 /// - `raw = None` → returns `missing_default`
 /// - `raw = Some(value)` matching any `known` (ASCII-CI) → returns
@@ -126,7 +120,7 @@ pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
 /// cell scope).  Per spec the IDL is on the shared
 /// HTMLTableCellElement interface so both `<th>` and `<td>` accept
 /// the accessor; only `<th>.scope` carries semantic weight (header
-/// cell association).  ASCII-CI canonicalisation per §2.3.5.
+/// cell association).  ASCII-CI canonicalisation per §2.3.3.
 ///
 /// Missing default = `""`, invalid default = `""`.
 pub const SCOPE_VALUES: &[&str] = &["row", "col", "rowgroup", "colgroup"];

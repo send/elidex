@@ -200,15 +200,8 @@ fn hyperlink_to_string(
 // Enumerated-reflect canonicalisation — referrerPolicy
 // ---------------------------------------------------------------------------
 
-/// Read a content attribute, canonicalise it per HTML's
-/// "reflect" enumerated-attribute step (§2.3.5) using the supplied
-/// keyword table + missing/invalid defaults, and return the canonical
-/// IDL keyword as a `JsValue::String`.  Shared by every T2a element
-/// that exposes an enumerated reflect IDL property
-/// (anchor.referrerPolicy / area.shape / area.referrerPolicy /
-/// img.{crossOrigin,referrerPolicy,decoding,loading,fetchpriority} /
-/// script.{crossOrigin,referrerPolicy,fetchpriority} /
-/// link.{crossOrigin,referrerPolicy,fetchpriority}).
+/// Read a content attribute and look up its keyword or default in the supplied
+/// table (HTML §2.3.3). Return the resulting string to the IDL getter.
 pub(super) fn get_enumerated_reflect(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
