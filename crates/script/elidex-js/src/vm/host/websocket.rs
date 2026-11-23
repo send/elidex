@@ -450,7 +450,8 @@ fn native_websocket_constructor(
 ///   precedent.  Note this is NOT a full iterator-protocol consumer
 ///   (Set / Map / user iterables fall through to the String branch
 ///   below — Phase 1 accepts Array literals + DOMString only, the
-///   real-world case for `new WebSocket(url, protocols)`).
+///   real-world case for `new WebSocket(url, protocols)`; the WebIDL
+///   sequence conversion is `#11-webidl-sequence-dense-array-fast-path`'s).
 /// - Any other value (String, number, plain Object, etc.) → coerce
 ///   via `ToString` and treat as a single-element list, per WebIDL
 ///   union-type resolution against the `DOMString` arm.
