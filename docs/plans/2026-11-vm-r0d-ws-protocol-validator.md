@@ -148,6 +148,7 @@ WebSocket state and the `RendererToNetwork::WebSocketOpen` message, and R-0d doe
 | `H/websocket.rs:354` (comment) | unchanged (§0.2) |
 | new validator docstring (`W/websocket.rs`) | "WebSockets §3.1 constructor step 9" (§1.1) |
 | `ctor.rs:163` at `353af4a9` (comment, was `// RFC 7230 §3.2.6: comma is a separator, not a token char.`) | "// RFC 9110 §5.6.2 `token`: a comma is a delimiter, not a tchar." |
+| `ctor.rs` `ctor_rejects_protocol_with_space` (comment, was `// Space (0x20) is below the 0x21..=0x7E token range.`, which described the deleted predicate; code-PR erratum) | "// RFC 9110 §5.6.2 `token`: SP is not a tchar." |
 | `headers.rs:64-67` | "Validate a header name: Fetch §2.2.2 *header name*, the `field-name` production of RFC 9110's field names (`field-name = token`), whose `token` is RFC 9110 §5.6.2. It must not be empty." |
 
 "§3.1": `webref dfn websockets 'WebSocket(url, protocols)'` → `§3.1 Interface definition #dom-websocket-websocket`.
