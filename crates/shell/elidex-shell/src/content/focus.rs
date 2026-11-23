@@ -141,7 +141,7 @@ impl FocusEventSink for ShellFocusSink<'_> {
 
     fn seed_focus_snapshot(&mut self, new: Entity) {
         // Seed the value at first focus (unmarked) at the designation, step 4.1,
-        // before the `focus` / `focusin` listeners (R-1). The canonical
+        // before the `focus` / `focusin` listeners (re-derivation R-1). The canonical
         // transition owns the instant; the `elidex-form` call lives here because
         // the engine-independent crate has no form dependency.
         record_focus_snapshot(&mut self.pipeline.dom, new);

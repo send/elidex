@@ -87,7 +87,7 @@ pub trait FocusEventSink {
     /// this: it is elidex's device for §6.6.4 focus-update step 2.1's "the user
     /// has changed the element's value ... such that it is different to what it
     /// was when the control was first focused". "First focused" is the
-    /// designation of the control as the focused area (re-derivation R-1), so
+    /// designation of the control as the focused area (re-derivation R-1, `docs/plans/2026-11-change-on-blur-spec-rederivation.md`), so
     /// the canonical transition calls it immediately after step 4.1 designates
     /// `new` and **before** step 4.4 fires `focus` / `focusin`: a value a
     /// listener writes is a non-user write after the first-focus value. Runs on
@@ -303,7 +303,7 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         // that surface lands).
         set_focus_bit(sink.dom(), Some(new));
         // Seed the first-focus value at the designation, before any listener
-        // runs (R-1): "first focused" is step 4.1's designation, so a `focus` /
+        // runs (re-derivation R-1): "first focused" is step 4.1's designation, so a `focus` /
         // `focusin` listener's value write is after it. Nothing runs between
         // the designation and the seed, so no "still focused" guard is needed;
         // a listener that moves focus on finds `new` already seeded. A listener that
@@ -333,7 +333,7 @@ mod tests {
         seeds: Vec<Entity>,
         /// `seeds.len()` captured when the `Focus` event fires — pins that the
         /// change-on-blur seed runs at the designation, BEFORE the focus/focusin
-        /// dispatch (R-1: the first-focus value is the value at step 4.1, so
+        /// dispatch (re-derivation R-1: the first-focus value is the value at step 4.1, so
         /// `seeds` already holds the gaining element at focus-event time).
         seeds_len_at_focus: Option<usize>,
         /// `current_focus` captured when the `change` event fires — pins that the
@@ -451,7 +451,7 @@ mod tests {
             rec.seeds_len_at_focus,
             Some(1),
             "the first-focus value is seeded at the designation, BEFORE the focus \
-             event (R-1, QB-4: a focus-handler value write is after it)"
+             event (re-derivation R-1, QB-4: a focus-handler value write is after it)"
         );
         assert_eq!(
             rec.focus_at_change,
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn focusin_reentrant_focus_finds_new_seeded() {
-        // DC-10r (R-1): the seed belongs to the designation (step 4.1), so a
+        // DC-10r (re-derivation R-1): the seed belongs to the designation (step 4.1), so a
         // `focus` / `focusin` listener that moves focus on to `c` finds `b`
         // already seeded; the seed is not skipped by a "still focused" guard.
         let mut dom = EcsDom::new();

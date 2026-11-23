@@ -596,7 +596,7 @@ fn c20_user_returns_to_script_written_value_textarea() {
     c20("textarea");
 }
 
-/// The W3–W8 pattern: UA focus; `writer` changes the value to `expected`;
+/// D-3, class (b) — a script write, then a net-zero user edit: UA focus; `writer` changes the value to `expected`;
 /// user `z`, Backspace (back to `expected`); UA blur → no `change`.
 fn writer_then_net_zero_user_edit(body: &str, before_focus: &str, writer: &str, expected: &str) {
     let (mut s, _b) = setup(body);
@@ -618,7 +618,8 @@ fn writer_then_net_zero_user_edit(body: &str, before_focus: &str, writer: &str, 
     );
 }
 
-/// C21 (W3).
+/// C21 (W3; DC-3): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
 fn c21_textarea_default_value_write_net_zero_user_edit() {
     writer_then_net_zero_user_edit(
@@ -629,7 +630,8 @@ fn c21_textarea_default_value_write_net_zero_user_edit() {
     );
 }
 
-/// C22 (W4).
+/// C22 (W4; DC-4): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
 fn c22_value_attribute_write_net_zero_user_edit() {
     writer_then_net_zero_user_edit(
@@ -640,7 +642,8 @@ fn c22_value_attribute_write_net_zero_user_edit() {
     );
 }
 
-/// C23 (W5).
+/// C23 (W5; DC-5): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
 fn c23_type_change_sanitize_net_zero_user_edit() {
     writer_then_net_zero_user_edit(
@@ -663,7 +666,8 @@ fn c24_email_multiple_toggle_net_zero_user_edit() {
     );
 }
 
-/// C25 (W7).
+/// C25 (W7; DC-6): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
 fn c25_set_range_text_net_zero_user_edit() {
     writer_then_net_zero_user_edit(
@@ -674,7 +678,8 @@ fn c25_set_range_text_net_zero_user_edit() {
     );
 }
 
-/// C26 (W8).
+/// C26 (W8; DC-7): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
 fn c26_form_reset_net_zero_user_edit() {
     writer_then_net_zero_user_edit(
