@@ -58,7 +58,7 @@ sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-w
 
 - None in the umbrella's R-0d cites: every line above matches `4b723d4b`. One error is in the brief (a claim, not the
   umbrella's): the docstring rule for NEW functions is umbrella §4.3's bullet, not "§4.6" (§6).
-- **Found while measuring; not R-0d's to fix** (§5, O-1). The constructor's SyntaxErrors are ECMAScript `SyntaxError`s,
+- **Found while measuring; not R-0d's to fix** (§5, O-1; PM 958 → `#11-host-syntaxerror-domexception`). The constructor's SyntaxErrors are ECMAScript `SyntaxError`s,
   not `DOMException`s. `VmError::syntax_error` builds `VmErrorKind::SyntaxError`, and `vm/ops.rs:185` turns that into
   the ECMAScript `SyntaxError` constructor's object. Step 9 throws "a "SyntaxError" `DOMException`" (§2). The host's
   other DOM paths already use `dom_exc_syntax_error` (`H/dom_bridge.rs:376-395`).
@@ -135,7 +135,7 @@ What R-0d preserves, observable from script, with the cells that pin each in §3
 | Accepted set | per `char`, 0x21..=0x7E minus 17 delimiters | `is_valid_header_name`: equivalent on every input (§2.1) |
 
 The message keeps "RFC 7230", although RFC 7230 is obsolete. A message refresh would change what scripts see, so it
-is not done here (O-1 (a) carries it).
+is not done here (`#11-host-syntaxerror-domexception`, PM 958).
 
 ### §2.1 Equivalence of the predicate (the core of the neutrality claim)
 
@@ -198,7 +198,7 @@ has no protocol cell today.
 **New end-to-end cells** (`tests_realtime.rs`, 385 lines, using its `with_realtime_vm` with an `http:` page so `ws://`
 passes the mixed-content gate; no new harness copy). Each runs
 `try { new WebSocket('ws://example.com/s', P) } catch (e) { globalThis.r = e.name + '|' + e.message }` and checks `r`
-exactly with `assert_eval_string`. A cell checks `e.name`, not `instanceof SyntaxError`, so O-1's fix changes only the
+exactly with `assert_eval_string`. A cell checks `e.name`, not `instanceof SyntaxError`, so the `#11-host-syntaxerror-domexception` fix changes only the
 cells it should. V1 `P = ''` → `SyntaxError|Failed to construct 'WebSocket': empty sub-protocol is not allowed`. V2
 `P = 'bad,protocol'` → the token message. V3 `P = ['chat', 'chat']` → the duplicate message. V4
 `P = ['', {toString() { throw new TypeError('t') }}]` → `TypeError|t` (collect before validate).
@@ -245,19 +245,8 @@ Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p el
   It also re-measures `H/websocket.rs` (umbrella §7).
 - Broker re-validation (§2.2 audit). This is an observation for the driver, not a question for R-0d.
 
-**O-1 (to the driver, then the PM): the constructor throws ECMAScript `SyntaxError` where step 9 says
-`DOMException`** (§0.2). The defect: `new WebSocket(u, '')` throws an object that is not a `DOMException`, so
-`e instanceof DOMException` and `e.code === 12` (legacy SyntaxError code) both fail. The population is by property, not
-a census of all 24 `syntax_error` hits under `H/`: the WebSocket constructor's `:343`, `:350`, `:352` and R-0d's one
-`map_err`; `close()`'s reason check (`:945`); and `H/event_source.rs:285`. The 24 hits come from
-`git grep -n 'syntax_error' c3c78070 -- <H>` and are not classified here. R-0d cannot take this fix: it is a behaviour
-change, and §4.1 makes R-0d behaviour-neutral. Options:
-- (a) A new slot (owner L3) that flips every WebSocket and EventSource SyntaxError path to `dom_exc_syntax_error` in
-  one PR and refreshes the "RFC 7230" message text at the same time. Its trigger: the R-NAT host chapter, which
-  rewrites this constructor anyway, or a small standalone PR. This is the recommended option.
-- (b) Add it to the R-NAT host chapter's required contents (umbrella §4.4). That needs an umbrella edit, which the
-  PM would order.
-- (c) Fold it into R-0d. Rejected: it breaks the behaviour-neutral rule.
+**O-1 (decided, PM 958)**: out of scope; slot `#11-host-syntaxerror-domexception` owns it (the host's
+`VmError::syntax_error` sites where the spec throws a "SyntaxError" `DOMException`, incl. the "RFC 7230" message text).
 
 ## §6. Acceptance
 
@@ -280,11 +269,10 @@ change, and §4.1 makes R-0d behaviour-neutral. Options:
 - The cites.
 
 Out of scope, because the umbrella settled them (§0): where the validator lives, which predicate it calls, the
-rejected `elidex-plugin` home, and the other two `token` spellings. O-1 is a question about homing the defect, not a
-design choice inside R-0d.
+rejected `elidex-plugin` home, and the other two `token` spellings. O-1 was a question about homing the defect, decided by PM 958.
 
 **Changelog.**
 
 | Rev | Change | Decision |
 |---|---|---|
-| 1 | 2026-11-23. First draft at `c3c78070`. | — |
+| 1 | 2026-11-23. First draft at `c3c78070`. O-1 homed: `#11-host-syntaxerror-domexception` (§0.2, §1, §5). | PM 958 |
