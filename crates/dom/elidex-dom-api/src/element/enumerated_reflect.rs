@@ -109,9 +109,9 @@ pub const FETCH_PRIORITY_VALUES: &[&str] = &["high", "low", "auto"];
 pub const FETCH_PRIORITY_MISSING_DEFAULT: &str = "auto";
 pub const FETCH_PRIORITY_INVALID_DEFAULT: &str = "auto";
 
-/// `<area>.shape` IDL attribute (HTML §4.6.6 image map area shape).
-///
-/// Missing default = `"rect"`, invalid default = `"rect"`.
+/// HTML §4.8.13 uses the rectangle state for a missing or invalid shape content
+/// attribute. The VM also applies this table to the IDL getter, which the spec
+/// declares as an ordinary reflected DOMString.
 pub const AREA_SHAPE_VALUES: &[&str] = &["circle", "default", "poly", "rect"];
 pub const AREA_SHAPE_MISSING_DEFAULT: &str = "rect";
 pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
@@ -131,25 +131,9 @@ pub const SCOPE_INVALID_DEFAULT: &str = "";
 // "Limited to only known values" — case-sensitive variant
 // ---------------------------------------------------------------------------
 
-/// Canonicalise per HTML §6.5.5 "limited to only known values" — used
-/// by enumerated reflects whose canonical keywords differ only in
-/// ASCII case (so the regular ASCII-CI [`canonicalize_enumerated_attr`]
-/// would collapse them).
-///
-/// Per HTML §6.5.5 the IDL getter for a "limited to only known values"
-/// reflect:
-/// 1. Reads the content attribute value.
-/// 2. If the value is not in canonical form (here: an exact
-///    case-sensitive match against one of `known`), returns the empty
-///    string.
-/// 3. Otherwise returns the matching canonical keyword.
-///
-/// `raw = None` → `""` (no value to canonicalise).
-///
-/// Distinct from [`canonicalize_enumerated_attr`] which performs ASCII
-/// case-insensitive matching and returns separate missing/invalid
-/// defaults.  `<ol>.type` is the only T2b consumer (keywords `1` /
-/// `a` / `A` / `i` / `I` — `a` and `A` are intentionally distinct).
+/// Return an exact match from the supplied table, or the empty string. The
+/// current ol.type binding uses this helper to distinguish uppercase and lowercase
+/// marker types and discards unrecognized attribute values.
 pub fn canonicalize_limited_to_known_values(
     raw: Option<&str>,
     known: &[&'static str],
@@ -165,13 +149,8 @@ pub fn canonicalize_limited_to_known_values(
     ""
 }
 
-/// `<ol>.type` IDL attribute (HTML §4.4.5 ordered-list type).
-///
-/// Keywords are case-sensitive (`a` and `A` are distinct, etc.) so
-/// canonicalisation must go through
-/// [`canonicalize_limited_to_known_values`] (not the ASCII-CI
-/// [`canonicalize_enumerated_attr`]).  Missing / invalid → `""`
-/// per the "limited to only known values" pattern.
+/// Marker types recognized by the implementation. HTML §4.4.5 defines the
+/// marker meanings and declares ol.type as an ordinary reflected DOMString.
 pub const OL_TYPE_VALUES: &[&str] = &["1", "a", "A", "i", "I"];
 
 #[cfg(test)]

@@ -354,7 +354,7 @@ fn anchor_referrer_policy_ascii_case_insensitive() {
 
 #[test]
 fn area_shape_invalid_returns_rect() {
-    // IMP-4: invalid default is `rect`.
+    // This test records the getter's current fallback for an unknown attribute value.
     let out = run("var a = document.createElement('area'); \
          a.setAttribute('shape', 'triangle'); \
          a.shape;");

@@ -12,7 +12,7 @@
 //! - `<style>.disabled` deferred — accessor not present
 //! - `<ol>.reversed` boolean reflect (presence-only)
 //! - `<ol>.start` long IDL (default 1, parse fail → default)
-//! - `<ol>.type` "limited to only known values" (case-sensitive)
+//! - `<ol>.type` case-sensitive keyword lookup
 //! - `<li>.value` long IDL (default 0)
 //! - `<map>.areas` live HTMLCollection (mutate descendants → length)
 //! - `<map>.areas` `[SameObject]` identity
@@ -447,7 +447,7 @@ fn ol_start_setter_routes_object_through_value_of() {
 
 #[test]
 fn ol_type_missing_returns_empty() {
-    // "limited to only known values" — missing default = "".
+    // An absent reflected DOMString reads as the empty string (HTML §2.6.1).
     let out = run("var ol = document.createElement('ol'); \
          (ol.type === '') ? 'empty' : 'not-empty:' + ol.type;");
     assert_eq!(out, "empty");
