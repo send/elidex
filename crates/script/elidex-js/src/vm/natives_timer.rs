@@ -365,9 +365,9 @@ impl VmInner {
             // source given global to signal abort given signal and a new
             // "TimeoutError" DOMException.") instead of
             // dispatching the placeholder callback.  The signal's
-            // `reason` becomes `DOMException("TimeoutError")`.  We
-            // install the entry as current_timer first so the GC root
-            // stays stable during the dispatch.  The `is_empty` guard
+            // `reason` becomes `DOMException("TimeoutError")`.  The entry is
+            // installed as `current_timer` for the dispatch (lifetime: the
+            // canonical statement at the user-callback install below).  The `is_empty` guard
             // skips the hash computation on the common case (every
             // setTimeout fire).
             #[cfg(feature = "engine")]

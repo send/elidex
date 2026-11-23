@@ -15,7 +15,8 @@
 //! probe (`__armGc`, as in `tests_abort_dependent`): the collection lands at
 //! the first allocation after the callback returned, i.e. inside the
 //! checkpoint (the microtask's `{}`), independent of what the callback body
-//! allocates.  `__gcFired` witnesses that placement.  The checkpoint is one
+//! allocates.  The test reads the flag from Rust right after the drain (no
+//! script runs in between to spend it).  The checkpoint is one
 //! unit for this cell: the entry leaves the slot only after the whole
 //! checkpoint, so the microtask leg stands for the task / CE-reaction legs.
 //!
@@ -36,23 +37,11 @@ fn native_arm_gc(
     Ok(JsValue::Undefined)
 }
 
-fn native_gc_fired(
-    ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Ok(JsValue::Boolean(!ctx.vm.force_gc_before_next_alloc))
-}
-
 #[test]
 fn interval_callback_and_args_survive_per_fire_checkpoint_gc() {
     let mut vm = Vm::new();
     let arm = vm.inner.create_native_function("__armGc", native_arm_gc);
     vm.set_global("__armGc", JsValue::Object(arm));
-    let fired = vm
-        .inner
-        .create_native_function("__gcFired", native_gc_fired);
-    vm.set_global("__gcFired", JsValue::Object(fired));
     vm.eval(
         "globalThis.seen = []; \
          globalThis.mfn = function () { return {}; }; \
@@ -70,9 +59,8 @@ fn interval_callback_and_args_survive_per_fire_checkpoint_gc() {
         .map(|entry| entry.deadline)
         .expect("setInterval queued an entry");
     vm.inner.drain_timers(first);
-    assert_eq!(
-        vm.eval("__gcFired()").unwrap(),
-        JsValue::Boolean(true),
+    assert!(
+        !vm.inner.force_gc_before_next_alloc,
         "no collection was placed — the checkpoint never allocated"
     );
     assert_eq!(
