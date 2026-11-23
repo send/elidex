@@ -7,13 +7,9 @@
 //! `[ not ]? <media-type> [ and ( <feature> ) ]*` with the colon feature
 //! notation, and (step 4) drops a redundant leading `all`. The common case (a
 //! recognized type with colon-notation features) follows it exactly (lowercase
-//! names, `: ` value separator, single spaces around `and`). The L4 shapes the
-//! algorithm has no
-//! grammar for — `or`, the `only` qualifier, nested conditions, the `<mf-range>`
-//! comparison notation (`width >= 5px`, `5px <= width <= 10px`), and
-//! `<general-enclosed>` — have no spec serialization, so they follow the
-//! **browser de-facto** form: operators spelled literally, `or`/`only` literal,
-//! `<general-enclosed>` re-emitted verbatim from its captured source text.
+//! names, `: ` value separator, single spaces around `and`). For the additional MQ4 forms, elidex writes
+//! the stored comparison operators, qualifiers and logical operators. For
+//! general-enclosed operands, it emits the spelling stored by the parser.
 //!
 //! Two equivalent notations collapse to the same AST at parse and are
 //! disambiguated by stored hints so `.media` round-trips the authored form:
@@ -121,8 +117,7 @@ fn write_media_type(f: &mut fmt::Formatter<'_>, media_type: &MediaType) -> fmt::
 fn write_condition(f: &mut fmt::Formatter<'_>, cond: &MediaCondition) -> fmt::Result {
     match cond {
         MediaCondition::Feature(feature) => write_feature(f, feature),
-        // The captured source text includes its own delimiters (`( … )` or
-        // `name( … )`) — re-emit verbatim (CSSOM has no canonical form for it).
+        // The parser determines the stored spelling of each general-enclosed form.
         MediaCondition::GeneralEnclosed(raw) => f.write_str(raw),
         MediaCondition::Not(inner) => {
             f.write_str("not ")?;
@@ -144,9 +139,8 @@ fn write_condition_without_or(f: &mut fmt::Formatter<'_>, cond: &MediaCondition)
 }
 
 /// Serialize a `<media-in-parens>` operand: a nested condition (`and`/`or`/`not`)
-/// is wrapped as `( <media-condition> )`; a `<media-feature>` and
-/// `<general-enclosed>` already carry their own parens, so they serialize
-/// exactly as at the top level.
+/// is wrapped as `( <media-condition> )`. Features and general-enclosed
+/// operands use their top-level writer.
 fn write_in_parens(f: &mut fmt::Formatter<'_>, cond: &MediaCondition) -> fmt::Result {
     match cond {
         MediaCondition::And(_) | MediaCondition::Or(_) | MediaCondition::Not(_) => {
@@ -553,16 +547,13 @@ mod tests {
         rt("projection and (color)");
     }
 
-    // This serializer preserves the source text of MQ4 §3 `<general-enclosed>` blocks.
-
     #[test]
     fn general_enclosed_passthrough() {
-        // Unknown feature / future syntax round-trips verbatim.
+        // These closed, already-trimmed parenthesized inputs round-trip.
         rt("(unknownfeature)");
         rt("(weird: x)");
         rt("(color) or (unknownfeature)");
-        // A function-token block is captured via the other parse path (the
-        // whole `name( … )`, delimiters included).
+        // These closed functions retain their source spelling.
         rt("myfunc(a b c)");
         rt("(color) and selector(:focus)");
     }
