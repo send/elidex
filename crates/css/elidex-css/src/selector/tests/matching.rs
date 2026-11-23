@@ -712,7 +712,7 @@ fn checked_does_not_match_option_without_selected() {
 
 #[test]
 fn required_does_not_match_fieldset() {
-    // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :required.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let mut es = ElementState::default();
@@ -724,7 +724,7 @@ fn required_does_not_match_fieldset() {
 
 #[test]
 fn optional_does_not_match_fieldset() {
-    // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :optional.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -785,8 +785,7 @@ fn optional_does_not_match_button() {
 
 #[test]
 fn enabled_disabled_does_not_match_fieldset() {
-    // Per HTML §4.10.18.5: <fieldset> is NOT in the set of "actually disableable"
-    // elements. :enabled/:disabled do not match <fieldset>.
+    // The test records the matcher's current fieldset exclusion (HTML §4.16.3).
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -836,7 +835,7 @@ fn checked_matches_checkbox_input() {
 
 #[test]
 fn indeterminate_does_not_match_non_candidate() {
-    // :indeterminate only matches checkbox, radio, and progress per HTML §4.10.18.3.
+    // HTML §4.16.3 excludes button from :indeterminate.
     let mut dom = EcsDom::new();
     let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();

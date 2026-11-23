@@ -127,10 +127,8 @@ fn form_element_state(entity: Entity, dom: &EcsDom) -> Option<ElementState> {
     dom.world().get::<&ElementState>(entity).ok().map(|s| *s)
 }
 
-/// Check if an entity can match `:required`/`:optional` (constraint validation candidates).
-///
-/// Per HTML §4.10.15.2.4: only `<input>`, `<select>`, and `<textarea>` are candidates.
-/// `<button>` and `<fieldset>` are form elements but not candidates for these pseudo-classes.
+/// Filter by the element names listed for `:required` and `:optional` in HTML §4.16.3.
+/// For inputs, the spec also considers whether the required attribute applies.
 fn is_requirable_element(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&TagType>(entity)
@@ -234,15 +232,14 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
 /// Match form-related pseudo-classes against an entity.
 fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
     match name {
-        // :disabled matches form elements that can be "actually disabled" (HTML §4.10.18.5).
-        // <fieldset> can be disabled but is NOT in the set of elements matching :disabled/:enabled.
+        // HTML §4.16.3 matches actually disabled elements. The tag filter below
+        // currently covers button, input, select and textarea.
         "disabled" => {
             is_disableable_element(entity, dom)
                 && form_element_state(entity, dom)
                     .is_some_and(|s| s.contains(ElementState::DISABLED))
         }
-        // :indeterminate only matches <input type=checkbox|radio> and <progress>
-        // per HTML §4.10.18.3.
+        // HTML §4.16.3 defines the checkbox, radio group and progress cases.
         "indeterminate" => {
             is_indeterminate_candidate(entity, dom)
                 && form_element_state(entity, dom)
@@ -282,10 +279,8 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                     .is_some_and(|s| s.contains(ElementState::REQUIRED))
         }
         "enabled" => {
-            // HTML spec: :enabled matches "actually disableable" form elements
-            // that are not disabled (excludes <fieldset>).
-            // Note: <a>/<area>/<link> with href are NOT :enabled per WHATWG spec;
-            // they are reachable via :any-link/:link instead.
+            // HTML §4.16.3 also includes optgroup, option, fieldset and
+            // form-associated custom elements among the candidates for :enabled.
             is_disableable_element(entity, dom)
                 && form_element_state(entity, dom)
                     .is_some_and(|s| !s.contains(ElementState::DISABLED))
@@ -395,9 +390,7 @@ fn is_checkable_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_some_and(|t| matches!(t.as_str(), "checkbox" | "radio"))
 }
 
-/// Check if an entity can match `:indeterminate` (HTML §4.10.18.3).
-///
-/// Only `<input type=checkbox>`, `<input type=radio>`, and `<progress>` can be indeterminate.
+/// Filter by the input types and element names listed for `:indeterminate` in HTML §4.16.3.
 fn is_indeterminate_candidate(entity: Entity, dom: &EcsDom) -> bool {
     let Ok(tag) = dom.world().get::<&TagType>(entity) else {
         return false;
@@ -409,11 +402,7 @@ fn is_indeterminate_candidate(entity: Entity, dom: &EcsDom) -> bool {
     }
 }
 
-/// Check if an entity is an "actually disableable" element (HTML §4.10.18.5).
-///
-/// Per spec, `:enabled`/`:disabled` only match `<button>`, `<input>`, `<select>`,
-/// and `<textarea>`. `<fieldset>` has its own disabled concept but does NOT
-/// participate in the `:enabled`/`:disabled` pseudo-classes.
+/// Element types currently checked for enabled and disabled state by this matcher.
 fn is_disableable_element(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&TagType>(entity)
@@ -567,8 +556,7 @@ mod tests {
 
     #[test]
     fn fieldset_does_not_match_enabled_disabled() {
-        // Per HTML §4.10.18.5: <fieldset> is NOT "actually disableable" —
-        // it does not match :enabled or :disabled pseudo-classes.
+        // The current matcher skips fieldset. HTML §4.16.3 includes it.
         let mut dom = EcsDom::new();
         let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
         let mut es = ElementState::default();
