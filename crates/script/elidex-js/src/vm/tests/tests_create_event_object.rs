@@ -373,7 +373,7 @@ fn event_object_kind_carries_flag_seed() {
 #[test]
 fn timestamp_is_monotonic_and_shares_origin_with_performance_now() {
     // PR4d C1: `Event.timeStamp` must use the same `start_instant`
-    // clock as `performance.now()` (HR-Time §5: identical time origin
+    // clock as `performance.now()` (DOM §2.5 / HR-Time §7.1: identical time origin
     // means values inside the same listener body are directly
     // comparable).  Two back-to-back events read non-decreasing
     // values, and a `performance.now()` reading sandwiched between

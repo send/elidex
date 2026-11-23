@@ -1,4 +1,4 @@
-//! Cache API native methods (WHATWG Service Workers §5.4 `Cache` / §5.5
+//! Cache API native methods (W3C Service Workers §5.4 `Cache` / §5.5
 //! `CacheStorage`; slot `#11-cache-api-vm` / D-19 PR-1).
 //!
 //! Every method is Promise-returning.  Per WebIDL §3.7.7 "Operations" a
@@ -160,8 +160,8 @@ fn caches_delete_outcome(
     Ok(CacheDelivery::Resolve(JsValue::Boolean(deleted)))
 }
 
-/// `caches.keys()` → `Promise<sequence<DOMString>>` (§5.5.5), creation
-/// order.
+/// `caches.keys()` → `Promise<sequence<DOMString>>` (§5.5.5). See
+/// [`elidex_cache_api::storage::keys`] for the backend ordering.
 pub(crate) fn native_caches_keys(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -277,8 +277,8 @@ fn cache_match_outcome(
     })
 }
 
-/// `cache.matchAll(request?, options?)` → `Promise<sequence<Response>>`
-/// (§5.4.2).  No request → every stored response.
+/// `cache.matchAll(request?, options?)` → `Promise<FrozenArray<Response>>`
+/// (§5.4.2).  An omitted request selects every stored response. The VM returns a mutable array.
 pub(crate) fn native_cache_match_all(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -347,7 +347,7 @@ fn cache_put_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     let name = require_cache_name(ctx, this)?;
-    // §5.4.5 / WebIDL: `put(request, response)` — both arguments are
+    // Service Workers §5.4 IDL: `put(request, response)` — both arguments are
     // required.  A 0- or 1-arg call rejects with the WebIDL arity TypeError
     // rather than coercing a missing `request` as a URL or treating a missing
     // `response` as "not a Response".
@@ -402,16 +402,12 @@ fn cache_delete_outcome(
     Ok(CacheDelivery::Resolve(JsValue::Boolean(deleted)))
 }
 
-/// `cache.keys(request?, options?)` → `Promise<sequence<Request>>`
-/// (§5.4.7).  No request → every stored request key; a request restricts
-/// the result to the entries matching it (honouring `CacheQueryOptions`).
+/// `cache.keys(request?, options?)` → `Promise<FrozenArray<Request>>`
+/// (§5.4.7). The VM returns a mutable array. An omitted request selects
+/// all stored requests. A supplied request filters the list using the options.
 ///
-/// §5.4.7 orders the result by the cache's request-response list (insertion
-/// order).  The current backend (`elidex_cache_api::store::keys` →
-/// `load_all_entries`) returns request-URL order instead; closing that
-/// spec-conformance gap (a stable insertion-sequence column + position-
-/// preserving replace on `put`) is tracked by slot
-/// `#11-cache-keys-insertion-order`.
+/// The backend reads entries in insertion order for §5.4.7
+/// (`#11-cache-keys-insertion-order`).
 pub(crate) fn native_cache_keys(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

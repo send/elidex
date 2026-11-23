@@ -330,8 +330,8 @@ fn iframe_referrerpolicy_no_referrer_suppresses_referrer() {
 /// R3-F3 (end-to-end, same-origin/in-process path): a **local-scheme /
 /// opaque-origin** parent (`data:` here) discloses NO referrer — its URL must
 /// never leak into the child's `document.referrer` (W3C Referrer Policy §8.3
-/// step 2.2 opaque-origin document / §8.4 step 2 local scheme). The child
-/// srcdoc inherits the opaque origin and reads the empty referrer default.
+/// step 3, client/Window opaque-origin check, and §8.4 step 2 for local schemes).
+/// The child srcdoc inherits the opaque origin and reads the empty referrer default.
 /// Falsify by dropping the "no valid referrer source" precondition in
 /// `compute_referrer` — the `data:` URL would leak here.
 #[test]

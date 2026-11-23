@@ -72,7 +72,7 @@ pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
         .unwrap_or_else(|| Canvas2dContext::new(1, 1).expect("1×1 bitmap is always allocatable"))
 }
 
-/// Shared bitmap-reset chokepoint (WHATWG HTML §4.12.5 "set bitmap dimensions").
+/// Shared bitmap-reset chokepoint (WHATWG HTML §4.12.5.1 "set bitmap dimensions").
 /// Called from two paths: [`CanvasReconciler::handle`] (the
 /// `<canvas>` attribute-change path) and the `OffscreenCanvas` IDL setter
 /// (`crate::offscreen::set_offscreen_canvas_width` / `_height`). One reset
@@ -182,7 +182,7 @@ fn parse_canvas_dim(value: Option<&str>, default: u32) -> u32 {
 }
 
 /// [`MutationEvent`] consumer resetting a canvas bitmap when its `width`/
-/// `height` content attribute changes (HTML §4.12.5 "set bitmap dimensions":
+/// `height` content attribute changes (HTML §4.12.5.1 "set bitmap dimensions":
 /// setting width/height — even to the same value — clears the bitmap to
 /// transparent black and resets the drawing state).
 ///
@@ -214,7 +214,7 @@ impl CanvasReconciler {
         }
         // A placeholder `<canvas>` (post-`transferControlToOffscreen`) has no
         // `Canvas2dContext` of its own — the OffscreenCanvas entity owns the
-        // bitmap now (spec: HTML §4.12.5 "placeholder canvas element"). The
+        // bitmap now (spec: HTML §4.12.5.3 "placeholder canvas element"). The
         // shared `reset_canvas_bitmap` below would already return false on a
         // placeholder (no Canvas2dContext = no-op), so this check is
         // observability-only, not a correctness gate.

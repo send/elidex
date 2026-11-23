@@ -356,18 +356,7 @@ impl Vm {
                     super::natives_promise::Microtask::NotifyMutationObservers
                 )
             });
-            // Cached `localStorage` / `sessionStorage` Storage
-            // wrappers carry no per-DOM Entity, but the area-side
-            // origin lookup goes through `VmInner::navigation` which
-            // is bound-state-independent.  Clearing the instance
-            // cache prevents a retained `localStorage` reference
-            // from continuing to serve the previous origin's data
-            // after a rebind to a document with a different origin
-            // (cross-origin data leak).  `sessionStorage` is also
-            // cleared because its data lives on `HostData::session_storage`,
-            // which is per-VM by spec — see the `session_storage.clear()`
-            // call below. A2: gated with the `Legacy` Web Storage glue (the
-            // instance-cache fields are always-`None` in `App` builds).
+            // See `VmInner::storage_local_instance` for the wrapper cache lifetime.
             #[cfg(feature = "compat-webapi")]
             self.inner.clear_storage_instance_cache();
             // Cached `crypto` / `crypto.subtle` singletons.  Wrappers
@@ -384,9 +373,8 @@ impl Vm {
             // clearing them would break their `[SameObject]` identity across
             // batches AND drop a `visualViewport` resize listener registered in an
             // earlier batch — the next frame-drain producer would fire at a
-            // freshly-allocated, listener-less singleton (Codex R4-B). Unlike
-            // `localStorage` (cleared above for cross-ORIGIN data-leak safety),
-            // these wrappers carry no per-origin / per-document payload in their
+            // freshly-allocated, listener-less singleton (Codex R4-B).
+            // These wrappers carry no per-origin / per-document payload in their
             // internal brand slots (script-attached expandos are the exception —
             // see Codex R11-2 below), so there is no internal state to scrub. The
             // cross-DOM identity reset on an actual navigation is the world-id
@@ -463,11 +451,7 @@ impl Vm {
             // customElements })` throwing NotSupportedError). Only the
             // `ce_registry` DATA is document-lifetime (cleared at teardown); the
             // wrapper reads it, so after teardown it presents an empty registry.
-            // sessionStorage is per-VM and per-browsing-context.  An
-            // unbind boundary expresses the browsing-context
-            // teardown — drop entries so a rebind cannot observe
-            // stale data and so memory use stays bounded across
-            // long-lived VMs that churn many sessions.
+            // See `HostData::session_storage` for the backing-store lifetime defect.
             // `fallback_local_storage` is also cleared (it's the
             // in-memory stand-in for localStorage when no backend
             // is installed; treating it as session-storage-shaped

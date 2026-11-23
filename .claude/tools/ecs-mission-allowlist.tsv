@@ -39,7 +39,6 @@ T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/u
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
 N	-	crates/dom/elidex-dom-api/src/style.rs	/// (accepted divergence: Firefox preserves existing declarations on
 N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at defer slot
-T	#11-change-on-blur-baseline-first-focus-value	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form/src/select/mod.rs	/// Stops at the first/last option (no wraparound, per native browser behavior).
 T	#11-core-browser-parity-deviations	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.
 T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/connector.rs	/// (h2c) is intentionally not supported, matching browser behavior.
@@ -53,8 +52,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/coerce.rs	//
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/dispatch.rs	// V8 / SpiderMonkey error text for
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/error.rs	/// matches Chrome's WebIDL surface.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/array_buffer.rs	/// V8-shaped error message and width stays in lockstep with the
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	// part, divergent from browser behaviour.
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
@@ -65,7 +62,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// a TypeError matching Chrome / Firefox wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// the subtree (matches Blink's batch-upgrade isolation).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs	//! and `eprintln!`s it (matches Blink's batch isolation — one bad
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/document.rs	// `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/element_insert_adjacent.rs	/// is not an Element wrapper. Matches the Blink / Gecko message form.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event hand-rolled allocation + Chrome
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
@@ -136,7 +132,6 @@ N	-	crates/shell/elidex-shell/src/app/threaded.rs	/// When cursor first moves in
 N	-	crates/shell/elidex-shell/src/chrome.rs	/// Chrome UI state.
 N	-	crates/shell/elidex-shell/src/content/drain_host.rs	/// 2. **Chrome-direct traversals** (toolbar Back/Forward → `message_dispatch::chrome_traverse`)
 N	-	crates/shell/elidex-shell/src/content/drain_host.rs	/// nav-mutating step (JS traversals + sync updates + direct/chrome/input navigations)
-E	-	crates/shell/elidex-shell/src/content_change_on_blur_tests.rs	/// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)`
 D	#11-design-docs-browser-lineage-rationale	crates/storage/elidex-storage-core/src/browser_db/history.rs	//! Frecency scoring follows the Chromium/Firefox pattern with time-decay buckets.
 D	#11-design-docs-browser-lineage-rationale	crates/storage/elidex-storage-core/src/browser_db/history.rs	/// Uses time-decay buckets (Chromium/Firefox pattern):
 N	-	docs/architecture/shell.md	- **Chrome actions**: `handle_chrome_action_threaded()` — Navigate/Back/Forward/Reload + NewTab/CloseTab/SwitchTab. `handle_chrome_action()` for legacy mode.

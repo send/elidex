@@ -225,7 +225,7 @@ pub fn load_document(
                 match resolve_and_fetch_text(&response.url, href, network_handle) {
                     Ok((css_text, sheet_url)) => {
                         stylesheets.push(parse_compat_stylesheet(&css_text, Origin::Author));
-                        // HTML §4.6.7: a successfully fetched stylesheet
+                        // HTML §4.6.8.23: a successfully fetched stylesheet
                         // resource becomes the link's associated CSS style
                         // sheet — store it on the `<link>` entity so the VM
                         // CSSOM surface (`document.styleSheets` / `link.sheet`)

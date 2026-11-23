@@ -192,30 +192,26 @@ fn focus_on_element_in_non_bound_document_does_not_clobber_live_focus() {
     assert_eq!(out, "ok");
 }
 
-#[test]
-fn redundant_focus_does_not_reseed_change_snapshot() {
-    // Codex R5 F1: `input.focus()` while the input is already focused must be a
-    // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
-    // Otherwise a redundant focus() after the user edits drops the mark, so the
-    // later (shell) blur suppresses the §4.10.5.5 `change` event. Mirrors the
-    // shell `set_focus` reconciler's `old == Some(entity)` early return. The user
-    // edit runs from Rust between two binds (a VM script write is not a user
-    // edit), so the snapshot is marked before the redundant focus().
+/// Shared setup of the redundant-`focus()` tests: bind, run `setup_js` (which
+/// must focus the global `i`), unbind; run `user_edit` on the one element that
+/// carries a `FocusValueSnapshot` (the user edit runs from Rust between two
+/// binds: a VM script write is not a user edit); rebind and run the redundant
+/// `i.focus();`. Returns the DOM and that element.
+fn redundant_focus_after_user_edit(
+    setup_js: &str,
+    user_edit: impl FnOnce(&mut EcsDom, elidex_ecs::Entity),
+) -> (EcsDom, elidex_ecs::Entity) {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = build_doc(&mut dom);
+    // SAFETY: `session` and `dom` outlive each bind and are not touched while
+    // bound; `vm.unbind()` runs before the next use of either.
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    vm.eval(
-        "globalThis.i = document.createElement('input'); \
-         document.body.appendChild(i); \
-         i.value = 'V0'; \
-         i.focus();",
-    )
-    .unwrap();
+    vm.eval(setup_js).unwrap();
     vm.unbind();
 
     // Exactly one element carries a FocusValueSnapshot: the input.
@@ -226,20 +222,83 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
         .next()
         .map(|(e, _)| e)
         .expect("the focused text input carries a change-on-blur snapshot");
-    let edit = elidex_form::apply_user_edit(&mut dom, holder, |f| f.insert_at_cursor("u"))
-        .expect("the input has a FormControlState");
-    assert!(edit.changed);
+    user_edit(&mut dom, holder);
 
+    // SAFETY: as above.
     #[allow(unsafe_code)]
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
     vm.eval("i.focus();").unwrap();
     vm.unbind();
+    (dom, holder)
+}
+
+#[test]
+fn redundant_focus_does_not_reseed_change_snapshot() {
+    // Codex R5 F1: `input.focus()` while the input is already focused must be a
+    // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
+    // Otherwise a redundant focus() after the user edits drops the mark, so the
+    // later (shell) blur suppresses the §4.10.5.5 `change` event. Mirrors the
+    // VM's copy of focusing steps step 5 (`focusing_steps`), until A2c (LR-B4). The user
+    // edit runs from Rust between two binds (a VM script write is not a user
+    // edit), so the snapshot is marked before the redundant focus().
+    let (mut dom, holder) = redundant_focus_after_user_edit(
+        "globalThis.i = document.createElement('input'); \
+         document.body.appendChild(i); \
+         i.value = 'V0'; \
+         i.focus();",
+        |dom, holder| {
+            let edit = elidex_form::apply_user_edit(dom, holder, |f| f.insert_at_cursor("u"))
+                .expect("the input has a FormControlState");
+            assert!(edit.changed);
+        },
+    );
 
     assert!(
         elidex_form::take_change_on_blur(&mut dom, holder),
         "redundant focus() must not re-seed the snapshot and drop the user-edit mark"
+    );
+}
+
+#[test]
+fn vm_redundant_focus_keeps_first_focus_value() {
+    // E17v (QB-5, Q1 (F)): a redundant `focus()` keeps both the first-focus
+    // value and the mark. VM `focus()` (value ""); script `value = "x"`; a user
+    // edit from Rust deletes the `x` (value ""); `focus()` again. A re-seed
+    // would leave the component unmarked (and re-read the value); the early
+    // return keeps `first_focus == ""` and `user_change_from == Some("x")`.
+    let (mut dom, holder) = redundant_focus_after_user_edit(
+        "globalThis.i = document.createElement('input'); \
+         document.body.appendChild(i); \
+         i.focus(); \
+         i.value = 'x';",
+        |dom, holder| {
+            let edit = elidex_form::apply_user_edit(
+                dom,
+                holder,
+                elidex_form::FormControlState::delete_backward,
+            )
+            .expect("the input has a FormControlState");
+            assert!(edit.changed);
+        },
+    );
+
+    {
+        let held = dom
+            .world()
+            .get::<&elidex_form::FocusValueSnapshot>(holder)
+            .unwrap();
+        assert_eq!(held.first_focus(), "", "the first-focus value survives");
+        assert_eq!(
+            held.user_change_from(),
+            Some("x"),
+            "the mark survives (a re-seed would leave it unmarked)"
+        );
+    }
+    assert!(
+        !elidex_form::take_change_on_blur(&mut dom, holder),
+        "the value equals the first-focus value"
     );
 }
 

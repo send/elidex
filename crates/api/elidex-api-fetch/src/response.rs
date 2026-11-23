@@ -1,6 +1,6 @@
-//! Response protocol types (WHATWG Fetch §3.1.4, §5.4).
+//! Response protocol types (WHATWG Fetch §2.2.6 Responses and §5.5 Response class).
 
-/// Valid redirect status codes (WHATWG Fetch §3.1.4).
+/// Valid redirect status codes (WHATWG Fetch §2.2.3).
 pub const REDIRECT_STATUSES: &[u16] = &[301, 302, 303, 307, 308];
 
 /// Engine-independent representation of a Response's data.

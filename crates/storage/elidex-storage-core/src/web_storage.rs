@@ -1,4 +1,4 @@
-//! WHATWG HTML §11.2 Web Storage backend (`localStorage` + `sessionStorage`).
+//! Web Storage API backend (WHATWG HTML §12.2) (`localStorage` + `sessionStorage`).
 //!
 //! Engine-independent algorithm + persistence. JS bindings live in the
 //! engine crate (`elidex-js::vm::host::storage`), which delegates here so
@@ -23,12 +23,12 @@
 //!
 //! ## Quota
 //!
-//! Per WHATWG §11.2.1 the storage quota is per-origin, ~5 MB. We track
-//! `byte_size` incrementally (sum of `key.len() + value.len()` in UTF-8
-//! bytes — same convention as the boa precedent that this module
-//! supersedes). [`STORAGE_QUOTA_BYTES`] is the cap; `set` returns
-//! [`StorageError::quota_exceeded`] when adding a new entry would
-//! overflow.
+//! Storage Standard §4.1 recommends 5 MiB per `localStorage` or
+//! `sessionStorage` bottle. We track `byte_size` incrementally (sum of
+//! `key.len() + value.len()` in UTF-8 bytes — same convention as the boa
+//! precedent that this module supersedes). [`STORAGE_QUOTA_BYTES`] is the
+//! cap; `set` returns [`StorageError::quota_exceeded`] when adding a new
+//! entry would overflow.
 //!
 //! ## Layering note
 //!
@@ -49,13 +49,13 @@ use sha2::{Digest, Sha256};
 
 use crate::error::StorageError;
 
-/// Per-origin storage quota in UTF-8 bytes (sum of key + value lengths).
+/// Byte cap for one storage bottle (UTF-8 key and value lengths).
+/// Local storage accounts per origin map and session storage per VM session state.
 ///
-/// 5 MiB matches WHATWG HTML §11.2.1 wording ("around five megabytes")
-/// and the de-facto browser baseline.
+/// The spec source is the module-level "Quota" section.
 pub const STORAGE_QUOTA_BYTES: usize = 5 * 1024 * 1024;
 
-/// Discriminates the two `Storage` flavours per WHATWG HTML §11.2.
+/// Discriminates the two `Storage` flavours per WHATWG HTML §12.2.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StorageArea {
     /// Persistent, origin-scoped, shared across documents in the same origin.
