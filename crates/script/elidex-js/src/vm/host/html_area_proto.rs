@@ -1,5 +1,5 @@
 //! `HTMLAreaElement.prototype` intrinsic — per-tag prototype layer
-//! for `<area>` wrappers (HTML §4.6.2, slot `#11-tags-T2a-url-bearing`).
+//! for `<area>` wrappers (HTML §4.8.13, slot `#11-tags-T2a-url-bearing`).
 //!
 //! ## Layering
 //!
@@ -66,7 +66,7 @@ impl VmInner {
     }
 
     fn install_html_area_enumerated_reflect(&mut self, proto_id: ObjectId) {
-        // `shape` enumerated (HTML §4.6.6 / §6.4 area shape set).
+        // The shape getter currently returns a canonical keyword (HTML §4.8.13).
         let sid = self.strings.intern("shape");
         self.install_accessor_pair(
             proto_id,
@@ -75,7 +75,7 @@ impl VmInner {
             Some(area_set_shape),
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
-        // `referrerPolicy` enumerated (HTML §6.6.5).
+        // `referrerPolicy` enumerated (HTML §2.5.5).
         let sid = self.strings.intern("referrerPolicy");
         self.install_accessor_pair(
             proto_id,
