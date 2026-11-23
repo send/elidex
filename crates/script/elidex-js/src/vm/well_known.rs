@@ -676,7 +676,7 @@ define_well_known_strings! {
         css_namespace => "CSS",
         escape => "escape",
         // CSSStyleSheet / CSSRuleList / CSSStyleRule / StyleSheetList
-        // surface (PR-B).  CSSOM §6.2 / §6.3 / §6.6 / §6.8.
+        // interfaces (CSSOM §§6.1.2, 6.4.1, 6.4.3 and 6.2.2, respectively).
         sheet => "sheet",
         css_rules => "cssRules",
         owner_node => "ownerNode",

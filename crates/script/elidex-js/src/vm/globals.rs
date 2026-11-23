@@ -401,7 +401,7 @@ impl VmInner {
             // DOMTokenList / DOMStringMap prototype installs that the
             // sibling `classList` / `dataset` accessors depend on.
             self.register_css_style_declaration_prototype();
-            // CSSOM §6.2 / §6.3 / §6.6 / §6.8 — CSSStyleSheet,
+            // CSSOM §§6.1.2, 6.4.1, 6.4.3 and 6.2.2 — CSSStyleSheet,
             // CSSRuleList, CSSStyleRule, StyleSheetList prototypes.
             // Must land after `css_style_declaration_prototype` (the
             // Rule-source CSSStyleDeclaration wrapper chains there).
