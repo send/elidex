@@ -766,8 +766,8 @@ pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool
 }
 
 /// `window.localStorage` getter (WHATWG HTML §12.2.3) returns the same
-/// `Storage` wrapper across reads, allocated lazily
-/// on the first access via [`crate::vm::VmInner::alloc_or_cached_storage`].
+/// `Storage` wrapper across reads, allocated lazily on the first access via
+/// [`crate::vm::VmInner::alloc_or_cached_storage`].
 /// `compat-webapi`-gated (A2): the `Storage` glue is `Legacy`.
 #[cfg(feature = "compat-webapi")]
 fn native_window_get_local_storage(

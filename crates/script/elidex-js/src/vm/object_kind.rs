@@ -948,11 +948,11 @@ pub enum ObjectKind {
     /// localStorage, `false` for sessionStorage). Identity is preserved
     /// via `VmInner::storage_local_instance` /
     /// `VmInner::storage_session_instance` — the Window getters return
-    /// the cached `ObjectId` so `localStorage === localStorage`.
-    /// The wrapper itself is stateless; every method
-    /// reads through to `HostData::web_storage` (origin-scoped JSON
-    /// persistence) for `Local` and `HostData::session_storage`
-    /// (per-VM in-memory `IndexMap`) for `Session`.
+    /// the cached `ObjectId` so `localStorage === localStorage`. The
+    /// wrapper itself is stateless; every method reads through to
+    /// `HostData::web_storage` (origin-scoped JSON persistence) for
+    /// `Local` and `HostData::session_storage` (per-VM in-memory
+    /// `IndexMap`) for `Session`.
     ///
     /// GC contract: payload-free in trace terms (`is_local: bool` is
     /// not an `ObjectId`); the caches in `VmInner` are cleared on

@@ -23,13 +23,12 @@
 //!
 //! ## Quota
 //!
-//! Storage Standard §4.1 recommends 5 MiB per `localStorage` or `sessionStorage`
-//! bottle. We track
-//! `byte_size` incrementally (sum of `key.len() + value.len()` in UTF-8
-//! bytes — same convention as the boa precedent that this module
-//! supersedes). [`STORAGE_QUOTA_BYTES`] is the cap; `set` returns
-//! [`StorageError::quota_exceeded`] when adding a new entry would
-//! overflow.
+//! Storage Standard §4.1 recommends 5 MiB per `localStorage` or
+//! `sessionStorage` bottle. We track `byte_size` incrementally (sum of
+//! `key.len() + value.len()` in UTF-8 bytes — same convention as the boa
+//! precedent that this module supersedes). [`STORAGE_QUOTA_BYTES`] is the
+//! cap; `set` returns [`StorageError::quota_exceeded`] when adding a new
+//! entry would overflow.
 //!
 //! ## Layering note
 //!
@@ -52,7 +51,7 @@ use crate::error::StorageError;
 
 /// Per-origin storage quota in UTF-8 bytes (sum of key + value lengths).
 ///
-/// Storage Standard §4.1 recommends 5 MiB per Web Storage bottle.
+/// The spec source is the module-level "Quota" section.
 pub const STORAGE_QUOTA_BYTES: usize = 5 * 1024 * 1024;
 
 /// Discriminates the two `Storage` flavours per WHATWG HTML §12.2.1.

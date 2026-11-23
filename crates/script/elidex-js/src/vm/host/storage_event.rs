@@ -16,9 +16,9 @@
 //!
 //! ## Dispatch (out of scope for this slot)
 //!
-//! HTML §12.2.1, “broadcast”, steps 3–4 queue a task to fire a `storage`
-//! event at each other matching Window. Both storage types require matching
-//! origins and types. Session storage also requires the same traversable.
+//! Which Windows receive a `storage` event (HTML §12.2.1, *broadcast a
+//! Storage object*) is documented once, at `enqueue_local_storage_change`
+//! in `vm/host/storage.rs`.
 //! In a single-VM world the event is unobservable from the originating
 //! script; cross-VM fan-out via the shell broker is tracked at
 //! `#11-storage-event-broker`.  This file ships only the
