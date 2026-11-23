@@ -84,7 +84,7 @@ sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-w
   module doc gains one item.
 
 **Out**: no change to what is accepted or rejected, to the error type, to the check order or to any message (§2). The
-ECMAScript-vs-`DOMException` type of the error (§0.2) is O-1's. The WebIDL union handling of the sequence arm
+ECMAScript-vs-`DOMException` type of the error (§0.2) is out of scope: slot `#11-host-syntaxerror-domexception` owns it (PM 958). The WebIDL union handling of the sequence arm
 (`parse_protocols`' Array fast path and the ToString fallback for other objects) is marshalling and is not touched.
 The host header copy and `validate_method` are untouched (§0). The stale `§9.3` / `§9.3.1` cites R-0d does not
 rewrite (`git grep -n -P '§9\.3' c3c78070 -- <H/websocket.rs> <W/websocket.rs>` → 24 lines) stay with the HTML
