@@ -127,13 +127,17 @@ pub fn validate_ws_protocols(protocols: &[String]) -> Result<(), String> {
             return Err("empty sub-protocol is not allowed".to_string());
         }
         if !elidex_api_fetch::is_valid_header_name(s) {
+            // The message keeps "RFC 7230" byte-for-byte (what scripts see does not change
+            // here); `#11-host-syntaxerror-domexception` refreshes it with the error kind.
             return Err(format!(
                 "sub-protocol '{s}' contains a character not allowed by RFC 7230 token ABNF"
             ));
         }
     }
-    // O(n²) duplicate detection — protocol lists are tiny (1-5 entries
-    // in practice); a HashSet would burn more allocation than it saves.
+    // O(n²) duplicate detection. The list length is script-controlled, so a huge list costs
+    // the page quadratic time; that is the page's own cost (it can spin a loop as easily),
+    // the scan was moved unchanged, and for the usual short lists a HashSet would allocate
+    // more than it saves.
     for (i, a) in protocols.iter().enumerate() {
         for b in &protocols[i + 1..] {
             if a == b {

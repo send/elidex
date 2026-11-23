@@ -493,6 +493,8 @@ fn parse_protocols(ctx: &mut NativeContext<'_>, arg: JsValue) -> Result<Vec<Stri
         }
     }
 
+    // An ECMAScript SyntaxError, where WebSockets §3.1 step 9 throws a "SyntaxError"
+    // DOMException: `#11-host-syntaxerror-domexception`.
     elidex_api_ws::validate_ws_protocols(&out)
         .map_err(|e| VmError::syntax_error(format!("Failed to construct 'WebSocket': {e}")))?;
 
