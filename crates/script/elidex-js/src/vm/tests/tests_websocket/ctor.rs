@@ -220,14 +220,18 @@ fn ctor_protocol_collect_precedes_validation() {
     });
 }
 
+/// The error is an ECMAScript `SyntaxError`, not a `DOMException` (the kind
+/// `#11-host-syntaxerror-domexception`'s PR must flip). `e instanceof SyntaxError`
+/// cannot pin this today: every NativeError shares one `.prototype`, so it is
+/// true for any thrown error (`#11-vm-native-error-prototypes`).
 #[test]
 fn ctor_protocol_error_is_ecmascript_syntaxerror() {
     with_ws_vm(false, |vm| {
         vm.eval(
-            "try { new WebSocket('ws://example.com/socket', '') } catch (e) { globalThis.r = e instanceof SyntaxError }",
+            "try { new WebSocket('ws://example.com/socket', '') } catch (e) { globalThis.r = (e instanceof DOMException) + '|' + e.name }",
         )
         .expect("eval ok");
-        assert_eval_bool(vm, "r", true);
+        assert_eval_string(vm, "r", "false|SyntaxError");
     });
 }
 
