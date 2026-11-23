@@ -1,6 +1,6 @@
 //! `StructuredSerializeForStorage` / `StructuredDeserialize` **byte** seam for
 //! the classic `history.state` (WHATWG HTML §7.2.5 "shared history push/replace
-//! state steps" step 3 → §2.7.5 `StructuredSerializeForStorage`, and the
+//! state steps" step 3 → §2.7.6 `StructuredSerializeForStorage`, and the
 //! *restore the history object state* step 2 `StructuredDeserialize`).
 //!
 //! Unlike [`super::structured_clone`] (a *fused* in-memory
@@ -27,7 +27,7 @@ use super::super::value::{JsValue, NativeContext};
 use super::super::VmInner;
 
 /// `StructuredSerializeForStorage(value)` → **optional** storage bytes (WHATWG HTML
-/// §7.2.5 step 3 / §2.7.5, `forStorage = true`).
+/// §7.2.5 step 3 / §2.7.6, `forStorage = true`).
 ///
 /// Interim JSON-shortcut (UTF-8 JSON). The interim is **total — it never throws**;
 /// a representable value → `Some(bytes)`, anything else → `None` (no restorable
@@ -54,7 +54,7 @@ use super::super::VmInner;
 ///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
 ///   gap (succeeds where the spec throws).
 /// - **`undefined`**: a primitive that `StructuredSerializeInternal` round-trips as
-///   `undefined` (§2.7.3 step 4), but JSON cannot encode → collapses to `None`
+///   `undefined` (§2.7.4 step 5), but JSON cannot encode → collapses to `None`
 ///   (restores `null`). Preserving it needs a tagged non-JSON encoding = the walker
 ///   slot's codec, so it is NOT special-cased here (Codex R5; avoids a bespoke
 ///   `undefined` sentinel over the "UTF-8 JSON" wire — One-issue-one-way).
