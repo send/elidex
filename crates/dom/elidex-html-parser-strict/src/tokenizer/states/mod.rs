@@ -1,15 +1,14 @@
 //! The strict HTML tokenizer state machine.
 //!
-//! Implements the WHATWG HTML §13.2.5 "Tokenization" states reachable
-//! under strict semantics (§13.2.5.1 Data state through §13.2.5.80
-//! Numeric character reference end state). The two bogus *recovery*
-//! states — §13.2.5.41 bogus comment and §13.2.5.68 bogus DOCTYPE — are
+//! Implements a subset of the WHATWG HTML §13.2.5 tokenizer states.
+//! Processing instruction states (§13.2.5.72–76) are absent.
+//! The two bogus *recovery* states — §13.2.5.41 bogus comment and §13.2.5.68 bogus DOCTYPE — are
 //! omitted: strict mode rejects their entry conditions
 //! (`incorrectly-opened-comment`, the invalid-DOCTYPE sequences) rather
 //! than recovering, so they are unreachable by construction. Per-state
 //! handlers live in spec-family submodules ([`data`], [`tag`],
 //! [`attribute`], [`comment`], [`doctype`], [`cdata`]); the
-//! character-reference family (§13.2.5.72–80) lives in
+//! character-reference family (§13.2.5.77–84) lives in
 //! [`super::char_ref`] alongside the named-entity table.
 //!
 //! # Strict semantics
@@ -41,9 +40,7 @@ mod data;
 mod doctype;
 mod tag;
 
-/// The tokenizer state, one variant per WHATWG HTML §13.2.5 state.
-///
-/// Variant order follows the spec section order (§13.2.5.1–§13.2.5.80).
+/// States used by the strict tokenizer (HTML §13.2.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum State {
     // §13.2.5.1–5 — text content states
@@ -196,24 +193,24 @@ pub(crate) enum State {
     CdataSectionBracket,
     /// §13.2.5.71 CDATA section end state.
     CdataSectionEnd,
-    // §13.2.5.72–80 — character reference states
-    /// §13.2.5.72 Character reference state.
+    // §13.2.5.77–84 — character reference states
+    /// §13.2.5.77 Character reference state.
     CharacterReference,
-    /// §13.2.5.73 Named character reference state.
+    /// §13.2.5.78 Named character reference state.
     NamedCharacterReference,
-    /// §13.2.5.74 Ambiguous ampersand state.
+    /// §13.2.5.79 Ambiguous ampersand state.
     AmbiguousAmpersand,
-    /// §13.2.5.75 Numeric character reference state.
+    /// §13.2.5.80 Numeric character reference state.
     NumericCharacterReference,
-    /// §13.2.5.76 Hexadecimal character reference start state.
+    /// §13.2.5.81 Hexadecimal character reference start state.
     HexadecimalCharacterReferenceStart,
-    /// §13.2.5.77 Decimal character reference start state.
+    /// Local substate for the decimal digit check in HTML §13.2.5.80.
     DecimalCharacterReferenceStart,
-    /// §13.2.5.78 Hexadecimal character reference state.
+    /// §13.2.5.82 Hexadecimal character reference state.
     HexadecimalCharacterReference,
-    /// §13.2.5.79 Decimal character reference state.
+    /// §13.2.5.83 Decimal character reference state.
     DecimalCharacterReference,
-    /// §13.2.5.80 Numeric character reference end state.
+    /// §13.2.5.84 Numeric character reference end state.
     NumericCharacterReferenceEnd,
 }
 
@@ -233,7 +230,7 @@ pub(crate) struct Tokenizer {
     pos: usize,
     /// Current tokenizer state.
     state: State,
-    /// Return state for the character-reference states (§13.2.5.72).
+    /// Return state for the character-reference states (§13.2.5).
     return_state: State,
     /// Pending output tokens (some states emit multiple characters).
     output: VecDeque<Token>,
@@ -271,7 +268,7 @@ pub(crate) struct Tokenizer {
     // --- shared scratch ---
     /// Temporary buffer (script-data escapes, character references).
     temp_buffer: String,
-    /// Accumulated numeric character reference code (§13.2.5.78/79).
+    /// Accumulated numeric character reference code (§13.2.5.82/83).
     char_ref_code: u32,
     /// Name of the last start tag emitted (appropriate-end-tag check).
     last_start_tag: Option<String>,
@@ -684,7 +681,7 @@ impl Tokenizer {
             self_closing: self.tag_self_closing,
         };
         if self.tag_is_end {
-            // §13.2.5.7: end tags carrying attributes or a self-closing
+            // §13.2.5: end tags carrying attributes or a self-closing
             // flag are parse errors; strict mode rejects rather than
             // discarding them.
             if !token.attrs.is_empty() {
@@ -767,7 +764,7 @@ impl Tokenizer {
 
     // ----- character-reference scratch helpers -----
 
-    /// Set the character-reference return state (§13.2.5.72).
+    /// Set the character-reference return state (§13.2.5).
     pub(super) fn set_return_state(&mut self, state: State) {
         self.return_state = state;
     }
@@ -799,7 +796,7 @@ impl Tokenizer {
     }
 
     /// Whether the character-reference return state is one of the
-    /// attribute-value states (governs flush behaviour, §13.2.5.72).
+    /// attribute-value states (governs flush behaviour, §13.2.5).
     pub(super) fn in_attribute_return_state(&self) -> bool {
         matches!(
             self.return_state,
@@ -809,7 +806,7 @@ impl Tokenizer {
         )
     }
 
-    /// "Flush code points consumed as a character reference" (§13.2.5.72):
+    /// "Flush code points consumed as a character reference" (§13.2.5):
     /// either append the temp buffer to the current attribute value (when
     /// returning to an attribute state) or emit it as character tokens.
     pub(super) fn flush_code_points_as_char_ref(&mut self) {
@@ -829,13 +826,13 @@ impl Tokenizer {
     }
 
     /// Reconsume the current input character in the return state
-    /// (§13.2.5.72 "anything else").
+    /// (§13.2.5.77 "anything else").
     pub(super) fn reconsume_in_return_state(&mut self) {
         let rs = self.return_state;
         self.reconsume_in(rs);
     }
 
-    // ----- numeric character-reference accumulator (§13.2.5.78/79) -----
+    // ----- numeric character-reference accumulator (§13.2.5.82/83) -----
 
     /// Reset the numeric character-reference code to `code`.
     pub(super) fn set_char_ref_code(&mut self, code: u32) {
@@ -901,7 +898,7 @@ fn input_stream_error(c: char) -> Option<&'static str> {
 }
 
 /// WHATWG "noncharacter" test (used by §13.2.3.5 input-stream errors and
-/// the §13.2.5.80 numeric character reference end state): the
+/// the §13.2.5.84 numeric character reference end state): the
 /// U+FDD0–U+FDEF block and the last two code points of every plane.
 pub(super) fn is_noncharacter(code: u32) -> bool {
     (0xFDD0..=0xFDEF).contains(&code) || (code & 0xFFFE) == 0xFFFE

@@ -3,7 +3,7 @@
 `entities.json` is a pinned snapshot of the WHATWG HTML "Named character
 references" data (HTML §13.5), the canonical source for the named-entity
 table the tokenizer resolves in the named-character-reference state
-(§13.2.5.73).
+(§13.2.5.78).
 
 - **Source**: <https://html.spec.whatwg.org/entities.json>
 - **License / attribution**: reference data published as part of the WHATWG
