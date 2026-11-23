@@ -1,6 +1,6 @@
 # CSS numeric conversion, arithmetic and simplification
 
-Draft child N of the Flex omit-initial program. Its independent full plan review follows G′a in the umbrella’s landing order.
+Draft child N of the Flex omit-initial program. The G′a-geo plans through 3b.4 landed at f8f43ede. G′a (3c) is under binding review. N follows all definite-reference migrations accepted for 3c, including every child if the review splits the plan.
 
 ## §1. Change and acceptance
 
@@ -39,7 +39,7 @@ Inventory call sites in style (padding/box, font, vertical-align), grid and medi
 
 ## Production paths and numerical controls
 
-At c3c78070, plugin css_resolve.rs::resolve_calc_typed performs arithmetic in binary32 and explicitly returns zero for division by zero. Media eval.rs::resolve_calc performs its own arithmetic in binary64 after promoting already-rounded leaves. Replace both operator walks with the plugin evaluator. The media adapter supplies initial-font and viewport references, then applies feature comparison and its range policy. Style supplies the element’s references. Keep the layout conversion to binary32 at the field that requires it. Check the migrated callers with `git grep -n -E 'resolve_calc_expr|resolve_calc_typed|fn resolve_calc\(' -- crates` and follow the wrappers through dimension, length, vertical-align and font resolution. Repeat against the landed G′a inventory, regardless of which PR delivers page geometry.
+At f8f43ede, plugin css_resolve.rs::resolve_calc_typed performs arithmetic in binary32 and explicitly returns zero for division by zero. Media eval.rs::resolve_calc performs its own arithmetic in binary64 after promoting already-rounded leaves. Replace both operator walks with the plugin evaluator. The media adapter supplies initial-font and viewport references, then applies feature comparison and its range policy. Style supplies the element’s references. Keep the layout conversion to binary32 at the field that requires it. Check the migrated callers with `git grep -n -E 'resolve_calc_expr|resolve_calc_typed|fn resolve_calc\(' -- crates` and follow the wrappers through dimension, length, vertical-align and font resolution. Repeat the inventory after the predecessor implementations land. For page size and margins, exercise direct and substituted numeric inputs through 3b.1 preparation and inspect the selected physical geometry through 3b.3 pagination and both 3b.4 public builders. Preserve zero sheet height in the published result when a winning negative calculation clamps to zero; the 1px fragmentation progress floor belongs to layout. For Text, Table and Multicol, take the registered and built-in reader controls from the accepted 3c plan.
 
 | Input and route | Observable result |
 |---|---|
