@@ -447,10 +447,9 @@ fn classify(kind: &ObjectKind) -> CloneKind {
 // Per-kind clone helpers
 // ---------------------------------------------------------------------------
 
-/// Clone a plain `{}` — copy every own enumerable data property,
-/// recursing into the value.  Accessor properties are not exposed by
-/// structuredClone (spec §2.9: only data properties are walked); any
-/// accessor is silently skipped, matching browsers.
+/// The VM copies enumerable own data properties. HTML §2.7.4 step 28.4
+/// walks own enumerable string keys and calls Get, including for accessors.
+/// This implementation skips accessors and can include symbol keys.
 fn clone_ordinary(
     vm: &mut VmInner,
     src: ObjectId,

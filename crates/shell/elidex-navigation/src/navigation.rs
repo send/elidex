@@ -34,8 +34,8 @@ pub struct HistoryEntry {
     /// representation shared with the `HistoryAction`/`HistoryStepEvents`
     /// `SerializedState` wire — so the JSON-shortcut interim → full
     /// `StructuredSerializeForStorage` upgrade (`#11-history-state-structured-serialize-fidelity`)
-    /// swaps the serializer body, not this field type. `None` = the entry has no
-    /// classic state (a plain navigation, a fragment nav, or a boa-`None` push).
+    /// swaps the serializer body, not this field type. `None` means there are no
+    /// restorable bytes for this entry.
     pub classic_history_api_state: Option<Vec<u8>>,
     /// Navigation API state (WHATWG HTML §7.4.1, initially undefined).
     pub navigation_api_state: Option<String>,
@@ -492,8 +492,7 @@ pub enum TraversalKind {
     /// A **same-document** traversal (the target entry is in the current
     /// document): restore its serialized `history.state` (step 6.3, `state`) and
     /// persisted scroll (step 6.4.4, `scroll`) and fire popstate in place — no
-    /// rebuild. Either field may be `None` (a plain-nav / boa-`None` entry carries
-    /// no state; an entry never left carries no scroll).
+    /// rebuild. State bytes and saved scroll position are independently optional.
     SameDocument {
         /// `StructuredSerializeForStorage` bytes to restore, or `None` for null.
         state: Option<Vec<u8>>,
