@@ -153,7 +153,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
 - **PR 0 (this)**: foundational relocation + trait slot (behavior-preserving).
 - **PR 1**: MulticolHandler — `column-rule` / `columns` (ordered omit-initial, own
   initials).
-- **PR 2 (Flex)**: the [Flex omit-initial program](2026-11-flex-omit-initial-program.md) owns the prerequisites, typed handler migration, public formatting, and final Flex family PR (PM 959). The string trait example above describes the foundational PR until the typed-handler slice lands.
+- **PR 2 (Flex)**: the [Flex omit-initial program](2026-11-flex-omit-initial-program.md) owns the prerequisites, typed handler migration, public formatting, and final Flex family PR (PM 959). The coordinator example above describes the foundational implementation through D’s activation, when the coordinator starts reading typed blocks. The string trait example applies until H replaces its signature and removes D’s formatting bridge.
 - **PR 3**: TextHandler — `text-decoration`.
 - **PR 4**: BoxHandler — `border` (nested 4-side + omit-initial).
 - **PR 5+**: layered/grid (BackgroundHandler `background`; `font`; GridHandler
