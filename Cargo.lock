@@ -1796,6 +1796,7 @@ dependencies = [
 name = "elidex-api-ws"
 version = "0.1.0"
 dependencies = [
+ "elidex-api-fetch",
  "elidex-plugin",
  "url",
 ]

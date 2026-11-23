@@ -112,6 +112,38 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
     Ok(())
 }
 
+/// Validate the `protocols` list of the `new WebSocket(url, protocols)` constructor, WebSockets §3.1 constructor
+/// step 9 (`webref body websockets dom-websocket-websocket`): no value may occur more than once, and each value must
+/// be a non-empty HTTP `token`. That is what "the requirements for elements that comprise the value of
+/// `Sec-WebSocket-Protocol` fields" come to under The WebSocket Protocol [WSP]. The `token` test is
+/// [`elidex_api_fetch::is_valid_header_name`] (Fetch §2.2.2 *header name*: the `field-name` production of RFC 9110's
+/// field names, `field-name = token`, whose `token` is RFC 9110 §5.6.2). Values are compared by exact string
+/// equality. Checks run per value in list order (empty, then token), then for duplicates over the whole list.
+/// The first failure is returned as the `SyntaxError` message without its "Failed to construct" prefix, which the
+/// caller adds.
+pub fn validate_ws_protocols(protocols: &[String]) -> Result<(), String> {
+    for s in protocols {
+        if s.is_empty() {
+            return Err("empty sub-protocol is not allowed".to_string());
+        }
+        if !elidex_api_fetch::is_valid_header_name(s) {
+            return Err(format!(
+                "sub-protocol '{s}' contains a character not allowed by RFC 7230 token ABNF"
+            ));
+        }
+    }
+    // O(n²) duplicate detection — protocol lists are tiny (1-5 entries
+    // in practice); a HashSet would burn more allocation than it saves.
+    for (i, a) in protocols.iter().enumerate() {
+        for b in &protocols[i + 1..] {
+            if a == b {
+                return Err(format!("duplicate sub-protocol '{a}'"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Whether a `ws://` connection is **mixed content** that must be blocked
 /// (W3C Mixed Content §4.4 "Should fetching request be blocked as mixed
 /// content?", via §4.3 "Does settings prohibit mixed security contexts?"): true
@@ -334,5 +366,93 @@ mod tests {
     fn ws_keepalive_closed_never() {
         // CLOSED is never kept — not by any listener.
         assert!(!ws_keepalive(WsReadyState::Closed, |_| true));
+    }
+
+    fn sv(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    fn token_msg(s: &str) -> String {
+        format!("sub-protocol '{s}' contains a character not allowed by RFC 7230 token ABNF")
+    }
+
+    #[test]
+    fn protocols_accept() {
+        assert_eq!(validate_ws_protocols(&[]), Ok(()));
+        assert_eq!(validate_ws_protocols(&sv(&["chat"])), Ok(()));
+        assert_eq!(validate_ws_protocols(&sv(&["chat", "superchat"])), Ok(()));
+    }
+
+    #[test]
+    fn protocols_reject_empty() {
+        assert_eq!(
+            validate_ws_protocols(&sv(&[""])),
+            Err("empty sub-protocol is not allowed".to_string())
+        );
+    }
+
+    #[test]
+    fn protocols_reject_delimiter() {
+        assert_eq!(
+            validate_ws_protocols(&sv(&["bad,protocol"])),
+            Err(token_msg("bad,protocol"))
+        );
+        assert_eq!(validate_ws_protocols(&sv(&["a b"])), Err(token_msg("a b")));
+    }
+
+    #[test]
+    fn protocols_reject_non_ascii() {
+        assert_eq!(
+            validate_ws_protocols(&sv(&["café"])),
+            Err(token_msg("café"))
+        );
+        assert_eq!(validate_ws_protocols(&sv(&["é"])), Err(token_msg("é")));
+    }
+
+    #[test]
+    fn protocols_reject_duplicate() {
+        assert_eq!(
+            validate_ws_protocols(&sv(&["chat", "chat"])),
+            Err("duplicate sub-protocol 'chat'".to_string())
+        );
+        assert_eq!(
+            validate_ws_protocols(&sv(&["a", "b", "a"])),
+            Err("duplicate sub-protocol 'a'".to_string())
+        );
+    }
+
+    #[test]
+    fn protocols_check_order() {
+        assert_eq!(
+            validate_ws_protocols(&sv(&["chat", "", "chat"])),
+            Err("empty sub-protocol is not allowed".to_string())
+        );
+        assert_eq!(
+            validate_ws_protocols(&sv(&["a b", "a b"])),
+            Err(token_msg("a b"))
+        );
+        assert_eq!(
+            validate_ws_protocols(&sv(&["a b", ""])),
+            Err(token_msg("a b"))
+        );
+    }
+
+    #[test]
+    fn protocols_ascii_table() {
+        // Written out literally: 52 letters + 10 digits + 15 symbols = 77 tchars.
+        const TCHARS: &str =
+            "!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~";
+        assert_eq!(TCHARS.chars().count(), 77);
+        for b in 0u8..=0x7F {
+            let c = char::from(b);
+            let v = vec![c.to_string()];
+            let accepted = validate_ws_protocols(&v).is_ok();
+            assert_eq!(accepted, TCHARS.contains(c), "byte {b:#04x}");
+        }
+    }
+
+    #[test]
+    fn protocols_duplicate_comparison_is_exact() {
+        assert_eq!(validate_ws_protocols(&sv(&["chat", "Chat"])), Ok(()));
     }
 }

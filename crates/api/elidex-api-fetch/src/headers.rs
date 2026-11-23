@@ -61,10 +61,8 @@ impl HeaderGuard {
     }
 }
 
-/// Validate a header name per Fetch spec §2.2.1 (HTTP token production).
-///
-/// A valid token consists of characters from the HTTP token production
-/// (RFC 7230 §3.2.6) and must not be empty.
+/// Validate a header name: Fetch §2.2.2 *header name*, the `field-name` production of RFC 9110's field names
+/// (`field-name = token`), whose `token` is RFC 9110 §5.6.2. It must not be empty.
 #[must_use]
 pub fn is_valid_header_name(name: &str) -> bool {
     !name.is_empty()

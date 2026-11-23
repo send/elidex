@@ -164,7 +164,7 @@ fn ctor_rejects_empty_protocol() {
 
 #[test]
 fn ctor_rejects_protocol_with_separator() {
-    // RFC 7230 §3.2.6: comma is a separator, not a token char.
+    // RFC 9110 §5.6.2 `token`: a comma is a delimiter, not a tchar.
     with_ws_vm(false, |vm| {
         vm.eval(
             "try { new WebSocket('ws://example.com/socket', 'bad,protocol') } catch (e) { globalThis.r = e.name + '|' + e.message }",
