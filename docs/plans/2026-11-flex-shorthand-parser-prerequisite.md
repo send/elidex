@@ -1,6 +1,6 @@
 # Parse the supported flex shorthand into its specified longhands
 
-This prerequisite of the Flex increment in `#11-style-shorthand-expand` is draft G under PM 961. It lands after T so acceptance covers receiving-property reparse after var() substitution. The next PR migrates grid, float and transform grammar consumers. Baseline `c3c78070`. A declaration such as `flex: 0` must produce grow 0, shrink 1 and a zero-length basis. Today the parser accepts the first token as a length, yielding grow 1 and making an otherwise inflexible empty item consume free space. Fix this at parse time for all consumers.
+This prerequisite of the Flex increment in `#11-style-shorthand-expand` is child G of the approved umbrella (PM 977). It lands after T so acceptance covers receiving-property reparse after var() substitution. G′ then removes all lenient unit/length parser paths listed in the umbrella. Baseline `c3c78070`. A declaration such as `flex: 0` must produce grow 0, shrink 1 and a zero-length basis. Today the parser accepts the first token as a length, yielding grow 1 and making an otherwise inflexible empty item consume free space. Fix this at parse time for all consumers.
 
 ## §1. Entry points and shared grammar
 
@@ -8,7 +8,7 @@ Both the declaration block reader and stylesheet rule parser call `parse_propert
 
 Keep declaration production, property naming and priority handling in elidex-css. Put the common typed factor and basis value parsers in `elidex_plugin::css_resolve`, available to both sibling crates. Expose `elidex_plugin::css_resolve::parse_flex_basis` (NEW). Return CssValue::Auto for auto in the parser and the handler initial, the content keyword, or a validated nonnegative length/percentage or supported math expression. Pass the resulting value directly into flex triples. Share one factor parser for grow and shrink on all declaration and handler paths. Accept a nonnegative Number or a number-typed calc tree. At computation use the existing arithmetic evaluator for finite ordinary factor math and clamp the result to the factor range in both resolver paths. Keep the declared tree for readback. N owns changes to shared arithmetic and numeric conversion. Remove the local grammar duplicates. Move imports at each existing strict-parser call site. Convert errors at the property boundary.
 
-Move the existing strict length/percentage and typed calc core from elidex-css values.rs into an elidex-plugin css_resolve sibling module, preserving the existing strict callers and their unit set, recursion and node limits. Put factor/basis entry points beside it. PM 961 assigns the remaining lax handler grammar to a dedicated migration immediately after G. N owns conversion of original numeric lexemes and IEEE evaluation for all consumers. C owns the computed mixed basis and layout/animation. G tests the declared typed basis tree and the public effects of ordinary factors.
+Move the existing strict length/percentage and typed calc core from elidex-css values.rs into an elidex-plugin css_resolve sibling module, preserving the strict entry points and existing recursion and node limits, and admitting the PM 977 unit subset. Put factor/basis entry points beside it. G′a begins the remaining handler migrations after G; G′b retires the last lenient wrapper after C1. N owns conversion of original numeric lexemes and IEEE evaluation for all consumers. N owns simplification, C1 the computed payload and C2 Flex layout/animation. G tests the declared typed basis tree and the public effects of ordinary factors.
 
 ## §2. Coupled invariants
 
@@ -29,21 +29,23 @@ Move the existing strict length/percentage and typed calc core from elidex-css v
 
 **Basis validation on all three paths.** Independently feed `-1px`, `-5%` and `2bogus` to the flex-basis declaration parser, flex shorthand (alone and after two factors), and direct FlexHandler longhand parse. Require rejection with no emitted declaration or partial triple. For each route use `0em` and `calc(10% + 2px)` as positive controls. The declaration parser currently accepts signed literal lengths/percentages; the handler helper maps unrecognized units to Px. Keep range checking of literal values separate from calc’s deferred range check.
 
-**Substitution × admission.** On both inline and rule styles set --x:2 0 10px and flex:var(--x). Check grow 2, shrink 0, basis 10px. Compare explicit longhands. With --x:2 -3 10px or --b:-1px on flex-basis, check invalid-at-computed-value behavior. With --g:2, flex-grow:var(--g) computes to 2. These are single winning declarations. D owns competing longhands.
+**Substitution × admission.** On both inline and rule styles set --x:2 0 10px and flex:var(--x). Check grow 2, shrink 0, basis 10px. Compare explicit longhands. With --x:2 -3 10px or --b:-1px on flex-basis, check invalid-at-computed-value behavior. With --g:2, flex-grow:var(--g) computes to 2. These are single winning declarations. T owns cascade collisions and D owns public order/provenance.
 
-**Expression type × position.** Through both built-in and handler paths, grow calc(1 + 1) computes to 2 and calc(-1) to 0. Via shorthand, test calc(1 + 1) 10px and 10px calc(1 + 1), both 2/1/10px. Reject an incompatible sum of a number and a length. Accept calc(-1px) as a typed basis; C owns top-level basis clamping. Keep the property-range distinction in the extracted code's documentation, replacing the obsolete Level 3 §10.1 citation.
+**Expression type × position.** Through both built-in and handler paths, grow calc(1 + 1) computes to 2 and calc(-1) to 0. Via shorthand, test calc(1 + 1) 10px and 10px calc(1 + 1), both 2/1/10px. Reject an incompatible sum of a number and a length. Accept calc(-1px) as a typed basis; C1/C2 apply the range when the required inputs become available. Keep the property-range distinction in the extracted code's documentation, replacing the obsolete Level 3 §10.1 citation.
 
 ## §3. Spec coverage map
 
 | Spec section | Step | Branch | Touch | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| css-flexbox-1 §7.1 The flex Shorthand | grammar | none or one/both groups, omission, bare zero | parse_flex_shorthand | ✓ | yes |
+| css-flexbox-1 §7.1 The flex Shorthand | grammar | none or one/both groups, omission, bare zero | parse_flex_shorthand | supported basis grammar | yes |
 | css-flexbox-1 §7.2.1 The flex-grow property | value | literal or number-typed calc factor | FlexHandler | supported arithmetic | yes |
 | css-flexbox-1 §7.2.2 The flex-shrink property | value | literal or number-typed calc factor | FlexHandler | supported arithmetic | yes |
 | css-flexbox-1 §7.2.3 The flex-basis property | value | supported keyword or width, percentage | FlexHandler | supported subset | yes |
 | css-sizing-3 §3.2 Sizing Values | width-derived basis | auto, content and supported numeric width values; stretch, min-content, max-content and fit-content remain outside the supported width subset | shared basis parser | supported subset | yes |
 | css-values-4 §10.12 Range Checking | math functions | preserve supported calculations and apply their range at the specified stage | shared basis parser | supported subset | yes |
-| css-values-4 §5.4 Numbers with Units | validate dimension token | known length unit or rejection | shared basis parser | supported length units | yes |
+| css-values-4 §5.4 Numbers with Units | recognize dimension syntax | number and unit identifier | shared basis parser | supported length units | yes |
+| css-values-4 §6.1 Relative Lengths | resolve font and viewport dimensions | existing contexts and deferred units | shared lookup, calc leaves and computed readers | PM 977 subset | yes |
+| css-values-4 §6.2 Absolute Lengths | convert a physical length | fixed unit ratios and canonical px | shared conversion and media range values | all seven units | yes |
 | css-values-4 §9.1 Numeric Functions | range timing | invalid literal or computed/used clamp | factor and basis parse docs, factor resolution | supported arithmetic | yes |
 | css-values-4 §10.9 Type Checking | result type | number factor or length-percentage basis | shared typed calc parser | supported arithmetic | yes |
 | css-flexbox-1 §9.7 Resolving Flexible Lengths | regression observation | positive free space and grow zero | layout test | observation only | yes |
@@ -61,3 +63,27 @@ The token stream comes from inline markup, stylesheet rules or CSSOM setters. Ex
 - Cross-check flex-valid.html, flex-invalid.html, flex-shorthand.html, flex-shorthand-calc.html and flex-computed.html against web-platform-tests/wpt at e00a7b14e8e3d9c04933e29ed247baf76c60706e. Record the filename, assertion, typed expansion and any separate serialization/computed dependency in the implementation PR description.
 - Put the grammar matrix in a new flex_grammar sibling test module in elidex-css, handler controls in elidex-css-flex, expression controls with the new plugin module, cascade tests in elidex-style, setter/rule tests in elidex-dom-api and the sizing control in elidex-layout-flex. Run each crate's all-features tests. Audit existing strict caller regressions at the extraction commit.
 - Reconcile the draft with the umbrella verdict, request its own full plan review and land after T. Before push run repository CI and obtain PM go. Single-pass post-push Codex review, then merge at PM's explicitly approved head.
+
+## Shared grammar contract for G′a and G′b
+
+Move the strict unit lookup, length and length-percentage entry points in values.rs with the calc grammar into elidex-plugin. CSS Values §5.4 defines dimension syntax; §6 defines the length units. Accept §6.2 absolute units and em/rem/vw/vh/vmin/vmax plus lvw/lvh/lvmin/lvmax. Reject other §6.1 units at parse time, including in calc, until the contexts tracked by the umbrella slot exist. Test CSS case-insensitivity, Q/mm/cm/in/pt/pc/px conversions, font and viewport units with real reference contexts, unitless zero, a percentage and an unknown dimension. Keep the numeric category and the reference dependence in the typed result. Re-run existing strict clients. G′a migrates page, text, table and multicol; G′b after C1 migrates reference-dependent consumers and deletes legacy wrappers. The input category comes from the property grammar; it never depends on which parser entry point was used.
+
+### Reader inventory and representation
+
+G preserves the specified unit in a typed declared length, including distinct vw and lvw spellings. The shared resolver maps both to the same large viewport measure. Resolve absolute units with the CSS §6.2 ratios; keep the original media unit and value for RangeValue::Converted. Verify declared longhand output, computed px and used geometry separately: 1in, 2.54cm, 25.4mm, 101.6Q, 72pt and 6pc all resolve to 96px. In a 200px by 100px viewport, 10lvw and 10lvmax resolve to 20px; 10lvh and 10lvmin resolve to 10px. Test upper/lower-case input at the strict lookup and retain the canonical suffix on declared output.
+
+Run `git grep -l -w LengthUnit c3c78070 -- crates` (57 files including tests). For each production hit trace the value from parser or constructor to its switch, including wildcard arms and Px-only guards. Repeat the inventory on the implementation head. Classify each as a producer, declared serializer, computed/used conversion, or consumer of already normalized px. Regression tests must reach each changed reader from the strict declaration route.
+
+| Consumer group | Check at G |
+|---|---|
+| Plugin values, css_resolve and ordinary style resolution | Keep declared magnitude and unit until conversion, including calc leaves. Apply fixed ratios or the supplied font/viewport context once. |
+| Media parse, eval, types and serializer | Share unit recognition and conversion while preserving tolerant comparison for physical lengths and direct-px comparison. Check threshold equality and reparse at 2.54cm. |
+| Animation detection, interpolation and apply | Trace declared keyframe and computed transition inputs separately. Normalize supported literal lengths before Px-only apply_dimension, apply_flex_basis, apply_px and apply_optional_px consume them. Verify physical length and large-viewport alias samples update the field. C2 owns publishing newly generated mixed calc samples. |
+| Grid, Flex, Box, Float, Transform, Text, Multicol, Table, Background, paged style and render | Inspect reachable readers of newly admitted strict values. Test the original property at its actual reference size whenever G changes its value path. Record any unchanged producer-only hit with its caller. Each remaining alternative parser moves with its reader in G′a or G′b. |
+| DOM presentational hints, UA defaults and tests | Check literal construction versus decoding. Keep constructors that supply canonical px; validate the downstream invariant with a direct strict-parsed control. |
+
+## Binding R3 acceptance
+
+**C-4.** Replace the parallel absolute conversion table in media/parse.rs::media_length_to_value with the shared unit classification and conversion. Preserve RangeValue::Converted (original unit/value and tolerant comparison) for converted physical units, and exact comparison for direct px. Exercise `(width: 2.54cm)` at 96px with the equality and range boundaries, and direct px on either side. Assert identical matching and serialization/reparse before and after extraction. Reject deferred units through both ordinary and media parsers.
+
+**V-C2, V-C3.** Exercise each deferred family from umbrella §1 through direct declaration parsing, calc, substituted width and @supports. The direct declaration is invalid; a winning var(--x) containing 1ch becomes invalid at computed-value time instead of reviving an earlier declaration. Pair vw/vh/vmin/vmax with lvw/lvh/lvmin/lvmax and require equal used values in a non-square viewport. Enumerate every LengthUnit match, including Px-only apply_px, wildcard arms, aliases and the media conversion path from C-4. Test 1in = 96px through each changed reader, preserving converted-media comparison semantics.
