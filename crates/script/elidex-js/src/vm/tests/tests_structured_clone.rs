@@ -111,8 +111,8 @@ fn shared_reference_preserves_identity_in_clone() {
 #[test]
 fn accessor_properties_are_skipped() {
     let mut vm = Vm::new();
-    // A getter-only own property is a non-data property; structured
-    // clone walks data properties only.
+    // This fixture pins the VM's accessor gap: HTML §2.7.4 step 28.4 reads g
+    // and copies 99, while the current walker omits the property.
     assert!(eval_bool(
         &mut vm,
         "var a = {x: 7};

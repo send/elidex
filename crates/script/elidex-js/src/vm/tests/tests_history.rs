@@ -592,16 +592,9 @@ fn function_state_succeeds_with_null_state_interim(// CR-3 opposite deviation (D
 
 #[test]
 fn throwing_tojson_degrades_to_null_interim() {
-    // `StructuredSerializeInternal` (WHATWG HTML §2.7.3 step 24) serializes ordinary
-    // objects via enumerable-property `Get` and NEVER invokes JSON's `toJSON` hook,
-    // so a throwing `toJSON` does NOT abort real structured serialization. The interim
-    // JSON shortcut *does* call it and `JSON.stringify` throws — a JSON-only exception
-    // that must DEGRADE to no restorable state (like BigInt/cyclic, CR-3), NOT
-    // propagate and lose the history entry (Codex R5). The pushState SUCCEEDS: the URL
-    // applies and the entry is enqueued with `serialized_state: None`. (A throwing
-    // property *getter* — which real clone WOULD propagate via `? Get` — also degrades
-    // here, an interim gap the full walker restores; the JSON shortcut cannot tell the
-    // two apart.)
+    // HTML rejects the ordinary object's enumerable callable with DataCloneError.
+    // The interim encoder invokes the method instead. Its exception leaves this
+    // history entry without state bytes, and pushState still updates the URL.
     let mut vm = new_vm_with_base(); // http://localhost/
     vm.eval(
         "var o = { toJSON: function () { throw new Error('boom'); } };
