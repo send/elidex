@@ -5,7 +5,7 @@ use std::fmt;
 use super::{ComputedStyle, Dimension, Display, WritingMode};
 
 keyword_enum! {
-    /// The CSS `column-fill` property (CSS Multi-column Layout Level 1 §7).
+    /// The CSS `column-fill` property (CSS Multi-column Layout Level 1 §7.1).
     ColumnFill {
         Balance => "balance",
         Auto => "auto",
@@ -13,7 +13,7 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `column-span` property (CSS Multi-column Layout Level 1 §6).
+    /// The CSS `column-span` property (CSS Multi-column Layout Level 1 §6.1).
     ColumnSpan {
         None => "none",
         All => "all",
