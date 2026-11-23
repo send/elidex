@@ -257,11 +257,12 @@ pub(super) fn native_clear_interval(
 
 // Readers: `drain_timers` is wired into `ScriptEngine::drain_timers` and the
 // worker / service-worker threads under `engine`, and `tests_timer` reads it
-// in tests; `next_timer_deadline` is read only under `engine`. The block is
+// in tests (as does `tests_timer_checkpoint_gc`, which also calls
+// `setInterval` / `queueMicrotask`); `next_timer_deadline` is read only under `engine`. The block is
 // gated to those configurations; without either it has no reader. Interim
 // (`#11-elidex-js-no-default-features-support`): when L3's brand-check PR-1b
-// makes the timer surface engine-only, `tests_timer` goes engine-only with it
-// and the `any(test, feature = "engine")` gates in this file collapse into that
+// makes the timer surface engine-only, `tests_timer` and `tests_timer_checkpoint_gc` go engine-only
+// with it and the `any(test, feature = "engine")` gates in this file collapse into that
 // one surface gate.
 #[cfg(any(test, feature = "engine"))]
 impl VmInner {
@@ -318,8 +319,15 @@ impl VmInner {
     /// (they have no `EvalResult`).  `Vec::len()` is the callback count for
     /// callers that only need a tally.
     ///
-    /// After firing expired timers, drains the microtask queue (HTML
-    /// §8.1.7.3 — perform a microtask checkpoint).
+    /// After each fired timer it runs the per-fire checkpoint
+    /// ([`Self::drain_timer_fire_checkpoint`]): each fire is its own task
+    /// (HTML §8.7 timer initialization steps, step 12) and the event loop
+    /// performs a microtask checkpoint after every task (HTML §8.1.7.3
+    /// Processing model, step 2.8).
+    ///
+    /// Not re-entrant (the `current_timer` slot is single-occupancy): nothing
+    /// the per-fire checkpoint runs calls back into `drain_timers`; both
+    /// install sites `debug_assert!` it.
     pub(crate) fn drain_timers(&mut self, now: Instant) -> Vec<Result<(), VmError>> {
         let mut results: Vec<Result<(), VmError>> = Vec::new();
         loop {
@@ -357,9 +365,9 @@ impl VmInner {
             // source given global to signal abort given signal and a new
             // "TimeoutError" DOMException.") instead of
             // dispatching the placeholder callback.  The signal's
-            // `reason` becomes `DOMException("TimeoutError")`.  We
-            // install the entry as current_timer first so the GC root
-            // stays stable during the dispatch.  The `is_empty` guard
+            // `reason` becomes `DOMException("TimeoutError")`.  The entry is
+            // installed as `current_timer` for the dispatch (lifetime: the
+            // canonical statement at the user-callback install below).  The `is_empty` guard
             // skips the hash computation on the common case (every
             // setTimeout fire).
             #[cfg(feature = "engine")]
@@ -368,6 +376,10 @@ impl VmInner {
                 .flatten()
             {
                 self.active_timer_ids.remove(&entry.id);
+                debug_assert!(
+                    self.current_timer.is_none(),
+                    "drain_timers is not re-entrant: current_timer already occupied"
+                );
                 self.current_timer = Some(entry);
                 let timeout_name = self.well_known.dom_exc_timeout_error;
                 let reason = self.build_dom_exception(timeout_name, "signal timed out");
@@ -388,29 +400,45 @@ impl VmInner {
                 // One-shot — no re-arm; jump to the top of the loop.
                 continue;
             }
-            // Install the popped entry as a GC root before invoking user
-            // code — the callback can allocate arbitrarily and trigger a
-            // collection, and without this slot `entry.callback` +
-            // `entry.args` would only be held in a Rust local (the heap
-            // copy was removed by `pop`).  We take the entry back out
-            // after firing to make re-arm / active-set decisions.
+            // Canonical statement of the `current_timer` lifetime.  Install
+            // the popped entry as a GC root before invoking user code — the
+            // callback can allocate arbitrarily and trigger a collection,
+            // and without this slot `entry.callback` + `entry.args` would
+            // only be held in a Rust local (the heap copy was removed by
+            // `pop`).  On this user-callback path the entry is held from
+            // before the call, through the per-fire checkpoint (which runs
+            // JS — microtasks / tasks / CE reactions — and may collect while
+            // an interval's callback / args are reachable only through this
+            // entry), until the re-arm / active-set decision below takes
+            // it.  The `AbortSignal.timeout` path above takes it before its
+            // checkpoint instead (one-shot, unused afterwards).
+            let timer_id = entry.id;
+            debug_assert!(
+                self.current_timer.is_none(),
+                "drain_timers is not re-entrant: current_timer already occupied"
+            );
             self.current_timer = Some(entry);
             let fire_result = self.fire_current_timer();
-            let entry = self.current_timer.take().expect("current_timer set above");
             if let Err(e) = &fire_result {
-                eprintln!("timer callback {} threw: {e}", entry.id);
+                eprintln!("timer callback {timer_id} threw: {e}");
             }
             results.push(fire_result);
             // Per-timer checkpoint: settle this callback's queued work before
             // the next ready timer runs (see [`Self::drain_timer_fire_checkpoint`]).
             self.drain_timer_fire_checkpoint();
+            let entry = self.current_timer.take().expect("current_timer set above");
             // Interval re-arm.  Re-check cancellation here so that a
             // callback that cancels its own interval (the classic
             // `setInterval(() => { if (...) clearInterval(id); })`
             // pattern) does not get re-scheduled: `cancel_timer` may
             // have inserted the id into `cancelled_timers` while the
-            // callback was running, and we must honour that before
-            // pushing the next tick back onto the heap.  We keep the
+            // callback or its checkpoint was running, and we must honour that before
+            // pushing the next tick back onto the heap.  Spec mapping (HTML
+            // §8.7 timer initialization steps, 9.9–9.12): the post-callback
+            // existence check and the step-9.11 re-arm; a cancellation from
+            // the post-task checkpoint, which the spec honours at the next
+            // task's step 9.2/9.3 (after the 9.11 re-arm), is folded into
+            // this one re-check — same observable result, no further fire.  We keep the
             // monotonic `deadline + repeat` cadence so callbacks don't
             // drift with their own duration.
             if let Some(repeat) = entry.repeat {

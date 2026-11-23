@@ -28,6 +28,8 @@ cargo fmt --all
 ```sh
 mise run ci   # check + check-default + lint + test-all + doc + deny + trip-wires + tools-test + ci-sweep cleanup (no-op without cargo-sweep) — CLAUDE.md "Push 前"
 ```
+Machine-wide, only one local `mise run` at a time: see `/drive` §8 (interim rule, PM 968).
+
 All jobs must be green. (`test-all` includes doc-tests; cargo tasks are `--all-features`-gated except `check-default` (the default-features check), so feature-gated code is covered.)
 
 Fallback: if `mise run ci` reports a spurious `target/`-missing failure (the `ci-sweep` cleanup task can race the build and wipe `target/` mid-compile), re-run the verification jobs serially — this sidesteps the race by omitting `ci-sweep`:
