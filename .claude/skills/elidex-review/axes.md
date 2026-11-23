@@ -26,7 +26,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 - **Past lesson 違反** (lesson #235 trait cascade 等) → Axis 5 (lesson #276 を除く)
 - **Host-side OO inheritance** → Axis 1 sub-check 1a + Axis 2 sub-check 2a 両 flag (genuine overlap、Step 3.5 で subsumption)
 - **ブラウザへの言及の根拠 (spec / ECS 原則 / 実測) と等級** → Axis 2 sub-check 2d 専属 (Axis 4 は citation の正しさだけを見る、Axis 3 は扱わない)
-- **script から作れる条件での release abort (PM 584)** → **Axis 3 専属** (`/code-review` の一般の panic 指摘とは別に、「script から到達できる + ideal-over-pragmatic」の角度を Axis 3 が持つ)
+- **page content (script / markup / CSS / network の応答) から作れる条件での release abort (PM 584 (5) / PM 976)** → **Axis 3 専属** (`/code-review` の一般の panic 指摘とは別に、「page content から到達できる + ideal-over-pragmatic」の角度を Axis 3 が持つ)
 - **docstring-stated 契約 ↔ body 違反** (promise-returning native の `Result` swallow 等) → **Axis 3 専属** (generic "wrong value on error" は /code-review、「自 file 契約違反 + ideal-over-pragmatic」design 角度が Axis 3 領分)
 
 ---
@@ -152,7 +152,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 
 - `[both]` `// stub:` / `// minimal v1` / `// for now` / `// quick fix` / `// temporary` / `// placeholder` 等 marker (diff: code、plan: 文中 phrase)
 - `[diff]` `unimplemented!()` / `todo!()` macro 追加 (existing 除外)
-- `[both]` script から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に script から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は memo か PR にある command で、示した内部不変条件は assert 可。既定の severity は IMP。満たさない経路が出たら PM が調停する (PM 584 (5) / PM 973)
+- `[both]` page content (script / markup / CSS / network の応答。PM 976 が PM 584 (5) の「script」を広げた) から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に page content から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は、assert のそばの comment に書いた command (gate が読む diff の中。plan では memo)。示した内部不変条件は assert 可。既定の severity は IMP で、到達が test か repro で実証された abort は CRIT。満たさない経路は driver が PM に調停を上げ、PM が裁くまで既定の IMP のまま (PM 584 (5) / PM 973 / PM 976)
 - `[both]` `TODO` / `FIXME` 追加で defer slot 番号 (`#11-*`) の citation 無し
 - `[both]` "later" / "future PR" / "M4-13" 等の deferral 言及で defer slot 引用無し
 - `[both]` Shim / fallback / backwards-compat wrapper 追加
@@ -162,7 +162,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 - `[plan]` plan §scope / §body に "no-op" / "stub" / "session 短縮" / "minimal v1" / "for now" / "scope cut" 等
 - `[plan]` plan が「test 簡略化のため scope 削る」/「失敗 test drop」/「IDL gap workaround 経由 test」 — broken assumption の root fix が plan 内 OR 別 PR slot で明示されているか確認
 - `[plan]` plan が既存 TODO を引き取らない (該当 area で `grep TODO` 痕跡があるのに plan 内 close 予定無し)
-- `[plan]` plan §Defer の新規 slot に `Why deferred` + `Re-evaluation trigger` + `**Re-eval-date**: YYYY-MM-DD` (`/drive` §7、PM 489) の 3 要素が揃っていない (1 つでも欠落で MIN)
+- `[plan]` plan §Defer の新規 slot に why deferred・trigger・再評価日の 3 要素が揃っていない (1 つでも欠落で MIN)。列は `.claude/tools/plan_memo_tables.py` の slot 表の schema、日付の書式は `/drive` §7
 - `[both]` **edge-dense work** (≥3 intersecting invariant axes を束ねる / 正準アルゴリズムが無い subsystem を触る) を **単一 PR** に束ねている → **IMP** (CLAUDE.md "Edge-dense work = multi-PR program" rule、judgment でなく rule、#339 incident 由来)。`[plan]`: plan が umbrella plan + per-PR plan 分割を宣言していない (Required action = 分割し plan-review をかけ直す)。`[diff]`: PR diff が edge-dense なのに分割 (umbrella program の per-PR slice) の痕跡が無い — **#339 の失敗 mode が「plan-review skip」ゆえ diff gate が最後の砦** (plan gate を skip した bundled PR が final design gate を素通りするのを止める。Required action = umbrella + stacked per-PR に再構成、不可なら retro plan-review + lesson 記録)。**Base case 除外 (両 context で fire しない)**: 承認済 umbrella program の per-PR slice であることが明示され scope が単一 invariant-axis 交点に絞られている場合 (terminal 単位 = 許容される単一 PR)
 - `[plan]` **edge-dense plan-memo の §2 coupled-invariant enumeration 欠落** (`feedback_coupled-invariant-design-corner.md`、D-19): plan が edge-dense (= MANDATORY trigger (a) ≥3 intersecting invariant axes **OR** (b) canonical algorithm の無い subsystem を触る — 直上 entry / plan-review SKILL.md "When to invoke" で判定済、**両 trigger 対象**) なのに §2 が「設計が同時に満たす invariant + 各 pair の交点」を bullet/matrix で列挙せず prose 一筆書き ("既存 seam 再利用") のまま → **IMP** (reviewer-surfaced authoring finding = fix-or-justify; MIN だと deferable で見送られるため IMP。これは hard block ではない — true blocking には preflight §2-parser が要るが未実装 [deferred ideal]。本 detect が現状の enforcement path)。authoring 要件の home + 詳細は `elidex-plan-review/SKILL.md` Pre-condition #3 (single home); 本 entry はその **detect pointer** (= enforcement path、agent が axes.md を読むので surface される)。直上 entry が edge-dense の *split* 判定を所有するのに対し本 entry は同 axis 内の *enumeration* facet (ownership split なし、second edge-dense detector ではない)
 - `[diff]` **docstring-contract ↔ body 違反** — `Result`-返す host native (特に promise-returning `*_outcome` family) の body が backend/IO `Result` を `unwrap_or(_)` / `unwrap_or_default()` / `.ok().flatten()` で握り潰すが、file/fn docstring か同 file の sibling op (`open`/`put` 等) が「failure → reject/propagate」契約を明示 → silent-wrong-on-error + self-inconsistency。**Required action**: 契約通り `?`-propagate + `map_err`。(#275 R1 = cache read 8 op; bar = generalizable[promise-returning native family 横断] かつ grep-detectable[`*_outcome` 終端の `Result` swallow] ゆえ axis 化)
@@ -172,6 +172,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 ```
 [CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <marker>: "<excerpt>"
   Required action: (a) 該当 spec gap に defer slot 立てて引用 OR (b) 本 PR / plan 内で proper 実装 OR (c) inline TODO 削除 + accept-as-is justify
+  (release abort の finding は上と別: (a) error の経路に直す OR (b) 到達不能を comment の command で示す OR (c) PM の調停)
 ```
 
 ---

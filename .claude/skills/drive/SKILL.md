@@ -153,7 +153,7 @@ merge の後、PM に 1 通で送る:
   `feedback_mise-probes-isolate-state-dir.md` (PM 151 / 230) / `feedback_cap-delegate-experiment-parallelism.md` /
   `feedback_kill-by-pid-not-pattern.md` / `feedback_disk-budget-for-measurement-clones.md`。
 - **disk の下限**: PM が新しい測定 batch を止めたら (`/pm` §2 行 3) 新しい batch を始めない。
-- **local の `mise run` は machine 全体で同時に 1 本**: `mise run` (`ci` も単独の task も) の前に `pgrep -fl '^/opt/homebrew/bin/mise run '` を打つ。何かが走っていれば空くまで待ち、他の session の run を kill しない (PM 912 / 968)。
+- **local の `mise run` は machine 全体で同時に 1 本** (暫定: CI/tools の機構が着地するまで、PM 968): `mise run` (`ci` も単独の task も) の前に `pgrep -fl '(^|/)mise run '` を打つ。何かが走っていれば空くまで待ち、他の session の run を kill しない (PM 912 / 968)。30 分待っても空かなければ PM に伝える。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 
