@@ -199,11 +199,8 @@ fn hkdf_derivebits_primitive_hash_converts_at_step6_before_siblings() {
 
 #[test]
 fn kdf_import_reads_name_twice_step5_and_step6() {
-    // Codex R4 F5 / §18.4.4: even a name-only algorithm (HKDF importKey) is
-    // converted to its `Algorithm` desiredType at step 6, which re-reads the
-    // inherited required `name` member. So the `name` getter fires twice
-    // (step-5 recognition + step-6 conversion) — a getter that throws / changes
-    // on the second read is therefore observed.
+    // Web Crypto §18.4.4 converts the object to Algorithm at step 2 and to
+    // the selected dictionary at step 6. Both conversions read `name`.
     let src = "globalThis.n = 0; globalThis.r = 'pending'; \
          const alg = { get name(){ globalThis.n++; return 'HKDF'; } }; \
          crypto.subtle.importKey('raw', new Uint8Array([1,2,3]), alg, false, ['deriveBits']) \
