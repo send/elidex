@@ -1038,16 +1038,13 @@ pub enum ObjectKind {
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]
     DataTransferItemList { parent_dt_id: ObjectId },
-    /// `Touch` instance (Touch Events §5).  Payload-free; the
-    /// 12 IDL members (identifier / target / coordinates / radii /
+    /// `Touch` instance (Touch Events §3).  Payload-free; the
+    /// 12 implemented attributes (identifier / target / coordinates / radii /
     /// rotation / force) live in
     /// `super::VmInner::touch_states` keyed by this object's
     /// `ObjectId`.
     ///
-    /// `new Touch(init)` is exposed per Touch Events §5.5 since
-    /// 2014.  UA-fired touch events are deferred to slot
-    /// `#11-event-dispatch-extra` (UA fire path still routes
-    /// `EventPayload::Mouse`).
+    /// Touch Events §3 defines `new Touch(init)`.
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId` (any EventTarget — Element / Document / Window /
@@ -1055,12 +1052,10 @@ pub enum ObjectKind {
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     Touch,
-    /// `TouchList` instance (Touch Events §5.6).  Indexed platform
-    /// object backing TouchEvent.touches / targetTouches /
-    /// changedTouches.  Payload-free; the ordered list of
-    /// [`Self::Touch`] `ObjectId`s lives in
-    /// `super::VmInner::touch_list_states`.  No constructor (per
-    /// IDL); allocated by the TouchEvent ctor and by UA dispatch.
+    /// `TouchList` instance (Touch Events §4). The TouchEvent constructor allocates
+    /// these lists for touches, targetTouches and changedTouches.
+    /// `length` and `item()` read the ordered Touch IDs from
+    /// `super::VmInner::touch_list_states`. Bracket access is unimplemented.
     ///
     /// GC contract: trace marks every `Touch` ObjectId in the
     /// state entry's `items` Vec.  Sweep tail prunes entries
