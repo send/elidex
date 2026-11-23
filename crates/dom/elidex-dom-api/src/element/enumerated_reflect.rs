@@ -55,7 +55,7 @@ pub fn canonicalize_enumerated_attr(
 // Canonical-value tables (HTML §"reflect" enumerated-attribute set)
 // ---------------------------------------------------------------------------
 
-/// `referrerPolicy` IDL attribute (HTML §6.6.5 referrer policy).
+/// `referrerPolicy` IDL attribute (HTML §2.5.5 referrer policy).
 ///
 /// Missing default = `""` (empty), invalid default = `""` (empty).
 /// Used by HTMLAnchorElement / HTMLAreaElement / HTMLImageElement /
@@ -74,7 +74,7 @@ pub const REFERRER_POLICY_VALUES: &[&str] = &[
 pub const REFERRER_POLICY_MISSING_DEFAULT: &str = "";
 pub const REFERRER_POLICY_INVALID_DEFAULT: &str = "";
 
-/// `crossOrigin` IDL attribute (HTML §3.2.7.5 CORS settings).
+/// `crossOrigin` IDL attribute (HTML §2.5.4 CORS settings).
 ///
 /// IDL type `DOMString?` (nullable).  The prototype-side binding
 /// goes through `get_enumerated_reflect_nullable` (in
@@ -88,21 +88,21 @@ pub const CROSS_ORIGIN_VALUES: &[&str] = &["", "anonymous", "use-credentials"];
 pub const CROSS_ORIGIN_MISSING_DEFAULT: &str = "";
 pub const CROSS_ORIGIN_INVALID_DEFAULT: &str = "anonymous";
 
-/// `loading` IDL attribute (HTML §4.8.4 lazy loading).
+/// `loading` IDL attribute (HTML §2.5.7 lazy loading).
 ///
 /// Missing default = `"eager"`, invalid default = `"eager"`.
 pub const LOADING_VALUES: &[&str] = &["eager", "lazy"];
 pub const LOADING_MISSING_DEFAULT: &str = "eager";
 pub const LOADING_INVALID_DEFAULT: &str = "eager";
 
-/// `decoding` IDL attribute (HTML §4.8.4 image decoding hint).
+/// `decoding` IDL attribute (HTML §4.8.3 image decoding hint).
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const DECODING_VALUES: &[&str] = &["sync", "async", "auto"];
 pub const DECODING_MISSING_DEFAULT: &str = "auto";
 pub const DECODING_INVALID_DEFAULT: &str = "auto";
 
-/// `fetchpriority` IDL attribute (HTML §4.8.4 / Fetch Priority API).
+/// `fetchpriority` IDL attribute (HTML §2.5.9 fetch priority attributes).
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const FETCH_PRIORITY_VALUES: &[&str] = &["high", "low", "auto"];

@@ -75,7 +75,7 @@ impl VmInner {
             Some(area_set_shape),
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
-        // `referrerPolicy` enumerated (HTML §6.6.5).
+        // `referrerPolicy` enumerated (HTML §2.5.5).
         let sid = self.strings.intern("referrerPolicy");
         self.install_accessor_pair(
             proto_id,
