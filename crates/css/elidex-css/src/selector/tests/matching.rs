@@ -350,9 +350,7 @@ fn match_empty_with_whitespace_only_text() {
 
 #[test]
 fn match_empty_excludes_nbsp() {
-    // U+00A0 (NBSP) is NOT document white space (Selectors L4 §3.7), so an
-    // element containing only `&nbsp;` is NOT :empty (spec example
-    // `<div>&nbsp;</div>`).
+    // Selectors 4 §13.2 gives <div>&nbsp;</div> as an example that fails :empty.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     let nbsp = dom.create_text_ownerless_fixture("\u{00A0}");
@@ -712,7 +710,7 @@ fn checked_does_not_match_option_without_selected() {
 
 #[test]
 fn required_does_not_match_fieldset() {
-    // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :required.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let mut es = ElementState::default();
@@ -724,7 +722,7 @@ fn required_does_not_match_fieldset() {
 
 #[test]
 fn optional_does_not_match_fieldset() {
-    // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :optional.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -764,7 +762,7 @@ fn read_write_inherited_contenteditable() {
 
 #[test]
 fn valid_matches_output_element() {
-    // <output> is always valid per HTML §4.10.18.7.
+    // This test records the current output fallback in the selector matcher.
     let mut dom = EcsDom::new();
     let output = dom.create_element_ownerless_fixture("output", Attributes::default());
     let sel_valid = parse_sel(":valid").unwrap();
@@ -785,8 +783,7 @@ fn optional_does_not_match_button() {
 
 #[test]
 fn enabled_disabled_does_not_match_fieldset() {
-    // Per HTML §4.10.18.5: <fieldset> is NOT in the set of "actually disableable"
-    // elements. :enabled/:disabled do not match <fieldset>.
+    // The test records the matcher's current fieldset exclusion (HTML §4.16.3).
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -836,7 +833,7 @@ fn checked_matches_checkbox_input() {
 
 #[test]
 fn indeterminate_does_not_match_non_candidate() {
-    // :indeterminate only matches checkbox, radio, and progress per HTML §4.10.18.3.
+    // HTML §4.16.3 excludes button from :indeterminate.
     let mut dom = EcsDom::new();
     let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();
