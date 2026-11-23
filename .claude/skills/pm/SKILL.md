@@ -112,7 +112,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 - Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
 - Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある Claude の gate は直した後の head に回す。gate の規則は変えない。
-  下見や gate の指摘が PR に crate・利用者の群・不変条件の軸を足すものなら、lane はその場で直さず PM への範囲の問いにする (PM 959 (4))。これは全 lane に効く (PM 948 の下見は Codex driver の lane だけ)。
+  下見や gate の指摘の扱いのうち、範囲を広げるもの (PM 959 (4)) は全 lane に効き、`/drive` §5 が正 (PM 948 の下見は Codex driver の lane だけ)。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
@@ -257,7 +257,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
 - Codex driver の lane の helper gate と relay の Claude 側の token は、Claude の cap に数える (PM 912)。
-- Claude の budget で止まるのは Claude 側の単位 (helper の gate、plan-review、PM、pmo) だけ。本節の止まる規則 (lane は止まる・新しい作業は翌日を含む) は Claude 側の単位にだけ効き、Codex lane は gate の要らない作業を続ける (PM 945)。
+- Claude の budget で止まるのは Claude 側の単位 (Claude lane の driver、helper の gate、plan-review、PM、pmo) だけ。本節の止まる規則 (lane は止まる・新しい作業は翌日を含む) は Claude 側の単位にだけ効き、Codex lane だけが gate の要らない作業を続ける (PM 945)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
 

@@ -152,7 +152,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 
 - `[both]` `// stub:` / `// minimal v1` / `// for now` / `// quick fix` / `// temporary` / `// placeholder` 等 marker (diff: code、plan: 文中 phrase)
 - `[diff]` `unimplemented!()` / `todo!()` macro 追加 (existing 除外)
-- `[both]` page content (script / markup / CSS / network の応答。PM 976 が PM 584 (5) の「script」を広げた) から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に page content から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は、assert のそばの comment に書いた command (gate が読む diff の中。plan では memo)。示した内部不変条件は assert 可。既定の severity は IMP で、到達が test か repro で実証された abort は CRIT。満たさない経路は driver が PM に調停を上げ、PM が裁くまで既定の IMP のまま (PM 584 (5) / PM 973 / PM 976)
+- `[both]` page content (script / markup / CSS / network の応答。PM 976 が PM 584 (5) の「script」を広げた) から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に page content から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は、assert のそばの comment に書いた command (gate が読む diff の中。plan では memo)。示した内部不変条件は assert 可。既定の severity は IMP。ただし到達が test か repro で実証された abort は CRIT (こちらが優先)。それ以外で「到達不能」の証拠を満たさない経路は driver が PM に調停を上げ、PM が裁くまで IMP のまま (PM 584 (5) / PM 973 / PM 976)
 - `[both]` `TODO` / `FIXME` 追加で defer slot 番号 (`#11-*`) の citation 無し
 - `[both]` "later" / "future PR" / "M4-13" 等の deferral 言及で defer slot 引用無し
 - `[both]` Shim / fallback / backwards-compat wrapper 追加
