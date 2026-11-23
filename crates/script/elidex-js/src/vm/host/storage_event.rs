@@ -16,12 +16,15 @@
 //!
 //! ## Dispatch
 //!
-//! Which Windows receive a `storage` event (HTML §12.2.1, *broadcast a
-//! Storage object*) is documented once, at `enqueue_local_storage_change`
-//! in `vm/host/storage.rs`.
-//! That function queues localStorage changes for the shell. On receipt,
-//! the content process calls `dispatch_storage_event`. Mode-aware
-//! delivery and sessionStorage fan-out remain follow-up work.
+//! For localStorage changes, `enqueue_local_storage_change` queues a broadcast
+//! (HTML §12.2.1). The shell event loop drains the tab runtime's queue.
+//! The browser thread filters other tabs by their top-level origin in
+//! `drain_content_messages`. Each recipient content thread calls
+//! `dispatch_storage_event`. The spec selects individual storage objects.
+//!
+//! Mode-aware delivery is tracked in `#11-storage-event-mode-aware-delivery`,
+//! sessionStorage delivery in `#11-browsing-context-model-window-open-postmessage`,
+//! and the event's currently null `storageArea` in `#11-storage-extras`.
 
 #![cfg(feature = "engine")]
 

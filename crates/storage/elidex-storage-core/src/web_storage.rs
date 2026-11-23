@@ -1,4 +1,4 @@
-//! WHATWG HTML §12.2 Web Storage backend (`localStorage` + `sessionStorage`).
+//! Web Storage API backend (WHATWG HTML §12.2) (`localStorage` + `sessionStorage`).
 //!
 //! Engine-independent algorithm + persistence. JS bindings live in the
 //! engine crate (`elidex-js::vm::host::storage`), which delegates here so

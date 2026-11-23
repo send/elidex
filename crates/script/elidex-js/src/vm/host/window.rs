@@ -574,8 +574,7 @@ impl VmInner {
         self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
         // `localStorage` / `sessionStorage` accessor pair (WHATWG HTML
         // §12.2.3 localStorage getter / §12.2.2 sessionStorage getter).
-        // Both getters reuse the wrapper from `VmInner::alloc_or_cached_storage`
-        // for the current bind cycle.
+        // The getter caches are documented at `VmInner::storage_local_instance`.
         //
         // Seam-1a of the A1 Web-API core/compat gate: the Web Storage family's
         // Window-accessor surface, gated by the family-neutral `installs(level)`
@@ -761,9 +760,8 @@ pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool
     true
 }
 
-/// `window.localStorage` getter (WHATWG HTML §12.2.3) returns the same
-/// `Storage` wrapper across reads, allocated lazily on the first access via
-/// [`crate::vm::VmInner::alloc_or_cached_storage`].
+/// `window.localStorage` getter (WHATWG HTML §12.2.3). For the wrapper's
+/// cache lifetime, see `VmInner::storage_local_instance`.
 /// `compat-webapi`-gated (A2): the `Storage` glue is `Legacy`.
 #[cfg(feature = "compat-webapi")]
 fn native_window_get_local_storage(

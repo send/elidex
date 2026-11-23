@@ -386,11 +386,8 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // 66 + 1 = 67 — cached `localStorage` Storage
-                // instance for the current bind cycle. Stored as an
-                // intrinsic root rather than a wrapper-cache entry
-                // because it has no owner Entity to weak-anchor on;
-                // cleared on `Vm::unbind` to avoid cross-origin
-                // leakage.
+                // instance. It has no owner Entity to weak-anchor on.
+                // See `VmInner::storage_local_instance` for its lifetime.
                 #[cfg(feature = "engine")]
                 self.storage_local_instance,
                 #[cfg(not(feature = "engine"))]

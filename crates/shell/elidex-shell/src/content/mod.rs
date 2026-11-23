@@ -719,8 +719,8 @@ fn content_thread_main_url(
 /// Dispatch a `storage` event on window (WHATWG HTML §12.2.1).
 ///
 /// Fired when another tab changes `localStorage` for the same origin.
-/// Per spec this fires on `Window`; in our architecture window listeners
-/// are wired to the document entity, so targeting document is equivalent.
+/// The target is the runtime's Window entity, with the document entity
+/// as the fallback before the runtime binds.
 fn dispatch_storage_event(
     state: &mut ContentState,
     key: Option<String>,

@@ -24,11 +24,7 @@
 //! - `sessionStorage` (`is_local = false`) — per-VM, in-memory.  Routes
 //!   through `HostData::session_storage`.
 //!
-//! Identity is preserved via `VmInner::storage_local_instance` /
-//! `VmInner::storage_session_instance` so the Window getters return a
-//! single cached `ObjectId` across reads (`localStorage ===
-//! localStorage`).  Both fields are cleared on `Vm::unbind` to prevent
-//! cross-origin data leak through a retained reference after a rebind.
+//! See `VmInner::storage_local_instance` for the wrapper cache lifetime.
 //!
 //! ## Named-property exotic
 //!

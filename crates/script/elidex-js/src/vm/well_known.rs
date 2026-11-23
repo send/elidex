@@ -617,8 +617,8 @@ define_well_known_strings! {
     "Storage / StorageEvent (slot #11-storage-web)" {
         // Constructor / global identifier names (WHATWG HTML §12.2).
         // `localStorage` / `sessionStorage` are accessor properties
-        // installed on `Window.prototype`. The VM caches each wrapper per bind
-        // cycle to implement the document holders in HTML §12.2.2–12.2.3.
+        // installed on `Window.prototype`. See `VmInner::storage_local_instance`
+        // for the getter cache lifetime.
         local_storage_global => "localStorage",
         session_storage_global => "sessionStorage",
         storage_global => "Storage",

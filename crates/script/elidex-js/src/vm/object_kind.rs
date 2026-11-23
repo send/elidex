@@ -945,19 +945,13 @@ pub enum ObjectKind {
     /// `window.sessionStorage` (WHATWG HTML §12.2.2 and §12.2.3).
     ///
     /// Carries the area discriminator inline (`is_local: true` for
-    /// localStorage, `false` for sessionStorage). Identity is preserved
-    /// via `VmInner::storage_local_instance` /
-    /// `VmInner::storage_session_instance` — the Window getters return
-    /// the cached `ObjectId` so `localStorage === localStorage`. The
-    /// wrapper itself is stateless; every method reads through to
+    /// localStorage, `false` for sessionStorage). For the wrapper cache
+    /// lifetime, see `VmInner::storage_local_instance`. Methods use
     /// `HostData::web_storage` (origin-scoped JSON persistence) for
     /// `Local` and `HostData::session_storage` (per-VM in-memory
     /// `IndexMap`) for `Session`.
     ///
-    /// GC contract: payload-free in trace terms (`is_local: bool` is
-    /// not an `ObjectId`); the caches in `VmInner` are cleared on
-    /// `Vm::unbind` so a retained reference cannot leak the previous
-    /// origin's data after a rebind.
+    /// GC contract: the area discriminator contains no object references.
     ///
     /// A2: gated by `compat-webapi` (in addition to `engine`) — the whole
     /// Web Storage surface is `Legacy`, so an `App`-profile build that compiles

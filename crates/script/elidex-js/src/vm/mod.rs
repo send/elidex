@@ -656,16 +656,14 @@ pub(crate) struct VmInner {
     /// `register_storage_event_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) storage_event_prototype: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.localStorage`
-    /// (HTML §12.2.3, local storage holder). Reads in the same bind
-    /// cycle return the same `ObjectId`. Cleared on
-    /// `Vm::unbind` to avoid cross-origin data leaking through a
-    /// retained reference after a rebind to a different document.
+    /// Local storage wrapper cache for one bind cycle. The engine uses
+    /// `with_bound` to bind and unbind around each batch (such as event
+    /// dispatch). Unbind clears both storage wrapper caches, even when
+    /// the next batch uses the same document. HTML §§12.2.2–12.2.3
+    /// give each Document its own session and local storage holders.
     #[cfg(feature = "engine")]
     pub(crate) storage_local_instance: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.sessionStorage` —
-    /// mirror of [`Self::storage_local_instance`].  Cleared on
-    /// `Vm::unbind`.
+    /// Session storage counterpart of [`Self::storage_local_instance`].
     #[cfg(feature = "engine")]
     pub(crate) storage_session_instance: Option<ObjectId>,
     /// `Crypto.prototype` (WebCrypto §10).  Chains to

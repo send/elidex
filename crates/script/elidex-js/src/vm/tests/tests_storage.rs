@@ -6,7 +6,7 @@
 //! Phase C4: 5 MiB quota → `QuotaExceededError` DOMException.
 //! Phase C5: `new StorageEvent(...)` constructor + 5 RO IDL attrs.
 //! Phase C6: Window prototype `localStorage` / `sessionStorage`
-//!           accessors return the same wrapper across reads in one bind cycle.
+//!           accessor identity (see `VmInner::storage_local_instance`).
 
 // A2: the Web Storage glue is `compat-webapi`-gated, so these functional tests
 // (which assume `Storage`/`StorageEvent` installed) only apply when the family is
