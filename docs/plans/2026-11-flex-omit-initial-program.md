@@ -19,9 +19,11 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 3c.2 | G′a · Table | 3c.1 | Migrate border-spacing shorthand and both handler axes, inherited computed pair and separated-grid spacing. |
 | 3c.3 | G′a · Multicol | 3c.2 | Migrate columns and column-rule shorthands and their longhands, snapped computed and suppressed used rule widths, and width-to-count geometry. |
 | 4 | N · numeric semantics | 3c.3 | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
-| 5 | C1 · computed representation | N | One computed length-percentage payload for Dimension and FlexBasis, with ownership, equality and all mandatory reader changes including transform-origin. |
-| 6 | G′b · reference-dependent consumers | C1 | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
-| 7 | C2 · Flex used basis and generic animation | C1, G′b | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
+| 5a | C1a · CSSOM resolved values | N | Route DOM and geometry-dependent harness reads through one geometry-aware query on current types. |
+| 5b | C1b · layout reference inputs | C1a | On current types resolve sizes and edges at the parent phase and pass definite or explicitly unresolved results to block, grid, flex and replaced helpers. |
+| 5c | C1c · computed representation activation | C1b | Switch both field families, writers, all existing readers, typed equality and animation apply together. |
+| 6 | G′b · reference-dependent consumers | C1c | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
+| 7 | C2 · Flex used basis and generic animation | C1c, G′b | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
 | 8 | D · declaration block activation | T | Activate rule/inline read, mutate, reflect and cascade together. Shared Declaration, winner, pending and provenance payloads live in elidex-plugin. Keep a single conversion for existing string handlers. |
 | 9 | H · handler signature | D, N | Move all handlers/helpers to typed pairs together, compare typed initials and remove D’s string conversion. |
 | 10 | S · numeric serialization | H, C2, G′b | Format declared and resolved values from typed inputs, including sampled values; preserve media breakpoint semantics. |
@@ -182,6 +184,19 @@ PM 1020 assigns one closing child to each former G′a property obligation below
 
 L2 owns line existence and decoration, character transformation, list UA rules and counter order. The shared paths are tracked under #11-line-box-decorated-inline-content, #11-empty-line-box-inline-mbp, #11-dom-cr-is-not-segment-break and #11-list-counter-baking-ua-rule-and-hints. L1 owns preservation of source position, page events and geometry replay.
 
+PM 1025 subdivides the former C1 work. Each child receives independent plan review before implementation. C1a and C1b replace production call sites using existing types. C1c exposes mixed values only when every existing consumer can read them. The C1 portion of each source ID has the following closeout owner.
+
+| Source and IDs | Closing child | Evidence |
+|---|---|---|
+| Parser c2f27760 · F1/F2, F4/F6/F7, M16–M19; umbrella R2 df8f8336 · M14 | C1c | Collect C1a public-query and C1b layout-reference evidence. Complete the Dimension/FlexBasis inventory, writer/reader migration, tests and gates at activation. C2 retains its used sizing and interpolation work. |
+| C1 binding ab6ac295 · F1, F6 (FP) | C1a | Geometry-aware CSSOM query, computed fallback and the Transforms §4 applicability rule. |
+| C1 binding ab6ac295 · F4 | C1b | Parent resolves edges and sizes once per probe/layout/replay. Cover zero vs absent bases, crossed padding axes and replaced aspect ratio without changing ECS style. |
+| C1 binding ab6ac295 · F3 | C1a | Establish serial landing order. C1c verifies existing Flex dispatch for explicit basis and auto main size at activation. |
+| C1 binding ab6ac295 · F2, F5 | C1c | One typed computed-property projection through old/new comparison, underlying values and actual apply; CSS value view at serialization. Test scale(2) on handler-produced mixed origins in paint and hit testing. |
+| C1 advisory · IMP-4 | C1a | Close partial CSSOM result coverage through production DOM and harness. |
+| C1 advisory · IMP-6 | C1b | Close partial layout reference routing and replay. C1c reruns the same cases with mixed fields. |
+| C1 advisory · IMP-1/2/3/5/7, MIN-1–4 | C1c | Close partial IMP-1 through the actual projection/apply round trip; retain transform, table exception, equality, Flex route, WPT, placement, suites and gate evidence. |
+
 Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
 
 **Proposed slot `#11-css-length-resolution-contexts`.** **Owner**: L1. **Re-eval-date**: 2026-12-15. `crates/core/elidex-plugin/src/traits.rs` (`ResolveContext`) lacks the font metrics, line heights, writing mode and differentiated viewport sizes required by CSS Values §6.1. Today the lenient css_resolve::parse_length_unit path maps unknown units to px, so a dimension requiring a missing context can silently resolve as pixels. G will make such direct declarations invalid until the corresponding context exists. Each missing context introduces a separate invariant governing which value is available and when it updates. PM 975 defers those axes to this slot for PM registration when the umbrella lands.
@@ -206,7 +221,8 @@ The original local review inputs remain available at 9853348d (Flex), c2f27760 (
 | G′a baseline (superseded by the three child plans) | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
 | G′b | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
 | N | `flex-numeric/docs/plans/2026-11-css-numeric-evaluation.md` |
-| C1 | `flex-computed/docs/plans/2026-11-computed-length-percentage.md` |
+| C1a | `cssom-resolved-geometry/docs/plans/2026-11-cssom-resolved-geometry.md` |
+| C1 baseline (superseded) | `flex-computed/docs/plans/2026-11-computed-length-percentage.md` |
 | C2 | `flex-used/docs/plans/2026-11-flex-used-basis.md` |
 | D | `flex-declarations/docs/plans/2026-11-typed-declaration-block.md` |
 | H | `flex-typed-handler/docs/plans/2026-11-typed-shorthand-handlers.md` |
