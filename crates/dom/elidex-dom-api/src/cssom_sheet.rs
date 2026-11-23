@@ -1,5 +1,5 @@
 //! `CSSStyleSheet` / `CSSStyleRule` / `CSSRuleList` / `StyleSheetList` DOM API
-//! handlers (CSSOM §6.2 / §6.4 / §6.6 / §6.8).
+//! handlers (CSSOM §§6.1.2, 6.4.3, 6.4.1 and 6.2.2, respectively).
 //!
 //! ## Storage model
 //!
@@ -156,7 +156,7 @@ pub(crate) fn sync_and_get_state<'a>(
 ///   same primitive but *delivers* the records.
 /// - `<link rel="stylesheet">`: the void element has no text node, so the
 ///   serialised CSS is written into the `LinkStylesheet` component and its
-///   monotonic `version` is bumped (CSSOM §6.4 / §6.5 round-trip).
+///   monotonic `version` is bumped so readers see the updated sheet.
 pub(crate) fn flush_sheet_mutation(
     sheet_entity: Entity,
     session: &mut SessionCore,
@@ -367,7 +367,7 @@ impl DomApiHandler for CssRulesItemId {
     }
 }
 
-/// `CSSStyleSheet.insertRule(rule, index)` (CSSOM §6.4) — parse the rule
+/// `CSSStyleSheet.insertRule(rule, index)` (CSSOM §6.1.2) — parse the rule
 /// text, assign the next stable `rule_id`, splice into the rule list, then
 /// re-serialise.  Returns the new rule's index.  Per spec:
 /// - omitted `index` defaults to `0`
@@ -429,7 +429,7 @@ impl DomApiHandler for InsertRule {
     }
 }
 
-/// `CSSStyleSheet.deleteRule(index)` (CSSOM §6.5).  Per spec:
+/// `CSSStyleSheet.deleteRule(index)` (CSSOM §6.1.2). Per spec:
 /// - `index >= rules.length` throws `IndexSizeError`
 pub struct DeleteRule;
 
@@ -765,7 +765,7 @@ impl DomApiHandler for RuleStyleCssText {
 /// Collect all stylesheet-owning element entities (`<style>` and loaded
 /// `<link rel="stylesheet">`) in document (tree) order. Backs the
 /// host-side `document.styleSheets` indexed-property exotic and `item`
-/// (CSSOM §6.8 — the sheets are returned in tree order).
+/// (CSSOM §6.2 orders document-associated sheets in tree order after HTTP Link sheets).
 #[must_use]
 pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> {
     let mut out = Vec::new();
@@ -786,13 +786,13 @@ pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
 /// `true` if `entity` is a `<link>` with an associated CSS style sheet —
 /// non-null only after a successful load (CSSOM §6.3), i.e. a
 /// `LinkStylesheet` component is attached. Backs the host `link.sheet`
-/// getter (CSSOM §6.2 `LinkStyle.sheet`).
+/// getter (CSSOM §6.3.2 `LinkStyle.sheet`).
 #[must_use]
 pub fn link_has_loaded_sheet(entity: Entity, dom: &EcsDom) -> bool {
     dom.world().get::<&LinkStylesheet>(entity).is_ok()
 }
 
-/// Resolved absolute URL of a `<link>`-loaded sheet (CSSOM §6.2
+/// Resolved absolute URL of a `<link>`-loaded sheet (CSSOM §6.1.1
 /// `StyleSheet.href`); `None` for a `<style>` sheet (no href). Backs the
 /// host `sheet.href` getter.
 #[must_use]
@@ -814,8 +814,8 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     let is_style = dom.with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
     });
-    // CSSOM §6.8: `document.styleSheets` enumerates every element with an
-    // associated CSS style sheet, in tree order. A `<link rel="stylesheet">`
+    // CSSOM §§6.2 and 6.2.3 include document-associated sheets in tree order.
+    // A `<link rel="stylesheet">`
     // gains one once its resource loads (CSSOM §6.3) — signalled by the
     // `LinkStylesheet` component attached by the resource loader. The
     // component lookup short-circuits behind the tag match — a `<style>`

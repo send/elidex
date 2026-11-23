@@ -391,10 +391,9 @@ impl VmInner {
                     return result;
                 }
             }
-            // CSSRuleList / StyleSheetList indexed-property exotics —
-            // CSSOM §6.3 / §6.8 require `list[i]` to behave like
-            // `list.item(i)` and never resolve through the prototype
-            // chain for canonical numeric indices.
+            // CSSOM §§6.4.1 and 6.2.2 define the supported list indices.
+            // Web IDL §3.9.1 invokes the indexed getter for a supported index.
+            // These handlers also intercept out-of-bounds array indices.
             #[cfg(feature = "engine")]
             if matches!(self.get_object(id).kind, ObjectKind::CSSRuleList { .. }) {
                 if let Some(result) =

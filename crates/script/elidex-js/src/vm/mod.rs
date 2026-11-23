@@ -588,7 +588,7 @@ pub(crate) struct VmInner {
     /// `selectorText` accessors and `style` accessor.
     #[cfg(feature = "engine")]
     pub(crate) css_style_rule_prototype: Option<ObjectId>,
-    /// `StyleSheetList.prototype` (CSSOM §6.8) — `length` accessor +
+    /// `StyleSheetList.prototype` (CSSOM §6.2.2) — `length` accessor +
     /// `item` method.
     #[cfg(feature = "engine")]
     pub(crate) style_sheet_list_prototype: Option<ObjectId>,
@@ -879,13 +879,12 @@ pub(crate) struct VmInner {
     /// `text` accessor (textContent alias).
     #[cfg(feature = "engine")]
     pub(crate) html_script_prototype: Option<ObjectId>,
-    /// `HTMLLinkElement.prototype` (HTML §4.6.7).  Carries
+    /// `HTMLLinkElement.prototype` (HTML §4.2.4).  Carries
     /// DOMString reflect (`href`, `media`, `hreflang`, `type`,
     /// `integrity`, `imageSrcset`, `imageSizes`, `as`), enumerated
     /// reflect (`crossOrigin`, `referrerPolicy`, `fetchpriority`),
     /// boolean reflect (`disabled`), the `relList` and `sizes`
-    /// DOMTokenLists, and a `sheet` stub (`null`, pending defer slot
-    /// `#11-link-stylesheet-loading`).
+    /// DOMTokenLists, and a `sheet` getter for the associated stylesheet.
     #[cfg(feature = "engine")]
     pub(crate) html_link_prototype: Option<ObjectId>,
     /// `HTMLCanvasElement.prototype` (HTML §4.12.5).  Carries
