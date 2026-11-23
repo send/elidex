@@ -111,7 +111,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 - Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
-- Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある Claude の gate は直した後の head に回す。gate の規則は変えない。
+- Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある Claude の gate は直した後の head に回す。gate の規則は変えない。下見や gate の指摘が PR に crate・利用者の群・不変条件の軸を足すものなら、lane はその場で直さず PM への範囲の問いにする (PM 959 (4))。PM 948 は Codex driver の lane に効く。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
@@ -170,7 +170,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   commit しない。lane は最終文言と前後の diff を PM に送り、PM の commit の上に自分の PR を積む。
 - global 変更 (`~/.claude/**`): 適用前に「global で全プロジェクトに効く」と明示 → `$PMD/backup/` に
   backup → diff を user に見せる → 適用 → dotfiles session に報告。skill を変えた後の検証は新しい agent で。
-  coder に global の file を書かせる brief は、別の path に書かせ → diff を見せ → 置き換える (その場で書き換えさせない、PM 527)。
+  `~/.claude/**` を書く主体 (PM・pmo・coder など、どの agent でも) は、別の path に書き → diff を見せ → 置き換える (その場で書き換えない、PM 527)。
   global の hook を変える brief は、参照元の検索に hook を使う repo 側も入れる (`git grep -n '<hook 名>'` を各 repo で、hook を読む parity test を拾うため、PM 530)。
 
 ### 3.5 委譲 — 誰が書くか
@@ -256,6 +256,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
 - Codex driver の lane の helper gate と relay の Claude 側の token は、Claude の cap に数える (PM 912)。
+- Claude の budget で止まるのは Claude 側の単位 (helper の gate、plan-review、PM、pmo) だけ。Codex lane は止めない (PM 945)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
 
@@ -331,7 +332,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
       定義にしない。ブラウザ名は `[evidence]` / `[contrast]` / `[history]` 等のタグ付きでだけ現れる
       (PM 421/424 [history] — PM が書いた slot が既存ブラウザ寄りの framing だった。PM 440 の
       `#11-implicit-submission-commits-change` は欠陥がブラウザの振る舞いでしか定義されていなかった)
-- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正 (PM 648 / 659・662)
+- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正
 - [ ] **lane が出した slot の文案**: PM が前提を確かめてから登録する。文案の前提を lane の報告のまま採らない
       (PM 583 — `#11-no-engine-eventtarget-stubs-nonconforming` は前提が偽だった。由来は PM が確かめずに登録したこと)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる

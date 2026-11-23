@@ -140,7 +140,7 @@ merge の後、PM に 1 通で送る:
 - 比例性の回数 (§5)
 - slot の文案は PM が前提を確かめてから登録する (`/pm` §8)。lane が出す文案の前提は claim であって確認済みではない
 - slot の文面 (BEGIN/END) に行番号を書かない。cite は「file + symbol」で書き、sha は台帳の出典欄にある merge commit の 1 つだけにする (squash merge の後に辿れない sha と、基準の混ざった行番号を生まないため) (PM 648)
-- slot の期限は台帳の `**Re-eval-date**: YYYY-MM-DD` 欄に書く (自由な書き方の日付を後から正規表現で読まない。overdue scan は欄があればそれだけを読む)。新規・更新する slot に必ず付け、既存の行は触る時に付ける (一括の付け替えはしない) (PM 489)
+- lane が書く slot の文案には `**Re-eval-date**: YYYY-MM-DD` を付ける (PM 489)。overdue scan の読み方は `$PMD/tools/overdue_scan.py` の docstring が正
 - 件数は計測の出力として、コマンド・head・件数の 3 つで書き、固定の数字で書かない。母集団は性質で定義し、件数は「その head での測定値」とする (PM 659/662)
 
 台帳・MEMORY Active state は書かない (PM が pmo に渡す)。自分の lane SSoT だけを更新する。
@@ -153,6 +153,7 @@ merge の後、PM に 1 通で送る:
   `feedback_mise-probes-isolate-state-dir.md` (PM 151 / 230) / `feedback_cap-delegate-experiment-parallelism.md` /
   `feedback_kill-by-pid-not-pattern.md` / `feedback_disk-budget-for-measurement-clones.md`。
 - **disk の下限**: PM が新しい測定 batch を止めたら (`/pm` §2 行 3) 新しい batch を始めない。
+- **local の `mise run` は machine 全体で同時に 1 本**: `mise run` (`ci` も単独の task も) の前に `pgrep -fl '^/opt/homebrew/bin/mise run '` を打つ。何かが走っていれば空くまで待ち、他の session の run を kill しない (PM 912 / 968)。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 
