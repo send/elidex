@@ -1,0 +1,290 @@
+# R-0d — the WebSocket protocol-list validator moves to `elidex-api-ws` (per-PR plan memo, native-construct umbrella §4.1)
+
+## §0. Frame
+
+**Umbrella**: the native-construct protocol (R) umbrella, `docs/plans/2026-11-vm-native-construct-contract.md`
+(ratified; on main since #643 `b46a030c`; its code anchors are at its base `4b723d4b`). This memo is the per-PR plan of
+its §4.1 **R-0d** bullet. §4.1's plan-review paragraph asks for "a short plan memo and `/elidex-plan-review`" because
+R-0d is "a cross-crate move with the dependency decision above and a SyntaxError surface that must not change". Lane:
+**L3** (PM 951; an earlier PM handoff said VM P4).
+
+**Settled by the umbrella, not re-opened here** (§4.1, §7's `vm/host/websocket.rs` row, §9.1 step 9, M-10, the §5.2
+row for `#11-http-token-predicate-unification`, Changelog Rev 1.2 F1, Rev 1.3 G1, Rev 1.4 PM 784 (2) / (3) / (6)):
+the protocol-list checks leave `vm/host/` for `crates/api/elidex-api-ws/src/websocket.rs` as one NEW function
+`&[String] -> Result<(), String>` beside `validate_ws_url`. `parse_protocols` keeps the marshalling and maps `Err` to
+SyntaxError the same way the constructor maps `validate_ws_url`'s `Err`. `is_valid_protocol_token_char` is deleted. The
+validator mints no token predicate: it calls `elidex_api_fetch::is_valid_header_name`, and `elidex-api-ws` gains a
+dependency on `elidex-api-fetch` (PM 784 (2); a predicate in `elidex-plugin` is rejected under Plugin-first). No new
+`host/` file. The host header copy (`vm/host/headers/validation.rs`) and `elidex-net`'s `validate_method` matcher belong
+to `#11-http-token-predicate-unification` (PM 786, owner VM P4), not to R-0d. Whichever lands second rebases.
+
+**Dates** (umbrella §9.1 step 9, PM 750; §4.1, PM 784 (3)): target **11-24**, hard edge **12-04**. A date that would
+pass 11-26 goes to the PM. Order condition "after R-0c, one at a time": met, since R-0c landed 11-21 (#654 `3cbd5b88`).
+
+**Base**: `origin/main` at **`c3c78070`** (#664, R-0b). Every `file:line` is at `c3c78070` unless it names another
+sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-ws/src`.
+
+### §0.1 Premises re-verified (at `c3c78070`)
+
+- `H/websocket.rs` is **1001** lines (`git show c3c78070:crates/script/elidex-js/src/vm/host/websocket.rs | wc -l`). It
+  is also unchanged in the moved ranges since `4b723d4b`: `git diff 4b723d4b c3c78070 -- <file>` shows three
+  comment-only hunks, at `:643`, `:785` and `:887`, all below the ranges.
+- The moved ranges are the same as the umbrella's (`grep -n` on their first and last lines). In `parse_protocols`
+  (`fn` at `:460`), the post-collect block runs from `// RFC 7230 §3.2.6 token-ABNF validation` (`:496`) through the
+  closing `}` of the duplicate loop (`:523`), 28 lines. `Ok(out)` (`:524`) stays. Then `is_valid_protocol_token_char`:
+  its docstring at `:527`, `fn` at `:536`, closing `}` at `:558`, and the blank line `:559`, 33 lines in all.
+  `parse_protocols`' docstring sentence at `:457-459`, the constructor docstring's item 4 (`:306-308`) and the module
+  doc's `:47` describe the moved checks. They are rewritten in place (§1).
+- `validate_ws_url` is `W/websocket.rs:80`, `pub fn validate_ws_url(url: &url::Url) -> Result<(), String>`,
+  re-exported by `W/lib.rs:10-13`. `W/websocket.rs` is 338 lines, and its `#[cfg(test)] mod tests` starts at `:175`.
+- `is_valid_header_name` is `crates/api/elidex-api-fetch/src/headers.rs:69`:
+  `#[must_use] pub fn is_valid_header_name(name: &str) -> bool`. It is public through
+  `crates/api/elidex-api-fetch/src/lib.rs:10-12` (`pub use headers::{is_valid_header_name, …}`).
+- `crates/api/elidex-api-fetch/Cargo.toml`'s `[dependencies]` is empty. So the new `elidex-api-ws` →
+  `elidex-api-fetch` edge closes no cycle. No crate depends on `elidex-api-fetch` today:
+  `git grep -n 'elidex-api-fetch\|elidex_api_fetch' c3c78070 -- . ':!Cargo.lock' ':!docs'` prints only the workspace
+  manifest (`Cargo.toml:32`, `:231`) and the crate's own `name =` line. Those hits are the positive control. R-0d makes
+  `elidex-api-ws` its first dependent.
+- `elidex-api-ws`'s dependents: `elidex-js` only (`crates/script/elidex-js/Cargo.toml:121`, optional, in the feature
+  list at `:49`), by `git grep -n 'elidex-api-ws\|elidex_api_ws' c3c78070 -- '*Cargo.toml'`.
+- The `token` spellings are as listed in M-10. `git grep -n -P 'fn is_valid_header_name|fn is_tchar|fn
+  is_valid_protocol_token_char|HTTP token:' c3c78070 -- crates` prints 5 lines in 4 files. A second search by property,
+  over the tchar alternation itself,
+  `git grep -n -P "b'\^' \| b'_'|b'!' \| b'#'|\[!#\\\$%&" c3c78070 -- crates`, finds the same three byte-matchers
+  (`headers.rs:73-74`, `transport.rs:300-304`, `headers/validation.rs:23`) and nothing else. The websocket predicate is
+  written as an exclusion list, so that second search does not match it. It is the known fourth spelling.
+
+### §0.2 Premise errors and drift
+
+- None in the umbrella's R-0d cites: every line above matches `4b723d4b`. One error is in the brief (a claim, not the
+  umbrella's): the docstring rule for NEW functions is umbrella §4.3's bullet, not "§4.6" (§6).
+- **Found while measuring; not R-0d's to fix** (§5, O-1). The constructor's SyntaxErrors are ECMAScript `SyntaxError`s,
+  not `DOMException`s. `VmError::syntax_error` builds `VmErrorKind::SyntaxError`, and `vm/ops.rs:185` turns that into
+  the ECMAScript `SyntaxError` constructor's object. Step 9 throws "a "SyntaxError" `DOMException`" (§2). The host's
+  other DOM paths already use `dom_exc_syntax_error` (`H/dom_bridge.rs:376-395`).
+- `is_valid_header_name`'s docstring (`headers.rs:63-66`) cites "Fetch spec §2.2.1" and "RFC 7230 §3.2.6". In webref,
+  §2.2.1 is Methods and the header name dfn is in §2.2.2 Headers (`webref dfn fetch 'header name'` →
+  `§2.2.2 Headers #header-name`). RFC 7230 is obsoleted by RFC 9110. R-0d rewrites those two docstring lines (§1).
+
+## §1. Scope
+
+**In**:
+- `W/websocket.rs`: a NEW `pub fn validate_ws_protocols(protocols: &[String]) -> Result<(), String>`, placed after
+  `validate_ws_url`, and its unit cells (§3). `W/lib.rs` re-exports it.
+- `crates/api/elidex-api-ws/Cargo.toml`: `elidex-api-fetch.workspace = true`. This gives one new line in `Cargo.lock`
+  (the `elidex-api-ws` entry's `dependencies`).
+- `H/websocket.rs`: `:496-523` is replaced by one call,
+  `elidex_api_ws::validate_ws_protocols(&out).map_err(|e| VmError::syntax_error(format!("Failed to construct 'WebSocket': {e}")))?;`.
+  This is the same form as the constructor's `:350` / `:352`. `:527-559` is deleted. The docstrings and comments that
+  describe the moved checks (`:47`, `:306-308`, `:457-459`) now name the validator and cite step 9 (§2). No other line
+  of the file changes.
+- `crates/api/elidex-api-fetch/src/headers.rs:63-66`: the docstring is corrected to Fetch §2.2.2 *header name* and
+  RFC 9110 §5.6.2 (§0.2). It is comment only, and R-0d's new docstring links to it.
+- `crates/script/elidex-js/src/vm/tests/tests_realtime.rs`: the end-to-end cells of §3. Its coverage list in the
+  module doc gains one item.
+
+**Out**: no change to what is accepted or rejected, to the error type, to the check order or to any message (§2). The
+ECMAScript-vs-`DOMException` type of the error (§0.2) is O-1's. The WebIDL union handling of the sequence arm
+(`parse_protocols`' Array fast path and the ToString fallback for other objects) is marshalling and is not touched.
+The host header copy and `validate_method` are untouched (§0). The stale `§9.3` / `§9.3.1` cites R-0d does not
+rewrite (`git grep -n -P '§9\.3' c3c78070 -- <H/websocket.rs> <W/websocket.rs>` → 24 lines) stay with the HTML
+section-renumber sweep (memory `project_html-section-renumber-sweep`, the WebSocket item). R-0d writes correct cites
+only on the lines it adds or rewrites, as #440 did. `tests_websocket.rs` (1442 lines) is not touched (§4).
+
+### §1.1 The validator
+
+The validator moves the body of `:496-523` unchanged in order, with the predicate swapped:
+
+```rust
+/// Validate the `protocols` list of the `new WebSocket(url, protocols)` constructor, WebSockets §3.1 constructor
+/// step 9 (`webref body websockets dom-websocket-websocket`): no value may occur more than once, and each value must
+/// be a non-empty HTTP `token`. That is what "the requirements for elements that comprise the value of
+/// `Sec-WebSocket-Protocol` fields" come to under The WebSocket Protocol [WSP]. The `token` test is
+/// [`elidex_api_fetch::is_valid_header_name`] (Fetch §2.2.2 *header name*: the field-name `token` production,
+/// RFC 9110 §5.6.2). Checks run per value in list order (empty, then token), then for duplicates over the whole list.
+/// The first failure is returned as the `SyntaxError` message without its "Failed to construct" prefix, which the
+/// caller adds.
+pub fn validate_ws_protocols(protocols: &[String]) -> Result<(), String>
+```
+
+The body has the same two loops: the per-value loop (`is_empty` → `"empty sub-protocol is not allowed"`, then
+`!is_valid_header_name(s)` → the token message), then the O(n²) duplicate loop with its comment. The empty check stays
+**before** the predicate, and it must: `is_valid_header_name("")` is false, so without the empty check an empty value
+would get the token message instead (mutant M1, §3).
+
+## §2. The SyntaxError surface (behaviour-neutral) and spec map
+
+Step 9, from `webref body websockets dom-websocket-websocket` (source line
+`# https://websockets.spec.whatwg.org/#dom-websocket-websocket`): "If any of the values in protocols occur more than
+once or otherwise fail to match the requirements for elements that comprise the value of `Sec-WebSocket-Protocol`
+fields as defined by The WebSocket protocol, then throw a "SyntaxError" DOMException. [WSP]". The step defines one
+condition and one exception. It fixes no check order and no message. The element requirement is RFC 6455 §4.1 (client
+requirements) item 10 (`1#token`), and `token` today is RFC 9110 §5.6.2. RFCs are outside webref, so those two numbers
+are carried from the umbrella §4.1 (Rev 1.5 MIN) and are not machine-checked here. Fetch §2.2.2 *header name*
+(`webref body fetch header-name`, source `# https://fetch.spec.whatwg.org/#header-name`) reads: "A header name is a
+byte sequence that matches the field-name token production."
+
+What R-0d preserves, observable from script, with the cells that pin each in §3:
+
+| Part | Today (`H/websocket.rs` at `c3c78070`) | After R-0d |
+|---|---|---|
+| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2) | the same constructor, at the `map_err` in `parse_protocols` |
+| Collect before validate | every value is coerced by ToString first (`:461-494`); a throwing `toString` wins over an invalid earlier value | unchanged (the call follows the collect) |
+| Order | per value in list order: empty, then token; then duplicates over the list | the same, inside the validator |
+| Messages | `Failed to construct 'WebSocket': ` + one of `empty sub-protocol is not allowed` / `sub-protocol '<s>' contains a character not allowed by RFC 7230 token ABNF` / `duplicate sub-protocol '<a>'` | byte-identical: the validator's `Err` is the suffix, and the host adds the prefix with the same `format!` as `:350` / `:352` |
+| Accepted set | per `char`, 0x21..=0x7E minus 17 delimiters | `is_valid_header_name`: equivalent on every input (§2.1) |
+
+The message keeps "RFC 7230", although RFC 7230 is obsolete. A message refresh would change what scripts see, so it
+is not done here (O-1 (a) carries it).
+
+### §2.1 Equivalence of the predicate (the core of the neutrality claim)
+
+The old test is `s.chars().all(is_valid_protocol_token_char)`, reached only for a non-empty `s`. The new test is
+`is_valid_header_name(s)`, reached only for a non-empty `s`, which is `!s.is_empty() && s.bytes().all(<77-byte
+matcher>)`. **Verdict: equal on every non-empty `&str`.** On `""` the two differ (old: vacuously true; new: false),
+and the empty check that runs first in both versions makes that input unreachable.
+
+- **By argument**: `all` over chars is a conjunction over the string's scalar values, and so is `all` over bytes,
+  grouped by the scalar each byte encodes. An ASCII scalar is one UTF-8 byte equal to its code point. A non-ASCII scalar
+  is encoded only with bytes ≥ 0x80. The old predicate rejects every non-ASCII scalar (`c as u32` > 0x7E), and the new
+  matcher rejects every byte ≥ 0x80. So equality on single scalars is enough.
+- **Measured, exhaustively**: both functions were copied verbatim from `c3c78070` (`sed -n 536,558p` of
+  `H/websocket.rs`, `sed -n 68,77p` of `headers.rs`) into a scratch program and run over all 1,112,064 scalar values,
+  each as a one-character string. Result: `scalars=1112064 accepted=77 diffs=0` (rustc 1.99.1, printed in the same
+  run). Control: a mutant old predicate that also rejects `'!'` gives `control_mutant_diffs=1`. Strings checked: `""`,
+  `"chat"`, `"a b"`, `"a,b"`, `"café"`, `"é"`, `"x😀y"`, `"a\u{7F}"`, `"\u{FFFD}"`. Every one agrees once the empty
+  check is applied. A JS lone surrogate reaches both as U+FFFD through `get_utf8`: it is the same `String` and is
+  rejected by both.
+- Bytes vs chars and the size of the accepted set: both accept exactly the 77 tchars (15 symbols, 10 digits, 52
+  letters). The old docstring's "the 16 separators" lists and matches 17 (DQUOTE plus `(),/:;<=>?@[\]{}`). That
+  docstring is deleted.
+
+No open question on equivalence.
+
+### §2.2 Spec coverage map
+
+| Spec section | Step | Branch | Touch | Full enum? | User-input flow |
+|---|---|---|---|---|---|
+| WebSockets §3.1 `new WebSocket(url, protocols)` | 9 | empty / non-token (each delimiter, SP, HTAB, controls, DEL, non-ASCII) / duplicate (adjacent, non-adjacent) / accept | `validate_ws_protocols` (NEW, `W/websocket.rs`); caller `parse_protocols` (`H/websocket.rs:460`) | ✓ (§3 U7: all 128 ASCII bytes) | yes (script supplies `protocols`) |
+
+**Breadth**: K=1, M=1. **User-input touch audit**: no new script-reachable site. The protocols reach the broker as
+before (`RendererToNetwork::WebSocketOpen`; `crates/net/elidex-net/src/ws/io_loop.rs:216` joins them into the header
+without re-validating). Re-validating at the broker boundary would be a separate security decision, which the new
+engine-independent home makes possible. That is noted in §5 and is not R-0d's.
+
+## §3. Tests and mutants
+
+**Existing VM cells** (`crates/script/elidex-js/src/vm/tests/tests_websocket.rs`, unchanged). They were found by
+reading the `ctor_*` block (`:226-302`). `git grep -n -i 'protocol' c3c78070 -- crates/script/elidex-js/src/vm/tests`
+gives 28 lines, all in this file, and the cells among them are:
+`ctor_accepts_single_string_protocol` (`:227`), `ctor_accepts_array_of_protocols` (`:235`),
+`ctor_rejects_empty_protocol` (`:243`), `ctor_rejects_protocol_with_separator` (`:257`),
+`ctor_rejects_protocol_with_space` (`:272`), `ctor_rejects_duplicate_protocols` (`:287`). They match the message
+with `contains` (`"Syntax"` plus `"empty"` / `"token"` / `"duplicate"`), so they do not pin the bytes. `elidex-api-ws`
+has no protocol cell today.
+
+**New unit cells** (`W/websocket.rs` `mod tests`; exact `Err` strings):
+
+| Cell | Input → expected |
+|---|---|
+| U1 accept | `[]`, `["chat"]`, `["chat", "superchat"]` → `Ok` |
+| U2 empty | `[""]` → `Err("empty sub-protocol is not allowed")` |
+| U3 delimiter | `["bad,protocol"]` and `["a b"]` → the token message naming the value |
+| U4 non-ASCII | `["café"]`, `["é"]` → the token message (the value is in the message byte-for-byte) |
+| U5 duplicate | `["chat", "chat"]` and `["a", "b", "a"]` → `Err("duplicate sub-protocol 'chat'")` / `'a'` |
+| U6 order | `["chat", "", "chat"]` → empty; `["a b", "a b"]` → token; `["a b", ""]` → token (the first value's token check comes before the second value's empty check) |
+| U7 ASCII table | every byte 0x00..=0x7F as a one-character value → `Ok` exactly for a literal 77-character tchar string written in the test (not derived from either predicate) |
+
+**New end-to-end cells** (`tests_realtime.rs`, 385 lines, using its `with_realtime_vm` with an `http:` page so `ws://`
+passes the mixed-content gate; no new harness copy). Each runs
+`try { new WebSocket('ws://example.com/s', P) } catch (e) { globalThis.r = e.name + '|' + e.message }` and checks `r`
+exactly with `assert_eval_string`. A cell checks `e.name`, not `instanceof SyntaxError`, so O-1's fix changes only the
+cells it should. V1 `P = ''` → `SyntaxError|Failed to construct 'WebSocket': empty sub-protocol is not allowed`. V2
+`P = 'bad,protocol'` → the token message. V3 `P = ['chat', 'chat']` → the duplicate message. V4
+`P = ['', {toString() { throw new TypeError('t') }}]` → `TypeError|t` (collect before validate).
+
+**Commits** (as R-0b §6): (1) V1–V4 alone, green on the pre-move code. The PR body records that commit's sha, the
+command `cargo test -p elidex-js --all-features -- vm::tests::tests_realtime`, and its `test result:` line. (2) The move,
+U1–U7, and the `headers.rs` docstring. The same command is green, recorded the same way, plus
+`cargo test -p elidex-api-ws`. The commit-(1) cells staying green is the measured neutrality evidence.
+
+**Mutants** (run locally on the final head only, at most 2 concurrent `cargo test` processes; record which cell goes red):
+
+| # | Mutant | Must turn red |
+|---|---|---|
+| M1 | drop the empty check (an empty value then gets the token message) | U2, V1, `ctor_rejects_empty_protocol` |
+| M2 | drop the duplicate loop | U5, V3, `ctor_rejects_duplicate_protocols` |
+| M3 | predicate → always true | U3, U4, U7, V2, `ctor_rejects_protocol_with_separator` / `_with_space` |
+| M4 | inner loop `&out[i..]` (an element compared with itself) | U1, `ctor_accepts_array_of_protocols` |
+| M5 | inner loop `&out[i + 2..]`, or adjacent pairs only (`windows(2)`) | U5 (adjacent), U5 (non-adjacent) respectively |
+| M6 | duplicate loop before the per-value loop | U6 |
+| M7 | host `map_err` drops or changes the prefix | V1–V3 |
+| M8 | host maps to `type_error` | V1–V3 (`e.name`) |
+| M9 | validation moved inside the collect loop | V4 |
+
+Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p elidex-js --all-features`,
+`mise run ci`, `/pre-push`.
+
+## §4. 1000-line verdicts (`wc -l` at `c3c78070`; after = estimate)
+
+| File | Now | After | Verdict |
+|---|---|---|---|
+| `H/websocket.rs` | 1001 | ≈944 (1001 − 28 − 33 + about 4 for the call; the docstring rewrites are in place) | R-0d is the seam (umbrella §7). It ends under 1000, so no host-side split follows. The PR re-measures it. |
+| `W/websocket.rs` | 338 | ≈440 | under 1000 |
+| `W/lib.rs` | 13 | 13–14 | — |
+| `crates/api/elidex-api-fetch/src/headers.rs` | 141 | 141 | — |
+| `vm/tests/tests_realtime.rs` | 385 | ≈450 | under 1000 |
+| `vm/tests/tests_websocket.rs` | 1442 | not touched | The new VM cells go to `tests_realtime.rs`, so this file is not touched and its touch-time split is not R-0d's. |
+
+## §5. Coupled sites and open questions
+
+- `#11-http-token-predicate-unification` (PM 786, owner VM P4). It shares no source file with R-0d. If that slot makes
+  the host or `elidex-net` call `is_valid_header_name`, both PRs touch `headers.rs`'s docstring region or `Cargo.lock`.
+  The later one rebases (umbrella §5.2).
+- R-NAT host chapter (umbrella §4.4, L3). It rewrites the constructor (`:329`) after R-0d and cites post-move anchors.
+  It also re-measures `H/websocket.rs` (umbrella §7).
+- Broker re-validation (§2.2 audit). This is an observation for the driver, not a question for R-0d.
+
+**O-1 (to the driver, then the PM): the constructor throws ECMAScript `SyntaxError` where step 9 says
+`DOMException`** (§0.2). The defect: `new WebSocket(u, '')` throws an object that is not a `DOMException`, so
+`e instanceof DOMException` and `e.code === 12` (legacy SyntaxError code) both fail. The population is by property, not
+a census of all 24 `syntax_error` hits under `H/`: the WebSocket constructor's `:343`, `:350`, `:352` and R-0d's one
+`map_err`; `close()`'s reason check (`:945`); and `H/event_source.rs:285`. The 24 hits come from
+`git grep -n 'syntax_error' c3c78070 -- <H>` and are not classified here. R-0d cannot take this fix: it is a behaviour
+change, and §4.1 makes R-0d behaviour-neutral. Options:
+- (a) A new slot (owner L3) that flips every WebSocket and EventSource SyntaxError path to `dom_exc_syntax_error` in
+  one PR and refreshes the "RFC 7230" message text at the same time. Its trigger: the R-NAT host chapter, which
+  rewrites this constructor anyway, or a small standalone PR. This is the recommended option.
+- (b) Add it to the R-NAT host chapter's required contents (umbrella §4.4). That needs an umbrella edit, which the
+  PM would order.
+- (c) Fold it into R-0d. Rejected: it breaks the behaviour-neutral rule.
+
+## §6. Acceptance
+
+- `git grep -n -w is_valid_protocol_token_char -- crates` returns no hit. At `c3c78070` the same command returns
+  `H/websocket.rs:458`, `:505` and `:536` (control).
+- `git grep -n -P 'is_empty\(\)|duplicate sub-protocol' -- crates/script/elidex-js/src/vm/host/websocket.rs` returns
+  no hit. Control at `c3c78070`: `:500` and `:518`, both inside the moved block, and no other line of the file.
+- Every NEW function has a docstring naming its algorithm. The rule is the docstring bullet in umbrella §4.3 (the
+  brief's "§4.6" is wrong: §4.6 is wire #5). `validate_ws_protocols` names WebSockets §3.1 constructor step 9 (§1.1).
+- §3's two runs are recorded in the PR body, and every §3 mutant turns its cells red.
+- `python3 .claude/tools/ecs_mission_ratchet.py` reports 0 new.
+
+## §7. Plan-review scope
+
+`/elidex-plan-review` on this memo (umbrella §4.1). In scope:
+- Layering: the algorithm moves out of `host/`, and the host keeps only marshalling and the error mapping.
+- The dependency edge, `elidex-api-ws` → `elidex-api-fetch`.
+- The equivalence argument and its measurement (§2.1).
+- Whether §3's cells and mutants pin every part of §2's table.
+- The cites.
+
+Out of scope, because the umbrella settled them (§0): where the validator lives, which predicate it calls, the
+rejected `elidex-plugin` home, and the other two `token` spellings. O-1 is a question about homing the defect, not a
+design choice inside R-0d.
+
+**Changelog.**
+
+| Rev | Change | Decision |
+|---|---|---|
+| 1 | 2026-11-23. First draft at `c3c78070`. | — |
