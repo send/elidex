@@ -9,7 +9,7 @@ E24 of its §7.5) owns applying it, by reference to this file. Every section and
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
 Since the move: PM 922 added the `git_segments()` iterator ("One derivation" below). [history] PM 930, PM 936 and
 PM 938 revised a pass-through decision layer this patch carried for the `:24` / `:30` hooks; PM 950 (user, option D)
-superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7-1.diff`).
+superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7-2.diff`).
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -55,14 +55,15 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 ```diff
 --- a/git-hook-bypass-guard.py
 +++ b/git-hook-bypass-guard.py
-@@ -6,13 +6,31 @@
+@@ -6,13 +6,32 @@
      `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
    - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
      `git commit -n` (-an / -nm のような束ね形も)
 +  - `git config` で core.hooksPath を書く形すべて: 旧形式 (`git config [--local|--worktree|--global|--system|
 +    -f <file>|--file[=]<file>] core.hooksPath <dir>`、option は位置引数の後ろでもよい)、`--add` / `--replace-all` /
 +    `--unset` / `--unset-all`、subcommand `set` / `unset`、section ごとの `--remove-section` / `--rename-section` /
-+    `remove-section` / `rename-section` (section `core`)、editor で開く `-e` / `--edit` / `edit` (どの key も書ける)。
++    `remove-section` / `rename-section` (section `core` を消す・`core` から/へ rename する)、
++    editor で開く `-e` / `--edit` / `edit` (どの key も書ける)。
 +    読む形 (`--get` 系、`-l` / `--list`、`get` / `list`、key だけの旧形式 `git config core.hooksPath`) は通す。
 +    `--file` の先が elidex の中なら、cwd が外でも deny
  対象は実効 cwd (hook JSON の cwd、先行する `cd`、`git -C <dir>`) が elidex の checkout / worktree の中にある時だけ。
@@ -89,7 +90,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -35,6 +53,15 @@
+@@ -35,6 +54,15 @@
  COMMIT_VALUE_SHORT = set("mFCctSu")
  COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
                       "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
@@ -105,7 +106,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def state_dir():
-@@ -95,9 +122,16 @@
+@@ -95,9 +123,16 @@
  
  
  def env_hooks_assign(tok):
@@ -124,12 +125,10 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def hookspath_key(s):
-@@ -138,6 +172,58 @@
-             if ch in COMMIT_VALUE_SHORT:
-                 break
+@@ -140,6 +175,60 @@
      return False
-+
-+
+ 
+ 
 +def config_hookspath_write(args, cwd):
 +    """`git config` の後ろの token -> (violation or None, `--file` の先 or None)。
 +    位置引数は option とその値を除いた全部 (git は option を位置引数の後ろにも置ける)。未知の option が値を取って
@@ -171,6 +170,8 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +    if sub in ("rename-section", "remove-section") or acts & {"--rename-section", "--remove-section"}:
 +        if names and names[0].lower() == "core":
 +            return "git config remove/rename-section core", target
++        if (sub == "rename-section" or "--rename-section" in acts) and len(names) > 1 and names[1].lower() == "core":
++            return "git config rename-section into core", target
 +        return None, target
 +    if not any(n.lower() == "core.hookspath" for n in names):
 +        return None, target
@@ -180,10 +181,12 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +    if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:
 +        return None, target  # `git config core.hooksPath` = 旧形式の読み
 +    return "git config core.hooksPath", target
- 
- 
++
++
  def check_git(args, cwd):
-@@ -173,6 +259,12 @@
+     """args: git の後ろの token。-> (violation or None, effective_cwd)"""
+     i, hits = 0, []
+@@ -173,6 +262,12 @@
              break
      sub = args[i] if i < len(args) else None
      rest = args[i + 1:] if sub else []
@@ -196,7 +199,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -186,14 +278,16 @@
+@@ -186,14 +281,16 @@
      return (hits[0] if hits else None), eff
  
  
@@ -218,7 +221,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
          if j >= len(seg):
-@@ -204,13 +298,10 @@
+@@ -204,13 +301,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
@@ -234,7 +237,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          elif prog in SHELLS or prog == "eval":
              inner = None
              if prog == "eval":
-@@ -218,9 +309,14 @@
+@@ -218,9 +312,14 @@
              elif "-c" in rest and rest.index("-c") + 1 < len(rest):
                  inner = rest[rest.index("-c") + 1]
              if inner:
@@ -257,38 +260,44 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as one class, `Segments`, that loads the
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
 the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950, re-run on the
-fix round's `hook-v7.diff` and on `hook-v7-1.diff`, PM 967: 20/20 and the live 12/12) against a scratch copy of the
-live file patched with `hook-v7-1.diff` (the block above)
-and `test-v6.diff`, both in
-`/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20 tests OK; the same
-tests against the unpatched file: 40 failures and 5 errors (subtests counted); the live file's own 12 tests against
-the patched file: OK. The two diffs, applied with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`),
+fix round's `hook-v7.diff` and on `hook-v7-1.diff`, PM 967: 20/20 and the live 12/12; re-run on `hook-v7-2.diff`, the
+rename into `core` of Codex #677 P2) against a scratch copy of the live file patched with `hook-v7-2.diff` (the block above)
+and `test-v7-2.diff`, both in
+`/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20/20 tests OK; the same
+tests against the unpatched file: 42 failures and 5 errors (subtests counted); against `hook-v7-1.diff`: 3 failures,
+the three rename-into-`core` cases; the live file's own 12 tests against the patched file: 12/12 OK. The two diffs,
+applied with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`),
 reproduce the patched files byte for byte. The blind-spot probe of `scan()` (the "`scan()`'s deny is not widened"
-paragraph above) on the same patched copy: 21 commands, one per listed shape, each of which would run
+paragraph above), run on the `hook-v7-1.diff` copy (`hook-v7-2.diff` changes only `config_hookspath_write`, which
+none of these commands reaches): 21 commands, one per listed shape, each of which would run
 `git commit --no-verify -m x` in an elidex worktree; 20 are not denied, and the one denied is
 `pushd <outside>; popd; git commit --no-verify -m x` with the hook's cwd in elidex (`pushd` / `popd` are both ignored,
 so the hook's cwd stands, which is where `popd` returns); the two plain controls (the commit with the cwd in elidex,
 and `cd <elidex> && …` from outside) are denied. Each positive config form was measured to reroute, or to write, the key
-(§3.2):
+(§3.2; the rename into `core` on 2026-11-23, git 2.56.1, `HOME` / `GIT_CONFIG_GLOBAL=/dev/null` /
+`GIT_CONFIG_NOSYSTEM=1` isolated: with `parking.hooksPath /alt` set, `--rename-section parking core`,
+`config rename-section parking Core` and `--file .git/config --rename-section parking core` move
+`--git-path hooks` to `/alt`, as does `--rename-section parking.sub core` from `parking.sub.hooksPath`;
+`--rename-section parking other` and `parking core.sub` — which makes `[core "sub"]` — do not):
 
 | kind | commands (cwd in scope unless stated) | expected |
 |---|---|---|
 | legacy write | `git config core.hooksPath /alt`; with `--local`, `--worktree`, `--global`, `--system`; `git config core.hooksPath /alt --worktree`; `--worktree core.HOOKSPATH`, `--worktree CORE.hookspath`; `--add --worktree`; `--replace-all`; `--type=path --worktree`, `--type path --worktree`; `--comment x`; `--worktree -- core.hooksPath /alt` | deny |
-| legacy unset / section | `--unset`, `--unset-all core.hooksPath`; `--remove-section core`; `--rename-section core zz` | deny |
-| subcommands | `config set --worktree`, `set --all`, `set --append`; `config unset`, `unset --all`; `remove-section core`; `rename-section Core zz` | deny |
-| file target | `--file .git/config.worktree`, `-f …`, `-f.git/…`, `--file=…`; from outside: `--file <elidex>/.git/config core.hooksPath /alt`, `-f <elidex>/.git/config --unset core.hooksPath` | deny |
+| legacy unset / section | `--unset`, `--unset-all core.hooksPath`; `--remove-section core`; `--rename-section core zz`; `--rename-section parking core` | deny |
+| subcommands | `config set --worktree`, `set --all`, `set --append`; `config unset`, `unset --all`; `remove-section core`; `rename-section Core zz`; `rename-section parking Core` | deny |
+| file target | `--file .git/config.worktree`, `-f …`, `-f.git/…`, `--file=…`; from outside: `--file <elidex>/.git/config core.hooksPath /alt`, `-f <elidex>/.git/config --unset core.hooksPath`, `--file <elidex>/.git/config --rename-section parking core` | deny |
 | editor | `git config --edit --worktree`, `-e`, `config edit` | deny (an editor can write any key) |
 | reach | `git -C <elidex> config --worktree …`; `cd <elidex> && git config --worktree …` from outside; `bash -c '…'`; `git status && git config …` | deny |
 | env | `GIT_CONFIG_PARAMETERS="'core.hooksPath'='/alt'" git commit -m x`; `env GIT_CONFIG_PARAMETERS="'core.hookspath=/alt'" git push origin HEAD`; `export GIT_CONFIG_PARAMETERS="'CORE.HOOKSPATH'='/alt'"; git commit -m x` | deny |
 | reads (negative) | `git config core.hooksPath`, `--get`, `--get-all`, `--show-origin --get`, `--worktree core.hooksPath`, `--get-regexp core.hooks`, `--list`, `-l --show-scope`, `config get`, `config get --all`, `config list` | allow |
-| other keys (negative) | `--worktree user.name a`; `config set core.editor vim`; `--unset user.email`; `--remove-section alias`; `--worktree core.hooks /alt`; `--worktree core.hooksPathX /alt`; `GIT_CONFIG_PARAMETERS="'user.name'='a'" git commit -m x` | allow |
+| other keys (negative) | `--worktree user.name a`; `config set core.editor vim`; `--unset user.email`; `--remove-section alias`; `--rename-section parking other`; `--rename-section parking core.sub`; `--worktree core.hooks /alt`; `--worktree core.hooksPathX /alt`; `GIT_CONFIG_PARAMETERS="'user.name'='a'" git commit -m x` | allow |
 | text, not a command (negative) | `git commit -m 'git config core.hooksPath /alt'`; `git log --grep 'git config --worktree core.hooksPath'` | allow |
 | out of scope (negative) | every `DENY` entry from `/private/tmp` (the existing loop); `git config --file /private/tmp/x core.hooksPath /alt` from `/private/tmp` | allow |
 | `git_segments` cwd | `cd /s/wt && git push origin HEAD` from `/s/repo`; `git -C sub push origin HEAD` from `/r`; `bash -c 'cd /x && git status'`; `sh -c 'git -C y status'`; `eval "cd /x && git status"`; the compound `cd /s/repo && git push origin HEAD:x; cd /s/wt && git push origin HEAD:y` from `/s/repo` | effective cwds `/s/wt`; `/r/sub`; `/x`; `/r/y`; `/x`; `/s/repo` then `/s/wt` |
 | `scan()` on the iterator | `git_segments` replaced in the loaded module by one that yields a sentinel violation in scope | `scan("true", <out of scope>)` returns the sentinel |
 
 **Mutants** (each a replacement in a temp copy of the patched file, asserted to occur exactly once, run through the
-file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on `hook-v7.diff`) all 12 were killed by the tests above. The
+file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on `hook-v7.diff`, then on `hook-v7-2.diff` / `test-v7-2.diff`) all 13 were killed by the tests above (13/13). The
 `scan()` row replaces a block, the others one line):
 
 | replaced | → | killed by |
@@ -303,13 +312,14 @@ file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on 
 | `CONFIG_READ_SUBCMDS = {"list", "get"}` | add `"set"` | the `set` rows |
 | `if sub == "config":` | another name | every config row |
 | `if names and names[0].lower() == "core":` | exact-case compare | `rename-section Core zz` |
+| `if (sub == "rename-section" or "--rename-section" in acts) and len(names) > 1 and names[1].lower() == "core":` | `if False:` (the destination is not checked) | `--rename-section parking core`, `rename-section parking Core`, the from-outside `--file … --rename-section parking core` |
 | `if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
 | `pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
 
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v7-1.diff`, the block above, and `test-v6.diff`) — the `git_segments()` refactor of
+the whole diff (`guardpatch/hook-v7-2.diff`, the block above, and `test-v7-2.diff`) — the `git_segments()` refactor of
 `scan()` (PM 922) included — and apply it only after; apply the diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
