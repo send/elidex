@@ -44,7 +44,7 @@ CS は comment だけの PR を自分で検証して merge する (merge の打�
 
 | 項目 | 内容 |
 |---|---|
-| merge 直前の checklist (1 PR 1 行、`handoff/codex-lanes/cs/` の log に残す) | head == 独立 gate が clean とした sha / `mergeStateStatus` CLEAN (`DIRTY` / `BEHIND` は main を merge で取り込み Stage 2 をやり直す、rebase・force-push しない) / current head の全 check が pass / Codex が 3 channel (review body、inline、issue comment) で current head を評価して findings 0 (silent 👍 は verdict でない) / 変更が comment 行だけ (markdown の cite 文は comment に数える。code・config・test の期待値は数えない。PM が PR ごとに承認した例外だけ別) / PR body に ratchet の行 |
+| merge 直前の checklist (1 PR 1 行、`handoff/codex-lanes/cs/` の log に残す) | gate file の head が merge する head の祖先で、その後の commit は disposition の fix か main の merge だけ (merge commit は `git show --remerge-diff` が空)、または gate で見た各 commit と `git patch-id --stable` が一致する cherry-pick だけ (`/pm` §4 と同じ形) / `mergeStateStatus` CLEAN (`DIRTY` / `BEHIND` は main を merge で取り込み Stage 2 をやり直す、rebase・force-push しない) / current head の全 check が pass / Codex が 3 channel (review body、inline、issue comment) で current head を評価して findings 0 (silent 👍 は verdict でない) / 変更が comment 行だけ (markdown の cite 文は comment に数える。code・config・test の期待値は数えない。PM が PR ごとに承認した例外だけ別) / PR body に ratchet の行 |
 | PM に上げる | check の失敗、Codex の findings、comment 以外の変更 |
 | push | gate が clean なら PM の push go を待たずに push する |
 | gate が MIN だけ | fix せず進め、MIN は CS の inventory に記録して同じ spec group の次の batch で直す |

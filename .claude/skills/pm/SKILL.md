@@ -229,7 +229,7 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
-- Codex driver の PR は、P1b の着地まで、同じ確認の後に PM が merge する (driver 側は `/drive` の `codex.md` の merge 行、PM 911 / 918)。
+- Codex driver の PR (PM 996 / 1003、打ち方は `/drive` の `codex.md` の merge 行): L1 (plan memo の PR) は、同じ確認の後の `merge at head <sha>` を受けて driver が `~/.codex/bin/pr-merge` で merge する。CS の comment-only PR は CS が `codex.md` §3 の checklist で自分で merge する。
 - PM が起こした PR も、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
@@ -256,7 +256,7 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
 - yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out (plan-review / review の 5 軸) も
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
-- Codex driver の lane の helper gate と relay の Claude 側の token は、Claude の cap に数える (PM 912)。
+- Codex driver の lane の独立 Codex session の gate (PM 994) は Codex 側の消費で、Claude の cap に数えない。relay の Claude 側の token は数える (PM 912)。
 - Claude の budget で止まるのは Claude 側の単位 (Claude lane の driver、helper の gate、plan-review、PM、pmo) だけ。本節の止まる規則 (lane は止まる・新しい作業は翌日を含む) は Claude 側の単位にだけ効き、Codex lane だけが gate の要らない作業を続ける (PM 945)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
