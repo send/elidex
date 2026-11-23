@@ -287,11 +287,11 @@ impl IntersectionObserverRegistry {
         // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
         // touch disjoint components, so they coexist).
         //
-        // A box-less target (`rect_fn` → None: display:none / pre-layout) is
-        // NOT skipped: per Intersection Observer §2.2 (observe) the first
-        // "update intersection observations" run must still deliver an initial
-        // entry (ratio 0 / isIntersecting false / zero rects), so we treat the
-        // missing box as a zero-area target and run the same crossing logic.
+        // Intersection Observer §3.2.2 initializes the previous threshold index
+        // to -1, so the first update queues an entry (§3.2.10 steps 13 and 18).
+        // This registry compares ratios. A target without a layout box has ratio 0,
+        // so its first update crosses a threshold only if the list includes 0.
+        // Its boundingClientRect and intersectionRect are zero and isIntersecting is false.
         for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
             let maybe_rect = rect_fn(&*dom, entity);
             for obs in &comp.0 {
@@ -366,12 +366,10 @@ impl IntersectionObserverRegistry {
     }
 }
 
-/// The raw ids of the intersection observers that currently have ≥1 active
-/// observation — Intersection Observer §3.3 "Lifetime" ("the observer is not
-/// observing any targets" ⇒ collectible) mechanised by the `[[ObservationTargets]]`
-/// slot (§3.1.3), here the per-entity `IntersectionObservedBy` components. Derived
-/// in one hecs archetype query, flat-mapping every observation's `observer` id
-/// into the set.
+/// Collect the ids of observers with active targets. Intersection Observer §3.3
+/// keeps an observer alive while it has scripting references or observed targets.
+/// This query covers the target condition using the per-entity registrations
+/// that represent `[[ObservationTargets]]` (§3.1.3).
 ///
 /// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): an
 /// `IntersectionObserver` wrapper stays rooted iff its id is in this set.
