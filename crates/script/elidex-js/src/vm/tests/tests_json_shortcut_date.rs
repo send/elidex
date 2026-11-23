@@ -111,12 +111,10 @@ fn worker_post_message_rejects_a_date_returned_by_an_accessor() {
     });
 }
 
-/// Codex R5: a user exception raised *during* serialization must still propagate
-/// unchanged (the documented contract on `serialize_message`) even when the payload
-/// also holds a Date. A pre-scan ran before any user code, so it answered
-/// `DataCloneError` and the user's `TypeError` never surfaced. In-walk, JSON's own
-/// order applies: the top-level `toJSON` — or an earlier enumerable getter — fires
-/// first, so the user's exception wins.
+/// This fixture checks the interim JSON encoder's traversal order. A throwing
+/// `toJSON` or earlier getter propagates before the Date guard is reached.
+/// HTML propagates a throwing ordinary-property getter but rejects a callable
+/// own method as data without invoking it.
 #[test]
 fn worker_post_message_propagates_a_user_throw_ahead_of_the_date_check() {
     with_main_vm(|vm| {

@@ -79,12 +79,12 @@ fn native_worker_get_state(
 }
 
 // ---------------------------------------------------------------------------
-// postMessage(message) — §3.1.4
+// postMessage(message)
 // ---------------------------------------------------------------------------
 
-/// `ServiceWorker.postMessage(message)` (SW §3.1.4): serialize the message
-/// (StructuredClone parity — circular refs throw `DataCloneError`) and stage a
-/// `PostMessage` request routed to this worker's scope.  Returns `undefined`.
+/// `ServiceWorker.postMessage` stages a message for this worker's scope. SW
+/// §3.1.5 step 4 serializes with transfer and rethrows exceptions. The shared
+/// JSON encoder rejects cycles that HTML structured serialization preserves.
 fn native_worker_post_message(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

@@ -336,10 +336,8 @@ impl VmInner {
 }
 
 /// `self.postMessage(data)` (WHATWG HTML §10.2.1.2): JSON-serialize `data` and
-/// enqueue it for the worker thread loop to forward to the parent. Throws
-/// `DataCloneError` when serialization fails (e.g. a circular reference) — the
-/// JSON shortcut deviation from full StructuredSerialize is tracked by the
-/// defer slot `#11-worker-structured-serialize`.
+/// enqueue it for the worker thread loop to forward to the parent. Error
+/// mapping is documented on `serialize_message` (#11-worker-structured-serialize).
 fn native_worker_post_message(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -358,12 +356,11 @@ fn native_worker_post_message(
 /// `JSON.stringify` would drop (function / symbol / `undefined`) is encoded as
 /// JSON `null` so it round-trips through the peer's `JSON.parse`.
 ///
-/// Error mapping (WHATWG HTML postMessage → StructuredSerialize): a user
-/// exception thrown *during* serialization — a throwing `toJSON` / property
-/// getter — is script-observable and must propagate unchanged (a
-/// [`VmErrorKind::ThrowValue`]). Only the JSON shortcut's own "cannot represent
-/// this value" failures (circular structure, `BigInt`, depth cap — none of them
-/// `ThrowValue`) map to `DataCloneError`, the closest structured-clone error.
+/// HTML's message-port post message steps use StructuredSerializeWithTransfer.
+/// The interim JSON encoder propagates user exceptions from getters and
+/// `toJSON` calls. HTML reads an ordinary object's enumerable string properties:
+/// a getter can throw, but a callable value is rejected without invoking it.
+/// Codec representation failures, including cycles, become `DataCloneError`.
 ///
 /// A `Date` is the one cloneable kind the shortcut mis-encodes *silently* rather
 /// than failing (`toJSON` → ISO String).
