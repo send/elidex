@@ -1,5 +1,5 @@
-//! Tests for `structuredClone(value, options?)` (WHATWG HTML §2.9
-//! StructuredSerialize + StructuredDeserialize, fused).
+//! Tests for the HTML §2.7.11 `structuredClone` binding and its fused
+//! no-transfer implementation in `vm::host::structured_clone`.
 //!
 //! Covers primitives, cycles, nested clones, RegExp `lastIndex`
 //! reset, Error subclass proto preservation, wrapper protos,
