@@ -423,10 +423,8 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
 
 /// A raw `<mf-value>` token before coercion to a feature's value type.
 enum RawMfValue {
-    /// A `<number>` token. `is_int` records whether the source was an integer
-    /// token (cssparser `Token::Number { int_value: Some(_) }`) — `color` is an
-    /// `<integer>` (MQ4 §6.1), so `8.0` (a `<number>` token) must be rejected
-    /// even though it has no fractional part.
+    /// A number token. `is_int` records whether its spelling matches the
+    /// literal integer grammar (CSS Values 4 §5.2).
     Number {
         value: f64,
         is_int: bool,
@@ -541,10 +539,8 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::Color => match raw {
-            // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so
-            // `8.0` (a `<number>` token, `is_int == false`) is invalid even with
-            // a zero fraction. Negative integers parse (`false in the negative
-            // range`) and must reach `compare`.
+            // MQ4 §6.1 takes an integer and accepts negative operands for
+            // comparison under §2.4.3.
             RawMfValue::Number {
                 value,
                 is_int: true,

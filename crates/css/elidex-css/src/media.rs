@@ -519,9 +519,8 @@ mod tests {
 
     #[test]
     fn color_requires_an_integer_token() {
-        // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so a
-        // decimal `<number>` token (`8.0`) is invalid even with a zero fraction →
-        // not all, while the integer `8` matches. (R3-4.)
+        // MQ4 §6.1 requires an integer. In CSS Values 4 §5.2, the decimal point
+        // in `8.0` excludes it from the literal integer grammar.
         let env = landscape(); // color_bits = 8
         assert!(matches("(color: 8)", &env));
         assert!(!matches("(color: 8.0)", &env));
