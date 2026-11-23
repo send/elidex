@@ -975,7 +975,7 @@ pub enum ObjectKind {
     /// Web Storage surface, dropped from the `App`-profile binary.
     #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     StorageEvent,
-    /// `ValidityState` wrapper (HTML §4.10.20.3).  Carries the
+    /// `ValidityState` wrapper (HTML §4.10.21.3).  Carries the
     /// owning form-control entity so brand-checked accessor natives
     /// can re-read [`elidex_form::FormControlState`] each time —
     /// no flag mirroring on the JS side.
