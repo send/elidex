@@ -52,8 +52,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/coerce.rs	//
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/dispatch.rs	// V8 / SpiderMonkey error text for
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/error.rs	/// matches Chrome's WebIDL surface.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/array_buffer.rs	/// V8-shaped error message and width stays in lockstep with the
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	// part, divergent from browser behaviour.
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /

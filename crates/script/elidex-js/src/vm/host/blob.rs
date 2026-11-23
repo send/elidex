@@ -11,10 +11,8 @@
 //!
 //! ## Scope
 //!
-//! - `new Blob(blobParts?, options?)` — parts = `Array<BufferSource
-//!   | Blob | USVString>`; options = `{type?: string, endings?:
-//!   "transparent" | "native"}`.  `endings` is accepted but not
-//!   acted upon (Phase 2 does not rewrite line endings).
+//! - `new Blob(blobParts?, options?)` accepts a sequence of BlobPart values
+//!   and an optional dictionary with `type` and `endings` members.
 //! - `.size` / `.type` IDL readonly attrs — authoritative internal
 //!   slot (PR5a2 R7.1 lesson: `delete blob.size` must not break
 //!   reads).
@@ -26,11 +24,8 @@
 //!
 //! ## Deferred
 //!
-//! - MIME type validation — Phase 2 accepts any ASCII string and
-//!   ASCII-lowercases it when stored in [`BlobData::type_sid`]
-//!   (matching Chromium / Firefox; the spec's full media-type
-//!   parse lands with a later tranche).  Non-ASCII rejects with
-//!   the empty type.
+//! - File API §3.1 step 3 accepts type characters from U+0020 through U+007E
+//!   and ASCII-lowercases the result. The VM also accepts ASCII control characters.
 //!
 //! ## File subclass integration (slot `#11-file-api`)
 //!
@@ -72,10 +67,8 @@ use super::array_buffer::relative_index;
 /// until the backing store is refactored to support shared
 /// sub-range references).
 ///
-/// `type_sid` holds the lowercased MIME type (or the empty
-/// `StringId` for `type === ""`).  The accessor returns it
-/// verbatim — WHATWG §3 treats a missing/invalid type as the
-/// empty string, which we represent with `well_known.empty`.
+/// `type_sid` holds the type returned by the accessor. An empty type uses
+/// `well_known.empty`. See [`parse_blob_options_type`] for constructor input.
 #[derive(Debug)]
 pub(crate) struct BlobData {
     pub(crate) type_sid: StringId,
@@ -273,7 +266,7 @@ pub(super) fn reject_promise_sync(vm: &mut VmInner, promise: ObjectId, reason: J
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new Blob(blobParts?, options?)` (File API §3.2).
+/// `new Blob(blobParts?, options?)` (File API §3.1).
 fn native_blob_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -286,10 +279,7 @@ fn native_blob_constructor(
     let parts_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    // Parse endings BEFORE bits coercion so the helper can apply
-    // per-part USVString line-ending normalisation as it walks.
-    // Blob ctor accepts the same `endings` option as File ctor per
-    // FileAPI §3.2.
+    // Read endings before collecting parts so string conversion can use it.
     let endings = parse_blob_options_endings(ctx, options_arg, "Blob")?;
     let bytes = match parts_arg {
         JsValue::Undefined => Arc::from(&[][..]),
@@ -307,26 +297,19 @@ fn native_blob_constructor(
     Ok(JsValue::Object(inst_id))
 }
 
-/// `endings` option per FileAPI §3.2 / §4.1 — controls per-part
-/// line-ending normalisation in USVString entries.  Blob and File
-/// ctors both accept this option.
+/// File API §3.1.1 defines the line-ending policy for string parts. The File
+/// constructor invokes the same processing algorithm in §4.1 step 1.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum EndingsKind {
     /// `endings: "transparent"` (default) — USVString entries are
     /// UTF-8 encoded verbatim, no line-ending transformation.
     Transparent,
-    /// `endings: "native"` — USVString entries have `\r\n` and lone
-    /// `\r` collapsed to `\n` per FileAPI §4.1 step 1 note (Web
-    /// platform default is `\n`, NOT the platform CRLF).  Only
-    /// USVString entries are normalised; BufferSource / Blob entries
-    /// remain byte-for-byte.
+    /// Convert string parts with [`normalize_line_endings_native`].
     Native,
 }
 
-/// Normalise line endings in a USVString to `\n` per the Web
-/// platform default (FileAPI §4.1 step 1 note).  Returns an owned
-/// `String` when transformation happens; callers feed the bytes into
-/// the accumulator afterwards.
+/// File API §3.1.1 selects CRLF on platforms that use it and LF elsewhere.
+/// The VM currently normalises CRLF, CR and LF to LF on every platform.
 fn normalize_line_endings_native(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -343,17 +326,9 @@ fn normalize_line_endings_native(s: &str) -> String {
     out
 }
 
-/// Convert a single `blobParts` element into bytes and append
-/// them to `out`.  Spec §3.2 step 2 maps each part per the
-/// `BlobPart = BufferSource or Blob or USVString` union:
-/// - `Blob` (or `File` per FileAPI §4 inheritance) instance → stored bytes
-/// - `ArrayBuffer` → stored bytes
-/// - everything else (including String and arbitrary JS values)
-///   → `ToString` then UTF-8 bytes.
-///
-/// `endings == Native` applies line-ending normalisation only to the
-/// USVString path (string-coerced primitives + the fallback ToString
-/// branch); BufferSource / Blob / File entries are byte-for-byte.
+/// Append one BlobPart per File API §3.1.1. Blob and File contribute their
+/// stored bytes, and buffer sources contribute the bytes in their range.
+/// String parts use UTF-8 after applying the requested line-ending policy.
 fn append_blob_part_bytes(
     ctx: &mut NativeContext<'_>,
     out: &mut Vec<u8>,
@@ -373,13 +348,8 @@ fn append_blob_part_bytes(
         }
         JsValue::Object(part_id) => match ctx.vm.get_object(part_id).kind {
             ObjectKind::ArrayBuffer => {
-                // WHATWG File API §3.2 BlobPart processing: an
-                // `ArrayBuffer` part contributes its backing bytes.
-                // A detached buffer must throw TypeError at the
-                // WebIDL BufferSource conversion boundary per
-                // ECMA-262 §25.1.3.4 — otherwise the Blob would
-                // silently absorb zero bytes from the detached
-                // part, divergent from browser behaviour.
+                // Web IDL’s buffer-source copy algorithm returns an empty byte sequence
+                // for a detached buffer (#dfn-get-buffer-source-copy). The VM throws here.
                 if super::array_buffer::is_detached_buffer(ctx.vm, part_id) {
                     return Err(VmError::type_error(
                         "Failed to construct 'Blob': a blobParts element is a detached ArrayBuffer",
@@ -395,9 +365,7 @@ fn append_blob_part_bytes(
                 let bytes = blob_bytes(ctx.vm, part_id);
                 out.extend_from_slice(&bytes);
             }
-            // TypedArray / DataView: WHATWG §3.2 BlobPart accepts
-            // any BufferSource.  Append only the view's byte
-            // range, not the full underlying buffer.
+            // Copy the bytes within the view’s offset and length.
             ObjectKind::TypedArray {
                 buffer_id,
                 byte_offset,
@@ -409,9 +377,7 @@ fn append_blob_part_bytes(
                 byte_offset,
                 byte_length,
             } => {
-                // Same detach-at-WebIDL-boundary check as the
-                // bare-`ArrayBuffer` arm above, applied to the
-                // view's `[[ViewedArrayBuffer]]`.
+                // Apply the same detached-buffer check to this view’s backing buffer.
                 if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
                     return Err(VmError::type_error(
                         "Failed to construct 'Blob': a blobParts element is a view onto a detached ArrayBuffer",
@@ -455,10 +421,7 @@ fn append_blob_part_bytes(
                 }
             }
             _ => {
-                // Fallback: stringify per WHATWG §3.2 step 2.3 (a
-                // non-BufferSource / non-Blob value becomes a
-                // USVString) — line-ending normalisation applies in
-                // Native mode, same as the String arm above.
+                // Web IDL §3.2.25 converts remaining BlobPart values to USVString.
                 let sid = super::super::coerce::to_string(ctx.vm, part)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
                 append_usv_bytes(out, &raw, endings);
@@ -518,9 +481,8 @@ pub(crate) fn collect_blob_parts_bytes_with_endings(
     Ok(Arc::from(out))
 }
 
-/// Parse the optional `options` dict's `endings` member into an
-/// [`EndingsKind`].  Default `"transparent"` per FileAPI §3.2 /
-/// §4.1.  Invalid values throw TypeError per WebIDL enum coercion.
+/// Read the `endings` dictionary member. File API §3.1.1 defaults it to
+/// `"transparent"`. Web IDL enum conversion rejects unrecognised values.
 pub(crate) fn parse_blob_options_endings(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
@@ -556,9 +518,7 @@ pub(crate) fn parse_blob_options_endings(
 }
 
 /// Parse the optional `options` dict's `type` member into a
-/// lowercased `StringId`.  FileAPI §3.1 Blob() constructor step 3
-/// lower-cases the provided type after its validity check (step 3.1);
-/// this code checks ASCII only (see below).
+/// lowercased `StringId`. See the module’s MIME type validation gap.
 pub(crate) fn parse_blob_options_type(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
@@ -573,10 +533,7 @@ pub(crate) fn parse_blob_options_type(
                 other => {
                     let sid = super::super::coerce::to_string(ctx.vm, other)?;
                     let raw = ctx.vm.strings.get_utf8(sid);
-                    // ASCII-only validation — if any non-ASCII byte,
-                    // fall back to empty.  FileAPI §3.1 Blob() constructor
-                    // step 3.1 is narrower (outside U+0020–U+007E → empty);
-                    // the deviation is the module doc's MIME type item.
+                    // Keep the stored type empty when the ASCII check fails.
                     let type_sid = if raw.bytes().all(|b| b.is_ascii()) {
                         let lower = raw.to_ascii_lowercase();
                         if lower == raw {
