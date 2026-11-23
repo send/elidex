@@ -189,10 +189,9 @@ fn clone_recursive(
     }
 }
 
-/// Allocate a primitive-wrapper clone and record `src → new_id` in
-/// `memo` so subsequent references to the same wrapper in the
-/// source graph resolve to the same cloned wrapper (spec §2.9
-/// StructuredSerialize memory-map identity).
+/// Memoize this wrapper so repeated source references share one clone.
+/// HTML §2.7.4 steps 2 and 27 reuse and record serialized objects; §2.7.7
+/// steps 2 and 24 do the same when rebuilding them.
 fn alloc_memoized_wrapper(
     vm: &mut VmInner,
     src: ObjectId,
@@ -717,12 +716,8 @@ fn alloc_wrapper(vm: &mut VmInner, kind: ObjectKind, proto: Option<ObjectId>) ->
 /// `transfer` list is present (HTML §2.7.3 StructuredSerializeInternal
 /// step 13.2.4 `CopyDataBlockBytes`).
 ///
-/// Memo-threaded: two TypedArray / DataView views over the same
-/// underlying ArrayBuffer must clone to two views over the SAME
-/// cloned ArrayBuffer (HTML §2.7.3 step 2: "If `memory[value]` exists,
-/// then return `memory[value]`").  Callers insert `(src → new_id)` into
-/// the memo after construction — this function does it once, so
-/// later siblings hit the memo lookup in `clone_recursive`.
+/// Reuse one cloned buffer across views, following the memo rules in
+/// [`alloc_memoized_wrapper`]. This helper records the buffer after copying it.
 ///
 /// Throws `DataCloneError DOMException` when `src` is detached per
 /// HTML §2.7.3 step 13.2.1 ("If `IsDetachedBuffer(value)` is true,
