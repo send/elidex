@@ -1,7 +1,6 @@
 //! Media Queries Level 4 parser — mediaqueries-4 §3 Syntax.
 //!
-//! **Total + recovering** per §3.2 Error Handling: never errors or panics
-//! (CSSOM `matchMedia` does not throw). The error model is two-way:
+//! MQ4 §3.2 defines recovery for malformed queries and unknown features.
 //!
 //!   * **recognized feature vs general-enclosed** — inside a `( … )`, any
 //!     content that is not a recognized `<media-feature>` (known `<mf-name>` +
@@ -180,10 +179,7 @@ fn parse_media_in_parens<'i>(
     input: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
-    // §3.2 total contract: never a stack-overflow panic. Over the depth cap,
-    // this `<media-in-parens>` parse fails; the enclosing block then resolves to
-    // `<general-enclosed>` (Kleene unknown) — the bounded recursion is the DoS
-    // guard. Check before descending another level.
+    // Enforce the parser's nesting limit before descending another level.
     if depth >= MAX_MEDIA_NESTING_DEPTH {
         return Err(input.new_custom_error(()));
     }

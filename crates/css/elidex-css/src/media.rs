@@ -3,10 +3,8 @@
 //! A pure `parse + evaluate` library for media queries — no JS, no DOM, no
 //! engine state. Consumers build a [`MediaEnvironment`] and call in:
 //!
-//! - [`parse_media_query_list`] — total parser (mediaqueries-4 §3 Syntax,
-//!   §3.2 Error Handling): never errors or panics; a top-level grammar-malformed
-//!   query becomes `not all`, while an unknown/invalid feature inside `( … )`
-//!   becomes `<general-enclosed>` → Kleene unknown.
+//! - [`parse_media_query_list`] applies the MQ4 §3 grammar. A malformed top-level
+//!   query becomes `not all` under §3.2. An unknown feature produces unknown.
 //! - [`evaluate`] — Kleene 3-valued evaluation (mediaqueries-4 §3.1), with the
 //!   `Unknown → false` coercion applied once at the public boundary.
 //!
@@ -587,12 +585,8 @@ mod tests {
 
     #[test]
     fn deeply_nested_parens_does_not_panic() {
-        // §3.2 total contract: pathologically nested parentheses (a DoS vector
-        // for untrusted CSS / matchMedia) must never abort the process via stack
-        // overflow. The depth cap bounds the `parse_nested_block` recursion; the
-        // over-cap block then drains iteratively (cssparser `next()` returns a
-        // nested `( … )` as a single token without descending) and becomes
-        // general-enclosed → Kleene unknown → false. (R4-3.)
+        // The parser's nesting limit bounds recursion. The over-limit block
+        // evaluates to unknown, which becomes false in this boolean context (MQ4 §3.1).
         let env = landscape();
         let deep = format!(
             "{}(min-width: 1px){}",
