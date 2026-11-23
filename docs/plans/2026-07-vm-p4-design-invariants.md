@@ -242,11 +242,12 @@ object-valued fields — `func_id` is a `compiled_functions` index and `name` a 
 the positive control `grep -c 'ObjectKind::' crates/script/elidex-js/src/vm/gc/trace.rs` → **99** —
 ⚠ **both carried a bare `vm/gc/trace.rs` and neither reproduced from the repository root**: that path
 does not exist there, so the claim side printed a no-such-file warning rather than a zero, and the
-control side named no file at all and read standard input). Frames are the other marked location: `mark_roots` marks
-`CallMode::Construct`'s `new_target` and `frame.home_class` (`vm/gc/roots.rs:294-297`) and the
-suspended-generator arm marks the same two on `susp.frame` (`vm/gc/trace.rs:353-357`) — **4 sites, 2
-fields**, the whole of `grep -rn 'home_class\|new_target' crates/script/elidex-js/src/vm/gc/` less its
-two doc-comment hits. **So a move is a net *loss* of a strong edge rather than a missing addition**,
+control side named no file at all and read standard input). Frames are the other marked location, now at **one** site: `mark_frame` (`vm/gc/mod.rs`),
+which both `mark_roots` (live frames) and the suspended-generator arm of `trace_work_list` call, marks
+`CallMode::Construct`'s `new_target` and `home_class` — **1 site, 2 fields**, the whole of
+`git grep -n -E 'home_class|new_target' -- crates/script/elidex-js/src/vm/gc ':!crates/script/elidex-js/src/vm/gc/tests.rs'`
+run from the repository root (5 hits at the R-0b head: 3 in `mark_frame`, 2 doc-comment hits in
+`roots.rs`; `vm/gc/tests.rs` is excluded because its frame-root cells name both fields). **So a move is a net *loss* of a strong edge rather than a missing addition**,
 and an unmarked slot is returned to `free_objects` by `sweep_objects` (`vm/gc/sweep.rs:22-31`), which
 makes the consequence a **recycled `ObjectId`** — a stale id resolving to an unrelated later object —
 rather than a leak. Stated over the **edge**, not over a struct field, so it binds a hidden-property
