@@ -1,5 +1,5 @@
 //! Integration tests for `Selection` (Selection API Living Standard
-//! §3) — slot `#11-traversal-and-range-pr-b-selection`.
+//! §3) — landed as D-8 PR-B (PR #188, `560725d9`).
 //!
 //! Covers the 8 prop + 15 method surface, direction tri-state
 //! transitions, window/document.getSelection identity, previous-range
@@ -15,6 +15,7 @@ use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::{bind_vm, eval_num, eval_str};
 use super::super::Vm;
+use super::tests_range::{host_tree_in_document_script, LightShape};
 
 fn setup() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let vm = Vm::new();
@@ -31,10 +32,12 @@ unsafe fn bind(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, doc: el
 
 /// Common DOM setup — `globalThis.root` = `<div>`, two `<span>`
 /// children for offset-bearing ops, plus a text node for `toString`.
-/// `root` is detached (no document.body present in tests); Selection
-/// works equally on detached subtrees because `same_document` checks
-/// `find_tree_root`, which makes a detached `root` its own root.
+/// `root` is the document element (appended to `document`): the Selection
+/// setters abort unless the associated document is a shadow-including
+/// inclusive ancestor of the node (Selection API §3), so every node of the
+/// tree must be in the document.
 const TREE_SETUP: &str = "globalThis.root = document.createElement('div');\
+     document.appendChild(root);\
      globalThis.s0 = document.createElement('span');\
      globalThis.s1 = document.createElement('span');\
      globalThis.t = document.createTextNode('hello');\
@@ -176,6 +179,11 @@ fn collapse_offset_defaults_to_zero() {
     vm.eval(TREE_SETUP).unwrap();
     vm.eval("globalThis.s = window.getSelection(); s.collapse(root);")
         .unwrap();
+    assert_eq!(
+        eval_num(&mut vm, "s.rangeCount"),
+        1.0,
+        "collapse set a range"
+    );
     assert_eq!(eval_num(&mut vm, "s.anchorOffset"), 0.0);
     vm.unbind();
 }
@@ -501,10 +509,11 @@ fn remove_all_ranges_empties() {
     vm.eval(TREE_SETUP).unwrap();
     vm.eval(
         "globalThis.s = window.getSelection();\
-         s.collapse(root, 0);\
-         s.removeAllRanges();",
+         s.collapse(root, 0);",
     )
     .unwrap();
+    assert_eq!(eval_num(&mut vm, "s.rangeCount"), 1.0, "set before removal");
+    vm.eval("s.removeAllRanges();").unwrap();
     assert_eq!(eval_num(&mut vm, "s.rangeCount"), 0.0);
     assert_eq!(eval_str(&mut vm, "s.type"), "None");
     vm.unbind();
@@ -515,8 +524,10 @@ fn empty_is_alias_of_remove_all_ranges() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     vm.eval(TREE_SETUP).unwrap();
-    vm.eval("globalThis.s = window.getSelection(); s.collapse(root, 0); s.empty();")
+    vm.eval("globalThis.s = window.getSelection(); s.collapse(root, 0);")
         .unwrap();
+    assert_eq!(eval_num(&mut vm, "s.rangeCount"), 1.0, "set before empty()");
+    vm.eval("s.empty();").unwrap();
     assert_eq!(eval_num(&mut vm, "s.rangeCount"), 0.0);
     vm.unbind();
 }
@@ -769,6 +780,7 @@ fn selectionchange_coalesces_multiple_mutations() {
          globalThis.s = window.getSelection();",
     )
     .unwrap();
+    assert_eq!(eval_num(&mut vm, "fired"), 0.0, "no event before mutating");
     // Multiple mutations in a single eval → one event per spec
     // §3.4 "queue a task ... if a queued task already exists, abort".
     vm.eval(
@@ -783,5 +795,110 @@ fn selectionchange_coalesces_multiple_mutations() {
         1.0,
         "multiple mutations in one drain coalesce to ONE selectionchange event"
     );
+    vm.unbind();
+}
+
+#[test]
+fn add_range_after_unbind_throws_not_panics() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.s = window.getSelection(); globalThis.r = new Range();")
+        .unwrap();
+    vm.unbind();
+    let res = vm.eval("s.addRange(r)");
+    assert!(
+        res.is_err(),
+        "retained Selection.addRange after unbind must throw"
+    );
+}
+
+#[test]
+fn add_range_unregistered_range_after_rebind_throws_invalid_state() {
+    // A Range kept across `unbind` is unregistered (registry cleared); after
+    // a rebind the Selection is reachable again while the Range stays
+    // unregistered — the Range natives' "detached" state.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.s = window.getSelection(); globalThis.r = new Range();")
+        .unwrap();
+    vm.unbind();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let name = eval_str(
+        &mut vm,
+        "try { s.addRange(r); 'none' } catch (e) { e.name }",
+    );
+    assert_eq!(name, "InvalidStateError");
+    let message = eval_str(
+        &mut vm,
+        "try { s.addRange(r); 'none' } catch (e) { e.message }",
+    );
+    assert_eq!(
+        message,
+        "Failed to execute 'addRange' on 'Selection': the Range has been detached"
+    );
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// tq — `Selection.prototype.toString` skips a closed shadow tree's text (it
+// stringifies the one Range string, so the contained-node walk's tree
+// children decide it). Rank (2), plan §3.
+// ---------------------------------------------------------------------------
+
+fn selection_to_string_over_host(shape: LightShape, want: &str) {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{} globalThis.rg = document.createRange(); rg.setStart(pre, 1); rg.setEnd(post, 2); \
+         window.getSelection().addRange(rg);",
+        host_tree_in_document_script(shape)
+    ))
+    .unwrap();
+    assert_eq!(
+        eval_str(&mut vm, "window.getSelection().toString()"),
+        want,
+        "shape={shape:?}"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4a() {
+    selection_to_string_over_host(LightShape::NoLight, "repo");
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4b() {
+    selection_to_string_over_host(LightShape::LightBefore, "reLIGHTpo");
+}
+
+#[test]
+fn selection_to_string_skips_shadow_tree_text_p4c() {
+    selection_to_string_over_host(LightShape::LightAfter, "reLIGHTpo");
+}
+
+/// Plan §11 P-5's tree: a cross-root `setBaseAndExtent` collapses the range
+/// (DOM *set the start or end* step 4), so the string is `""` whichever
+/// boundary it collapses at. Depends on `tsel` being in the base.
+#[test]
+fn selection_cross_root_set_base_and_extent_to_string_is_empty() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div'); document.appendChild(root); \
+         globalThis.pre = document.createTextNode('pre'); \
+         globalThis.h = document.createElement('div'); \
+         globalThis.post = document.createTextNode('post'); \
+         globalThis.p = document.createElement('p'); \
+         p.appendChild(document.createTextNode('TAIL')); \
+         root.appendChild(pre); root.appendChild(h); root.appendChild(post); root.appendChild(p); \
+         globalThis.sr = h.attachShadow({mode: 'closed'}); \
+         globalThis.sp = document.createElement('span'); \
+         globalThis.st = document.createTextNode('SHADOW'); \
+         sp.appendChild(st); sr.appendChild(sp); \
+         window.getSelection().setBaseAndExtent(pre, 1, st, 3);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "window.getSelection().toString()"), "");
     vm.unbind();
 }

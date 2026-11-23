@@ -2,17 +2,13 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 
-from ..cache import NotFound, cached_fetch_url
+from ..cache import FetchError, cached_fetch
 from ..extractor import extract_section_body
-from ..resolver import (
-    lookup_aoid_first,
-    resolve_body_source,
-    tc39_resolve_body_url,
-)
-from ..sources.tc39 import TC39_FAMILY, tc39_biblio
+from ..respec import (SOURCE_NONE_LINE, Outcome, classify_respec,
+                      miss_is_final, source_line, unreachable_names)
+from ..resolver import resolve_body_candidates
 
 
 def cmd_body(args: argparse.Namespace) -> None:
@@ -21,94 +17,86 @@ def cmd_body(args: argparse.Namespace) -> None:
     if not raw:
         sys.exit("webref: body needs a non-empty anchor")
 
-    # Resolution order — anchor first, AO-name as fallback:
-    #
-    #   1. Direct anchor lookup against biblio (tc39) / headings+dfns
-    #      (WHATWG/W3C). Covers `sec-*` clauses + non-clause anchors like
-    #      `table-*` / `figure-*` / `prod-*` / `term-*` etc. for tc39, and
-    #      heading + dfn id space for WHATWG/W3C.
-    #   2. ONLY if (a) no anchor match AND (b) input is a single CamelCase
-    #      identifier (tc39 only): attempt AO-name lookup, then resolve the
-    #      resulting `sec-*` anchor via the same flow. The CamelCase filter
-    #      prevents bogus rejection of valid non-CamelCase anchors that
-    #      happen not to be in biblio (typo → clean "anchor not found"
-    #      instead of misleading "not an AO" error).
-    anchor = raw
-    fetch_url: str | None = None
-    file_anchor: str | None = None
+    anchor, candidates = resolve_body_candidates(args.shortname, raw)
 
-    if args.shortname in TC39_FAMILY:
-        direct = tc39_resolve_body_url(args.shortname, raw)
-        if direct is not None:
-            fetch_url, file_anchor = direct
-        elif re.match(r"^[A-Z][A-Za-z0-9]*$", raw):
-            resolved = lookup_aoid_first(args.shortname, raw)
-            if resolved is None:
-                sys.exit(
-                    f"webref: {raw!r} is neither a known anchor (no id "
-                    f"match in {args.shortname} biblio) nor a recognized "
-                    f"abstract operation"
-                )
-            _, _, full_anchor = resolved
-            anchor = full_anchor.split("#", 1)[-1]
-            direct = tc39_resolve_body_url(args.shortname, anchor)
-            if direct is None:
-                sys.exit(
-                    f"webref: AO {raw} resolved to #{anchor} but biblio "
-                    f"chapter routing failed (unexpected — please report)"
-                )
-            fetch_url, file_anchor = direct
+    # One loop over the resolver's candidate sources: the first that fetches
+    # and carries the anchor wins. Each source's outcome (hit / miss /
+    # unreachable / unrendered) goes into `record`, and every diagnostic below
+    # (the `# source:` line, the outage or not-found message) is built from it.
+    # Advancing the iterator can itself fail: the tail's catalog lookup is a
+    # source too (label "catalog").
+    record: list[Outcome] = []
+    first_error: FetchError | None = None
+    last = None  # last candidate fetched, named in the not-found error
+    found = False
+    text = ""
+    it = iter(candidates)
+    while True:
+        try:
+            cand = next(it)
+        except StopIteration:
+            break
+        except FetchError as e:
+            first_error = first_error or e
+            record.append(Outcome("catalog", "unreachable", str(e)))
+            break
+        try:
+            fetched = cached_fetch(cand.url)
+        except FetchError as e:
+            first_error = first_error or e
+            record.append(Outcome(cand.label, "unreachable", str(e)))
+            continue
+        last = cand
+        data = fetched.data
+        kind = classify_respec(data)
+        found, text = extract_section_body(data, anchor)
+        # An unrendered ReSpec source's hand-written `<section id=...>` would
+        # print raw markup; only rendered text may answer, else go on to the
+        # generator (the catalog is consulted only when the loop gets here).
+        if kind == "unrendered":
+            found = False
+            record.append(Outcome(cand.label, "unrendered", date=fetched.date))
+        elif found:
+            record.append(Outcome(cand.label, "hit", date=fetched.date))
+            # Every ReSpec-path answer names its source and the date of the
+            # fetched copy on the first line: a fallback by its label, the
+            # first page by the rendered marker in its bytes (no catalog).
+            if cand.label or kind == "rendered":
+                print(source_line(cand.label, data, record[-1].date, record[:-1]))
+            break
         else:
-            sys.exit(
-                f"webref: anchor {raw!r} not found in {args.shortname} "
-                f"biblio (no id match across any entry type; if you meant "
-                f"an abstract operation, use the CamelCase name like "
-                f"`IteratorClose`)"
-            )
-    else:
-        fetch_url, file_anchor = resolve_body_source(args.shortname, anchor)
-
-    # Multipage chapter 404 → single-page URL fallback (tc39 only). Rare:
-    # would require an irregular tc39 chapter file the biblio-derived slug
-    # doesn't match. The single-page URL (<location>) serves every anchor
-    # regardless of chapter layout, so the fallback always works as a last
-    # resort. WHATWG/W3C hrefs come from webref directly and are kept in
-    # sync upstream, so no analogous fallback is wired there.
-    try:
-        html_bytes = cached_fetch_url(fetch_url)
-    except NotFound:
-        if args.shortname in TC39_FAMILY:
-            try:
-                d = tc39_biblio(args.shortname)
-            except NotFound:
-                sys.exit(f"webref: fetch failed: {fetch_url}")
-            single_page = d.get("location", "")
-            if single_page and fetch_url != single_page:
-                fetch_url = single_page
-                html_bytes = cached_fetch_url(fetch_url)
-            else:
-                sys.exit(f"webref: fetch failed: {fetch_url}")
-        else:
-            sys.exit(f"webref: fetch failed: {fetch_url}")
-    found, text = extract_section_body(html_bytes, file_anchor)
+            record.append(Outcome(cand.label, "miss", date=fetched.date))
+        if miss_is_final(cand.label, data):
+            break
+    if last is None:
+        raise first_error  # every fetch failed: surface the first (primary) one
+    if not found and first_error is not None:
+        # A source could not be fetched and none of the others carried the
+        # anchor: that is an outage, not evidence the anchor is absent.
+        sys.exit(f"{first_error} (anchor #{anchor} not found in the sources "
+                 f"that were reachable; unreachable: {unreachable_names(record)}, so "
+                 f"absence is unverified)")
     if not found:
+        if any(o.label is not None for o in record):  # a ReSpec fallback chain was tried
+            print(SOURCE_NONE_LINE)
         sys.exit(
-            f"webref: anchor #{file_anchor} not encountered in {fetch_url} "
+            f"webref: anchor #{anchor} not encountered in {last.cite or last.url} "
             f"(biblio/webref pointed here but the rendered chapter HTML "
             f"doesn't carry that id — possibly a multipage drift or a "
             f"stale biblio entry)"
         )
+    fetch_url = last.cite or last.url
     if not text:
         # Anchor was found but the section is text-empty (e.g. a section
         # whose only content is a <emu-table> or <emu-figure> that the
         # extractor renders as nothing). Surface this as a *distinct* state
         # from "not found" so the user knows to look at the source directly.
-        print(f"# {fetch_url}#{file_anchor}")
+        print(f"# {fetch_url}#{anchor}")
         print()
         print(f"(section found but extractor produced no text — likely "
-              f"a table/figure-only section; view source at {fetch_url}#{file_anchor})")
+              f"a table/figure-only section; view source at {fetch_url}#{anchor})")
         return
     # Header line for orientation (URL is the canonical citation).
-    print(f"# {fetch_url}#{file_anchor}")
+    print(f"# {fetch_url}#{anchor}")
     print()
     print(text)

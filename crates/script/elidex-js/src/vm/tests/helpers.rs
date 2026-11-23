@@ -246,3 +246,30 @@ pub(crate) fn signal_id(vm: &mut Vm, expr: &str) -> super::super::value::ObjectI
         other => panic!("`{expr}` is not an object: {other:?}"),
     }
 }
+
+/// A frame with no locals of interest, `base` / `cleanup_base` at `base`,
+/// owning `local_upvalue_ids` — the shape the panic-path tests push.
+pub(crate) fn forged_frame(
+    base: usize,
+    local_upvalue_ids: Vec<super::super::value::UpvalueId>,
+) -> super::super::frame::CallFrame {
+    super::super::frame::CallFrame {
+        func_id: super::super::value::FuncId(0),
+        ip: 0,
+        base,
+        upvalue_ids: std::sync::Arc::from([] as [super::super::value::UpvalueId; 0]),
+        local_upvalue_ids,
+        this_value: super::super::value::JsValue::Undefined,
+        exception_handlers: Vec::new(),
+        tdz_bits: 0,
+        tdz_overflow: Box::default(),
+        actual_args: None,
+        cleanup_base: base,
+        new_instance: None,
+        mode: super::super::value::CallMode::Call,
+        home_class: None,
+        kind: super::super::frame::FrameKind::Function,
+        generator: None,
+        pending_completion: None,
+    }
+}

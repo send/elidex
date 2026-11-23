@@ -45,9 +45,7 @@ pub use elidex_form_core::{
 };
 
 pub use fieldset::propagate_fieldset_disabled;
-pub use focus_snapshot::{
-    clear_focus_snapshot, record_focus_snapshot, take_change_on_blur, FocusValueSnapshot,
-};
+pub use focus_snapshot::{record_focus_snapshot, take_change_on_blur, FocusValueSnapshot};
 pub use inert_document::parse_into_inert_document;
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};

@@ -227,10 +227,15 @@ impl DomApiHandler for GetRootNode {
             find_root_non_composed(this, dom)
         };
 
-        let kind = match dom.node_kind(root) {
-            Some(nk) => ComponentKind::from_node_kind(nk),
-            None => ComponentKind::Element,
+        // Unreachable: `this` passed the node brand check and `link_node` asserts
+        // every tree child carries a `NodeKind`, so the climbed root has one.
+        let Some(nk) = dom.node_kind(root) else {
+            return Err(DomApiError {
+                kind: elidex_script_session::DomApiErrorKind::NotFoundError,
+                message: "getRootNode: root is not a live node".into(),
+            });
         };
+        let kind = ComponentKind::from_node_kind(nk);
         let obj_ref = session.get_or_create_wrapper(root, kind);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

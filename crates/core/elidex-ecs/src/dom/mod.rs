@@ -412,12 +412,8 @@ impl EcsDom {
         owner: NewNodeOwner,
     ) -> Entity {
         self.spawn_node(
-            (
-                TagType(tag.into()),
-                attrs,
-                TreeRelation::default(),
-                NodeKind::Element,
-            ),
+            NodeKind::Element,
+            (TagType(tag.into()), attrs, TreeRelation::default()),
             owner,
         )
     }
@@ -571,11 +567,8 @@ impl EcsDom {
         owner: NewNodeOwner,
     ) -> Entity {
         self.spawn_node(
-            (
-                TextContent(text.into()),
-                TreeRelation::default(),
-                NodeKind::Text,
-            ),
+            NodeKind::Text,
+            (TextContent(text.into()), TreeRelation::default()),
             owner,
         )
     }
@@ -593,7 +586,11 @@ impl EcsDom {
     /// Create a document fragment node whose node document is `owner`
     /// (DOM §4.4).
     pub fn create_document_fragment_with_owner(&mut self, owner: NewNodeOwner) -> Entity {
-        self.spawn_node((TreeRelation::default(), NodeKind::DocumentFragment), owner)
+        self.spawn_node(
+            NodeKind::DocumentFragment,
+            (TreeRelation::default(),),
+            owner,
+        )
     }
 
     /// HTML §4.12.3 establishing steps 1–3: give `template` its associated
@@ -670,11 +667,8 @@ impl EcsDom {
         owner: NewNodeOwner,
     ) -> Entity {
         self.spawn_node(
-            (
-                CommentData(data.into()),
-                TreeRelation::default(),
-                NodeKind::Comment,
-            ),
+            NodeKind::Comment,
+            (CommentData(data.into()), TreeRelation::default()),
             owner,
         )
     }
@@ -694,7 +688,8 @@ impl EcsDom {
             system_id: system_id.into(),
         };
         self.spawn_node(
-            (data, TreeRelation::default(), NodeKind::DocumentType),
+            NodeKind::DocumentType,
+            (data, TreeRelation::default()),
             owner,
         )
     }
@@ -712,7 +707,7 @@ impl EcsDom {
             value: String::new(),
             owner_element: None,
         };
-        self.spawn_node((data, NodeKind::Attribute), owner)
+        self.spawn_node(NodeKind::Attribute, (data,), owner)
     }
 
     // ---- Version tracking ----

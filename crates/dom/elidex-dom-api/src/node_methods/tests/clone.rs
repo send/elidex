@@ -733,3 +733,17 @@ fn clone_node_rederives_iframe_data_from_cloned_attributes() {
         "clone must derive IframeData from its cloned attributes, not copy the stale component"
     );
 }
+
+#[test]
+fn clone_node_of_kindless_entity_is_not_found() {
+    // A source without a `NodeKind` is not a live node: `cloneNode` maps the
+    // ECS cloner's `None` to NotFoundError.
+    let (mut dom, mut session) = setup();
+    let src = dom.world_mut().spawn((TagType("div".to_string()),));
+    wrap(src, &mut session);
+    let err = CloneNode
+        .invoke(src, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::NotFoundError);
+    assert!(err.message.contains("not a live node"));
+}

@@ -41,7 +41,7 @@ focused area of doc is not a focusable area, then run the focusing steps for doc
   compares only with the focus-time value, so a script write followed by a blur fires `change`. The same predicate gates
   `input` (fired today on user actions that change nothing). Found by plan (2) rev 2 (PM decision 252 (M5)); own PR by PM
   decision 260; `input` in scope by PM decision 264 (M3). Plan (1). `textarea` has no change rule in the spec text;
-  plan (1) keeps browser behaviour, measured.
+  plan (1) fires it under the `<input>` predicate; ground: elidex's one text-control class [corrected 2026-11-20, PM 432: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-13; as landed: "plan (1) keeps browser behaviour, measured" [history]].
 - **DC3 The being-rendered obligation** (slot `#11-focusable-area-being-rendered`). Once the focusable-area predicate
   reads computed style (HTML §6.6.2: the element is "being rendered, delegating its rendering to its children, or being
   used as relevant canvas fallback content"), the fixup step must run after that frame's style and layout and after
@@ -72,13 +72,13 @@ focused area of doc is not a focusable area, then run the focusing steps for doc
 Edge-dense by both arms of the CLAUDE.md rule: (a) event dispatch order (`input` / `change` / `blur`), the focus-transition
 paths (UA sink, `blur_current`, VM `focus()` / `blur()`, the fixup step), script writers and re-entry, the snapshot
 lifecycle and the render-phase position intersect (§2); (b) "the user has changed the element's value" is prose with no
-algorithm, and the mixed case is measured. So: a multi-PR program, each slice plan-reviewed, each a terminal unit.
+algorithm, and the mixed case is measured [history] [corrected 2026-11-20, PM 432: the sentence fixes the reference point, the value at first focus; `docs/plans/2026-11-change-on-blur-spec-rederivation.md` §4.1]. So: a multi-PR program, each slice plan-reviewed, each a terminal unit.
 
 ### §1.2 Nested PRs
 
 | nested PR | scope (detail: the slice plan) | owner | slots | prerequisites |
 |---|---|---|---|---|
-| **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); design H (Chromium-measured, plan (1) §6) | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
+| **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); design H (as landed: Chromium-measured, plan (1) §6 [history]; corrected 2026-11-20, PM 432: the grounds are `docs/plans/2026-11-change-on-blur-spec-rederivation.md` §4, and H's baseline differs from HTML, its DF-1) | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
 | **(2) focus-fixup** | DC1: the fixup step through the canonical focusing steps for the viewport, ungated, at HEAD's position; the silent reset deleted; the record-gated form-owner cache removed | Layout | closes `#11-focus-fixup-gated-on-session-records` and the folded `#11-render-side-effect-version-delta-signal` (PM 278); appends O1; registers FF-1 to FF-4 | (1) on `origin/main`; plan (2) plan-reviewed |
 | **(3) being-rendered** | DC3: the first CV-focus leg that makes the focus predicate read computed style (per PM 242 (7) likely the author-hidden S2 leg right after CV-render); carries O1 | Layout (CV umbrella `docs/plans/2026-10-content-visibility.md`, CV-focus) | discharge of `#11-focusable-area-being-rendered` decided by CV-focus's plan (ledger APPEND on that slot); O1 is cited there | (2) landed; the CV erratum (e5); the CV umbrella's own edges |
 
@@ -121,13 +121,13 @@ first code commit.
 Only pairs that span two slices. "(1) I5" = plan (1)'s invariant I5.
 
 - **X1 One change-on-blur judgement, in elidex-form, every sink** — (1) I5 × (2) I2 × x1. The substep's condition (the
-  qualifiers of DC2 and H's predicate, plan (1) D-1 / §4.3) is computed by one
+  qualifiers of DC2 and H's predicate, plan (1) D-1 / §4.3 [erratum: the kind qualifiers are step 2.1's conjuncts at focus loss, `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md` B-3]) is computed by one
   elidex-form function (NEW, engine-independent; record PR-1 names it); it consumes the snapshot. Every sink — the shell
   sink (UA, `blur_current`, (2)'s fixup) and A2c's VM sink — calls it and only dispatches `change`; no sink, shell or
   `vm/host`, computes the predicate. Pinned by plan (1)'s `take_change_on_blur` cells and plan (1) MG1 (PM 298); the fixup path
   reaches the same sink (plan (1) I4 × I5); A2c's cells are A2c's.
 - **X2 Snapshot consumed once, mark dies with it** — (1) I3 × (2) I3: (2)'s snapshot-reading cells are re-derived at its
-  rebase onto (1); a type flip to a non-text kind clears snapshot and mark together.
+  rebase onto (1); a type flip to a non-text kind clears snapshot and mark together [corrected 2026-11-21, PM 842: not a requirement; step 2.1 decides by the kind at focus loss, `docs/plans/2026-11-change-on-blur-spec-rederivation.md` DF-2 (its §6.2), and its LR-2 known requirement 5 removes the clear].
 - **X3 (2)'s user-edit step goes through (1)'s funnel** — (1) I1 / I2 × (2) C6: after (1), `input` fires iff the value
   changed, so C6 uses a value-changing key; its cites are re-derived at the rebased head (264 (M2) drops the move).
 - **X4 Fixup listeners never mark** — (1) I4 × (2) I4: a listener run by the fixup that writes `value` is a script
@@ -156,11 +156,11 @@ between them is (2)'s call into the sink, covered by X1, and listener writes, co
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, ResizeObserver step (currently 16) before the fixup step | style, layout and RO before the fixup | (3), O1; (2) keeps the position (X6) | ✗ | no |
 | WHATWG HTML §8.1.7.3 Processing model | *update the rendering*, docs in tree order (currently step 2) | each step over all documents | not met; FF-1 | ✗ | no |
 | WHATWG HTML §6.6.4 Processing model | focusing steps, target = viewport; unfocusing steps (currently step 8) | one viewport transition, two callers | (2) | ✓ | yes |
-| WHATWG HTML §6.6.4 Processing model | *focus update steps*, the change-on-blur substep (currently 2.1) | DC2's qualifiers; user change since focus and value ≠ baseline; script-only → none; a script write before the user's first change re-baselines (H, plan (1) §4.3) | (1); X1 | ✓ | yes |
+| WHATWG HTML §6.6.4 Processing model | *focus update steps*, the change-on-blur substep (currently 2.1) | DC2's qualifiers; user change since focus and value ≠ baseline; script-only → none; a script write before the user's first change re-baselines (H, plan (1) §4.3) [as landed; not a spec requirement: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-5 / DF-1 (class (a) contradicts the spec text; class (b): its D-3, §0.4, and H conforms), 2026-11-20] | (1); X1 | ✓ | yes |
 | WHATWG HTML §6.6.4 Processing model | *focus update steps*, user validity (currently 2.1.1) | set user validity | not this program; `#11-focus-change-user-validity` | ✗ | no |
 | WHATWG HTML §6.6.4 Processing model | *focus update steps*, Document entry of the new chain (currently step 4) | `focus` at the Window | not fired; canonical-focus A3 (R-A3) | ✗ | no |
 | WHATWG HTML §4.10.5.5 Common event behaviors | `input` when the user changes the value; none for script | `input` iff the funnel reports a change | (1) | ✓ | yes |
-| WHATWG HTML §4.10.11 The textarea element | user change → `input`; no `change` rule in the text | same funnel; change-on-blur kept as browser behaviour, measured | (1) | ✗ | yes |
+| WHATWG HTML §4.10.11 The textarea element | user change → `input`; no `change` rule in the text | same funnel; change-on-blur under the `<input>` predicate, by elidex's one text-control class [corrected 2026-11-20, PM 432: `docs/plans/2026-11-change-on-blur-spec-rederivation.md` E-13; as landed: "kept as browser behaviour, measured" [history]] | (1) | ✗ | yes |
 | WHATWG HTML §6.6.2 Data model | focusable area condition | being rendered, delegating its rendering to its children, or relevant canvas fallback content | (3) | ✗ | no |
 | WHATWG HTML §15.1 Introduction | *being rendered* | the predicate's style read | (3) | ✗ | no |
 
@@ -209,7 +209,7 @@ Records for existing slots: **R-1** → `#11-vm-host-synthetic-dom-event-dispatc
 Records for the slice plans (the driver applies them in their next revisions):
 - **PR-1 → plan (1) rev 2**: "The change-on-blur substep judgement moves out of shell `dispatch_change_on_blur` into
   `elidex_form::take_change_on_blur` (NEW) (single owner `elidex-form`, module `focus_snapshot.rs`). It consumes the
-  `FocusValueSnapshot` and returns whether the substep fires (H's predicate, plan (1) D-1 / §4.3). Every sink calls it and only
+  `FocusValueSnapshot` and returns whether the substep fires (H's predicate, plan (1) D-1 / §4.3 [erratum: the kind qualifiers are step 2.1's conjuncts at focus loss, `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md` B-3]). Every sink calls it and only
   dispatches `change`: the shell sink's `dispatch_change_on_blur` becomes a dispatcher, and A2c's VM sink calls the same
   function. I5 reads 'one judgement, called by every sink' (umbrella X1)."
   Existing text PR-1 rewrites: `crates/dom/elidex-dom-api/src/focus/update_steps.rs:72-76` (the `commit_change_on_blur` doc comment 'the shell takes the snapshot, compares, and dispatches').
@@ -245,8 +245,37 @@ its trigger or scope.
 5. **Checker** (run; do not trust a stored verdict): `python3 .claude/skills/elidex-plan-review/preflight.py
    docs/plans/2026-11-focus-fixup-program.md` exits 0.
 
+## §7. Erratum (PM 432, PM 842; 2026-11-20; added after landing) — the grounds of design H
+
+Sections §0–§6 are as ratified and landed, except the dated in-line corrections of DC2, §1.1 (b), §1.2 row (1), X2 and
+two §3 rows. This section states what changed and why.
+
+- **What was wrong.** DC2, §1.2 row (1) and §3 gave a measurement of one engine as the ground of design H and of the
+  `<textarea>` rule. A core requirement's ground is the spec, then elidex's principles where the spec is silent; a
+  measurement is `[evidence]` at most (CLAUDE.md, ground order).
+- **The re-derivation** is `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (slot
+  `#11-change-on-blur-model-spec-rederivation`). Its §4 table gives the spec or principle ground of each element of H.
+- **What holds.** The funnel, the mark, `input`, the commit point, the event order and the kind boundary hold on spec
+  text (the kind boundary across a `type` change: DF-2 there). X2 is corrected by DF-2 (the re-derivation's LR-2,
+  known requirement 5: a `type` change does not clear the snapshot); X1 and X3–X8 are not affected. The `<textarea>` rule holds on an elidex principle (one text-control class; the spec is silent). Implicit
+  submission is not a commit point; the current order conforms (the re-derivation's §5).
+- **What differs.** Stated once, in the re-derivation's §6: DF-1 (the baseline: its class (a) is decided by the
+  spec text; its class (b) is decided by D-3 there, §0.4, and is not a defect) and DF-2 (the
+  snapshot's population across a `type` change). The fix is a separate code PR, planned as a slice of this
+  umbrella (until the slice's plan memo exists, its record is the slot row, the re-derivation's LR-2; §1.2 is not
+  rewritten) [2026-11-22: the fix is planned as two per-PR slices, PR-α and PR-β (PM 933), in `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`]. What plan (1)'s cells pin until it lands: the re-derivation's §6.3.
+- **The measurements** of plan (1) §6 stay as `[history]`. Apart from X2, no invariant, edge or DoD item of this
+  umbrella changes.
+
 ## Changelog
 
+- *Erratum* (2026-11-22; no rev bump; PR-α of `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`): X1's parenthetical and record PR-1's
+  "(H's predicate, plan (1) D-1 / §4.3)" get an in-line erratum: the kind qualifiers are step 2.1's conjuncts at focus loss (B-3). PR-β adds the comparison's erratum at its landing.
+- *Pointer* (2026-11-22; no rev bump): §7 names the plan of the change-on-blur baseline fix, two per-PR slices
+  (PM 933; `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`).
+- *Erratum* (2026-11-20 to 2026-11-21; no rev bump; PM 432, PM 842): §7 added and in-line corrections (§7 names the slot row as the
+  fix slice's record); errata per `docs/plans/2026-11-change-on-blur-spec-rederivation.md`; history in its changelog.
+- *Erratum* (2026-11-21; no rev bump; PM 842): X2 corrected by the re-derivation's DF-2 (in-line pointer; §7).
 - *Rev 2.2* (2026-11-03): aligned to plan (1) design H (rev 3.1) and plan (2) rev 5.1 (C19 ordering only, PM 298):
   row (1), e1, X1, §3, PR-1, DoD 2, nested revs; stall contingency deleted (its STOP row is gone); CP-3 / CP-4 owner and x4 (PM 312).
 - *Rev 2.1* (2026-11-03): removals per PM 282 (X6 sentence; FS-1, x6, FU-4 assignment, display repro); e4/e5 pointer; PR-1 list + update_steps.rs:72-76.

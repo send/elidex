@@ -37,11 +37,9 @@ T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/element/numer
 T	#11-replace-child-self-records	crates/dom/elidex-dom-api/src/element/tree.rs	// memo §7; Chromium unmeasured). EcsDom::replace_child rejects `new == old`
 T	#11-blur-focus-cleared-before-blur-event	crates/dom/elidex-dom-api/src/focus/update_steps.rs	// `<body>` during `blur`/`focusout` (the pre-A2a shell + real browsers both do
 T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// - `Directionless`: spec doesn't pin a side; Chrome / Firefox both
-T	#11-core-browser-parity-deviations	crates/dom/elidex-dom-api/src/selection.rs	/// matching the conservative interpretation Chrome / Firefox use.
 N	-	crates/dom/elidex-dom-api/src/style.rs	/// (accepted divergence: Firefox preserves existing declarations on
 N	-	crates/dom/elidex-form-core/src/input.rs	/// Blink's `Decimal`), tracked at defer slot
-T	#11-core-browser-parity-deviations	crates/dom/elidex-form-core/src/sanitize.rs	/// establishment site (the interoperable behavior every browser ships): the
-E	-	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
+T	#11-change-on-blur-baseline-first-focus-value	crates/dom/elidex-form/src/focus_snapshot.rs	/// marked), and each of those re-baselines (the Chromium-measured model, plan
 T	#11-core-browser-parity-deviations	crates/dom/elidex-form/src/select/mod.rs	/// Stops at the first/last option (no wraparound, per native browser behavior).
 T	#11-core-browser-parity-deviations	crates/layout/elidex-layout-table/src/lib.rs	/// which matches Chromium behavior.
 T	#11-core-browser-parity-deviations	crates/net/elidex-net/src/connector.rs	/// (h2c) is intentionally not supported, matching browser behavior.
@@ -289,20 +287,6 @@ N	-	docs/plans/2026-10-python-pin-pr1-pin-and-gate.md	| 2 | V6 = outcome (i); ke
 N	-	docs/plans/2026-10-python-pin-umbrella-vm-p4.md	name the pin-reachable cause, not "3.9–3.12"); V7 and V8 stay (V8's subject exists); V9 keeps its `RuntimeError`
 N	-	docs/plans/2026-10-python-pin-umbrella-vm-p4.md	| V8 | `.claude/tools/plan_memo_selftest_mutants_pr510.py:304-306` | mutant row "RG2 IMP-3: RuntimeError from resolve() is guarded with OSError" | coupled to V6 — its subject no longer exists | delete the row | **yes** — that MUTANT line is removed |
 N	-	docs/plans/2026-10-python-pin-umbrella.md	V15, (ii) keep it re-justified on the pin, keep V7–V8, restate V9–V11 and V15. PR-1's implementation waits for
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	**Pre-step: Chromium measurement** (done: runs 1–2 below; the procedure is kept for reproducibility). In the built-in
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	- **Q-1 (PM)** — measure W3–W8 (§5.2) in Chromium before commit (3)? Only the `value` setter was measured; C21–C26
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	- **R3 One engine, one writer measured** — H is measured on the `value` setter in Chromium 156 only; W3–W8 follow from
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	- **Rev 3 (2026-11-03)** — single design H (Chromium-measured, PM 305). Deleted: branches A-only / B1 / B2, their
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	Chromium.
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	W2 were measured in Chromium; W3–W8 follow elidex's rule that every non-user change is alike (Q-1, §10).
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	elidex fires change-on-blur for `<textarea>` too (P2), as browsers do. So for textarea the rule is browser behaviour,
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	focus-time value. It does not say what a script write does to either. Chromium 156 (§6 runs 1–2; `<input>` and
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	value change (model H, §4.3; measured in Chromium, §6; PM 305). One function computes it: `elidex_form::take_change_on_blur`
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| Case (§6) | Sequence (fresh focus, value `""` unless noted) | Chromium | baseline at blur | Cell |
-T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-change-on-blur-user-provenance.md	| WHATWG HTML §4.10.11 The textarea element | user changes the raw value → `input`; no `change` rule in the text (E1) | same funnel as `<input>`; change-on-blur kept as browser behaviour, measured identical to `<input>` (§6) | `apply_user_edit`, `take_change_on_blur` | ✗ | yes |
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| script `b.value = "x"`; user Backspace (value back to `""`); user focuses `c` | no `change` (wrong) | `change` (Chromium M4) |
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| script `b.value = "x"`; user types `y`, then Backspace (value `"x"`); user focuses `c` | `change` (wrong) | no `change` (Chromium M9) |
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-change-on-blur-user-provenance.md	| user types `a`; script `b.value = "third"`; user focuses `c` (mixed) | `change` | `change` (Chromium M1) |
 T	#11-replace-child-self-records	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	**Procedure** (in the built-in Chromium of the desktop app, on `about:blank`; record `navigator.userAgent`):
 T	#11-replace-child-self-records	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	3. Record every variant's records and `log` in the slot (ledger `:688`) with the Chromium version and the date.
 T	#11-replace-child-self-records	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	4. Decision input for the slot's owner: Chromium = spec → the fix follows the spec and the "unmeasured" comments are
@@ -310,9 +294,6 @@ N	-	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	`:267-271` "a no-op 
 T	#11-replace-child-self-records	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	replaced by the spec citation; Chromium = no records → a spec-vs-browser divergence, taken to the PM before any
 N	-	docs/plans/2026-11-eh-attrs-c0a-replace-record-order.md	| H-a5 | Two comments call the self-replace no-op "browser parity" without a measurement | `mutation/mod.rs:756-760` ("matching the VM handler's browser-parity no-op short-circuit"), `element/tree.rs:267-271` ("a no-op per browser parity (Chrome / Firefox / WebKit)"), `mutation/tests.rs:287-288` ("pre-existing browser-parity no-op") |
 N	-	docs/plans/2026-11-focus-fixup-canonical-steps.md	text, the §6 Chromium pre-step, cells C19–C22, guards MG8 / MG9, §5.2's `form_input.rs` / `focus_snapshot.rs` rows,
-T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-focus-fixup-program.md	plan (1) keeps browser behaviour, measured.
-T	#11-change-on-blur-model-spec-rederivation	docs/plans/2026-11-focus-fixup-program.md	| **(1) provenance** | DC2: one user-edit funnel; `input` iff the value changed; the change-on-blur substep judged by one elidex-form fn (X1); design H (Chromium-measured, plan (1) §6) | Layout | closes none (DC2 was found inside DC1's scope); registers CP-1 to CP-4 | this umbrella approved; plan (1) plan-reviewed; split PR if 264 (M2) triggers |
-T	#11-change-on-blur-baseline-first-focus-value	docs/plans/2026-11-focus-fixup-program.md	| WHATWG HTML §4.10.11 The textarea element | user change → `input`; no `change` rule in the text | same funnel; change-on-blur kept as browser behaviour, measured | (1) | ✗ | yes |
 T	#11-core-browser-parity-deviations	docs/plans/2026-11-range-contents-program.md	A Chromium measurement (HeadlessChrome 156, 2026-11-03) shows custom elements in cloned, `createHTMLDocument` and
 T	#11-core-browser-parity-deviations	docs/plans/2026-11-range-contents-program.md	Chromium** (HeadlessChrome 156.0.0.0, 2026-11-03, probe `handoff/l3-d15probe/index.html`, result `result.txt`; one
 T	#11-core-browser-parity-deviations	docs/plans/2026-11-range-contents-program.md	dispatcher removed, `elidex-form/src/inert_document.rs:112`; §0.4 D15), where Chromium does not upgrade them. Every

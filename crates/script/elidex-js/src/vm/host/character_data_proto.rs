@@ -125,16 +125,13 @@ fn wrong_receiver_error(method: &str) -> VmError {
 /// `text.appendData.call(elementWrapper, …)`) raises **TypeError**
 /// — the WebIDL-mandated shape — before the handler dispatches and
 /// the algorithm-side `InvalidStateError` would bubble up as a
-/// DOMException instead.  Uses `node_kind_inferred` so legacy
-/// payload-only entities (no explicit `NodeKind` component) are still
-/// accepted, mirroring the prior `char_data_get` / `char_data_set`
-/// component-presence check.
+/// DOMException instead.  Matches on `node_kind`.
 fn ensure_character_data(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
     method: &str,
 ) -> Result<(), VmError> {
-    match ctx.host().dom().node_kind_inferred(entity) {
+    match ctx.host().dom().node_kind(entity) {
         Some(NodeKind::Text | NodeKind::Comment) => Ok(()),
         _ => Err(wrong_receiver_error(method)),
     }
