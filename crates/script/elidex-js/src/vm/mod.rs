@@ -657,8 +657,8 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) storage_event_prototype: Option<ObjectId>,
     /// Cached `Storage` wrapper for `window.localStorage`
-    /// (`[SameObject]` per WebIDL — same `ObjectId` returned across
-    /// reads for the lifetime of one bind cycle).  Cleared on
+    /// (HTML §12.2.3, local storage holder). Reads in the same bind
+    /// cycle return the same `ObjectId`. Cleared on
     /// `Vm::unbind` to avoid cross-origin data leaking through a
     /// retained reference after a rebind to a different document.
     #[cfg(feature = "engine")]

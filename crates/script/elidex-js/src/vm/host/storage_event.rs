@@ -14,15 +14,14 @@
 //! `precomputed_event_shapes.storage` shape and read directly without
 //! a side table.
 //!
-//! ## Dispatch (out of scope for this slot)
+//! ## Dispatch
 //!
 //! Which Windows receive a `storage` event (HTML §12.2.1, *broadcast a
 //! Storage object*) is documented once, at `enqueue_local_storage_change`
 //! in `vm/host/storage.rs`.
-//! In a single-VM world the event is unobservable from the originating
-//! script; cross-VM fan-out via the shell broker is tracked at
-//! `#11-storage-event-broker`.  This file ships only the
-//! constructor + class definition; the dispatch path is left absent.
+//! That function queues localStorage changes for the shell. On receipt,
+//! the content process calls `dispatch_storage_event`. Mode-aware
+//! delivery and sessionStorage fan-out remain follow-up work.
 
 #![cfg(feature = "engine")]
 

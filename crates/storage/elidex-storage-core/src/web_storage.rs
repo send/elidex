@@ -49,7 +49,8 @@ use sha2::{Digest, Sha256};
 
 use crate::error::StorageError;
 
-/// Per-origin storage quota in UTF-8 bytes (sum of key + value lengths).
+/// Byte cap for one storage bottle (UTF-8 key and value lengths).
+/// Local storage accounts per origin map and session storage per VM session state.
 ///
 /// The spec source is the module-level "Quota" section.
 pub const STORAGE_QUOTA_BYTES: usize = 5 * 1024 * 1024;
