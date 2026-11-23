@@ -403,15 +403,11 @@ fn cache_delete_outcome(
 }
 
 /// `cache.keys(request?, options?)` → `Promise<FrozenArray<Request>>`
-/// (§5.4.7).  The VM returns a mutable array. No request → every stored request key; a request restricts
-/// the result to the entries matching it (honouring `CacheQueryOptions`).
+/// (§5.4.7). The VM returns a mutable array. An omitted request selects
+/// all stored requests. A supplied request filters the list using the options.
 ///
-/// §5.4.7 orders the result by the cache's request-response list (insertion
-/// order).  The current backend (`elidex_cache_api::store::keys` →
-/// `load_all_entries`) returns request-URL order instead; closing that
-/// spec-conformance gap (a stable insertion-sequence column + position-
-/// preserving replace on `put`) is tracked by slot
-/// `#11-cache-keys-insertion-order`.
+/// The backend reads entries in insertion order for §5.4.7
+/// (`#11-cache-keys-insertion-order`).
 pub(crate) fn native_cache_keys(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
