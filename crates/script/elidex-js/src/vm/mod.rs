@@ -2631,12 +2631,9 @@ pub(crate) struct VmInner {
     /// Pending timers ordered by nearest deadline; fired by
     /// `drain_timers(now)` (driven by the shell on each event-loop tick).
     pub(crate) timer_queue: BinaryHeap<natives_timer::TimerEntry>,
-    /// Currently-firing timer entry, owned by the VM during callback
-    /// execution so `entry.callback` and `entry.args` survive any GC
-    /// triggered by the callback.  The entry is popped out of
-    /// `timer_queue` before running and moved into this slot; on return
-    /// the drain loop takes it back for interval re-arm / active-set
-    /// cleanup.
+    /// Currently-firing timer entry, a GC root (`GcRoots::current_timer`).
+    /// Popped out of `timer_queue` before firing; its lifetime is stated
+    /// once at the install site in `VmInner::drain_timers`.
     pub(crate) current_timer: Option<natives_timer::TimerEntry>,
     /// Monotonically-increasing IDs returned by `setTimeout` / `setInterval`.
     pub(crate) next_timer_id: u32,
