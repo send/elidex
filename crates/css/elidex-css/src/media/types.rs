@@ -80,15 +80,9 @@ pub enum MediaCondition {
     Not(Box<MediaCondition>),
     And(Vec<MediaCondition>),
     Or(Vec<MediaCondition>),
-    /// `<general-enclosed>` — mediaqueries-4 §3.1: a `( <any-value> )` (or
-    /// `<function-token> … )`) block that is not a recognized `( <media-feature> )`
-    /// nor `( <media-condition> )`. This is the catch-all for everything the
-    /// recognizer rejects: a function token or multi-token future syntax, but
-    /// also an unknown `<mf-name>`, an invalid/missing `<mf-value>`, trailing
-    /// junk after a feature, and a malformed (mixed-direction / `=`) range
-    /// (§3.2 "unknown … results in the value unknown"). Evaluates to Kleene
-    /// `Unknown` (never `false`) for forward-compatibility — so `(color) or
-    /// (unknownfeature)` is true on a color device, not poisoned to `not all`.
+    /// MQ4 §3 defines the function and parenthesized forms of `<general-enclosed>`.
+    /// The parser uses this variant for unrecognized content. It evaluates to
+    /// unknown under §3.1, including for unknown feature names or values (§3.2).
     ///
     /// Carries the **raw block text** captured at parse — `(weird: x)` or a
     /// `name(...)` function block — so it serializes back verbatim (CSSOM has no
@@ -101,9 +95,8 @@ pub enum MediaCondition {
 /// `<media-feature>` — mediaqueries-4 §2.4.
 #[derive(Clone, Debug, PartialEq)]
 pub enum MediaFeature {
-    /// A range feature (`width`/`height`/`aspect-ratio`/`resolution`) with one
-    /// or two comparison constraints — §2.4.3 range context (incl. legacy
-    /// `min-`/`max-` prefixes and L4 `(a <= width <= b)`). Constraints ANDed.
+    /// MQ4 §2.4.3 defines single and chained range comparisons. Section 2.4.4
+    /// maps the min- and max- prefixes to inclusive comparisons.
     ///
     /// `syntax` records which of the two equivalent notations was written, so
     /// `.media` serializes back the same one — the constraints alone can't tell
@@ -124,11 +117,9 @@ pub enum MediaFeature {
     Boolean(BooleanFeature),
 }
 
-/// Which of the two equivalent notations a [range feature](MediaFeature::Range)
-/// was written in — mediaqueries-4 §2.4.1. They are semantically identical
-/// (`min-width: 5px` ≡ `width >= 5px`), so they collapse to the same
-/// [`RangeConstraint`]s at parse; this records the source notation purely so
-/// `.media` serializes back the same one (CSSOM-1 §4.2 only models the colon
+/// The source notation for a range feature. MQ4 §2.4.4 makes `min-width: 5px`
+/// equivalent to `width >= 5px`. Retaining the notation alongside the constraints lets
+/// `.media` serialize the original form (CSSOM-1 §4.2 only models the colon
 /// notation as feature *names* — the comparison notation has no spec
 /// serialization, so it follows the browser de-facto form).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,8 +247,8 @@ pub enum DiscreteFeature {
     PrefersReducedMotion,
 }
 
-/// A discrete feature's keyword value (validated at parse — an unknown keyword
-/// for a known feature is an unknown `<mf-value>` → §3.2 → `not all`).
+/// A recognized discrete feature value. An unknown keyword gives the feature
+/// the value unknown (MQ4 §3.2), which propagates according to §3.1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiscreteValue {
     Portrait,
