@@ -564,7 +564,8 @@ fn c16_stale_mark_does_not_survive_refocus() {
     assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
 }
 
-/// C20 (M9, W1 / W2): the user returns to the script-written value; no second `change`.
+/// C20 (M9, W1 / W2; DC-2): D-3, class (b) — the user returns to the script-written
+/// value; no second `change`.
 fn c20(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
