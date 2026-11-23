@@ -9,7 +9,8 @@ E24 of its §7.5) owns applying it, by reference to this file. Every section and
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
 Since the move: PM 922 added the `git_segments()` iterator ("One derivation" below). [history] PM 930, PM 936 and
 PM 938 revised a pass-through decision layer this patch carried for the `:24` / `:30` hooks; PM 950 (user, option D)
-superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7-2.diff`).
+superseded them and removed that layer, so the patch is the deny rules and the iterator only. PM 986 (Codex #677
+round 2) added the reading of abbreviated long options ("Long options as git reads them" below): `hook-v7-3.diff`.
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -52,12 +53,41 @@ file), or when `--file` names a path in scope (an elidex `.git/config` written f
 The docstring names what the rule cannot see (indirect `include.path`, a swapped `GIT_CONFIG_GLOBAL` / `HOME`, a
 direct file write, `--git-dir` from outside); the persistent ones are detected by `--check` (I4).
 
+**Long options as git reads them (Codex #677 round 2, PM 986).** git's parse-options takes any unique prefix of a
+long option for the option (`git config --rename parking core` is `--rename-section`, measured: the hooks path moves
+to `/alt`), and `--no-<opt>` for a negatable one; a prefix of several is refused as ambiguous, a name of none as
+unknown. The patch reads long options the same way, through one function, `resolve_long(token, names)`: the exact
+name, else the one name the token is a prefix of, else "ambiguous" / "unknown". Its two callers:
+
+- `git config`: `names` is git's own list for the mode — the subcommand, which git reads only as the first argument
+  (measured: `git config --worktree set a.b c` is the legacy mode, "key does not contain a section: set"), or the
+  legacy mode. The lists (`CONFIG_LONG`) are taken from git 2.56.1: `git config <sub> --git-completion-helper-all`
+  for each of `set` / `unset` / `rename-section` / `remove-section` / `get` / `list` / `edit`, and the `-h` of the
+  legacy mode, `git config --get -h` (`--[no-]x` read as `x` and `no-x`). The canonical names then feed the same
+  classification as before. **Fail-safe**: a long option that resolves to no name (ambiguous or unknown) denies the
+  call when any argument (or a `--opt=` value) is section `core` or a key in it (`core` / `core.…`, any case); without
+  such an argument the call is left alone (other keys are out of scope). git refuses such a call itself while the
+  lists match git; the rule is for the lists drifting from git (a new option, a new git), and the lists are re-derived
+  on a git upgrade.
+- the hooked subcommands' `--no-verify`: matched against `no-verify` alone. Every prefix of `--no-verify` is, to
+  git 2.56.1, either `--no-verify` or ambiguous with another option of the subcommand (`--no-verbose`,
+  `--no-verify-signatures`, the negations behind `--n` / `--no` / `--no-`; measured for commit, push, merge, pull,
+  rebase and am), so the reduced list gives the same verdict as the full one under the fail-safe: deny.
+
+Not a general argv parser: short options (git does not abbreviate them) and the git global options before the
+subcommand (`-c`, `--config-env`; git.c compares them exactly, measured: `git --config-e=…` is "unknown option") are
+read as before. `commit_value_skips` still compares the value-taking commit options exactly: an abbreviated one
+(`--mess x`) is not skipped, so its value is read as an option — the deny side only.
+
 ```diff
 --- a/git-hook-bypass-guard.py
 +++ b/git-hook-bypass-guard.py
-@@ -6,13 +6,32 @@
+@@ -4,15 +4,40 @@
+ deny する形 (git の呼び出し 1 つごとに判定):
+   - `-c core.hooksPath=...` / `-c core.hooksPath ...` / `-ccore.hooksPath=...` /
      `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
-   - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
+-  - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
++  - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (git が受ける省略形も)、
      `git commit -n` (-an / -nm のような束ね形も)
 +  - `git config` で core.hooksPath を書く形すべて: 旧形式 (`git config [--local|--worktree|--global|--system|
 +    -f <file>|--file[=]<file>] core.hooksPath <dir>`、option は位置引数の後ろでもよい)、`--add` / `--replace-all` /
@@ -65,7 +95,13 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +    `remove-section` / `rename-section` (section `core` を消す・`core` から/へ rename する)、
 +    editor で開く `-e` / `--edit` / `edit` (どの key も書ける)。
 +    読む形 (`--get` 系、`-l` / `--list`、`get` / `list`、key だけの旧形式 `git config core.hooksPath`) は通す。
-+    `--file` の先が elidex の中なら、cwd が外でも deny
++    `--file` の先が elidex の中なら、cwd が外でも deny。
++    読めない long option (未知・曖昧な省略形) があり、どれかの引数が section `core` か `core.` で始まる key なら deny
++  - long option の読み: git の parse-options と同じく、正確な名前か、ただ 1 つの名前の prefix (`--rename` =
++    `--rename-section`、`--no-<opt>` の否定も) を正準名に直してから判定する (resolve_long)。`git config` は mode ごとの
++    git 自身の option 一覧 (CONFIG_LONG) と照合し、`--no-verify` は `no-verify` の prefix なら deny (git はそれを
++    `--no-verify` と読むか、`--no-verbose` 等と曖昧として拒む)。git の global option (`--config-env` 等) は git が
++    省略形を受けないので正確な名前だけ
  対象は実効 cwd (hook JSON の cwd、先行する `cd`、`git -C <dir>`) が elidex の checkout / worktree の中にある時だけ。
  範囲の考え方は ecs-mission-guard.py の in_scope と同じ (SCOPE_ROOTS / SCOPE_PARENT)。外では何も出さず exit 0。
  
@@ -90,7 +126,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -35,6 +54,15 @@
+@@ -35,6 +60,33 @@
  COMMIT_VALUE_SHORT = set("mFCctSu")
  COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
                       "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
@@ -101,12 +137,30 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +                       "-l", "--list"}
 +CONFIG_WRITE_ACTIONS = {"--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section",
 +                        "-e", "--edit"}
-+# long options that take a separate value (`--opt=value` is one token); `-f` is handled with the short clusters
-+CONFIG_VALUE_LONG = {"--file", "--blob", "--type", "--default", "--comment", "--value", "--url"}
++# long options of `git config` per mode (None = the legacy mode), as git 2.56.1 lists them -- re-derive on a git
++# upgrade: `git config <sub> --git-completion-helper-all` for each subcommand, `git config --get -h` for the legacy
++# mode (`--[no-]x` = x and no-x). resolve_long() matches a token against the mode's list.
++_LOC = "global system local worktree file blob no-global no-system no-local no-worktree no-file no-blob "
++_TYPE = "type bool int bool-or-int bool-or-str path expiry-date no-type "
++_SHOW = ("null name-only show-origin show-scope show-names includes "
++         "no-null no-name-only no-show-origin no-show-scope no-show-names no-includes ")
++CONFIG_LONG = {k: tuple(v.split()) for k, v in {
++    None: _LOC + _TYPE + _SHOW + "get get-all get-regexp get-urlmatch replace-all add unset unset-all rename-section "
++          "remove-section list edit get-color get-colorbool default comment fixed-value no-default no-comment "
++          "no-fixed-value",
++    "set": _LOC + _TYPE + "all value fixed-value comment append no-all no-value no-fixed-value no-comment no-append",
++    "unset": _LOC + "all value fixed-value no-all no-value no-fixed-value",
++    "rename-section": _LOC, "remove-section": _LOC, "edit": _LOC,
++    "get": _LOC + _TYPE + _SHOW + "all regexp value fixed-value url default no-all no-regexp no-value "
++           "no-fixed-value no-url no-default",
++    "list": _LOC + _TYPE + _SHOW,
++}.items()}
++# those that take a value (`--opt=value` is one token, else the next token); `-f` is handled with the short clusters
++CONFIG_VALUE_OPTS = {"file", "blob", "type", "default", "comment", "value", "url"}
  
  
  def state_dir():
-@@ -95,9 +123,16 @@
+@@ -95,19 +147,44 @@
  
  
  def env_hooks_assign(tok):
@@ -125,29 +179,64 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def hookspath_key(s):
-@@ -140,6 +175,60 @@
+     return s.split("=", 1)[0].strip().lower() == "core.hookspath"
+ 
+ 
++def resolve_long(tok, names):
++    """`--name[=value]` -> the long option git's parse-options takes it for: the exact name, else the one name it is a
++    prefix of; "?" if it is a prefix of several (git: ambiguous), "" if of none (git: unknown)."""
++    n = tok[2:].split("=", 1)[0]
++    if n in names:
++        return n
++    c = [x for x in names if x.startswith(n)]
++    return c[0] if len(c) == 1 else ("?" if c else "")
++
++
+ def long_is_no_verify(tok):
+-    return tok.startswith("--no-ve") and "no-verify".startswith(tok[2:])
++    # matched against `no-verify` alone: each prefix of it is, to git, either --no-verify or ambiguous with another
++    # option (--no-verbose, --no-verify-signatures; git 2.56.1 refuses it) -- denied either way (fail-safe)
++    return tok.startswith("--") and len(tok) > 2 and resolve_long(tok, ("no-verify",)) == "no-verify"
+ 
+ 
++def core_name(a):
++    """an argument (or a `--opt=` value) naming section `core` or a key in it, case-insensitive"""
++    a = (a.split("=", 1)[1] if a.startswith("--") and "=" in a else a).lower()
++    return a == "core" or a.startswith("core.")
++
++
+ def commit_value_skips(args):
+     """commit の引数で -m 等の「値」にあたる位置の index 集合。値は option でも message でもない。"""
+     skip = set()
+@@ -138,6 +215,65 @@
+             if ch in COMMIT_VALUE_SHORT:
+                 break
      return False
- 
- 
++
++
 +def config_hookspath_write(args, cwd):
 +    """`git config` の後ろの token -> (violation or None, `--file` の先 or None)。
-+    位置引数は option とその値を除いた全部 (git は option を位置引数の後ろにも置ける)。未知の option が値を取って
-+    位置がずれても、core.hooksPath が位置引数のどこかにあり読む形でなければ書く形として拾う (未知は deny 側)。"""
-+    pos, acts, target, i = [], set(), None, 0
++    subcommand は最初の引数だけ (git もそう読む)。位置引数は option とその値を除いた全部 (git は option を位置引数の
++    後ろにも置ける)。long option は resolve_long で mode の一覧 (CONFIG_LONG) の正準名に直す。直せない (未知・曖昧)
++    ものがあれば、どれかの引数が core の section / key の時 deny (fail-safe: 一覧が git とずれても core は通さない)。"""
++    sub = args[0] if args and args[0] in CONFIG_SUBCMDS else None
++    pos, acts, target, unknown, i = [], set(), None, False, 1 if sub else 0
 +    while i < len(args):
 +        a = args[i]
 +        if a == "--":
 +            pos.extend(args[i + 1:])
 +            break
-+        if a in CONFIG_VALUE_LONG and i + 1 < len(args):
-+            if a == "--file":
-+                target = args[i + 1]
-+            i += 2
++        o = resolve_long(a, CONFIG_LONG[sub]) if a.startswith("--") else None
++        if o in CONFIG_VALUE_OPTS:
++            v = a.split("=", 1)[1] if "=" in a else (args[i + 1] if i + 1 < len(args) else None)
++            if o == "file":
++                target = v
++            i += 1 if "=" in a else 2
 +            continue
-+        if a.startswith("--file="):
-+            target = a[len("--file="):]
-+        elif a.startswith("--"):
-+            acts.add(a.split("=", 1)[0])
++        if o in ("", "?"):
++            unknown = True
++        elif o is not None:
++            acts.add("--" + o)
 +        elif a.startswith("-") and len(a) > 1:
 +            for k, ch in enumerate(a[1:], 1):
 +                if ch == "f":
@@ -163,8 +252,9 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +        i += 1
 +    if target is not None:
 +        target = os.path.join(cwd, os.path.expanduser(target))
-+    sub = pos[0] if pos and pos[0] in CONFIG_SUBCMDS else None
-+    names = pos[1:] if sub else pos
++    names = pos
++    if unknown and any(map(core_name, args)):
++        return "git config (読めない option と core)", target
 +    if sub == "edit" or acts & {"-e", "--edit"}:
 +        return "git config --edit", target
 +    if sub in ("rename-section", "remove-section") or acts & {"--rename-section", "--remove-section"}:
@@ -181,12 +271,10 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +    if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:
 +        return None, target  # `git config core.hooksPath` = 旧形式の読み
 +    return "git config core.hooksPath", target
-+
-+
+ 
+ 
  def check_git(args, cwd):
-     """args: git の後ろの token。-> (violation or None, effective_cwd)"""
-     i, hits = 0, []
-@@ -173,6 +262,12 @@
+@@ -173,6 +309,12 @@
              break
      sub = args[i] if i < len(args) else None
      rest = args[i + 1:] if sub else []
@@ -199,7 +287,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -186,14 +281,16 @@
+@@ -186,14 +328,16 @@
      return (hits[0] if hits else None), eff
  
  
@@ -221,7 +309,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
          if j >= len(seg):
-@@ -204,13 +301,10 @@
+@@ -204,13 +348,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
@@ -237,7 +325,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          elif prog in SHELLS or prog == "eval":
              inner = None
              if prog == "eval":
-@@ -218,9 +312,14 @@
+@@ -218,9 +359,14 @@
              elif "-c" in rest and rest.index("-c") + 1 < len(rest):
                  inner = rest[rest.index("-c") + 1]
              if inner:
@@ -259,17 +347,25 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as one class, `Segments`, that loads the
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
-the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950, re-run on the
-fix round's `hook-v7.diff` and on `hook-v7-1.diff`, PM 967: 20/20 and the live 12/12; re-run on `hook-v7-2.diff`, the
-rename into `core` of Codex #677 P2) against a scratch copy of the live file patched with `hook-v7-2.diff` (the block above)
-and `test-v7-2.diff`, both in
+the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950; re-run on
+`hook-v7.diff`, `hook-v7-1.diff` (PM 967) and `hook-v7-2.diff` (the rename into `core`, Codex #677 P2); last run on
+`hook-v7-3.diff`, PM 986) against a scratch copy of the live file patched with `hook-v7-3.diff` (the block above) and
+`test-v7-3.diff`, both in
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20/20 tests OK; the same
-tests against the unpatched file: 42 failures and 5 errors (subtests counted); against `hook-v7-1.diff`: 3 failures,
-the three rename-into-`core` cases; the live file's own 12 tests against the patched file: 12/12 OK. The two diffs,
-applied with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`),
-reproduce the patched files byte for byte. The blind-spot probe of `scan()` (the "`scan()`'s deny is not widened"
-paragraph above), run on the `hook-v7-1.diff` copy (`hook-v7-2.diff` changes only `config_hookspath_write`, which
-none of these commands reaches): 21 commands, one per listed shape, each of which would run
+tests against the unpatched file: 53 failures and 5 errors (subtests counted); against `hook-v7-2.diff`: 12 failures,
+all of them cases new in `test-v7-3.diff` (11 `DENY` entries and the from-outside method, which stops at its first new
+`--fil` line); `test-v7-2.diff`'s tests against the patched file: 20/20 OK; the live file's own 12 tests against the
+patched file: 12/12 OK. The two diffs, applied with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`),
+reproduce the patched files byte for byte. The option lists: `guardpatch/config-opts-v7-3.py <scratch repo> --probe
+<patched hook>` asserts that `CONFIG_LONG` equals git's lists (the commands of "Long options as git reads them") and
+runs `git config [<sub>] --<p>` and `--<p>=x` for every prefix `p` of every listed name, plus nine unknown names, in
+the eight modes: 1285 prefixes, git's verdict (the name it reports, ambiguous, or unknown) equal to `resolve_long`'s
+for 1285/1285. (git compares `--n` / `--no` / `--no-` against the negations only without an `=`: `--no=x` is
+"unknown" where `--no` is ambiguous; both are unresolved, so the probe takes the verdict from the bare form.) The
+blind-spot probe of `scan()` (the "`scan()`'s deny is not widened" paragraph above), run on the `hook-v7-1.diff` copy
+and not re-run since (`hook-v7-2.diff` changes only `config_hookspath_write`, which none of these commands reaches;
+`hook-v7-3.diff` changes, besides it, only which prefixes `long_is_no_verify` takes, and every probe command carries
+the full `--no-verify`): 21 commands, one per listed shape, each of which would run
 `git commit --no-verify -m x` in an elidex worktree; 20 are not denied, and the one denied is
 `pushd <outside>; popd; git commit --no-verify -m x` with the hook's cwd in elidex (`pushd` / `popd` are both ignored,
 so the hook's cwd stands, which is where `popd` returns); the two plain controls (the commit with the cwd in elidex,
@@ -278,7 +374,26 @@ and `cd <elidex> && …` from outside) are denied. Each positive config form was
 `GIT_CONFIG_NOSYSTEM=1` isolated: with `parking.hooksPath /alt` set, `--rename-section parking core`,
 `config rename-section parking Core` and `--file .git/config --rename-section parking core` move
 `--git-path hooks` to `/alt`, as does `--rename-section parking.sub core` from `parking.sub.hooksPath`;
-`--rename-section parking other` and `parking core.sub` — which makes `[core "sub"]` — do not):
+`--rename-section parking other` and `parking core.sub` — which makes `[core "sub"]` — do not; the abbreviated forms
+on 2026-11-23 in the same isolation, each in a fresh repository with the key it acts on set, table below):
+
+| form (cwd in scope) | git 2.56.1 | `hook-v7-2.diff` | `hook-v7-3.diff` |
+|---|---|---|---|
+| `config --rename parking core`, `--rename-s parking core`, `--ren parking Core` | accepted: hooks path → `/alt` | allow | deny |
+| `config --rem core`; `--unset-a core.hooksPath`; `--fil=.git/config --unset-a core.hooksPath` | accepted: `/alt` → default | allow | deny |
+| `config --ed` (an editor that appends `[core] hooksPath = /alt`) | accepted: → `/alt` | allow | deny |
+| `config rename-section --fil .git/config parking core` | accepted: → `/alt` | allow | deny |
+| `config --loc core.hooksPath /alt`; `--fil .git/config core.hooksPath /alt`; `set --loc …`; `unset --a core.hooksPath`; `--no-glo --loc core.hooksPath /alt` | accepted: the key written | deny | deny |
+| `config --uns core.hooksPath`; `--re core zz`; `--fi .git/config core.hooksPath /alt` | ambiguous (exit 129) | allow; allow; deny | deny (fail-safe) |
+| `config --bogus core.hooksPath` | unknown (exit 129) | allow | deny (fail-safe) |
+| `config --e`; `--bogus user.name a` | ambiguous; unknown | allow | allow (no `core` argument) |
+| `config --no-glo --get core.hooksPath`; `--get-a core.hooksPath`; `--ren parking other` | accepted: a read; a read; no `core` | allow | allow |
+| `config --worktree set core.hooksPath /alt` | legacy mode: "key does not contain a section: set" | deny | deny |
+| `am --no-v` (a failing `pre-applypatch`) | accepted: the hook skipped | allow | deny |
+| `commit` / `push` / `rebase` `--no-veri`, `--no-verif` | accepted (commit, push with a failing hook: the hook skipped) | deny | deny |
+| `commit` / `push` / `merge` / `pull` / `rebase` `--no-v`, `--no-ve`, `--no-ver`; `merge` / `pull` `--no-veri`, `--no-verif`; `--n`, `--no`, `--no-` of those five and `am` | ambiguous (exit 129) | `--no-ve…` deny, the shorter allow | deny (fail-safe) |
+| `git --config-e=core.hooksPath=/alt …` | unknown option (git.c compares exactly) | allow | allow |
+| `cherry-pick` / `revert` `--no-verify` | not an option (git prints the usage) | deny | deny (unchanged) |
 
 | kind | commands (cwd in scope unless stated) | expected |
 |---|---|---|
@@ -289,6 +404,9 @@ and `cd <elidex> && …` from outside) are denied. Each positive config form was
 | editor | `git config --edit --worktree`, `-e`, `config edit` | deny (an editor can write any key) |
 | reach | `git -C <elidex> config --worktree …`; `cd <elidex> && git config --worktree …` from outside; `bash -c '…'`; `git status && git config …` | deny |
 | env | `GIT_CONFIG_PARAMETERS="'core.hooksPath'='/alt'" git commit -m x`; `env GIT_CONFIG_PARAMETERS="'core.hookspath=/alt'" git push origin HEAD`; `export GIT_CONFIG_PARAMETERS="'CORE.HOOKSPATH'='/alt'"; git commit -m x` | deny |
+| abbreviated (a unique prefix) | `git am --no-v x.patch`; `config --rename parking core`, `--ren parking Core`; `--rem core`; `--unset-a core.hooksPath`; `--ed`; `rename-section --fil .git/config parking core`; from outside: `--fil <elidex>/.git/config core.hooksPath /alt`, `--fil=<elidex>/.git/config --unset-a core.hooksPath` | deny |
+| unresolved with a `core` argument (fail-safe) | `config --uns core.hooksPath`, `--re core zz` (ambiguous); `--bogus core.hooksPath` (unknown); `git push --no-v origin HEAD` (an ambiguous prefix of `--no-verify`) | deny |
+| abbreviated or unresolved, no `core` write (negative) | `config --get-a core.hooksPath`; `--no-glo --get core.hooksPath`; `--ren parking other`; `--e` (ambiguous); `--bogus user.name a` (unknown); `git merge --no-verify-signatures topic` | allow |
 | reads (negative) | `git config core.hooksPath`, `--get`, `--get-all`, `--show-origin --get`, `--worktree core.hooksPath`, `--get-regexp core.hooks`, `--list`, `-l --show-scope`, `config get`, `config get --all`, `config list` | allow |
 | other keys (negative) | `--worktree user.name a`; `config set core.editor vim`; `--unset user.email`; `--remove-section alias`; `--rename-section parking other`; `--rename-section parking core.sub`; `--worktree core.hooks /alt`; `--worktree core.hooksPathX /alt`; `GIT_CONFIG_PARAMETERS="'user.name'='a'" git commit -m x` | allow |
 | text, not a command (negative) | `git commit -m 'git config core.hooksPath /alt'`; `git log --grep 'git config --worktree core.hooksPath'` | allow |
@@ -297,14 +415,16 @@ and `cd <elidex> && …` from outside) are denied. Each positive config form was
 | `scan()` on the iterator | `git_segments` replaced in the loaded module by one that yields a sentinel violation in scope | `scan("true", <out of scope>)` returns the sentinel |
 
 **Mutants** (each a replacement in a temp copy of the patched file, asserted to occur exactly once, run through the
-file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on `hook-v7.diff`, then on `hook-v7-2.diff` / `test-v7-2.diff`) all 13 were killed by the tests above (13/13). The
-`scan()` row replaces a block, the others one line):
+file's own `GIT_BYPASS_GUARD_SCRIPT` override, one at a time; on 2026-11-23 (PM 950, re-run on `hook-v7.diff` and
+`hook-v7-2.diff`: 13/13; last run on `hook-v7-3.diff` / `test-v7-3.diff`, PM 986, by `guardpatch/mutants-v7-3.py
+<patched hook> <patched test>`) all 22 were killed by the tests above (22/22). The `scan()` row replaces a block, the
+others one line; the last nine are new in `hook-v7-3.diff`):
 
 | replaced | → | killed by |
 |---|---|---|
 | `cwd = os.path.join(cwd, os.path.expanduser(d))` (in `git_segments`) | `pass` (the iterator ignores `cd`) | the `cd` / nested / `eval` / compound cwd cases; `cd <elidex> && …` from outside (the existing `test_cd_into_elidex` and the from-outside config method) |
 | `yield from git_segments(inner, cwd, depth + 1)` | `pass` (recursion dropped) | the nested and `eval` cwd cases, the `bash -c` `DENY` entries |
-| the body of `scan()` | a loop over a full copy of `git_segments` (a divergent copy) | only the `scan()`-on-the-iterator case: the copy behaves identically, so no behavioural case can see it; the test replaces `git_segments` and observes that `scan()` follows it |
+| the body of `scan()` | a loop over a full copy of `git_segments` (a divergent copy; the runner's form: a second name bound to the original `git_segments` at load, which the test's replacement does not reach) | only the `scan()`-on-the-iterator case: the copy behaves identically, so no behavioural case can see it; the test replaces `git_segments` and observes that `scan()` follows it |
 | `if not any(n.lower() == "core.hookspath" for n in names):` | exact-case compare | `core.HOOKSPATH` forms |
 | `if k.upper() == "GIT_CONFIG_PARAMETERS" and` | `if False and` | the env rows |
 | `if target and not in_scope(eff) and in_scope(target):` | `if False:` | the from-outside `--file` rows |
@@ -315,11 +435,20 @@ file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on 
 | `if (sub == "rename-section" or "--rename-section" in acts) and len(names) > 1 and names[1].lower() == "core":` | `if False:` (the destination is not checked) | `--rename-section parking core`, `rename-section parking Core`, the from-outside `--file … --rename-section parking core` |
 | `if sub == "edit" or acts & {"-e", "--edit"}:` | `if sub == "edit":` | `--edit`, `-e` |
 | `pos.extend(args[i + 1:])` | `pass` | `--worktree -- core.hooksPath /alt` |
+| `o = resolve_long(a, CONFIG_LONG[sub]) if a.startswith("--") else None` | the token's own name (no normalization) | the abbreviated and the unresolved-with-`core` `config` rows (`--rename`, `--ren`, `--rem`, `--unset-a`, `--ed`, `rename-section --fil …`, `--uns`, `--re core zz`, `--bogus core.hooksPath`), the from-outside `--fil` |
+| `return c[0] if len(c) == 1 else ("?" if c else "")` | `return "?" if c else ""` (exact names only) | `--ed`, `am --no-v`, `push --no-v`, `commit --no-ver`, the from-outside `--fil`; the allowed `--get-a core.hooksPath` and `--no-glo --get core.hooksPath` |
+| `o = resolve_long(a, CONFIG_LONG[sub])` | `CONFIG_LONG[None]` (the legacy list in every mode) | `config get --all core.hooksPath` (allowed: `--all` is unknown to the legacy mode) |
+| `_LOC`'s string | without its `no-` names | `--no-glo --get core.hooksPath` (allowed) |
+| `if unknown and any(map(core_name, args)):` | `if False:` (no fail-safe) | `--uns core.hooksPath`, `--re core zz`, `--bogus core.hooksPath` |
+| `return a == "core" or a.startswith("core.")` (in `core_name`) | `return a == "core"` | `--uns core.hooksPath`, `--bogus core.hooksPath` |
+| `target = v` (a value-taking option that resolves to `file`) | `pass` | the from-outside method (`--fil <elidex>/.git/config …`) |
+| `return tok.startswith("--") and len(tok) > 2 and resolve_long(tok, ("no-verify",)) == "no-verify"` | `hook-v7-2.diff`'s `tok.startswith("--no-ve") and "no-verify".startswith(tok[2:])` | `am --no-v`, `push --no-v` |
+| the same line | without `tok.startswith("--") and len(tok) > 2 and` | the allowed `commit` / `push` rows (each plain argument, `x`, would read as a prefix of `no-verify`) |
 
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v7-2.diff`, the block above, and `test-v7-2.diff`) — the `git_segments()` refactor of
+the whole diff (`guardpatch/hook-v7-3.diff`, the block above, and `test-v7-3.diff`) — the `git_segments()` refactor of
 `scan()` (PM 922) included — and apply it only after; apply the diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
