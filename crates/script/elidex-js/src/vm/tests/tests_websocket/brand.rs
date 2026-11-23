@@ -52,6 +52,8 @@ fn readystate_getter_on_non_websocket_throws() {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 2: brand check on new accessor + send-arg-extension surface
+// ---------------------------------------------------------------------------
 
 #[test]
 fn binary_type_getter_on_non_websocket_throws() {

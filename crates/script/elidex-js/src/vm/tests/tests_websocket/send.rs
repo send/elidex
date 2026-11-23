@@ -247,6 +247,3 @@ fn bytes_sent_saturating_subtracts_without_underflow() {
         assert_eval_number(vm, "s.bufferedAmount", 0.0);
     });
 }
-
-// ---------------------------------------------------------------------------
-// Phase 2: brand check on new accessor + send-arg-extension surface

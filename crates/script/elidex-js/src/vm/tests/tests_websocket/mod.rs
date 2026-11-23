@@ -22,6 +22,9 @@
 //! - MessageEvent slot population (data / origin / lastEventId /
 //!   source / ports) including MIN-5 regression: `origin` is the
 //!   **ws-URL** origin, NOT the page origin.
+//! - `addEventListener` (EventTarget) integration for the broker events.
+//! - Brand checks: prototype methods and accessors on a non-WebSocket
+//!   receiver throw TypeError.
 //!
 //! Split by section (pure move, R-0d-pre): [`ctor`], [`ready_state`],
 //! [`send`], [`close`], [`handlers`], [`brand`], [`binary_type`],
