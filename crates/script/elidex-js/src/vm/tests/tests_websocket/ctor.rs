@@ -1,0 +1,206 @@
+//! Constructor — URL validation + `protocols` argument.
+
+use crate::vm::tests::assert_eval_number;
+use crate::vm::value::JsValue;
+
+use super::with_ws_vm;
+
+// ---------------------------------------------------------------------------
+// Constructor: success path + URL validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ctor_accepts_ws_url() {
+    with_ws_vm(false, |vm| {
+        vm.eval("globalThis.s = new WebSocket('ws://example.com/socket');")
+            .expect("ctor succeeds");
+        assert_eval_number(vm, "s.readyState", 0.0);
+    });
+}
+
+#[test]
+fn ctor_accepts_wss_url() {
+    with_ws_vm(true, |vm| {
+        vm.eval("globalThis.s = new WebSocket('wss://example.com/socket');")
+            .expect("wss should succeed on https page");
+    });
+}
+
+#[test]
+fn ctor_promotes_http_to_ws() {
+    // WHATWG §9.3.1 step 6: `http://` → `ws://`, `https://` → `wss://`.
+    with_ws_vm(false, |vm| {
+        vm.eval("globalThis.s = new WebSocket('http://example.com/socket');")
+            .expect("http promotes to ws");
+        match vm.eval("s.url").unwrap() {
+            JsValue::String(id) => {
+                let s = vm.get_string(id);
+                assert!(s.starts_with("ws://"), "expected ws:// prefix, got: {s}");
+            }
+            other => panic!("url should be String, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn ctor_promotes_https_to_wss() {
+    with_ws_vm(true, |vm| {
+        vm.eval("globalThis.s = new WebSocket('https://example.com/socket');")
+            .expect("https promotes to wss");
+        match vm.eval("s.url").unwrap() {
+            JsValue::String(id) => {
+                let s = vm.get_string(id);
+                assert!(s.starts_with("wss://"), "expected wss:// prefix, got: {s}");
+            }
+            other => panic!("url should be String, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn ctor_rejects_unsupported_scheme() {
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ftp://example.com/socket');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax") && msg.contains("scheme"),
+            "expected SyntaxError mentioning scheme, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_fragment() {
+    // WHATWG §9.3.1 step 7: SyntaxError on fragment.
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket#frag');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax") && msg.contains("fragment"),
+            "expected SyntaxError mentioning fragment, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_garbage_url() {
+    with_ws_vm(false, |vm| {
+        let err = vm.eval("new WebSocket('not a url at all');").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("Syntax"), "expected SyntaxError, got: {msg}");
+    });
+}
+
+#[test]
+fn ctor_rejects_missing_url_arg() {
+    with_ws_vm(false, |vm| {
+        let err = vm.eval("new WebSocket();").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("argument") || msg.contains("required"),
+            "expected arity error, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_mixed_content() {
+    // https page + ws:// URL → SecurityError (DOMException).
+    with_ws_vm(true, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Security") || msg.contains("insecure"),
+            "expected SecurityError, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_requires_new_operator() {
+    super::super::assert_ctor_requires_new("WebSocket('ws://example.com/socket')", "WebSocket");
+}
+
+// ---------------------------------------------------------------------------
+// Constructor: protocols arg
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ctor_accepts_single_string_protocol() {
+    with_ws_vm(false, |vm| {
+        vm.eval("new WebSocket('ws://example.com/socket', 'chat');")
+            .expect("single string protocol ok");
+    });
+}
+
+#[test]
+fn ctor_accepts_array_of_protocols() {
+    with_ws_vm(false, |vm| {
+        vm.eval("new WebSocket('ws://example.com/socket', ['chat', 'superchat']);")
+            .expect("array of distinct protocols ok");
+    });
+}
+
+#[test]
+fn ctor_rejects_empty_protocol() {
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket', '');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax") && msg.contains("empty"),
+            "expected SyntaxError for empty protocol, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_protocol_with_separator() {
+    // RFC 7230 §3.2.6: comma is a separator, not a token char.
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket', 'bad,protocol');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax") && msg.contains("token"),
+            "expected SyntaxError for bad token, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_protocol_with_space() {
+    // Space (0x20) is below the 0x21..=0x7E token range.
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket', 'bad protocol');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax"),
+            "expected SyntaxError for space in protocol, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_rejects_duplicate_protocols() {
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval("new WebSocket('ws://example.com/socket', ['chat', 'chat']);")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Syntax") && msg.contains("duplicate"),
+            "expected SyntaxError for duplicate, got: {msg}"
+        );
+    });
+}
