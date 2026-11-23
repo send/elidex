@@ -24,8 +24,7 @@
 //!
 //! ## Deferred
 //!
-//! - File API §3.1 step 3 accepts type characters from U+0020 through U+007E
-//!   and ASCII-lowercases the result. The VM also accepts ASCII control characters.
+//! - See [`parse_blob_options_type`] for the constructor’s type validation gap.
 //!
 //! ## File subclass integration (slot `#11-file-api`)
 //!
@@ -518,7 +517,8 @@ pub(crate) fn parse_blob_options_endings(
 }
 
 /// Parse the optional `options` dict's `type` member into a
-/// lowercased `StringId`. See the module’s MIME type validation gap.
+/// lowercased `StringId`. File API §3.1 step 3 permits U+0020 through U+007E.
+/// The VM also accepts ASCII control characters (#11-core-browser-parity-deviations).
 pub(crate) fn parse_blob_options_type(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
