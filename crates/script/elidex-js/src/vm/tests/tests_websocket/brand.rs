@@ -1,6 +1,6 @@
 //! Brand checks on prototype methods and accessors.
 
-use super::*;
+use super::with_ws_vm;
 
 // ---------------------------------------------------------------------------
 // Brand check on prototype methods

@@ -1,6 +1,10 @@
 //! `addEventListener` / EventTarget integration (`#11-realtime-event-listeners`).
 
-use super::*;
+use elidex_net::ws::WsEvent;
+
+use crate::vm::tests::{assert_eval_bool, assert_eval_number, assert_eval_string};
+
+use super::{inject_ws_event_and_tick, open_ws, with_ws_vm};
 
 // ---------------------------------------------------------------------------
 // addEventListener / EventTarget integration (#11-realtime-event-listeners)

@@ -1,6 +1,9 @@
 //! Constructor — URL validation + `protocols` argument.
 
-use super::*;
+use crate::vm::tests::assert_eval_number;
+use crate::vm::value::JsValue;
+
+use super::with_ws_vm;
 
 // ---------------------------------------------------------------------------
 // Constructor: success path + URL validation

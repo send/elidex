@@ -1,6 +1,8 @@
 //! `binaryType` getter / setter (IMP-2).
 
-use super::*;
+use crate::vm::tests::assert_eval_string;
+
+use super::with_ws_vm;
 
 // ---------------------------------------------------------------------------
 // Phase 2: binaryType getter + setter (IMP-2 TypeError on non-enum)

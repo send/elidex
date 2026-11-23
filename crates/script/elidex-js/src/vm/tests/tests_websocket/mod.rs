@@ -50,9 +50,7 @@ use elidex_net::ws::WsEvent;
 use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::bind_vm;
-use super::super::value::JsValue;
 use super::super::Vm;
-use super::{assert_eval_bool, assert_eval_number, assert_eval_string};
 
 /// Minimal `doc` fixture for tests requiring a bound HostData session
 /// (the WebSocket constructor demands one for the side-table writes).

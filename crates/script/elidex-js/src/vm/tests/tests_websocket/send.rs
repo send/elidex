@@ -1,6 +1,10 @@
 //! `send()` (USVString + Phase 2 union matrix) and `BytesSent` accounting.
 
-use super::*;
+use elidex_net::ws::WsEvent;
+
+use crate::vm::tests::assert_eval_number;
+
+use super::{inject_ws_event_and_tick, open_ws, with_ws_vm};
 
 // ---------------------------------------------------------------------------
 // send(USVString) — CRIT-2 state semantics

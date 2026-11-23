@@ -1,6 +1,11 @@
 //! `onmessage` / `onerror` dispatch (MessageEvent / plain Event).
 
-use super::*;
+use elidex_net::ws::WsEvent;
+
+use crate::vm::tests::{assert_eval_bool, assert_eval_number, assert_eval_string};
+use crate::vm::value::JsValue;
+
+use super::{inject_ws_event_and_tick, open_ws, with_ws_vm};
 
 // ---------------------------------------------------------------------------
 // Phase 2: onmessage + onerror dispatch (MessageEvent / plain Event)

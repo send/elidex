@@ -1,6 +1,10 @@
 //! `readyState` transitions via `dispatch_realtime_event`.
 
-use super::*;
+use elidex_net::ws::WsEvent;
+
+use crate::vm::tests::{assert_eval_number, assert_eval_string};
+
+use super::{inject_ws_event_and_tick, with_ws_vm};
 
 // ---------------------------------------------------------------------------
 // readyState transitions via dispatch_realtime_event
