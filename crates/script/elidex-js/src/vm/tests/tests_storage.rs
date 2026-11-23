@@ -6,7 +6,7 @@
 //! Phase C4: 5 MiB quota → `QuotaExceededError` DOMException.
 //! Phase C5: `new StorageEvent(...)` constructor + 5 RO IDL attrs.
 //! Phase C6: Window prototype `localStorage` / `sessionStorage`
-//!           accessors with `[SameObject]` identity.
+//!           accessor identity (see `VmInner::storage_local_instance`).
 
 // A2: the Web Storage glue is `compat-webapi`-gated, so these functional tests
 // (which assume `Storage`/`StorageEvent` installed) only apply when the family is
@@ -526,8 +526,7 @@ fn storage_local_instance_cache_cleared_on_unbind() {
     vm.unbind();
     assert!(
         vm.inner.storage_local_instance.is_none(),
-        "Vm::unbind must clear storage_local_instance to prevent \
-         cross-origin leakage on rebind"
+        "See VmInner::storage_local_instance for the wrapper cache lifetime"
     );
 }
 

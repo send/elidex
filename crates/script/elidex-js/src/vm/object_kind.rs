@@ -942,22 +942,16 @@ pub enum ObjectKind {
         observer_id: u64,
     },
     /// `Storage` instance backing `window.localStorage` /
-    /// `window.sessionStorage` (WHATWG HTML §11.2).
+    /// `window.sessionStorage` (WHATWG HTML §12.2.2 and §12.2.3).
     ///
     /// Carries the area discriminator inline (`is_local: true` for
-    /// localStorage, `false` for sessionStorage). Identity is preserved
-    /// via `VmInner::storage_local_instance` /
-    /// `VmInner::storage_session_instance` — the Window getters return
-    /// the cached `ObjectId` so `localStorage === localStorage` (WebIDL
-    /// `[SameObject]`). The wrapper itself is stateless; every method
-    /// reads through to `HostData::web_storage` (origin-scoped JSON
-    /// persistence) for `Local` and `HostData::session_storage`
-    /// (per-VM in-memory `IndexMap`) for `Session`.
+    /// localStorage, `false` for sessionStorage). For the wrapper cache
+    /// lifetime, see `VmInner::storage_local_instance`. Methods use
+    /// `HostData::web_storage` (origin-scoped JSON persistence) for
+    /// `Local` and `HostData::session_storage` (per-VM in-memory
+    /// `IndexMap`) for `Session`.
     ///
-    /// GC contract: payload-free in trace terms (`is_local: bool` is
-    /// not an `ObjectId`); the caches in `VmInner` are cleared on
-    /// `Vm::unbind` so a retained reference cannot leak the previous
-    /// origin's data after a rebind.
+    /// GC contract: the area discriminator contains no object references.
     ///
     /// A2: gated by `compat-webapi` (in addition to `engine`) — the whole
     /// Web Storage surface is `Legacy`, so an `App`-profile build that compiles
@@ -967,7 +961,7 @@ pub enum ObjectKind {
     /// tightening the gate needs no new catch-all arm.
     #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     Storage { is_local: bool },
-    /// `StorageEvent` instance (WHATWG HTML §11.4.2). Subclass of
+    /// `StorageEvent` instance (WHATWG HTML §12.2.4). Subclass of
     /// `Event`; the `key` / `oldValue` / `newValue` / `url` /
     /// `storageArea` attributes live as own-data props at terminal
     /// shape `precomputed_event_shapes.storage`.  No side-table state
@@ -1038,16 +1032,13 @@ pub enum ObjectKind {
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]
     DataTransferItemList { parent_dt_id: ObjectId },
-    /// `Touch` instance (Touch Events §5).  Payload-free; the
-    /// 12 IDL members (identifier / target / coordinates / radii /
+    /// `Touch` instance (Touch Events §3).  Payload-free; the
+    /// 12 implemented attributes (identifier / target / coordinates / radii /
     /// rotation / force) live in
     /// `super::VmInner::touch_states` keyed by this object's
     /// `ObjectId`.
     ///
-    /// `new Touch(init)` is exposed per Touch Events §5.5 since
-    /// 2014.  UA-fired touch events are deferred to slot
-    /// `#11-event-dispatch-extra` (UA fire path still routes
-    /// `EventPayload::Mouse`).
+    /// Touch Events §3 defines `new Touch(init)`.
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId` (any EventTarget — Element / Document / Window /
@@ -1055,12 +1046,10 @@ pub enum ObjectKind {
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     Touch,
-    /// `TouchList` instance (Touch Events §5.6).  Indexed platform
-    /// object backing TouchEvent.touches / targetTouches /
-    /// changedTouches.  Payload-free; the ordered list of
-    /// [`Self::Touch`] `ObjectId`s lives in
-    /// `super::VmInner::touch_list_states`.  No constructor (per
-    /// IDL); allocated by the TouchEvent ctor and by UA dispatch.
+    /// `TouchList` instance (Touch Events §4). The TouchEvent constructor allocates
+    /// these lists for touches, targetTouches and changedTouches.
+    /// `length` and `item()` read the ordered Touch IDs from
+    /// `super::VmInner::touch_list_states`. Bracket access is unimplemented.
     ///
     /// GC contract: trace marks every `Touch` ObjectId in the
     /// state entry's `items` Vec.  Sweep tail prunes entries

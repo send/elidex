@@ -561,7 +561,7 @@ impl VmInner {
         // `window.screen` / `window.visualViewport` (CSSOM-View §4
         // Extensions to the Window Interface) — `[SameObject, Replaceable]`
         // readonly attributes installed as no-setter RO accessors returning the
-        // cached singleton (the `localStorage` / `[SameObject]` form), NOT a
+        // cached singleton, NOT a
         // writable `globals.insert`. This normalizes them onto the same
         // treatment their sibling `[Replaceable]` Window attrs above
         // (`innerWidth` / `scrollX` / `devicePixelRatio`) already use; assigning
@@ -574,9 +574,7 @@ impl VmInner {
         self.install_rw_accessors(proto_id, WINDOW_RW_ACCESSORS);
         // `localStorage` / `sessionStorage` accessor pair (WHATWG HTML
         // §12.2.3 localStorage getter / §12.2.2 sessionStorage getter).
-        // Read-only getter that returns the cached `Storage` wrapper from
-        // `VmInner::alloc_or_cached_storage` so `localStorage === localStorage`
-        // holds (`[SameObject]`).
+        // The getter caches are documented at `VmInner::storage_local_instance`.
         //
         // Seam-1a of the A1 Web-API core/compat gate: the Web Storage family's
         // Window-accessor surface, gated by the family-neutral `installs(level)`
@@ -697,10 +695,7 @@ const WINDOW_STORAGE_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
 ];
 
 // `window.screen` / `window.visualViewport` (CSSOM-View §4) — no-setter RO
-// accessors returning the cached singleton (`[SameObject]`); the
-// `localStorage`/`sessionStorage` install form, normalizing the previously
-// anomalous writable-global install onto the sibling `[Replaceable]`
-// no-setter-RO-accessor family. S5-2.
+// accessors returning the cached singleton (`[SameObject]`). S5-2.
 const WINDOW_PARITY_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("screen", native_window_get_screen),
     ("visualViewport", native_window_get_visual_viewport),
@@ -765,9 +760,9 @@ pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool
     true
 }
 
-/// `window.localStorage` getter (WHATWG HTML §11.2).  `[SameObject]`:
-/// returns the same `Storage` wrapper across reads, allocated lazily
-/// on the first access via [`crate::vm::VmInner::alloc_or_cached_storage`].
+/// `window.localStorage` getter (WHATWG HTML §12.2.3). For the wrapper's
+/// cache lifetime, see `VmInner::storage_local_instance`. Bottle-map failure
+/// handling is tracked by `#11-storage-opaque-origin-securityerror`.
 /// `compat-webapi`-gated (A2): the `Storage` glue is `Legacy`.
 #[cfg(feature = "compat-webapi")]
 fn native_window_get_local_storage(

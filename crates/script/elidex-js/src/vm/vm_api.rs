@@ -507,7 +507,7 @@ impl Vm {
     }
 
     /// Deliver per-frame resize observations to every registered
-    /// `ResizeObserver` (W3C Resize Observer §2 "broadcast active
+    /// `ResizeObserver` (W3C Resize Observer §3.4.5 "broadcast active
     /// resize observations").
     ///
     /// Same embedder-API contract as [`Self::deliver_mutation_records`]:

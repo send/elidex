@@ -574,7 +574,7 @@ define_well_known_strings! {
         predicted_events => "predictedEvents",
         get_coalesced_events => "getCoalescedEvents",
         get_predicted_events => "getPredictedEvents",
-        // TouchInit / Touch IDL members (Touch Events §5).
+        // TouchInit / Touch IDL members (Touch Events §3).
         // `target` / `screen_x` / `screen_y` / `client_x` /
         // `client_y` reused from earlier sections.
         identifier => "identifier",
@@ -615,11 +615,10 @@ define_well_known_strings! {
     }
 
     "Storage / StorageEvent (slot #11-storage-web)" {
-        // Constructor / global identifier names (WHATWG HTML §11.2).
+        // Constructor / global identifier names (WHATWG HTML §12.2).
         // `localStorage` / `sessionStorage` are accessor properties
-        // installed on `Window.prototype` (matching the
-        // `[SameObject]` semantics of the Storage interface — the
-        // getter returns a single cached wrapper per area).
+        // installed on `Window.prototype`. See `VmInner::storage_local_instance`
+        // for the getter cache lifetime.
         local_storage_global => "localStorage",
         session_storage_global => "sessionStorage",
         storage_global => "Storage",
@@ -634,11 +633,8 @@ define_well_known_strings! {
         // `key` / `oldValue` / `newValue` / `url` already live in
         // earlier sections and are reused here.
         storage_area => "storageArea",
-        // DOMException name surfaced when `setItem` exceeds the
-        // 5 MiB origin quota (WHATWG HTML §11.2.1 +
-        // `StorageError::quota_exceeded` round-trip).  Pre-interned
-        // here so the `vm/host/storage.rs` quota path can produce
-        // the DOMException without a per-call `strings.intern(...)`.
+        // Shared exception name for Storage.setItem (HTML §12.2.1, step 4)
+        // and Crypto.getRandomValues (Web Crypto API §10.1.1).
         dom_exc_quota_exceeded_error => "QuotaExceededError",
     }
 
@@ -1255,8 +1251,7 @@ define_well_known_strings! {
         selection_type_caret => "Caret",
         selection_type_range => "Range",
         selection_dir_directionless => "directionless",
-        // `selectionchange` event name (Selection API §3.4 +
-        // HTML §8.1.7.1 "selection task source").
+        // `selectionchange` event name (Selection API §6.2).
         selectionchange_event => "selectionchange",
         // `slotchange` event name (WHATWG DOM §4.2.2.5 +
         // §4.3 "notify mutation observers").

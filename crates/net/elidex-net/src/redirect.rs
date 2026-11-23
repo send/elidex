@@ -40,7 +40,7 @@ use bytes::Bytes;
 ///
 /// On success the returned [`Response`] carries:
 /// - `url_list` = full redirect chain (one entry per hop, original
-///   request URL first, [`Response::url`] last) — WHATWG Fetch §3.1.4.
+///   request URL first, [`Response::url`] last). See [`Response::url_list`].
 /// - `is_redirect_tainted` = `true` once **any** hop crossed origin
 ///   per §4.4 step 14.3 (the *redirect-tainted origin flag*).  The
 ///   classifier in `crates/script/elidex-js/src/vm/host/cors.rs`
@@ -74,13 +74,8 @@ pub async fn follow_redirects(
     let skip_ssrf = transport.config().allow_private_ips;
     let mut redirects = 0u32;
     let redirect_mode = request.redirect;
-    // Accumulate the spec's "request URL list" (§3.1.4) across
-    // hops.  The transport stamps a single-URL list onto each
-    // hop's response; we override the *final* response's
-    // `url_list` with the full chain so callers see one entry per
-    // hop.  Seeded with the original request URL so even a
-    // single-hop (no-redirect) response surfaces a one-element
-    // list rather than the transport's identical clone.
+    // Fetch §2.2.5 starts the request URL list with the original URL.
+    // HTTP-redirect fetch (§4.5 step 18) appends each followed location.
     let mut url_list: Vec<url::Url> = vec![request.url.clone()];
     // Redirect-tainted origin flag (§4.4 step 14.3) — `true` once
     // any hop crossed origin.  Persists across subsequent hops so

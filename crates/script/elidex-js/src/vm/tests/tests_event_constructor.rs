@@ -81,7 +81,7 @@ fn new_event_is_trusted_is_false() {
 
 #[test]
 fn new_event_timestamp_is_positive_number() {
-    // HR-Time §5: timeStamp is monotonic ms since the time origin
+    // DOM §2.5 / HR-Time §7.1: timeStamp is monotonic ms since the time origin
     // (shared with performance.now via VmInner::start_instant).  Two
     // events in quick succession should still both be non-negative
     // finite numbers; ordering is not tested here.

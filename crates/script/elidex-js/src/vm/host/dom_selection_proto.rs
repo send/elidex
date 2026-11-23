@@ -650,18 +650,17 @@ fn native_selection_to_string(
 }
 
 // ---------------------------------------------------------------------------
-// selectionchange dispatch (HTML §8.1.7.1 "selection task source")
+// selectionchange dispatch (Selection API §6.2.2)
 // ---------------------------------------------------------------------------
 
 /// Dispatch a coalesced `selectionchange` event at the bound Document
-/// per Selection API §3.4 / HTML §8.1.7.1 ("selection task source") if
-/// the per-document dirty bit is set.  Resets the bit on success.
+/// when its dirty bit is set. Selection API §6.2.1 queues a user interaction
+/// task. This VM checks the flag during its pending-task drain and clears it
+/// before firing the event (§6.2.2).
 ///
-/// Called from `VmInner::drain_tasks` after the regular pending-task
-/// loop drains; one event per drain regardless of how many discrete
-/// Selection mutations queued up.  Reentrancy gate matches the
-/// surrounding drain — the helper short-circuits when no bit is set
-/// or when the host is unbound.
+/// Each time the pending task queue empties, `VmInner::drain_tasks` checks
+/// the flag. This helper fires at most one event for changes accumulated
+/// since the previous check.
 ///
 /// Returns `true` when an event was actually fired (telemetry /
 /// tests).

@@ -1,4 +1,4 @@
-//! `ResizeObserver` API (Resize Observer §3).
+//! `ResizeObserver` API (Resize Observer §2.1).
 //!
 //! Observes changes to the content box / border box size of elements.
 //!
@@ -49,7 +49,7 @@ pub enum ResizeObserverBoxOptions {
 }
 
 impl ResizeObserverBoxOptions {
-    /// Map a WebIDL enum string (Resize Observer §3) to the variant, or
+    /// Map a WebIDL enum string (Resize Observer §2.1) to the variant, or
     /// `None` for an unrecognised value. The spec strings live with the
     /// enum (crate-side) per the Layering mandate — host marshalling
     /// translates a TypeError on `None`, but the string→variant choice

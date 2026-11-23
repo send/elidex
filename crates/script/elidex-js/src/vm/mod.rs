@@ -645,27 +645,26 @@ pub(crate) struct VmInner {
     /// `register_selection_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) selection_prototype: Option<ObjectId>,
-    /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
+    /// `Storage.prototype` (WHATWG HTML §12.2.1).  Chains to
     /// `Object.prototype` and carries `getItem` / `setItem` /
     /// `removeItem` / `clear` / `key` / `length`.  `None` until
     /// `register_storage_global()` runs during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) storage_prototype: Option<ObjectId>,
-    /// `StorageEvent.prototype` (WHATWG HTML §11.4.2).  Chains to
+    /// `StorageEvent.prototype` (WHATWG HTML §12.2.4).  Chains to
     /// `Event.prototype`.  `None` until
     /// `register_storage_event_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) storage_event_prototype: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.localStorage`
-    /// (`[SameObject]` per WebIDL — same `ObjectId` returned across
-    /// reads for the lifetime of one bind cycle).  Cleared on
-    /// `Vm::unbind` to avoid cross-origin data leaking through a
-    /// retained reference after a rebind to a different document.
+    /// Local storage wrapper cache for one bind cycle. The engine uses
+    /// `with_bound` to bind and unbind around each batch (such as event
+    /// dispatch). Unbind clears both storage wrapper caches, even when
+    /// the next batch uses the same document. This makes wrapper identity
+    /// shorter-lived than the Document's holders in HTML §§12.2.2–12.2.3
+    /// (`#11-storage-holder-document-lifetime`).
     #[cfg(feature = "engine")]
     pub(crate) storage_local_instance: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.sessionStorage` —
-    /// mirror of [`Self::storage_local_instance`].  Cleared on
-    /// `Vm::unbind`.
+    /// Session storage counterpart of [`Self::storage_local_instance`].
     #[cfg(feature = "engine")]
     pub(crate) storage_session_instance: Option<ObjectId>,
     /// `Crypto.prototype` (WebCrypto §10).  Chains to
@@ -1572,19 +1571,19 @@ pub(crate) struct VmInner {
     /// [`mouse_event_prototype`].  Adds `dataTransfer` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) drag_event_prototype: Option<ObjectId>,
-    /// `TouchEvent.prototype` (Touch Events §5.5).  Chains to
+    /// `TouchEvent.prototype` (Touch Events §5).  Chains to
     /// [`ui_event_prototype`].  Adds 7 own-data slots (3 TouchLists +
     /// 4 modifier flags).
     #[cfg(feature = "engine")]
     pub(crate) touch_event_prototype: Option<ObjectId>,
-    /// `Touch.prototype` (Touch Events §5.6).  Chains to
+    /// `Touch.prototype` (Touch Events §3).  Chains to
     /// `Object.prototype`.  All accessors read from
     /// [`Self::touch_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_prototype: Option<ObjectId>,
-    /// `TouchList.prototype` (Touch Events §5.6).  Chains to
-    /// `Object.prototype`.  Length getter + indexed exotic +
-    /// `item(idx)` method backed by [`Self::touch_list_states`].
+    /// `TouchList.prototype` (Touch Events §4).  Chains to
+    /// `Object.prototype`.  The `length` getter and `item(idx)` method read
+    /// from [`Self::touch_list_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_list_prototype: Option<ObjectId>,
     /// `DataTransfer.prototype` (HTML DnD §6.2).  Chains to
@@ -1618,16 +1617,16 @@ pub(crate) struct VmInner {
     /// tail prunes entries whose key was collected.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
-    /// Per-`Touch` instance state (Touch Events §5.6).  Keyed by the
-    /// instance's `ObjectId`.  All 12 IDL members live here as
-    /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
+    /// Per-`Touch` instance state (Touch Events §3).  Keyed by the
+    /// instance's `ObjectId`.  Stores the attributes implemented by
+    /// [`host::events_modern::TouchState`].
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId`.  Sweep tail prunes entries whose key was
     /// collected.
     #[cfg(feature = "engine")]
     pub(crate) touch_states: HashMap<ObjectId, host::events_modern::TouchState>,
-    /// Per-`TouchList` instance state (Touch Events §5.6).  Keyed
+    /// Per-`TouchList` instance state (Touch Events §4).  Keyed
     /// by the instance's `ObjectId`.  Holds the ordered Vec of
     /// member `Touch` ObjectIds.
     ///
@@ -2649,15 +2648,12 @@ pub(crate) struct VmInner {
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
     /// Monotonic reference point for `performance.now()` and
-    /// `Event.timeStamp` (WHATWG DOM §2.2 / HR-Time §5).  Set once at
+    /// `Event.timeStamp` (DOM §2.5 / HR-Time §7.1).  Set once at
     /// `Vm::new`; both APIs return `self.start_instant.elapsed()` in
     /// milliseconds with sub-ms precision.  Sharing a single
     /// `Instant` guarantees `event.timeStamp` and `performance.now()`
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
-    ///
-    /// Consumed by `performance.now()` and `Event.timeStamp` —
-    /// HR-Time §5 requires the two to share a time origin.
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field
