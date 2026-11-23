@@ -297,8 +297,7 @@ fn intersection_observer_deliver_box_less_target_delivers_initial_zero_once() {
     )
     .unwrap();
 
-    // Registration initializes the previous threshold index to -1 (§3.2.2).
-    // The first update queues an entry (§3.2.10), and the unchanged second update adds none.
+    // With threshold [0], the registry delivers one entry across these two updates.
     vm.deliver_intersection_observations();
     vm.deliver_intersection_observations();
 

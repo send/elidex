@@ -287,8 +287,7 @@ fn observe_unregistered_id_is_noop() {
 
 #[test]
 fn box_less_target_delivers_initial_observation() {
-    // The registry queues an initial entry for a target without a layout box.
-    // Its geometry stays the same on the next update.
+    // With threshold [0], the box-less target's first ratio of 0 crosses the threshold.
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
 

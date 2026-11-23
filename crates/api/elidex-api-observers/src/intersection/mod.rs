@@ -287,9 +287,11 @@ impl IntersectionObserverRegistry {
         // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
         // touch disjoint components, so they coexist).
         //
-        // Registration starts with threshold index -1 (§3.2.2). The first update
-        // queues an entry when the index changes (§3.2.10 step 18). For a missing
-        // layout box, this registry reports zero rectangles and no intersection.
+        // Intersection Observer §3.2.2 initializes the previous threshold index
+        // to -1, so the first update queues an entry (§3.2.10 steps 13 and 18).
+        // This registry compares ratios. A target without a layout box has ratio 0,
+        // so its first update crosses a threshold only if the list includes 0.
+        // Its boundingClientRect and intersectionRect are zero and isIntersecting is false.
         for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
             let maybe_rect = rect_fn(&*dom, entity);
             for obs in &comp.0 {
