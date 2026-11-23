@@ -452,15 +452,15 @@ fn traversal_preserves_current_state_until_commit() {
 fn push_state_enqueues_serialized_state_bytes() {
     // §7.2.5 step 3: the VM serializes the state object (JSON-shortcut interim) to
     // storage bytes on the enqueued action, so a later cross-document traversal can
-    // restore `history.state`. The VM ALWAYS serializes (`Some(bytes)`); the `None`
-    // variant is boa's light-touch.
+    // restore `history.state`. This plain object is representable by the JSON encoder.
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 3}, '', '/a');").unwrap();
     match take_one_history(&mut vm) {
         HistoryAction::PushState {
             serialized_state, ..
         } => {
-            let bytes = serialized_state.expect("VM always serializes (Some), never boa-None");
+            let bytes =
+                serialized_state.expect("expected serialized bytes for the plain state object");
             assert_eq!(String::from_utf8(bytes).unwrap(), "{\"step\":3}");
         }
         other => panic!("expected PushState with serialized_state, got {other:?}"),
@@ -469,9 +469,8 @@ fn push_state_enqueues_serialized_state_bytes() {
 
 #[test]
 fn push_state_null_serializes_to_json_null() {
-    // A null (or undefined) state round-trips as JSON `null` bytes — so the entry
-    // carries a restorable `Some(b"null")`, deserializing back to `null`, not an
-    // ambiguous `None` (which would be indistinguishable from a plain-nav entry).
+    // A top-level null yields the JSON bytes for null. A top-level undefined
+    // would yield no bytes.
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState(null, '', '/a');").unwrap();
     match take_one_history(&mut vm) {
@@ -588,16 +587,9 @@ fn function_state_succeeds_with_null_state_interim(// CR-3 opposite deviation (D
 
 #[test]
 fn throwing_tojson_degrades_to_null_interim() {
-    // `StructuredSerializeInternal` (WHATWG HTML §2.7.3 step 24) serializes ordinary
-    // objects via enumerable-property `Get` and NEVER invokes JSON's `toJSON` hook,
-    // so a throwing `toJSON` does NOT abort real structured serialization. The interim
-    // JSON shortcut *does* call it and `JSON.stringify` throws — a JSON-only exception
-    // that must DEGRADE to no restorable state (like BigInt/cyclic, CR-3), NOT
-    // propagate and lose the history entry (Codex R5). The pushState SUCCEEDS: the URL
-    // applies and the entry is enqueued with `serialized_state: None`. (A throwing
-    // property *getter* — which real clone WOULD propagate via `? Get` — also degrades
-    // here, an interim gap the full walker restores; the JSON shortcut cannot tell the
-    // two apart.)
+    // HTML rejects the ordinary object's enumerable callable with DataCloneError.
+    // The interim encoder invokes the method instead. Its exception leaves this
+    // history entry without state bytes, and pushState still updates the URL.
     let mut vm = new_vm_with_base(); // http://localhost/
     vm.eval(
         "var o = { toJSON: function () { throw new Error('boom'); } };

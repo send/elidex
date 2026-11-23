@@ -84,11 +84,8 @@ pub enum MediaCondition {
     /// The parser uses this variant for unrecognized content. It evaluates to
     /// unknown under §3.1, including for unknown feature names or values (§3.2).
     ///
-    /// Carries the **raw block text** captured at parse — `(weird: x)` or a
-    /// `name(...)` function block — so it serializes back verbatim (CSSOM has no
-    /// canonical form for `<general-enclosed>`; browsers preserve the original
-    /// text). The stored slice includes its own delimiters: `( … )` for a parens
-    /// block, `name( … )` for a function token.
+    /// Function source through the closing delimiter or EOF, or the trimmed
+    /// contents of a parenthesized block wrapped in a new pair of parentheses.
     GeneralEnclosed(Box<str>),
 }
 

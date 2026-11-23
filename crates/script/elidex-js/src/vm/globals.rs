@@ -919,7 +919,7 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_fetch_global();
 
-        // `structuredClone(value, options?)` (WHATWG HTML §2.9).
+        // HTML §2.7.11 structuredClone uses serialization and deserialization with transfer.
         // Must run after `register_blob_global` / `register_array_buffer_global`
         // because the clone path allocates fresh ArrayBuffer / Blob
         // instances that read the target-realm prototypes from

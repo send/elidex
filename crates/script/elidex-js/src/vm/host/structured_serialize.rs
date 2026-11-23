@@ -44,19 +44,10 @@ use super::super::VmInner;
 ///   value is omitted, so history can still store bytes for the enclosing object.
 /// - Top-level `undefined` produces no bytes here. As an ordinary property
 ///   value it can disappear from JSON; HTML §2.7.4 step 5 preserves it.
-/// - **A throwing `toJSON`**: `StructuredSerializeInternal` serializes ordinary
-///   objects via enumerable-property `? Get` (§2.7.3 step 26.4, the Object branch
-///   entered at step 24) and **never invokes** JSON's `toJSON` hook, so a throwing
-///   `toJSON` does NOT abort real serialization. The JSON shortcut *does* call it
-///   and throws — a JSON-only exception that must degrade, not propagate and lose
-///   the history entry (Codex R5).
-/// - **A throwing property getter**: structured clone WOULD propagate it (via
-///   `? Get`, §2.7.3 step 26.4.1). The interim could tell it apart from the
-///   `toJSON` throw above only by a `toJSON`-skip that partially reimplements
-///   structured-clone semantics on the shared JSON encoder (which also backs
-///   `Worker.postMessage`) — a half-structured-clone mode the walker slot owns
-///   wholesale — so it degrades here too rather than growing that seam (deferred by
-///   design, not by impossibility; a gap the walker restores).
+/// - On an ordinary object, HTML §2.7.4 step 28.4 reads each still-own
+///   enumerable string key. A throwing getter propagates; a callable value
+///   reaches step 22 and throws DataCloneError. JSON can invoke a `toJSON`
+///   method instead. History discards the bytes when the encoder throws.
 pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -89,7 +80,7 @@ impl VmInner {
     /// **without** firing popstate). Used by `HostDriver::set_history_state` at
     /// document construction so a **cross-document traversal**'s rebuilt document
     /// reads the restored `history.state` before its initial scripts run (step
-    /// 8.4). `None` (a plain load, or the boa engine) → `null`.
+    /// 8.4). Absent bytes, including after a VM encoding failure, restore `null`.
     pub(crate) fn seed_history_state(&mut self, serialized_state: Option<Vec<u8>>) {
         self.navigation.current_state = match serialized_state {
             Some(bytes) => structured_deserialize(self, &bytes),
