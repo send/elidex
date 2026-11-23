@@ -47,7 +47,7 @@ pub struct OffscreenCanvasDims {
 }
 
 /// Marker component on a `<canvas>` HTMLCanvasElement entity post-
-/// `transferControlToOffscreen` (HTML §4.12.5 "placeholder canvas element"
+/// `transferControlToOffscreen` (HTML §4.12.5.3 "placeholder canvas element"
 /// definition). Stores the OffscreenCanvas entity it was transferred to (for
 /// future `commit`-from-worker reflection — v1 reads only the presence). The
 /// `<canvas>.getContext` guard throws `InvalidStateError` when this is
@@ -153,7 +153,7 @@ pub fn set_offscreen_canvas_height(dom: &mut EcsDom, entity: Entity, height: u32
     let _ = reset_canvas_bitmap(dom, entity, width, height);
 }
 
-/// Read predicate: does `entity` carry [`PlaceholderCanvas`]? (HTML §4.12.5
+/// Read predicate: does `entity` carry [`PlaceholderCanvas`]? (HTML §4.12.5.3
 /// "placeholder canvas element" definition read side.) Used by the
 /// `<canvas>.getContext` host guard to throw `InvalidStateError`.
 #[must_use]
