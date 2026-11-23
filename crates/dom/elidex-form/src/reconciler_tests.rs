@@ -243,12 +243,21 @@ fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
         .unwrap()
         .set_cursor(end);
     user_append(&mut dom, e, "a");
-    assert_eq!(snap(&dom, e), Snap::Baseline("typed".to_string()));
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        }
+    );
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
     assert_eq!(
         snap(&dom, e),
-        Snap::Baseline("typed".to_string()),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        },
         "a `type` flip writes nothing to the focus snapshot"
     );
     with_fcs(&dom, e, |s| assert_ne!(s.value(), "typed"));
@@ -319,9 +328,22 @@ fn button_kind_input_is_seeded_and_judged_false() {
     use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     record_focus_snapshot(&mut dom, e);
-    assert_eq!(snap(&dom, e), Snap::Unmarked, "seeded");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Unmarked {
+            first_focus: String::new()
+        },
+        "seeded"
+    );
     user_append(&mut dom, e, "x");
-    assert_eq!(snap(&dom, e), Snap::Baseline(String::new()), "marked");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: String::new(),
+            user_change_from: String::new()
+        },
+        "marked"
+    );
     assert!(dom.set_attribute(e, "type", "button").did_set);
     with_fcs(&dom, e, |s| {
         assert_eq!(s.kind, FormControlKind::Button);

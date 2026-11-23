@@ -243,6 +243,66 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
     );
 }
 
+#[test]
+fn vm_redundant_focus_keeps_first_focus_value() {
+    // E17v (QB-5, Q1 (F)): a redundant `focus()` keeps both the first-focus
+    // value and the mark. VM `focus()` (value ""); script `value = "x"`; a user
+    // edit from Rust deletes the `x` (value ""); `focus()` again. A re-seed
+    // would leave the component unmarked (and re-read the value); the early
+    // return keeps `first_focus == ""` and `user_change_from == Some("x")`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.i = document.createElement('input'); \
+         document.body.appendChild(i); \
+         i.focus(); \
+         i.value = 'x';",
+    )
+    .unwrap();
+    vm.unbind();
+
+    let holder = dom
+        .world()
+        .query::<(elidex_ecs::Entity, &elidex_form::FocusValueSnapshot)>()
+        .iter()
+        .next()
+        .map(|(e, _)| e)
+        .expect("the focused input carries a change-on-blur component");
+    let edit = elidex_form::apply_user_edit(&mut dom, holder, |f| f.delete_backward())
+        .expect("the input has a FormControlState");
+    assert!(edit.changed);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval("i.focus();").unwrap();
+    vm.unbind();
+
+    {
+        let held = dom
+            .world()
+            .get::<&elidex_form::FocusValueSnapshot>(holder)
+            .unwrap();
+        assert_eq!(held.first_focus(), "", "the first-focus value survives");
+        assert_eq!(
+            held.user_change_from(),
+            Some("x"),
+            "the mark survives (a re-seed would leave it unmarked)"
+        );
+    }
+    assert!(
+        !elidex_form::take_change_on_blur(&mut dom, holder),
+        "the value equals the first-focus value"
+    );
+}
+
 // --- document.activeElement fallback -----------------------------
 
 #[test]

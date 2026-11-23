@@ -140,10 +140,10 @@ impl FocusEventSink for ShellFocusSink<'_> {
     }
 
     fn seed_focus_snapshot(&mut self, new: Entity) {
-        // After §6.6.4 focus update steps step 4.4 — seed the change-on-blur snapshot
-        // (unmarked; the baseline is the value before the first user value change,
-        // plan D-1) (the canonical transition owns the seed timing; the `elidex-form` call lives
-        // here because the engine-independent crate has no form dependency).
+        // Seed the value at first focus (unmarked) at the designation, step 4.1,
+        // before the `focus` / `focusin` listeners (R-1). The canonical
+        // transition owns the instant; the `elidex-form` call lives here because
+        // the engine-independent crate has no form dependency.
         record_focus_snapshot(&mut self.pipeline.dom, new);
     }
 

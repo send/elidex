@@ -17,11 +17,13 @@
 //! The Population (the elements that carry the component) is chosen once, by
 //! the element, at the seed: see [`record_focus_snapshot`]. The kind (the `type`
 //! state) is read only at focus loss, by [`take_change_on_blur`] through
-//! `change_on_blur_kind_applies`, so no write chooses by kind. The component holds one thing: the baseline the
-//! blur compares against, `None` until the first user value change since focus,
-//! which stores the value just before it. `Some` is therefore also the
-//! provenance mark. Only [`crate::apply_user_edit`] sets it; no non-user writer
-//! does.
+//! `change_on_blur_kind_applies`, so no write chooses by kind. The component
+//! holds two facts (B-1): `first_focus`, the value when the control was first
+//! focused (the "what it was when the control was first focused" of step 2.1,
+//! taken at the designation, R-1), and `user_change_from`, the mark: `None`
+//! until the first user value change since focus, which stores the value just
+//! before it (D-3's K-first reference). Only [`crate::apply_user_edit`] sets the
+//! mark; no non-user writer does.
 //!
 //! "The plan" below is `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`
 //! (its B-2, QB-1..3, O-B1 and §4.4); "the re-derivation" is
@@ -34,30 +36,41 @@ use elidex_ecs::{EcsDom, Entity};
 
 use crate::{FormControlKind, FormControlState};
 
-/// The change-on-blur provenance of a focused `input` / `textarea` element.
-/// Which elements carry it is [`record_focus_snapshot`]'s rule (B-2 of the plan); auto-cleaned on despawn. The field is private: only this module
-/// writes it (seed, mark, take).
-///
-/// No focus-time copy of the value is kept: an unmarked baseline would never
-/// be read, so the first mark stores the pre-edit value instead (D-1 of `docs/plans/2026-11-change-on-blur-user-provenance.md`,
-/// PM 393).
-pub struct FocusValueSnapshot(Option<String>);
+/// The change-on-blur state of a focused `input` / `textarea` element: the
+/// value at first focus and the user-change mark (B-1 of the plan). Which
+/// elements carry it is [`record_focus_snapshot`]'s rule (B-2); auto-cleaned on
+/// despawn. The fields are private: only this module writes them (seed, mark,
+/// take).
+pub struct FocusValueSnapshot {
+    /// The value when the control was first focused (`F0`; R-1, R-3).
+    first_focus: String,
+    /// The mark: `Some(value just before the first user value change)`, `None`
+    /// while no user edit has changed the value since focus (D-3).
+    user_change_from: Option<String>,
+}
 
 impl FocusValueSnapshot {
-    /// The baseline `change` compares the value with at blur: `Some` once a user
-    /// edit changed the value since focus (the provenance mark), else `None`.
+    /// The value when the control was first focused.
     #[must_use]
-    pub fn baseline(&self) -> Option<&str> {
-        self.0.as_deref()
+    pub fn first_focus(&self) -> &str {
+        &self.first_focus
+    }
+
+    /// The value just before the first user value change since focus, if any
+    /// (the provenance mark).
+    #[must_use]
+    pub fn user_change_from(&self) -> Option<&str> {
+        self.user_change_from.as_deref()
     }
 }
 
-/// Seed the change-on-blur snapshot on `entity`: unmarked (no baseline), iff it
-/// is an HTML-namespace `input` or `textarea` element carrying a
-/// [`FormControlState`]. Any other element gets no write at all (no insert, no
-/// remove). Call whenever an element gains focus (the shell sink's seed, after
-/// §6.6.4 focus update steps step 4.4, or VM `focus()`); a re-seed replaces any
-/// earlier snapshot, mark included.
+/// Seed the change-on-blur component on `entity`: the value at first focus,
+/// unmarked, iff it is an HTML-namespace `input` or `textarea` element carrying
+/// a [`FormControlState`]. Any other element gets no write at all (no insert,
+/// no remove). Call at the designation of the focused area, before any `focus`
+/// listener runs (HTML §6.6.4 focus update steps step 4.1 precedes step 4.4,
+/// R-1; or VM `focus()` after its designation); a re-seed replaces any earlier
+/// component, mark included.
 ///
 /// The test is the element, never `FormControlState.kind`: the kind cannot
 /// express "is an `input` element" (a `<button>` shares kinds with `<input>`)
@@ -66,27 +79,39 @@ impl FocusValueSnapshot {
 /// (see [`take_change_on_blur`]).
 pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
     // Cheapest exclusion first: most focused elements are not form controls.
-    if dom.world().get::<&FormControlState>(entity).is_ok()
-        && dom.is_html_namespace(entity)
+    let Ok(first_focus) = dom
+        .world()
+        .get::<&FormControlState>(entity)
+        .map(|fcs| fcs.value().to_owned())
+    else {
+        return;
+    };
+    if dom.is_html_namespace(entity)
         && (dom.has_tag(entity, "input") || dom.has_tag(entity, "textarea"))
     {
-        let _ = dom.world_mut().insert_one(entity, FocusValueSnapshot(None));
+        let _ = dom.world_mut().insert_one(
+            entity,
+            FocusValueSnapshot {
+                first_focus,
+                user_change_from: None,
+            },
+        );
     }
 }
 
-/// Mark `entity`'s snapshot: a user edit changed the value from `before`.
-/// Called only by [`crate::apply_user_edit`]. Without a snapshot it does
+/// Mark `entity`'s component: a user edit changed the value from `before`.
+/// Called only by [`crate::apply_user_edit`]. Without a component it does
 /// nothing (never inserts one).
 ///
-/// The **first** mark sets the baseline to `before`. While unmarked, the
-/// value has changed only through non-user writes (a user change would have
-/// marked), and each of those re-baselines (the Chromium-measured model, plan
-/// §4.3), so the baseline at the first user change is the value just before
-/// it. Taking it here means no non-user writer has to call anything. Later
-/// changes, user or not, leave the baseline.
+/// The **first** mark stores `before`, the value just before the first user
+/// value change since focus: D-3's K-first reference. The judgement compares the
+/// value at focus loss with it as well as with the first-focus value, so a user
+/// edit that nets to nothing after a non-user write fires no `change`. Later
+/// changes, user or not, leave the mark. No non-user writer has to call
+/// anything.
 pub(crate) fn note_user_value_change(dom: &mut EcsDom, entity: Entity, before: String) {
     if let Ok(mut snap) = dom.world_mut().get::<&mut FocusValueSnapshot>(entity) {
-        snap.0.get_or_insert(before);
+        snap.user_change_from.get_or_insert(before);
     }
 }
 
@@ -158,15 +183,20 @@ fn change_on_blur_kind_applies(kind: FormControlKind) -> bool {
 }
 
 /// §6.6.4 focus update steps step 2.1 — consume (read + remove) `entity`'s
-/// snapshot and return whether `change` fires: the kind at focus loss passes
+/// component and return whether `change` fires: the kind at focus loss passes
 /// step 2.1's kind conjuncts (`change_on_blur_kind_applies`), the user changed
-/// the value since focus, **and** it differs from the baseline (§4.10.5.5:
-/// script value changes alone fire nothing). `false` without a snapshot (an
-/// element the seed did not write) or without a `FormControlState`. The only
-/// consumer of the snapshot: every focus sink calls this and only dispatches
-/// `change`.
+/// the value since focus (the mark is present), **and** the value differs from
+/// both the first-focus value (step 2.1's "different to what it was when the
+/// control was first focused") and the value just before the first user change
+/// (D-3). §4.10.5.5: script value changes alone fire nothing. `false` without a
+/// component (an element the seed did not write) or without a
+/// `FormControlState`. The only consumer of the component: every focus sink
+/// calls this and only dispatches `change`.
 pub fn take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool {
-    let Ok(FocusValueSnapshot(baseline)) = dom.world_mut().remove_one::<FocusValueSnapshot>(entity)
+    let Ok(FocusValueSnapshot {
+        first_focus,
+        user_change_from,
+    }) = dom.world_mut().remove_one::<FocusValueSnapshot>(entity)
     else {
         return false;
     };
@@ -174,7 +204,10 @@ pub fn take_change_on_blur(dom: &mut EcsDom, entity: Entity) -> bool {
         .get::<&FormControlState>(entity)
         .is_ok_and(|fcs| {
             change_on_blur_kind_applies(fcs.kind)
-                && matches!(baseline.as_deref(), Some(b) if fcs.value() != b)
+                && matches!(
+                    user_change_from.as_deref(),
+                    Some(p) if fcs.value() != first_focus && fcs.value() != p
+                )
         })
 }
 
@@ -190,13 +223,18 @@ mod tests {
             .set_value(value.to_string());
     }
 
-    /// C7 (a): a seed is unmarked (no baseline).
+    /// C7 (a): a seed holds the first-focus value and is unmarked.
     #[test]
-    fn c7a_seed_is_unmarked() {
+    fn c7a_seed_holds_first_focus_value_unmarked() {
         let mut dom = EcsDom::new();
         let input = control(&mut dom, FormControlKind::TextInput, "initial");
         record_focus_snapshot(&mut dom, input);
-        assert_eq!(snap(&dom, input), Snap::Unmarked);
+        assert_eq!(
+            snap(&dom, input),
+            Snap::Unmarked {
+                first_focus: "initial".to_string()
+            }
+        );
     }
 
     /// C7 (b): a user edit that changes the value marks the snapshot.
@@ -206,7 +244,13 @@ mod tests {
         let input = control(&mut dom, FormControlKind::TextInput, "");
         record_focus_snapshot(&mut dom, input);
         user_append(&mut dom, input, "a");
-        assert_eq!(snap(&dom, input), Snap::Baseline(String::new()));
+        assert_eq!(
+            snap(&dom, input),
+            Snap::Marked {
+                first_focus: String::new(),
+                user_change_from: String::new()
+            }
+        );
     }
 
     /// C7 (c): a user edit on a control without a snapshot inserts none.
@@ -218,7 +262,7 @@ mod tests {
         assert_eq!(snap(&dom, input), Snap::Absent);
     }
 
-    /// C7 (d): a re-seed after a mark is unmarked again.
+    /// C7 (d): a re-seed after a mark is unmarked again, at the current value.
     #[test]
     fn c7d_reseed_clears_the_mark() {
         let mut dom = EcsDom::new();
@@ -226,7 +270,12 @@ mod tests {
         record_focus_snapshot(&mut dom, input);
         user_append(&mut dom, input, "a");
         record_focus_snapshot(&mut dom, input);
-        assert_eq!(snap(&dom, input), Snap::Unmarked);
+        assert_eq!(
+            snap(&dom, input),
+            Snap::Unmarked {
+                first_focus: "a".to_string()
+            }
+        );
     }
 
     /// C7 (i): `take_change_on_blur` without a snapshot → `false`.
@@ -237,7 +286,7 @@ mod tests {
         assert!(!take_change_on_blur(&mut dom, input));
     }
 
-    /// C7 (j): marked and value ≠ baseline → `true`, consumed; a second take → `false`.
+    /// C7 (j): marked and value ≠ first-focus value and ≠ the mark → `true`, consumed; a second take → `false`.
     #[test]
     fn c7j_take_marked_changed_is_true_once() {
         let mut dom = EcsDom::new();
@@ -254,7 +303,7 @@ mod tests {
     }
 
     /// C7 (k): unmarked with the value changed, and marked with value =
-    /// baseline → `false`.
+    /// first-focus value → `false`.
     #[test]
     fn c7k_take_needs_mark_and_difference() {
         let mut dom = EcsDom::new();
@@ -267,21 +316,37 @@ mod tests {
         record_focus_snapshot(&mut dom, reverted);
         user_append(&mut dom, reverted, "a");
         set_value(&mut dom, reverted, "");
-        assert!(!take_change_on_blur(&mut dom, reverted), "value = baseline");
+        assert!(
+            !take_change_on_blur(&mut dom, reverted),
+            "value = first-focus value"
+        );
     }
 
-    /// C7 (l): a non-user write before the first mark is absorbed into the
-    /// baseline; later marks do not move it.
+    /// DC-11 (C7 (l) at the judgement level): a non-user write before the
+    /// first user edit, then a user edit that nets to zero → `false` (D-3: the
+    /// value equals the value just before the first user edit).
     #[test]
-    fn c7l_first_mark_rebaselines_once() {
+    fn dc11_net_zero_user_edit_after_script_write_is_false() {
         let mut dom = EcsDom::new();
         let input = control(&mut dom, FormControlKind::TextInput, "");
         record_focus_snapshot(&mut dom, input);
         set_value(&mut dom, input, "x");
         user_append(&mut dom, input, "y");
-        assert_eq!(snap(&dom, input), Snap::Baseline("x".to_string()));
-        user_append(&mut dom, input, "z");
-        assert_eq!(snap(&dom, input), Snap::Baseline("x".to_string()));
+        assert_eq!(
+            snap(&dom, input),
+            Snap::Marked {
+                first_focus: String::new(),
+                user_change_from: "x".to_string()
+            },
+            "the first mark is the value just before the first user edit"
+        );
+        let edit = crate::apply_user_edit(&mut dom, input, |f| f.delete_backward()).unwrap();
+        assert!(edit.changed);
+        assert_eq!(
+            dom.world().get::<&FormControlState>(input).unwrap().value(),
+            "x"
+        );
+        assert!(!take_change_on_blur(&mut dom, input));
     }
 
     /// The plan's §4.4 truth table: one row per [`FormControlKind`], with the
@@ -373,15 +438,35 @@ mod tests {
         }
     }
 
-    /// PB-1α: the seed writes an unmarked component on an `input` element of
-    /// every kind (the population is the element, not the kind).
+    /// PB-1 (α, extended in β): the seed writes an unmarked component holding
+    /// the first-focus value on an `input` element of every kind (the
+    /// population is the element, not the kind).
     #[test]
-    fn seed_writes_every_input_kind() {
+    fn seed_writes_every_input_kind_with_its_first_focus_value() {
         for (kind, _) in TRUTH_TABLE {
             let mut dom = EcsDom::new();
             let input = control(&mut dom, kind, "v");
+            // The value the state holds (a kind's setter may sanitize "v").
+            let held_value = dom
+                .world()
+                .get::<&FormControlState>(input)
+                .unwrap()
+                .value()
+                .to_owned();
             record_focus_snapshot(&mut dom, input);
-            assert_eq!(snap(&dom, input), Snap::Unmarked, "{kind:?}");
+            assert_eq!(
+                snap(&dom, input),
+                Snap::Unmarked {
+                    first_focus: held_value.clone()
+                },
+                "{kind:?}"
+            );
+            let held = dom.world().get::<&FocusValueSnapshot>(input).unwrap();
+            assert_eq!(held.first_focus(), held_value, "{kind:?}");
+            assert_eq!(held.user_change_from(), None, "{kind:?}");
+            if kind == FormControlKind::TextInput {
+                assert_eq!(held_value, "v", "the fixture holds a non-empty value");
+            }
         }
     }
 
@@ -391,7 +476,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let ta = attached_element(&mut dom, "textarea", &[]);
         record_focus_snapshot(&mut dom, ta);
-        assert_eq!(snap(&dom, ta), Snap::Unmarked);
+        assert!(matches!(snap(&dom, ta), Snap::Unmarked { .. }));
     }
 
     /// PB-3: other `FormControlState` elements get no write at all: no insert,
@@ -407,12 +492,21 @@ mod tests {
 
             let marked = attached_element(&mut dom, tag, &[]);
             dom.world_mut()
-                .insert_one(marked, FocusValueSnapshot(Some("kept".to_string())))
+                .insert_one(
+                    marked,
+                    FocusValueSnapshot {
+                        first_focus: "kept".to_string(),
+                        user_change_from: Some("kept-mark".to_string()),
+                    },
+                )
                 .unwrap();
             record_focus_snapshot(&mut dom, marked);
             assert_eq!(
                 snap(&dom, marked),
-                Snap::Baseline("kept".to_string()),
+                Snap::Marked {
+                    first_focus: "kept".to_string(),
+                    user_change_from: "kept-mark".to_string()
+                },
                 "<{tag}>: a pre-existing component is untouched"
             );
         }
