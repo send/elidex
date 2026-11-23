@@ -58,7 +58,7 @@ fn rect_args(
 //                                  rect / arc
 //   §4.12.5.1.8 — transforms: translate / rotate / scale
 //   §4.12.5.1.8 — fill/stroke styles: fillStyle / strokeStyle (accessors)
-//   §4.12.5.1.9 — drawing rectangles: fillRect / strokeRect / clearRect
+//   §4.12.5.1.11 — drawing rectangles: fillRect / strokeRect / clearRect
 //   §4.12.5.1.10 — text: measureText
 //   §4.12.5.1.11 — drawing paths: fill / stroke
 //   §4.12.5.1.13 — compositing: globalAlpha (accessor)
@@ -247,7 +247,7 @@ pub(super) fn native_oc_stroke(
     Ok(JsValue::Undefined)
 }
 
-/// `fillRect(x, y, w, h)` (HTML §4.12.5.1.9 — fill a rectangle with fillStyle).
+/// `fillRect(x, y, w, h)` (HTML §4.12.5.1.11 — fill a rectangle with fillStyle).
 pub(super) fn native_oc_fill_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -265,7 +265,7 @@ pub(super) fn native_oc_fill_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `strokeRect(x, y, w, h)` (HTML §4.12.5.1.9 — stroke a rectangle's outline).
+/// `strokeRect(x, y, w, h)` (HTML §4.12.5.1.11 — stroke a rectangle's outline).
 pub(super) fn native_oc_stroke_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -283,7 +283,7 @@ pub(super) fn native_oc_stroke_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `clearRect(x, y, w, h)` (HTML §4.12.5.1.9 — clear a rectangle to transparent black).
+/// `clearRect(x, y, w, h)` (HTML §4.12.5.1.11 — clear a rectangle to transparent black).
 pub(super) fn native_oc_clear_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
