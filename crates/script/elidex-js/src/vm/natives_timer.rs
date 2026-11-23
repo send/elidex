@@ -320,6 +320,11 @@ impl VmInner {
     ///
     /// After firing expired timers, drains the microtask queue (HTML
     /// §8.1.7.3 — perform a microtask checkpoint).
+    ///
+    /// Not re-entrant: nothing the per-fire checkpoint runs calls back into
+    /// `drain_timers` (its callers are the host event loops and
+    /// `ScriptEngine::drain_timers`). The `current_timer` slot relies on
+    /// that — it holds the fired entry through the checkpoint.
     pub(crate) fn drain_timers(&mut self, now: Instant) -> Vec<Result<(), VmError>> {
         let mut results: Vec<Result<(), VmError>> = Vec::new();
         loop {
@@ -413,7 +418,7 @@ impl VmInner {
             // `setInterval(() => { if (...) clearInterval(id); })`
             // pattern) does not get re-scheduled: `cancel_timer` may
             // have inserted the id into `cancelled_timers` while the
-            // callback was running, and we must honour that before
+            // callback or its checkpoint was running, and we must honour that before
             // pushing the next tick back onto the heap.  We keep the
             // monotonic `deadline + repeat` cadence so callbacks don't
             // drift with their own duration.
