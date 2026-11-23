@@ -151,6 +151,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 
 - `[both]` `// stub:` / `// minimal v1` / `// for now` / `// quick fix` / `// temporary` / `// placeholder` 等 marker (diff: code、plan: 文中 phrase)
 - `[diff]` `unimplemented!()` / `todo!()` macro 追加 (existing 除外)
+- `[diff]` script が到達できる経路の release `assert!` / `panic!` / `unreachable!` / `expect` (script から作れる条件で engine を abort させない)。到達不能を command 付きで示した内部不変条件は assert 可 (PM 584)
 - `[both]` `TODO` / `FIXME` 追加で defer slot 番号 (`#11-*`) の citation 無し
 - `[both]` "later" / "future PR" / "M4-13" 等の deferral 言及で defer slot 引用無し
 - `[both]` Shim / fallback / backwards-compat wrapper 追加

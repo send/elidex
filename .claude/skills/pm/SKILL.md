@@ -105,12 +105,13 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 | 7 | 比例性 | 1 PR の `@codex review` > 10 → lane に理由を聞く。> 20 または同一 PR の 2 回目の plan delta → loop 継続を PM が lens で裁く (user list に当たる時だけ user) |
 | 8 | **pmo 定期チェック** | pmo に定期チェック (中身と control は `~/.claude/agents/pmo.md` と道具の docstring) を依頼し、結果と control を表に写す。control が外れた・「未作成」と返った件数は使わない (件数不明として skip の上限に当てる) |
 | 9 | **overdue triage** (常設) | 行 8 の overdue scan が 1 件以上なら、その pass で triage を始める: reviewer に行ごとの提案 (延長 + 理由 / 着手 / close) を出させ → PM が決め → pmo が適用。budget で延期する時は件数と延期日を §10.2 に載せる (延期できる回数は上の skip の上限)。前 pass より件数が増えた、または件数が不明なら延期しない |
-| 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの |
+| 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの。期日が今日の項目を確かめる (§10.2、PM 532) |
 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
 - Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
+- Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある Claude の gate は直した後の head に回す。gate の規則は変えない。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
@@ -169,6 +170,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   commit しない。lane は最終文言と前後の diff を PM に送り、PM の commit の上に自分の PR を積む。
 - global 変更 (`~/.claude/**`): 適用前に「global で全プロジェクトに効く」と明示 → `$PMD/backup/` に
   backup → diff を user に見せる → 適用 → dotfiles session に報告。skill を変えた後の検証は新しい agent で。
+  coder に global の file を書かせる brief は、別の path に書かせ → diff を見せ → 置き換える (その場で書き換えさせない、PM 527)。
+  global の hook を変える brief は、参照元の検索に hook を使う repo 側も入れる (`git grep -n '<hook 名>'` を各 repo で、hook を読む parity test を拾うため、PM 530)。
 
 ### 3.5 委譲 — 誰が書くか
 
@@ -381,7 +384,7 @@ lane が自分の lane SSoT 冒頭に書く (項目は `/drive` §9)。PM は書
 
 1. **PM の未完了** (§1 step 3 で照合される一覧): 未適用の landing リスト、未 landing の PM 成果物、
    約束した報告、延期した triage (件数と延期日)、§2 で `skipped` になった行 (連続 skip の回数)、
-   pmo に渡せていない「未記録の決定」(§7)、索引の「索引 → 正典」の行 (§7.3)
+   pmo に渡せていない「未記録の決定」(§7)、索引の「索引 → 正典」の行 (§7.3)。**各項目に期日か待ちの条件を必ず書く** (期日の無い項目が積もるため。期日が今日の項目は §2 の行 10 で確かめる、PM 532)
 2. PM の session 名、pmo の有無、budget の状態 (次の判断番号は書かない — §7.4)
 3. main の状態 (先頭、今日の着地、赤)
 4. lane → session 名 [ref] → Orca terminal handle、lane ごとの待ちと依存
