@@ -1,6 +1,6 @@
 # Flex omit-initial program
 
-Flex and flex-flow declared getters will serialize the winning typed longhands while preserving their meaning under reparse. This is the scope record for the Flex increment of #11-style-shorthand-expand. PM 959–975 establish the cuts below. R3 is the final umbrella review: cuts, landing order, crossing invariants and finding ownership are its gate. Each implementation PR still needs a separate full plan review. Acceptance examples and source inventories belong in those child plans.
+Flex and flex-flow declared getters will serialize the winning typed longhands while preserving their meaning under reparse. This is the scope record for the Flex increment of #11-style-shorthand-expand. PM 959–977 establish the cuts below. R3 is the final umbrella review: cuts, landing order, crossing invariants and finding ownership are its gate. Each implementation PR still needs a separate full plan review. Acceptance examples and source inventories belong in those child plans.
 
 ## §1. Cuts and landing order
 
@@ -20,17 +20,17 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 
 G′ is split by the reader’s dependency, following its breadth warning and PM 965/971. G′a computes with available context; G′b waits for C1 where percentages must survive to layout or paint. Both call G’s grammar, with the category required by each property. The acceptance condition is **one implementation of CSS length and length-percentage grammar**, including @page. Moving a consumer includes its direct, substituted (where applicable) and used-value paths. C1 precedes newly admitted inputs requiring its payload. N’s common semantics also apply to consumers switched later in G′b.
 
-PM 975 selects the following unit boundary at G. The unit families follow [CSS Values §6.1](https://drafts.csswg.org/css-values-4/#relative-lengths) and [§6.2](https://drafts.csswg.org/css-values-4/#absolute-lengths).
+PM 975, as corrected by PM 977, selects the following unit boundary at G. The unit families follow [CSS Values §6.1](https://drafts.csswg.org/css-values-4/#relative-lengths) and [§6.2](https://drafts.csswg.org/css-values-4/#absolute-lengths).
 
 | CSS length units | Context or conversion | Decision at G |
 |---|---|---|
 | px, cm, mm, Q, in, pt, pc | Fixed ratios to px | Accept |
 | em, rem | Element or root font size | Accept |
-| vw, vh, vmin, vmax | Existing viewport width and height | Accept |
+| vw, vh, vmin, vmax and lvw, lvh, lvmin, lvmax | The same large viewport width and height | Accept |
 | ex, rex, cap, rcap, ch, rch, ic, ric | Element or root font metrics | Reject at parse |
 | lh, rlh | Element or root line height | Reject at parse |
-| vi, vb | Root writing mode and viewport axes | Reject at parse |
-| svw, svh, svi, svb, svmin, svmax; lvw, lvh, lvi, lvb, lvmin, lvmax; dvw, dvh, dvi, dvb, dvmin, dvmax | Small, large or dynamic viewport, plus writing mode for logical axes | Reject at parse |
+| vi, vb, lvi, lvb | Large viewport along the box’s own inline or block axis (initial writing-mode when there is no element) | Reject at parse |
+| svw, svh, svi, svb, svmin, svmax; dvw, dvh, dvi, dvb, dvmin, dvmax | Small or dynamic viewport, plus box writing mode for logical axes | Reject at parse |
 
 If the G′b child review calls for another split, PM approves the revised cuts, prerequisites and reassignment of every affected §4 ID before implementation. Each part lands its grammar and readers together. The last part removes the remaining wrappers. C2 and S follow **all** G′b parts.
 
@@ -41,7 +41,7 @@ git grep -n -E 'Token::(Dimension|Percentage)|expect_dimension|expect_percentage
 git grep -n -Ei 'parse_[[:alnum:]_]*length|length[[:alnum:]_]*_to_px|"(px|em|rem|pt|pc|cm|mm|in|q)"' c3c78070 -- crates
 ```
 
-Repeat both commands with HEAD at the final G′b landing head. Classify remaining hits as the common grammar, its callers/tests, or a named different grammar or non-CSS use (including unrelated string literals). Require zero independent in-scope decoders and zero lenient unknown-unit fallbacks. Separately, C1 measures the computed-type population with `git grep -l -w Dimension c3c78070 -- crates`.
+Repeat both commands with HEAD at the final G′b landing head. Classify remaining hits as the common grammar, its callers/tests, or a named different grammar or non-CSS use (including unrelated string literals). Require zero independent in-scope decoders and zero lenient unknown-unit fallbacks. Run G’s direct, substituted and @supports controls for every deferred unit family at this head as well: the parser must reject those dimensions even where a fallback arm contains no unit literal. Separately, C1 measures the computed-type population with `git grep -l -w Dimension c3c78070 -- crates`.
 
 ## §2. Crossing invariants
 
@@ -79,7 +79,7 @@ Child plans own their complete algorithm/branch maps, including mediaqueries-4 �
 
 ## §4. Finding homes
 
-Finding text is indexed in the lane handoff directory `handoff/codex-lanes/l1/` under `gate-r2-9853348d.md`, `gate-r2-c2f27760.md`, `gate-r2-ab539f10.md`, `gate-umb-df8f8336.md` and `gate-umb-1696e3b8.md`. IDs are local to the indicated review head. An arrow assigns the producing contract and its consumer check.
+Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/l1/` under `gate-r2-9853348d.md`, `gate-r2-c2f27760.md`, `gate-r2-ab539f10.md`, `gate-umb-df8f8336.md` `gate-umb-1696e3b8.md` and `gate-umb-f73c77eb.md`. IDs are local to the indicated review head. An arrow assigns the producing contract and its consumer check.
 
 | Flex @ 9853348d | Responsible slice |
 |---|---|
@@ -133,19 +133,21 @@ Finding text is indexed in the lane handoff directory `handoff/codex-lanes/l1/` 
 | M19 | G / coverage map |
 | M23 | Corrected original finding homes above |
 
-R3 child homes: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a (C-3, C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
+R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a (C-3, C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
 
-**Proposed CSS length context slot.** **Owner**: L1. **Re-eval-date**: 2026-12-15. `crates/core/elidex-plugin/src/traits.rs` (`ResolveContext`) lacks the font metrics, line heights, writing mode and differentiated viewport sizes required by CSS Values §6.1. Declarations using the corresponding units in §1 are rejected. Each missing context introduces a separate invariant governing which value is available and when it updates. PM 975 defers those axes to this slot for PM registration.
+Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
+
+**Proposed slot `#11-css-length-resolution-contexts`.** **Owner**: L1. **Re-eval-date**: 2026-12-15. `crates/core/elidex-plugin/src/traits.rs` (`ResolveContext`) lacks the font metrics, line heights, writing mode and differentiated viewport sizes required by CSS Values §6.1. Today the lenient css_resolve::parse_length_unit path maps unknown units to px, so a dimension requiring a missing context can silently resolve as pixels. G will make such direct declarations invalid until the corresponding context exists. Each missing context introduces a separate invariant governing which value is available and when it updates. PM 975 defers those axes to this slot for PM registration when the umbrella lands.
 
 **Ledger.** #11-css-declared-value-serialization-fidelity is out of program scope. S tracks #11-cssvalue-list-separator-fidelity and checks preservation of current separators when formatting numeric leaves. H reports group (k) of #11-core-browser-parity-deviations via PM. Existing re-evaluation dates stand. On December 15 PM chooses extend/start/close per blocker for #11-shorthand-direct-decl-cascade-order (D), #11-shorthand-omit-initial-csswide-omission (F) and #11-css-wide-revert-keyword (H).
 
 **Proposed parent-slot wording for PM registration.** **Owner**: L1. **Re-eval-date**: 2026-12-15. Also revisit when another shorthand family lands. Under #11-style-shorthand-expand track one declaration-block regrouping algorithm for both rule and inline cssText. RuleStyleCssText/push_declaration and InlineStyle::css_text emit individual longhands. CSSOM §6.6 “serialize a CSS declaration block” step 4.3 invokes “serialize into a shorthand form”; its steps 2.5 and 2.7–2.8 check priority and representability. The parent remains open for this shared block operation after individual family getters land. D updates the inline source citation to the PM-registered home. Block-wide candidate selection spans families and governs cssText enumeration; F implements the individual Flex family getter.
 
-**Translation handoff.** **Owner**: L1. **Re-eval-date**: 2026-12-15. PM 975 confirms that PM 965 F2 and PM 971 F2 supply the separate approval required by PM 961 (2) for X/Y and Z translation calc and perspective length calc in G′b. The PM 965 F4 list of deferred transform features is empty. Direct transform parsing currently rejects mixed calc offsets and resolve_translate_value falls through to zero for a calc value. G′b owns admission plus reference-box evaluation after C1. This supersedes the proposed deferred transform slot; PM may close that draft against G′b’s landing evidence.
+**Translation handoff.** **Owner**: L1. **Re-eval-date**: 2026-12-15. On that date PM checks G′b landing evidence and decides whether the former deferred draft can close. PM 975 records the separate approval required by PM 961 (2), derived from PM 965 F2 and PM 971 F2, for X/Y and Z translation calc and perspective length calc in G′b. The PM 965 F4 list of deferred transform features is empty. Direct transform parsing currently rejects mixed calc offsets and resolve_translate_value falls through to zero for a calc value. G′b owns admission plus reference-box evaluation after C1. This supersedes the proposed deferred transform slot; PM may close that draft against G′b’s landing evidence.
 
 ## §5. Review boundary
 
-The original local review inputs remain available at 9853348d (Flex), c2f27760 (parser) and ab539f10 (token/declaration order). The three November gates retain 14, 20 and 25 homes above. The July shorthand program remains the parent for other families. After R3, submit children individually against the approved program. Keep 9853348d and dca05c9e pinned as immutable inputs. Before committing the F and G′a drafts, branch their worktrees at the pinned heads under new child branch names. The following draft locations use the L1 workspace as their root.
+The original local review inputs remain available at 9853348d (Flex), c2f27760 (parser) and ab539f10 (token/declaration order). The three November gates retain 14, 20 and 25 homes above. The July shorthand program remains the parent for other families. After R3, submit children individually against the approved program. Keep 9853348d and dca05c9e (G′a draft) pinned as immutable inputs. Before committing the F and G′a drafts, branch their worktrees at the pinned heads under new child branch names. The following draft locations use the L1 workspace as their root.
 
 | Slice | Worktree / plan |
 |---|---|
