@@ -416,6 +416,8 @@ fn require_receiver(
 // Quota error mapping
 // ---------------------------------------------------------------------------
 
+/// The named DOMException lacks the specialized interface tracked by
+/// `#11-quotaexceedederror-interface`.
 fn quota_exceeded(vm: &VmInner, message: impl Into<String>) -> VmError {
     VmError::dom_exception(vm.well_known.dom_exc_quota_exceeded_error, message.into())
 }
@@ -757,10 +759,7 @@ pub(crate) fn collect_keys(
 }
 
 impl VmInner {
-    /// Clear the per-VM Storage instance cache.  Called from
-    /// `Vm::unbind` so a retained `localStorage` reference cannot
-    /// serve the previous origin's data after a rebind to a document
-    /// with a different origin.
+    /// Clear the wrapper caches described by [`Self::storage_local_instance`].
     pub(in crate::vm) fn clear_storage_instance_cache(&mut self) {
         self.storage_local_instance = None;
         self.storage_session_instance = None;

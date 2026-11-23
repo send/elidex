@@ -526,8 +526,7 @@ fn storage_local_instance_cache_cleared_on_unbind() {
     vm.unbind();
     assert!(
         vm.inner.storage_local_instance.is_none(),
-        "Vm::unbind must clear storage_local_instance to prevent \
-         cross-origin leakage on rebind"
+        "See VmInner::storage_local_instance for the wrapper cache lifetime"
     );
 }
 

@@ -20,7 +20,8 @@
 //! (HTML §12.2.1). The shell event loop drains the tab runtime's queue.
 //! The browser thread filters other tabs by their top-level origin in
 //! `drain_content_messages`. Each recipient content thread calls
-//! `dispatch_storage_event`. The spec selects individual storage objects.
+//! `dispatch_storage_event`. Per-document recipient selection is missing
+//! (`#11-storage-broadcast-per-document-recipient`).
 //!
 //! Mode-aware delivery is tracked in `#11-storage-event-mode-aware-delivery`,
 //! sessionStorage delivery in `#11-browsing-context-model-window-open-postmessage`,

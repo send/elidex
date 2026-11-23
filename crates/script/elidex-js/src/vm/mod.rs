@@ -659,8 +659,9 @@ pub(crate) struct VmInner {
     /// Local storage wrapper cache for one bind cycle. The engine uses
     /// `with_bound` to bind and unbind around each batch (such as event
     /// dispatch). Unbind clears both storage wrapper caches, even when
-    /// the next batch uses the same document. HTML §§12.2.2–12.2.3
-    /// give each Document its own session and local storage holders.
+    /// the next batch uses the same document. This makes wrapper identity
+    /// shorter-lived than the Document's holders in HTML §§12.2.2–12.2.3
+    /// (`#11-storage-holder-document-lifetime`).
     #[cfg(feature = "engine")]
     pub(crate) storage_local_instance: Option<ObjectId>,
     /// Session storage counterpart of [`Self::storage_local_instance`].

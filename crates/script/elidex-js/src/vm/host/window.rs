@@ -761,7 +761,8 @@ pub(super) fn window_has_fully_active_document(_ctx: &NativeContext<'_>) -> bool
 }
 
 /// `window.localStorage` getter (WHATWG HTML §12.2.3). For the wrapper's
-/// cache lifetime, see `VmInner::storage_local_instance`.
+/// cache lifetime, see `VmInner::storage_local_instance`. Bottle-map failure
+/// handling is tracked by `#11-storage-opaque-origin-securityerror`.
 /// `compat-webapi`-gated (A2): the `Storage` glue is `Legacy`.
 #[cfg(feature = "compat-webapi")]
 fn native_window_get_local_storage(
