@@ -2,10 +2,10 @@
 //!
 //! Worker / ServiceWorker `postMessage` and `history.state` stand in for
 //! StructuredSerialize with a JSON shortcut
-//! (`natives_json::stringify_for_structured_shortcut`). A `Date` is [Serializable],
-//! so real structured clone round-trips it — but `JSON.stringify` flattens it
-//! through `toJSON` (ECMA-262 §21.4.4.37) into an ISO String, which would hand the
-//! peer (or a history traversal) a **String** where structured clone gives a Date.
+//! (`natives_json::stringify_for_structured_shortcut`). HTML §2.7.4 step 12
+//! records a Date's internal time value and §2.7.7 step 11 reconstructs it.
+//! Ordinary JSON serialization can instead call `Date.prototype.toJSON`
+//! (ECMA-262 §21.4.4.37), turning a finite Date into a string.
 //! Every *other* shortcut gap fails loudly (a `BigInt`, a cycle, the depth cap all
 //! throw), so only a Date needed an explicit arm.
 //!

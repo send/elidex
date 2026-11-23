@@ -149,8 +149,7 @@ fn clone_recursive(
             vm.number_prototype,
             memo,
         ))),
-        // HTML §2.7.4 StructuredSerialize: Date is [Serializable] — clone to a new
-        // Date with the same `[[DateValue]]`.
+        // HTML §2.7.4 step 12 records [[DateValue]]; §2.7.7 step 11 creates the new Date.
         CloneKind::Date(t) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
             src_id,
