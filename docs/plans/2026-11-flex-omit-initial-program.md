@@ -9,8 +9,11 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 1 | T · substitution | — | One token-preserving receiving-property reparse and one winner-selection primitive using existing cascade order. Publish computed custom properties before inheritance. |
 | 2 | G · Flex grammar | T | Share Flex factor and basis parsing; move the strict unit lookup, length, length-percentage and calc grammar to elidex-plugin. Accept the CSS Values §6 subset resolvable with the existing ResolveContext (table below). Reject a dimension requiring any deferred context during parsing, including inside calc(). |
 | 3a | Render builder split | G | Extract the paged display-list builder into a sibling module with identical public behavior. Standalone touch-time split for the oversized builder. |
-| 3b | G′a-geo · selected page geometry | Render builder split, G | Own @page size and margins, page-local substitution and viewport reference selection. Select geometry once per fragment; pagination and paint consume the same record, refreshed when its inputs change. |
-| 3c | G′a · lengths with a definite reference | G′a-geo | Migrate Text, table border spacing and Multicol length properties with their computed and used readers. Each accepted calculation ships with its evaluator. |
+| 3b.1 | G′a-geo · print style preparation | T, G, render builder split | Style prepares candidates from one sheet snapshot with grammar context and cascade metadata, ranks all geometry inputs by the same page specificity and cascade order, and resolves page-local winners against the immutable root map. Supply resolved inputs to a pure geometry evaluator. Use UA geometry for cyclic inputs, select the first page area, then compute document style with that area and a separate media-query reference. |
+| 3b.2 | G′a-geo · source cursor | 3b.1 | Resume inline content by stable source position in block and mixed-child layout. Audit Flex, Grid and Multicol token producers and consumers for geometry-dependent indices. Refer changes to another consumer group or L2-owned semantics to PM before expanding the child. |
+| 3b.3 | G′a-geo · pagination plan | 3b.1, 3b.2 | Pagination consumes typed break-boundary events once, determines blank/content entries from parity, then selects geometry for each entry. Replay the same entry order, source positions and geometry for counting and layout for paint. Preserve actual dimensions separately from the minimum 1px fragmentation progress extent. |
+| 3b.4 | G′a-geo · public page geometry | 3b.3, render builder split | Both public builders return per-page output records referencing the immutable geometry table owned by their result. Verify sheet dimensions, content origins and margin boxes on blank and content pages across repagination. |
+| 3c | G′a · lengths with a definite reference | 3b.4 | Migrate Text, table border spacing and Multicol length properties with their computed and used readers. Each accepted calculation ships with its evaluator. |
 | 4 | N · numeric semantics | G′a | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
 | 5 | C1 · computed representation | N | One computed length-percentage payload for Dimension and FlexBasis, with ownership, equality and all mandatory reader changes including transform-origin. |
 | 6 | G′b · reference-dependent consumers | C1 | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
@@ -137,7 +140,26 @@ Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send
 
 R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a-geo (C-3), G′a (C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
 
-PM 1001 reassigns the advisory at 17e44ba3: G′a-geo owns IMP-1, IMP-2, IMP-6 and IMP-7; G′a owns IMP-3 through IMP-5 and MIN-1. IMP-8 follows each property’s spec rows. MIN-2 assigns the render extraction to the standalone split and the remaining test placement to each reader owner. MIN-3 applies to each PR; MIN-4 is settled by §1 rows 3a–3c. For parser M17 the split owns the render module extraction; for M18/M19 it independently verifies behavioral parity and follows the same landing gates. N retains C-2 across both groups of readers. Each of the three children requires its own full review before implementation.
+PM 1008 splits G′a-geo into §1 rows 3b.1–3b.4. Each child needs an independent full plan review before implementation and its predecessor implementations before landing code. For the G′a-geo entries above, the page portions of §4 have these homes.
+
+| Review input | Page findings and owners |
+|---|---|
+| Parser @ c2f27760 | F1/F2 and F11/M12/M15 go to 3b.1 for grammar and readers, with actual consumption checked in 3b.3/4. Each child owns its applicable M16–M19 coverage, structure and gates. The standalone 3a extraction retains M17 for the builder split and M18/M19 for parity and landing checks. |
+| Umbrella R2 @ df8f8336 | F1/M9/M15 and F3 go from G/T to 3b.1. The umbrella owns the F2/M21 cut and order, with page-reader acceptance through 3b.1 → 3b.3 → 3b.4. |
+| Umbrella R3 @ 1696e3b8 | C-3 belongs to 3b.1 for each margin side’s grammar, cascade and evaluation, 3b.3 for page axes and breaks, and 3b.4 for public output. N retains C-2 for page and property readers. |
+| G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. G′a retains IMP-3–5 and MIN-1. Each reader owns its IMP-8 spec rows and MIN-2 tests after the 3a extraction. Each PR owns MIN-3. The revised order settles MIN-4. |
+| G′a-geo binding @ 6ffdfec2 | 3b.1 owns F1/F2/F7 and the bare-orientation control F9. 3b.2 owns F3. 3b.3 owns F4/F8. 3b.4 owns F5 and closes F6 across all four children. |
+
+| 組 | producer → consumer と判別観測 |
+|---|---|
+| 置換 × pagination | 選択ページの margin 勝者 → fragmentainer。first だけの変数を変えると first の break が移り、通常ページの margin は一定。 |
+| 置換 × paint | page-local 勝者 → geometry table → 両 builder。first でだけ勝者を無効にしたとき unset の原点になり、以前の負けた宣言を描画しない。 |
+| 置換 × invalidation | 更新 sheet と不変 root map → style の新 snapshot。同じ変数名の first/通常ページで valid → invalid にした側だけが unset になる。 |
+| pagination × paint | blank/content entry → 両出力。ページ数・順序・物理寸法・原点が一致し、blank の margin box と続きの先頭語を確認。 |
+| pagination × invalidation | 更新した first 入力 → 新しい page plan。境界を跨ぐ箱の page 番号と後続の開始 cursor が変わり、旧 plan を再利用すると失敗する。 |
+| paint × invalidation | 新旧 layout 結果 → 描画 record。新しい margin box と原点を得た後も、保持した旧結果の table と描画 record が旧寸法を返す。 |
+
+L2 owns line existence and decoration, character transformation, list UA rules and counter order. The shared paths are tracked under #11-line-box-decorated-inline-content, #11-empty-line-box-inline-mbp, #11-dom-cr-is-not-segment-break and #11-list-counter-baking-ua-rule-and-hints. L1 owns preservation of source position, page events and geometry replay.
 
 Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
 
@@ -158,7 +180,7 @@ The original local review inputs remain available at 9853348d (Flex), c2f27760 (
 | T | `flex-token/docs/plans/2026-11-shorthand-token-substitution.md` |
 | G | `flex-grammar/docs/plans/2026-11-flex-shorthand-parser-prerequisite.md` |
 | Render builder split | `render-builder-split/docs/plans/2026-11-render-builder-split.md` |
-| G′a-geo | `page-geometry/docs/plans/2026-11-selected-page-geometry.md` |
+| G′a-geo binding input @ 6ffdfec2 (before PM 1008) | `page-geometry/docs/plans/2026-11-selected-page-geometry.md` |
 | G′a | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
 | G′b | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
 | N | `flex-numeric/docs/plans/2026-11-css-numeric-evaluation.md` |
