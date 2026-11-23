@@ -243,12 +243,13 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                 && form_element_state(entity, dom)
                     .is_some_and(|s| s.contains(ElementState::INDETERMINATE))
         }
-        // :valid/:invalid also match <output> (HTML §4.10.18.7) — always valid.
+        // HTML §4.16.3 defines the candidates for :valid and :invalid.
         "valid" | "invalid" => {
             if let Some(s) = form_element_state(entity, dom) {
                 state_flag_for_pseudo(name).is_some_and(|f| s.contains(f))
             } else {
-                // <output> is always valid (no validation constraints).
+                // The matcher currently treats output as valid. HTML §4.10.2
+                // excludes it from the submittable elements considered by §4.10.21.1.
                 name == "valid"
                     && dom
                         .world()

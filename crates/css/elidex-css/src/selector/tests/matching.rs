@@ -762,7 +762,7 @@ fn read_write_inherited_contenteditable() {
 
 #[test]
 fn valid_matches_output_element() {
-    // <output> is always valid per HTML §4.10.18.7.
+    // This test records the current output fallback in the selector matcher.
     let mut dom = EcsDom::new();
     let output = dom.create_element_ownerless_fixture("output", Attributes::default());
     let sel_valid = parse_sel(":valid").unwrap();
