@@ -43,7 +43,7 @@ pub struct CssomSheetState {
 /// - **Mutation buffering** — DOM changes are recorded and applied on [`flush()`](Self::flush)
 /// - **CSSOM stylesheet cache** — parsed `Stylesheet` per `<style>` for
 ///   `CSSStyleSheet` rule-list stability across `insertRule`/`deleteRule`
-///   (CSSOM §6.4 / §6.5)
+///   (CSSOM §6.1.2)
 ///
 /// In Phase 2's single-threaded model, `flush()` is called at the end of each
 /// script task (microtask checkpoint).

@@ -156,7 +156,7 @@ pub(crate) fn sync_and_get_state<'a>(
 ///   same primitive but *delivers* the records.
 /// - `<link rel="stylesheet">`: the void element has no text node, so the
 ///   serialised CSS is written into the `LinkStylesheet` component and its
-///   monotonic `version` is bumped (CSSOM §6.4 / §6.5 round-trip).
+///   monotonic `version` is bumped so readers see the updated sheet.
 pub(crate) fn flush_sheet_mutation(
     sheet_entity: Entity,
     session: &mut SessionCore,
@@ -367,7 +367,7 @@ impl DomApiHandler for CssRulesItemId {
     }
 }
 
-/// `CSSStyleSheet.insertRule(rule, index)` (CSSOM §6.4) — parse the rule
+/// `CSSStyleSheet.insertRule(rule, index)` (CSSOM §6.1.2) — parse the rule
 /// text, assign the next stable `rule_id`, splice into the rule list, then
 /// re-serialise.  Returns the new rule's index.  Per spec:
 /// - omitted `index` defaults to `0`
@@ -429,7 +429,7 @@ impl DomApiHandler for InsertRule {
     }
 }
 
-/// `CSSStyleSheet.deleteRule(index)` (CSSOM §6.5).  Per spec:
+/// `CSSStyleSheet.deleteRule(index)` (CSSOM §6.1.2). Per spec:
 /// - `index >= rules.length` throws `IndexSizeError`
 pub struct DeleteRule;
 

@@ -39,7 +39,7 @@ pub struct Stylesheet {
     /// Parsed `@page` rules (CSS Paged Media Level 3).
     pub page_rules: Vec<PageRule>,
     /// Next [`CssRule::rule_id`] to issue when CSSOM `insertRule` extends
-    /// this stylesheet at run time (CSSOM §6.4 / §6.5). Set to one past
+    /// this stylesheet at run time (CSSOM §6.1.2). Set to one past
     /// the highest `rule_id` issued during parse so that `insertRule`-
     /// produced rules never collide with parse-time rules.
     pub next_rule_id: u64,
@@ -99,10 +99,9 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
     parse_stylesheet_with_registry(css, origin, None)
 }
 
-/// Parse a single CSS rule for CSSOM `CSSStyleSheet.insertRule(text)` (CSSOM
-/// §6.4 step 2). Returns `Some(rule)` when `text` parses as exactly one
-/// qualified rule; returns `None` for empty / invalid / multi-rule input
-/// (the caller is expected to throw `SyntaxError` per CSSOM §6.4).
+/// Parse one qualified rule for `CSSStyleSheet.insertRule`. CSSOM §6.1.2
+/// steps 3–4 parse a rule and throw `SyntaxError` for a syntax error.
+/// This helper also returns `None` for at-rules it does not support.
 ///
 /// The returned rule has `rule_id = 0` and `source_order = 0`. The
 /// caller (`CSSStyleSheet.insertRule`) overwrites `rule_id` with the
@@ -125,9 +124,7 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
     let mut keyframes_raw = Vec::new();
     let mut page_rules = Vec::new();
     // Strict: the input must be exactly one qualified rule, then end-of-stream.
-    // - Any `Err` (parse error / unrecognized at-rule) = skipped content
-    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite the
-    //   broader `parse_stylesheet` path's CSS error-recovery.
+    // - A parse error or unsupported at-rule makes this helper reject the input.
     // - `@keyframes` / `@page` populate the side-channel vecs; `@media` makes
     //   the at-rule yield `Err` (its `parse_block` returns Err after flattening)
     //   AND pushes inner rules with non-empty `media_conditions` — both reject:
