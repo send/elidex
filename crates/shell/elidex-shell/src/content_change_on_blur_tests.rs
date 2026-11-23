@@ -304,12 +304,12 @@ fn c19(tag: &str) {
 }
 
 #[test]
-fn c19_second_focus_rebaselines_before_user_edit_input() {
+fn c19_second_focus_reseeds_first_focus_value_before_user_edit_input() {
     c19("input");
 }
 
 #[test]
-fn c19_second_focus_rebaselines_before_user_edit_textarea() {
+fn c19_second_focus_reseeds_first_focus_value_before_user_edit_textarea() {
     c19("textarea");
 }
 
