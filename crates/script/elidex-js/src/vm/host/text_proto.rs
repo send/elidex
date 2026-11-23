@@ -59,7 +59,7 @@ impl VmInner {
 // Natives
 // ---------------------------------------------------------------------------
 
-/// `Text.prototype.splitText(offset)` — WHATWG §4.11.
+/// `Text.prototype.splitText(offset)` — WHATWG DOM §4.11 Interface Text.
 ///
 /// Marshalling-only wrapper around the engine-independent
 /// [`elidex_dom_api::char_data::split_text::split_text_at_offset`]

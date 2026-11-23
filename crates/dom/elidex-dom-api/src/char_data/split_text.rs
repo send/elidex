@@ -26,8 +26,8 @@
 //! The `insert_before` / `append_child` step fires
 //! `MutationEvent::Insert` for the new sibling — `parent`-side Range
 //! boundaries adjust via the standard insertion-step rule
-//! (off > new_node_idx → +1). Spec §4.11 steps 7.4–7.5 require
-//! `off > entity_idx → +1`, which differs at the single offset
+//! (off > new_node_idx → +1). Spec §4.11 step 7.1 (insert) and steps 7.4–7.5
+//! together require `off > entity_idx → +1`, which differs at the single offset
 //! `entity_idx + 1`. The
 //! [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
 //! event that follows the insert is fired with the pre-split parent
@@ -210,8 +210,8 @@ pub fn split_text_at_offset(
         return Err(SplitTextError::InternalInvariant);
     }
 
-    // §4.11 step 8 = "replace data with node original, offset offset,
-    // count (length − offset), data the empty string" — the §4.10
+    // §4.11 step 8 = "Replace data of node with offset, count, and the
+    // empty string." (count = length − offset, step 3) — the §4.10
     // "replace data" AO queues a `characterData` record with
     // `oldValue` = the node's data captured BEFORE the truncate
     // (= `original`, read at step 2). The truncate itself was already
@@ -479,6 +479,37 @@ mod tests {
         let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         assert_eq!(bounds(&mut reg, id, &dom), (t, 2, n, 3));
+    }
+
+    /// DOM §4.11 split a Text node step 7.1 (insert) + steps 7.4-7.5, parent
+    /// side: with children [a, t, b] and t at index 1, a `parent` boundary at
+    /// offset 1 (= index of t) stays, 2 (= index + 1, the equal slot) and 3
+    /// (> index + 1) both gain one. Real path: `split_text_at_offset`.
+    #[test]
+    fn parent_side_boundaries_follow_the_insert_and_index_plus_one_rule() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let a = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let t = dom.create_text_ownerless_fixture("0123456789");
+        let b = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let _ = dom.append_child(parent, a);
+        let _ = dom.append_child(parent, t);
+        let _ = dom.append_child(parent, b);
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
+        let mut r1 = Range::new(parent);
+        r1.set_start(parent, 1);
+        r1.set_end(parent, 2);
+        let id1 = reg.register(r1);
+        let mut r2 = Range::new(parent);
+        r2.set_start(parent, 3);
+        r2.set_end(parent, 3);
+        let id2 = reg.register(r2);
+
+        let (_n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        assert_eq!(bounds(&mut reg, id1, &dom), (parent, 1, parent, 3));
+        assert_eq!(bounds(&mut reg, id2, &dom), (parent, 4, parent, 4));
     }
 
     /// Sibling-cap case (slot `#11-index-in-parent-sibling-cap`): with more
