@@ -66,12 +66,17 @@ authors = ["send.sh"]
 publish = false
 
 [workspace.dependencies]
-# Dependency policy (PM 869): a requirement here is an API minimum, not a
-# security floor. Cargo.lock is canonical for what is built. The advisory gate
-# is `cargo deny check advisories`: the CI `deny` job and the weekly
-# `audit.yml`. A RUSTSEC fix arrives as a Dependabot security-update PR
-# (lock-only; enabled 2026-11-21, PM 871) or as a hand-made lock-only PR
-# (`cargo update -p <crate> --precise <version>`).
+# Dependency policy (PM 869): a requirement here is the semver line the code
+# is written against, not a security floor; it is not measured as a minimum
+# (no minimal-versions check). Cargo.lock is canonical for what is built.
+# The advisory gate is `cargo deny check advisories`: the CI `deny` job and
+# the weekly `audit.yml` (a red scheduled run is not routed to anyone yet:
+# `#11-ci-scheduled-failure-unrouted`).
+# A RUSTSEC fix whose fixed version is inside the requirement arrives as a
+# lock-only PR: a Dependabot security update (enabled 2026-11-21, PM 871) or
+# by hand with `cargo update -p <crate> --precise <version>`. When the fix
+# exists only on a newer line (a new 0.x minor or major), the requirement
+# moves to that line.
 anyhow = "1"
 base64 = "0.23"
 bitflags = "2"
@@ -133,9 +138,9 @@ getrandom = "0.4"
 # RUSTSEC-2026-0387 (crypto-bigint timing variability) is fixed only in
 # crypto-bigint >= 0.7.6, which is reachable only through the 0.14 EC line
 # (elliptic-curve 0.14 requires crypto-bigint ^0.7); the 0.13 line pins 0.5.
-# crypto-bigint >= 0.7.6 is guaranteed by Cargo.lock and checked by `cargo deny`;
-# the manifest cannot floor it because it is transitive (elliptic-curve 0.14 /
-# primefield require only ^0.7.5).
+# crypto-bigint >= 0.7.6 is guaranteed by Cargo.lock and checked by `cargo deny`
+# like every other advisory (see the policy block at the top); elliptic-curve
+# 0.14 / primefield require only ^0.7.5.
 # Elliptic-curve stack for WebCrypto ECDSA / ECDH (PR-4).  The stable 0.14 EC
 # line (crypto-bigint 0.7 generation); ECDSA is driven via
 # `sign_prehash` / `verify_prehash` so our `sha2 0.11` digest stays decoupled
@@ -232,9 +237,9 @@ elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
 # rusqlite 0.41 needs rustc 1.89 (`rust-toolchain.toml`).
 #
 # Default features are off: the defaults are `cache` (no consumer calls
-# `prepare_cached`) and `ffi-sqlite-wasm-rs`, whose sqlite-wasm-rs bundles a
-# second, separately versioned SQLite. Add a feature here when a
-# consumer uses it.
+# `prepare_cached`) and `ffi-sqlite-wasm-rs`; no consumer targets wasm, and
+# that default would build a second, separately versioned SQLite
+# (sqlite-wasm-rs). Add a feature here when a consumer uses it.
 rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
 egui = "0.34"
 egui-wgpu = "0.34"
