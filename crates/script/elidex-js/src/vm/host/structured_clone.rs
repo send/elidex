@@ -1,6 +1,6 @@
-//! `structuredClone(value, options?)` — WHATWG HTML §2.9
-//! StructuredSerialize + StructuredDeserialize, fused into a single
-//! recursive pass.
+//! HTML §2.7.11 `structuredClone(value, options?)`. For an empty transfer list,
+//! the VM combines StructuredSerialize (§2.7.5) and StructuredDeserialize
+//! (§2.7.7) in a single recursive pass.
 //!
 //! Phase 2 is *same-realm* only — every produced object's prototype
 //! is the target realm's corresponding intrinsic (which here equals
@@ -60,8 +60,7 @@ use super::blob::BlobData;
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Structured-clone `input` under the fused WHATWG HTML StructuredSerialize
-/// (§2.7.4) + StructuredDeserialize (§2.7.6) algorithm.
+/// Clone `input` using the fused no-transfer path described above.
 ///
 /// Returns the cloned value on success, or a
 /// `DOMException("DataCloneError")` when the input contains an
@@ -150,8 +149,7 @@ fn clone_recursive(
             vm.number_prototype,
             memo,
         ))),
-        // HTML §2.7.4 StructuredSerialize: Date is [Serializable] — clone to a new
-        // Date with the same `[[DateValue]]`.
+        // HTML §2.7.4 step 12 records [[DateValue]]; §2.7.7 step 11 creates the new Date.
         CloneKind::Date(t) => Ok(JsValue::Object(alloc_memoized_wrapper(
             vm,
             src_id,
@@ -930,7 +928,7 @@ impl VmInner {
     }
 }
 
-/// `structuredClone(value, options?)` — spec §2.9.
+/// HTML §2.7.11 `structuredClone(value, options?)` binding.
 ///
 /// Binding-level checks: missing `value` → sync `TypeError`,
 /// non-empty `options.transfer` → sync `DataCloneError`

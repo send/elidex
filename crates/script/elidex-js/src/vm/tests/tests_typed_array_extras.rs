@@ -1,5 +1,5 @@
 //! Cross-interface TypedArray tests
-//! (ECMA-262 §23.2.3 / §23.2.5 + WHATWG HTML §2.9 + Fetch §5).
+//! (ECMA-262 §23.2.3 / §23.2.5 + WHATWG HTML §2.7.11 + Fetch §5).
 //!
 //! Covers the cross-interface surface that doesn't belong with
 //! the per-instance constructor or method tests: C6
