@@ -56,11 +56,12 @@ PM 1035 makes the six G′b pieces serial. Each receives independent full plan r
 The complement audit covers the entire code base at c3c78070. Inspect token readers, unit-string tables and text-based parsing, then trace callers. Length properties and descriptors are in scope; color channels, times, angles, grid flex units and non-CSS attribute grammars have different domains. Per-group dispositions, unit coverage and calc acceptance are in G, G′a-geo, G′a and G′b.
 
 ```sh
-git grep -n -E 'Token::(Dimension|Percentage)|expect_dimension|expect_percentage|length_to_px|parse_length_unit' c3c78070 -- crates
-git grep -n -Ei 'parse_[[:alnum:]_]*length|length[[:alnum:]_]*_to_px|"(px|em|rem|pt|pc|cm|mm|in|q)"' c3c78070 -- crates
+deletion_sha=$(git rev-parse HEAD)  # Run at the G′b.6 wrapper-deletion commit.
+git grep -n -E 'Token::(Dimension|Percentage)|expect_dimension|expect_percentage|length_to_px|parse_length_unit' "$deletion_sha" -- crates
+git grep -n -Ei 'parse_[[:alnum:]_]*length|length[[:alnum:]_]*_to_px|"(px|em|rem|pt|pc|cm|mm|in|q)"' "$deletion_sha" -- crates
 ```
 
-Repeat both commands with HEAD at the final G′b landing head. Classify remaining hits as the common grammar, its callers/tests, or a named different grammar or non-CSS use (including unrelated string literals). Require zero independent in-scope decoders and zero lenient unknown-unit fallbacks. Run G’s direct, substituted and @supports controls for every deferred unit family at this head as well: the parser must reject those dimensions even where a fallback arm contains no unit literal. Separately, C1 measures the computed-type population with `git grep -l -w Dimension c3c78070 -- crates`.
+Record the wrapper-deletion commit SHA used in both searches and the classification of every match at that exact head. Classify remaining hits as the common grammar, its callers/tests, or a named different grammar or non-CSS use (including unrelated string literals). Require zero independent in-scope decoders and zero lenient unknown-unit fallbacks. Run G’s direct, substituted and @supports controls for every deferred unit family at this head as well: the parser must reject those dimensions even where a fallback arm contains no unit literal. Separately, C1 measures the computed-type population with `git grep -l -w Dimension c3c78070 -- crates`.
 
 ## §2. Crossing invariants
 
@@ -238,7 +239,7 @@ These entries transfer the former G′b portion of §4. The other source owners 
 | Umbrella df8f8336 F7/F8/M18/M20 | 6.3 supplies the translation handoff for the PM ledger decision; D retains its inline-reference portion. |
 | Umbrella 1696e3b8 C-16 | 6.4 closes the Box keyword/numeric and four-site control. 3c.3 keeps its separate Multicol control. |
 | G′a e72f209e FP-1 | 6.6 retires the remaining wrappers and verifies zero independent in-scope decoders and zero unknown-unit fallbacks. |
-| G′b 43259c8c F1–F8, M1/M2, P1 | 6.1 owns the F1 split and F2 Grid payload. F3 → 6.2, F4 → 6.3, F5 → 6.4, F6/F7 → 6.5. Every piece carries F8's branch/site/fixture map and M1/M2's suites, placement, WPT and verified production entries. P1 is a false positive; C2 keeps interpolation and the existing ledger keeps declared border keyword fidelity. |
+| G′b 43259c8c F1–F8, M1/M2, P1 | 6.1 owns the F1 split and F2 Grid payload. F3 → 6.2, F4 → 6.3, F5 → 6.4, F6/F7 → 6.5. Every piece carries F8's branch/site/fixture map and M1/M2's suites, placement, WPT and verified production entries. 6.6 alone closes F8, M1 and M2 after verifying all five domain records and its own applicable evidence. P1 was disposed as a false positive at transfer; C2 keeps interpolation and the existing ledger keeps declared border keyword fidelity. |
 
 ## §5. Review boundary
 
