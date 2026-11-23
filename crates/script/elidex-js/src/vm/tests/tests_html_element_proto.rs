@@ -274,8 +274,12 @@ fn vm_redundant_focus_keeps_first_focus_value() {
         .next()
         .map(|(e, _)| e)
         .expect("the focused input carries a change-on-blur component");
-    let edit = elidex_form::apply_user_edit(&mut dom, holder, |f| f.delete_backward())
-        .expect("the input has a FormControlState");
+    let edit = elidex_form::apply_user_edit(
+        &mut dom,
+        holder,
+        elidex_form::FormControlState::delete_backward,
+    )
+    .expect("the input has a FormControlState");
     assert!(edit.changed);
 
     #[allow(unsafe_code)]

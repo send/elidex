@@ -340,7 +340,8 @@ mod tests {
             },
             "the first mark is the value just before the first user edit"
         );
-        let edit = crate::apply_user_edit(&mut dom, input, |f| f.delete_backward()).unwrap();
+        let edit =
+            crate::apply_user_edit(&mut dom, input, FormControlState::delete_backward).unwrap();
         assert!(edit.changed);
         assert_eq!(
             dom.world().get::<&FormControlState>(input).unwrap().value(),
