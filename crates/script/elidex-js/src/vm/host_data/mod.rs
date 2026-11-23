@@ -430,12 +430,8 @@ mod engine_feature {
         /// unreachable; the next `getSelection()` call materialises a
         /// fresh wrapper backed by the same `selection_state`.
         pub(crate) selection_instance: Option<ObjectId>,
-        /// "Selection task source" dirty flag per HTML §8.1.7.1.  Set
-        /// on any user-script Selection / Range mutation; the
-        /// pending-task drain checks the flag at eval boundary and
-        /// fires a coalesced `selectionchange` at the document per
-        /// Selection API §3.4 (one event per microtask checkpoint
-        /// regardless of how many discrete mutations happened).
+        /// Coalesces document selection changes until the pending-task drain
+        /// calls `dispatch_selectionchange_if_pending` (Selection API §6.2.1).
         pub(crate) selectionchange_pending: bool,
         // -------------------------------------------------------------
         // D-12 #11-net-ws-sse: WebSocket / EventSource side-tables
