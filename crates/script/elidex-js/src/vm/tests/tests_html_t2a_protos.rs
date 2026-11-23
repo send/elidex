@@ -132,7 +132,7 @@ fn anchor_origin_is_readonly() {
 
 #[test]
 fn anchor_origin_blob_adopts_inner_https_origin() {
-    // URL Standard, origin of a URL, blob steps 4-5.
+    // URL Standard, origin of a URL, blob step 4 (inner scheme https).
     let out = run("var a = document.createElement('a'); \
          a.href = 'blob:https://ex.com/u'; \
          a.origin;");
@@ -141,7 +141,7 @@ fn anchor_origin_blob_adopts_inner_https_origin() {
 
 #[test]
 fn anchor_origin_blob_with_non_http_inner_is_opaque() {
-    // URL Standard, origin of a URL, blob steps 4-5.
+    // URL Standard, origin of a URL, blob step 5 (inner scheme is not http/https/file).
     let out = run("var a = document.createElement('a'); \
          a.href = 'blob:wss://ex.com/u'; \
          a.origin;");

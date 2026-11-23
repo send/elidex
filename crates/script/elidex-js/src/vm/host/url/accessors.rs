@@ -25,11 +25,13 @@ pub(super) fn native_url_get_href(
 }
 
 /// `URL.prototype.origin` (WHATWG URL §6.1).  Read-only.  Returns
-/// the ASCII serialisation of the URL's origin tuple.  Opaque origins
+/// the ASCII serialisation of the URL's origin.  Opaque origins
 /// (e.g. `file:` / `data:` / `about:`) serialise as `"null"`; a `blob:`
 /// URL takes its inner URL's origin when the inner scheme is
 /// http/https/file and is opaque otherwise (URL Standard, "origin of a
 /// URL", blob steps).
+/// elidex has no blob URL store yet, so the blob-URL-entry branch (step 1)
+/// does not apply.
 pub(super) fn native_url_get_origin(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

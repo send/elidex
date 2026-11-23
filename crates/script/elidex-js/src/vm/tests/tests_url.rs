@@ -108,7 +108,7 @@ fn origin_getter_strips_userinfo_and_path() {
 
 #[test]
 fn origin_getter_blob_adopts_inner_https_origin() {
-    // URL Standard, origin of a URL, blob steps 4-5.
+    // URL Standard, origin of a URL, blob step 4 (inner scheme https).
     let mut vm = Vm::new();
     assert_eq!(
         eval_string(&mut vm, "new URL('blob:https://ex.com/u').origin;"),
@@ -118,10 +118,36 @@ fn origin_getter_blob_adopts_inner_https_origin() {
 
 #[test]
 fn origin_getter_blob_with_non_http_inner_is_opaque() {
-    // URL Standard, origin of a URL, blob steps 4-5.
+    // URL Standard, origin of a URL, blob step 5 (inner scheme is not http/https/file).
     let mut vm = Vm::new();
     assert_eq!(
         eval_string(&mut vm, "new URL('blob:wss://ex.com/u').origin;"),
+        "null"
+    );
+}
+
+#[test]
+fn origin_getter_nested_blob_is_opaque() {
+    // URL Standard, origin of a URL, blob step 5: the inner scheme is
+    // `blob`, not http/https/file, so the origin is opaque.  This is the
+    // nesting RUSTSEC-2026-0592 recursed on.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new URL('blob:blob:https://ex.com/u').origin;"),
+        "null"
+    );
+}
+
+#[test]
+fn origin_getter_deeply_nested_blob_does_not_overflow_stack() {
+    // The advisory's own input shape: 10,000 `blob:` prefixes.  Before
+    // url 2.5.9 this overflowed the stack.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var s = 'blob:'.repeat(10000) + 'https://ex.com/'; new URL(s).origin;"
+        ),
         "null"
     );
 }
