@@ -258,8 +258,8 @@ impl VmInner {
 /// (the same primitive that blocks `el.click()` — slot
 /// `#11-vm-host-synthetic-dom-event-dispatch`). The same deferral covers the
 /// OLD focused area's unfocusing steps when this `focus()` moves focus off a
-/// previously-focused element: its `focusout` / `blur` and — for a user-edited
-/// text control — the §4.10.5.5 change-on-blur event are NOT fired here (the
+/// previously-focused element: its `focusout` / `blur` and the change-on-blur
+/// event (whose verdict is `take_change_on_blur`'s) are NOT fired here (the
 /// shell UA reconciler `content::focus::set_focus` dispatches those, but only
 /// on its own input paths). The old element's `FocusValueSnapshot` is
 /// deliberately left intact (not consumed) rather than discarded, so that once
@@ -303,8 +303,9 @@ fn native_html_element_focus(
         && elidex_dom_api::focus::is_in_document(dom, entity, doc)
     {
         elidex_dom_api::focus::set_focus_bit(dom, Some(entity));
-        // Seed the change-on-blur snapshot for text controls, just like the
-        // shell `set_focus` reconciler — so a script `input.focus()` followed
+        // Seed the change-on-blur snapshot (the one seed rule,
+        // `elidex_form::record_focus_snapshot`, which decides the population),
+        // just like the shell `set_focus` reconciler — so a script `input.focus()` followed
         // by user editing + a user blur still fires the HTML §4.10.5.5 `change`
         // event (the snapshot follows the canonical FOCUS bit, not only the UA
         // path).

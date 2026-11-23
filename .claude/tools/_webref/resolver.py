@@ -2,9 +2,10 @@
 
 Two roles, both keyed on (shortname, anchor-or-name):
 
-  - `resolve_body_source` / `tc39_resolve_body_url` / `webref_resolve_body_url`
-    answer "where do I fetch the spec HTML that contains this anchor"
-    (multipage chapter URL when possible, single-page fallback otherwise).
+  - `resolve_body_candidates` (with `tc39_resolve_body_url` /
+    `webref_resolve_body_url`) answers "where do I fetch the spec HTML that
+    contains this anchor": an ordered list of candidate sources, the first
+    that yields the section wins (see `Candidate`).
   - `lookup_section` / `lookup_heading` / `lookup_aoid_first` answer
     "what §number + title + anchor does this section/AO resolve to"
     (no fetch beyond biblio / headings JSON).
@@ -13,8 +14,10 @@ from __future__ import annotations
 
 import re
 import sys
+from typing import Callable, NamedTuple
 
 from .cache import NotFound
+from .respec import generator_url, respec_entry
 from .section_sort import heading_number_title, sec_number_key
 from .sources.tc39 import TC39_FAMILY, tc39_biblio, tc39_clauses_by_id
 from .sources.webref_data import try_fetch_data_json
@@ -23,14 +26,31 @@ from .sources.webref_data import try_fetch_data_json
 # tc39 multipage chapter file derivation is purely structural: the top-level
 # clause's `id` (always "sec-X" by convention) maps to `X.html`. Verified
 # across all 38 ecma262 chapters + annexes — no per-spec carve-outs needed.
-# If tc39 ever introduces an irregular chapter file, `cmd_body` catches the
-# 404 from the multipage fetch and retries against the single-page URL
+# If tc39 ever introduces an irregular chapter file, the multipage fetch fails
+# and `cmd_body` moves on to the next candidate, the single-page URL
 # (`<location>#<anchor>`), which serves every anchor regardless of chapter
-# layout. See the NotFound-handling block at the end of cmd_body.
+# layout. See `resolve_body_candidates`.
 
 
-def tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None:
-    """Resolve tc39 (shortname, anchor) → (multipage_url, anchor) or None.
+class Candidate(NamedTuple):
+    """One place a section's text may come from. `cmd_body` tries a list of
+    these in order; the first that fetches and carries the anchor wins.
+
+    `url`   — what is fetched.
+    `label` — provenance kind for the `# source:` line (`respec.source_line`),
+              None when the output carries no such line.
+    `cite`  — the URL printed in the `# <url>#<anchor>` header; `url` unless
+              the text is a rendering of another URL.
+    """
+
+    url: str
+    label: str | None = None
+    cite: str | None = None
+
+
+def tc39_resolve_body_url(d: dict, anchor: str) -> tuple[str, str] | None:
+    """Resolve an anchor against a tc39 biblio (`d`, from `tc39_biblio`) →
+    (multipage_url, anchor) or None.
 
     Accepts ANY biblio-known id, not just `type=clause`. Non-clause entries
     (`table-*`, `figure-*`, `prod-*`, `step-*`, `term-*`, etc.) carry a
@@ -40,16 +60,11 @@ def tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None
     the resolver invariant "biblio-known id → multipage URL" holds by
     construction, rather than being limited to a single entry-type subset.
 
-    Error contract (split deliberately so callers and main()'s NotFound
-    handler can surface the right diagnostic):
-
-      - `tuple[str, str]` — anchor resolved to a URL
-      - `None`            — anchor not present in biblio (typo / unknown)
-      - raises `NotFound` — biblio fetch itself failed (upstream/CDN
-        outage, URL drift); reserved by intent — do NOT swallow here,
-        or downstream callers see a misleading "anchor not found" path.
+    Returns `tuple[str, str]` when the anchor resolved to a URL, `None` when it
+    is not in biblio (typo / unknown). The biblio fetch itself (which may raise
+    `NotFound` / `FetchError`) is the caller's: do NOT swallow it, or callers
+    see a misleading "anchor not found" path.
     """
-    d = tc39_biblio(shortname)
     location = d.get("location", "")
     entries = d.get("entries", [])
 
@@ -152,13 +167,103 @@ def webref_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | No
     return None
 
 
-def resolve_body_source(shortname: str, anchor: str) -> tuple[str, str]:
-    """Resolve (shortname, anchor) → (fetch_url, anchor).
+def _tc39_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate]]:
+    # Resolution order — anchor first, AO-name as fallback:
+    #
+    #   1. Direct anchor lookup against biblio. Covers `sec-*` clauses +
+    #      non-clause anchors like `table-*` / `figure-*` / `prod-*` /
+    #      `term-*` etc.
+    #   2. ONLY if (a) no anchor match AND (b) input is a single CamelCase
+    #      identifier: attempt AO-name lookup, then resolve the resulting
+    #      `sec-*` anchor via the same flow. The CamelCase filter prevents
+    #      bogus rejection of valid non-CamelCase anchors that happen not to
+    #      be in biblio (typo → clean "anchor not found" instead of
+    #      misleading "not an AO" error).
+    d = tc39_biblio(shortname)
+    anchor = raw
+    direct = tc39_resolve_body_url(d, raw)
+    if direct is None:
+        if not re.match(r"^[A-Z][A-Za-z0-9]*$", raw):
+            sys.exit(
+                f"webref: anchor {raw!r} not found in {shortname} "
+                f"biblio (no id match across any entry type; if you meant "
+                f"an abstract operation, use the CamelCase name like "
+                f"`IteratorClose`)"
+            )
+        resolved = lookup_aoid_first(shortname, raw)
+        if resolved is None:
+            sys.exit(
+                f"webref: {raw!r} is neither a known anchor (no id "
+                f"match in {shortname} biblio) nor a recognized "
+                f"abstract operation"
+            )
+        _, _, full_anchor = resolved
+        anchor = full_anchor.split("#", 1)[-1]
+        direct = tc39_resolve_body_url(d, anchor)
+        if direct is None:
+            sys.exit(
+                f"webref: AO {raw} resolved to #{anchor} but biblio "
+                f"chapter routing failed (unexpected — please report)"
+            )
+    url, anchor = direct
+    # Multipage chapter first; the single-page URL (`location`, ~3 MB) serves
+    # every anchor regardless of chapter layout, so it is the last resort
+    # should the biblio-derived chapter file not exist.
+    cands = [Candidate(url)]
+    location = d.get("location", "")
+    if location and location != url:
+        cands.append(Candidate(location))
+    return anchor, cands
 
-    Order:
-      1. tc39 multipage (deterministic chapter derivation from biblio)
-      2. WHATWG/W3C multipage (href from webref headings/)
-      3. tc39 single-page fallback (3 MB cached spec.html)
+
+class CandidateChain:
+    """Iterable of candidates whose tail is computed only when iteration
+    reaches it (and which raises FetchError there if the catalog is down).
+    `cmd_body` asks for a second candidate only after the first
+    missed, failed to fetch, or was an unrendered ReSpec source — so the
+    webref catalog (`index.json`, ~1.5 MB), which the tail needs, is fetched
+    only then."""
+
+    def __init__(self, first: Candidate, tail: Callable[[], list[Candidate]]):
+        self.first = first
+        self._tail = tail
+
+    def __iter__(self):
+        yield self.first
+        yield from self._tail()
+
+
+def _respec_fallbacks(shortname: str, url: str) -> list[Candidate]:
+    """[spec-generator rendering, TR release] when `url` is the nightly ED of
+    a ReSpec spec, else []. Consults the catalog; an unreachable catalog
+    raises FetchError, which `body` records as an unreachable source (the
+    absence of the anchor is then unverified, not "not encountered").
+
+    A ReSpec spec's other pages (multipage `href`s) are not the nightly, so
+    rendering "the nightly" would answer a different page: only the nightly
+    itself gets the generator -> TR chain. A nightly root may end in `.html`
+    (9 catalog specs), so the URL shape is not a filter."""
+    ent = respec_entry(shortname)
+    if ent is None or url.rstrip("/") != ent[0].rstrip("/"):
+        return []
+    nightly, release = ent
+    cands = [Candidate(generator_url(nightly), "generator", cite=url)]
+    if release:
+        cands.append(Candidate(release, "tr"))
+    return cands
+
+
+def resolve_body_candidates(shortname: str, raw: str) -> tuple[str, list[Candidate]]:
+    """Resolve (shortname, user-supplied anchor or AO name) → (anchor,
+    ordered candidate sources). The only place that decides where a section's
+    text comes from.
+
+      - tc39: [multipage chapter, single-page `location`]
+      - otherwise: [the resolved page, then — only if the loop gets past it
+        (miss / fetch failure / unrendered ReSpec source) and the catalog says
+        it is a ReSpec spec's nightly ED — the spec-generator's rendering of
+        it, the release (TR)]. An ED may be served unrendered (no ids), so the
+        rendering or the dated TR may be what carries the anchor.
 
     Single-page non-tc39 fallback is intentionally NOT supported: webref
     `href` is universal across WHATWG/W3C specs that webref tracks, and
@@ -166,28 +271,17 @@ def resolve_body_source(shortname: str, anchor: str) -> tuple[str, str]:
     body extraction depends on anyway.
     """
     if shortname in TC39_FAMILY:
-        mp = tc39_resolve_body_url(shortname, anchor)
-        if mp is not None:
-            return mp
-        # tc39 single-page fallback (rare — would mean biblio is missing
-        # the clause but the anchor is real, e.g. proposal-stage drafts).
-        try:
-            d = tc39_biblio(shortname)
-        except NotFound:
-            sys.exit(f"webref: cannot resolve body URL for {shortname}#{anchor}")
-        location = d.get("location", "")
-        if not location:
-            sys.exit(f"webref: tc39 biblio for {shortname} missing location field")
-        return (location, anchor)
+        return _tc39_body_candidates(shortname, raw)
 
-    mp = webref_resolve_body_url(shortname, anchor)
-    if mp is not None:
-        return mp
-    sys.exit(
-        f"webref: no multipage URL known for {shortname}#{anchor} "
-        f"(WHATWG/W3C: anchor must appear in headings/{shortname}.json "
-        f"or dfns/{shortname}.json)"
-    )
+    mp = webref_resolve_body_url(shortname, raw)
+    if mp is None:
+        sys.exit(
+            f"webref: no multipage URL known for {shortname}#{raw} "
+            f"(WHATWG/W3C: anchor must appear in headings/{shortname}.json "
+            f"or dfns/{shortname}.json)"
+        )
+    url, anchor = mp
+    return anchor, CandidateChain(Candidate(url), lambda: _respec_fallbacks(shortname, url))
 
 
 def lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:

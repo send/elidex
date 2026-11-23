@@ -21,7 +21,7 @@ _DATA_EXT = {
 
 
 def fetch_bytes(path: str) -> bytes:
-    """GET BASE/path via cache. Raises NotFound on 404, exits on other errors."""
+    """GET BASE/path via cache. Raises NotFound on 404, FetchError on other errors."""
     return cached_fetch_url(f"{BASE}/{path}")
 
 
@@ -30,8 +30,10 @@ def fetch_json(path: str) -> dict:
 
 
 # Process-local memo of the webref catalog (`ed/index.json`). The catalog is
-# ~1.5 MB / 700+ specs, so we fetch it lazily — only when a direct data-file
-# fetch misses (see `fetch_data`) — and parse it once per invocation.
+# ~1.5 MB / 700+ specs, so we fetch it lazily — when a direct data-file
+# fetch misses (see `fetch_data`), or when `body`'s first page missed or was
+# an unrendered ReSpec source and `body` must decide whether that page is a
+# ReSpec nightly (fail-soft there) — and parse it once per invocation.
 _INDEX: dict[str, dict] | None = None
 
 
@@ -76,6 +78,11 @@ def _data_index() -> dict[str, dict]:
     return _INDEX
 
 
+def spec_entry(shortname: str) -> dict | None:
+    """The webref catalog entry for `shortname` (spec or series), or None."""
+    return _data_index().get(shortname)
+
+
 def try_fetch_data(kind: str, shortname: str) -> bytes | None:
     """Fetch webref `<kind>` data for `shortname`, or None if it doesn't exist.
 
@@ -95,7 +102,7 @@ def try_fetch_data(kind: str, shortname: str) -> bytes | None:
     except NotFound:
         pass
 
-    entry = _data_index().get(shortname)
+    entry = spec_entry(shortname)
     resolved = entry.get(kind) if entry else None
     if resolved and resolved != direct:
         try:

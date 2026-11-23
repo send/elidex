@@ -39,7 +39,9 @@ impl Range {
     /// (as "set the start") step 4 sub-steps 1-2: if the new start is
     /// after end OR in a different root, collapse end to (node, offset);
     /// then write start.  Assumes caller has run spec steps 1-2
-    /// (DocumentType / IndexSize validation).
+    /// (DocumentType / IndexSize validation); moving those steps in here, so
+    /// they have one home instead of one per caller, is the design facet of
+    /// slot `#11-selection-api-algorithm-conformance`.
     pub fn set_start_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
         let new_root = dom.find_tree_root(node);
         let after_end = dom.find_tree_root(self.end_container) != new_root

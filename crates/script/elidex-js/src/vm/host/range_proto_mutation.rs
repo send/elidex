@@ -54,13 +54,7 @@ fn commit_range_after_mutation(
         r.end_offset = mutated.end_offset;
     });
     if applied.is_none() {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!(
-                "Failed to execute '{method}' on 'Range': \
-                 the Range has been detached"
-            ),
-        ));
+        return Err(detached_range_error(ctx, method));
     }
     Ok(())
 }
