@@ -79,7 +79,7 @@ mod tests {
     }
 
     fn marked(dom: &EcsDom, e: Entity) -> bool {
-        matches!(snap(dom, e), Snap::Baseline(_))
+        matches!(snap(dom, e), Snap::Marked { .. })
     }
 
     /// C7 (e): an edit that leaves the value equal → unchanged, unmarked.

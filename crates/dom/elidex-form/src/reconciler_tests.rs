@@ -226,8 +226,8 @@ fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
 fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
     // DC-16u (baseline plan B-7; re-derivation R-2): a `type` change writes nothing to the
     // change-on-blur component, so a marked snapshot survives a flip text →
-    // checkbox with its mark; the value differs from it, so the kind at focus
-    // loss is the only reason for `false` (a Checkbox defines an input
+    // checkbox with its mark; the value differs from both the first-focus value and
+    // the mark, so the kind at focus loss is the only reason for `false` (a Checkbox defines an input
     // activation behavior).
     use crate::test_support::{snap, user_append, Snap};
     use crate::{record_focus_snapshot, take_change_on_blur};
@@ -243,12 +243,21 @@ fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
         .unwrap()
         .set_cursor(end);
     user_append(&mut dom, e, "a");
-    assert_eq!(snap(&dom, e), Snap::Baseline("typed".to_string()));
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        }
+    );
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
     assert_eq!(
         snap(&dom, e),
-        Snap::Baseline("typed".to_string()),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        },
         "a `type` flip writes nothing to the focus snapshot"
     );
     with_fcs(&dom, e, |s| assert_ne!(s.value(), "typed"));
@@ -273,7 +282,7 @@ fn dc14u_seed_on_checkbox_survives_flip_to_text() {
 fn take_false_after_flip_to_hidden() {
     // Baseline plan PB-5: `<input value="x">`, user edit → "xa" (mark "x"); `type=hidden`:
     // step 1 writes the content attribute "xa", Hidden defines no
-    // sanitization, so V stays "xa" ≠ the mark; only the kind (baseline plan QB-1) makes the
+    // sanitization, so V stays "xa", differing from both the first-focus value and the mark; only the kind (baseline plan QB-1) makes the
     // verdict `false`.
     use crate::take_change_on_blur;
     let (mut dom, e) = seeded_and_user_edited("x");
@@ -285,7 +294,7 @@ fn take_false_after_flip_to_hidden() {
 #[test]
 fn take_false_after_flip_to_file() {
     // Baseline plan PB-6: as PB-5; `type=file`: step 3 (filename mode) sets V to "", File
-    // defines no sanitization; V "" ≠ the mark "x"; only the re-derivation's R-2 makes the
+    // defines no sanitization; V "" differs from both the first-focus value and the mark "x"; only the re-derivation's R-2 makes the
     // verdict `false`.
     use crate::take_change_on_blur;
     let (mut dom, e) = seeded_and_user_edited("x");
@@ -297,7 +306,7 @@ fn take_false_after_flip_to_file() {
 #[test]
 fn take_false_at_color() {
     // Baseline plan PB-7: as PB-5; `type=color`: value mode → value mode, steps 1–3 do
-    // nothing; step 6 sanitizes "xa" to "#000000" ≠ the mark "x"; still Color
+    // nothing; step 6 sanitizes "xa" to "#000000", differing from both the first-focus value and the mark "x"; still Color
     // at focus loss, so the re-derivation's R-2 makes the
     // verdict `false`.
     use crate::take_change_on_blur;
@@ -313,15 +322,28 @@ fn button_kind_input_is_seeded_and_judged_false() {
     // `<input>` that is a button at focus loss is judged `false` by its kind.
     // Production never routes a user edit to a Button-kind control, so the
     // state arises by edit-then-flip: seed and mark while a text kind, then a
-    // real `type=button` flip; the value differs from the mark, so the kind is
+    // real `type=button` flip; the value differs from both the first-focus value and the mark, so the kind is
     // the only reason for `false`.
     use crate::test_support::{snap, user_append, Snap};
     use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     record_focus_snapshot(&mut dom, e);
-    assert_eq!(snap(&dom, e), Snap::Unmarked, "seeded");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Unmarked {
+            first_focus: String::new()
+        },
+        "seeded"
+    );
     user_append(&mut dom, e, "x");
-    assert_eq!(snap(&dom, e), Snap::Baseline(String::new()), "marked");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: String::new(),
+            user_change_from: String::new()
+        },
+        "marked"
+    );
     assert!(dom.set_attribute(e, "type", "button").did_set);
     with_fcs(&dom, e, |s| {
         assert_eq!(s.kind, FormControlKind::Button);
