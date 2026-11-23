@@ -8,7 +8,9 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 |---|---|---|---|
 | 1 | T · substitution | — | One token-preserving receiving-property reparse and one winner-selection primitive using existing cascade order. Publish computed custom properties before inheritance. |
 | 2 | G · Flex grammar | T | Share Flex factor and basis parsing; move the strict unit lookup, length, length-percentage and calc grammar to elidex-plugin. Accept the CSS Values §6 subset resolvable with the existing ResolveContext (table below). Reject a dimension requiring any deferred context during parsing, including inside calc(). |
-| 3 | G′a · lengths with a definite reference | G | Migrate page descriptors, text, table spacing and multicol length-only properties with their actual readers. Each newly accepted calculation ships with its evaluator. |
+| 3a | Render builder split | G | Extract the paged display-list builder into a sibling module with identical public behavior. Standalone touch-time split for the oversized builder. |
+| 3b | G′a-geo · selected page geometry | Render builder split, G | Own @page size and margins, page-local substitution and viewport reference selection. Select geometry once per fragment; pagination and paint consume the same record, refreshed when its inputs change. |
+| 3c | G′a · lengths with a definite reference | G′a-geo | Migrate Text, table border spacing and Multicol length properties with their computed and used readers. Each accepted calculation ships with its evaluator. |
 | 4 | N · numeric semantics | G′a | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
 | 5 | C1 · computed representation | N | One computed length-percentage payload for Dimension and FlexBasis, with ownership, equality and all mandatory reader changes including transform-origin. |
 | 6 | G′b · reference-dependent consumers | C1 | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
@@ -18,7 +20,7 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 10 | S · numeric serialization | H, C2, G′b | Format declared and resolved values from typed inputs, including sampled values; preserve media breakpoint semantics. |
 | 11 | F · Flex omission | G, S | Implement the two family serializers using the common coordinator, typed comparison and public formatter. |
 
-G′ is split by the reader’s dependency, following its breadth warning and PM 965/971. G′a computes with available context; G′b waits for C1 where percentages must survive to layout or paint. Both call G’s grammar, with the category required by each property. The acceptance condition is **one implementation of CSS length and length-percentage grammar**, including @page. Moving a consumer includes its direct, substituted (where applicable) and used-value paths. C1 precedes newly admitted inputs requiring its payload. N’s common semantics also apply to consumers switched later in G′b.
+G′ is split by the reader’s dependency, following its breadth warning and PM 965/971. G′a-geo and G′a compute with available context; G′b waits for C1 where percentages must survive to layout or paint. The page and property readers call G’s grammar, with the category required by each property. The acceptance condition is **one implementation of CSS length and length-percentage grammar**, including @page. Moving a consumer includes its direct, substituted (where applicable) and used-value paths. C1 precedes newly admitted inputs requiring its payload. N’s common semantics also apply to consumers switched later in G′b.
 
 PM 975, as corrected by PM 977, selects the following unit boundary at G. The unit families follow [CSS Values §6.1](https://drafts.csswg.org/css-values-4/#relative-lengths) and [§6.2](https://drafts.csswg.org/css-values-4/#absolute-lengths).
 
@@ -34,7 +36,7 @@ PM 975, as corrected by PM 977, selects the following unit boundary at G. The un
 
 If the G′b child review calls for another split, PM approves the revised cuts, prerequisites and reassignment of every affected §4 ID before implementation. Each part lands its grammar and readers together. The last part removes the remaining wrappers. C2 and S follow **all** G′b parts.
 
-The complement audit covers the entire code base at c3c78070. Inspect token readers, unit-string tables and text-based parsing, then trace callers. Length properties and descriptors are in scope; color channels, times, angles, grid flex units and non-CSS attribute grammars have different domains. Per-group dispositions, unit coverage and calc acceptance are in G, G′a and G′b.
+The complement audit covers the entire code base at c3c78070. Inspect token readers, unit-string tables and text-based parsing, then trace callers. Length properties and descriptors are in scope; color channels, times, angles, grid flex units and non-CSS attribute grammars have different domains. Per-group dispositions, unit coverage and calc acceptance are in G, G′a-geo, G′a and G′b.
 
 ```sh
 git grep -n -E 'Token::(Dimension|Percentage)|expect_dimension|expect_percentage|length_to_px|parse_length_unit' c3c78070 -- crates
@@ -47,8 +49,8 @@ Repeat both commands with HEAD at the final G′b landing head. Classify remaini
 
 | Edge | Contract at the consuming head |
 |---|---|
-| T → G, G′a, G′b | Reparse the preserved sequence against the same grammar as a direct declaration. A direct parse failure and invalidation after successful cascade have distinct fallback behavior. |
-| G → G′a → N → C1 → G′b | The unit type and calculation tree retain lexical precision, numeric category and percentage dependence. Each group admits the §1 supported units with a working reader and rejects deferred units at parse. |
+| T → G, G′a-geo, G′a, G′b | Reparse the preserved sequence against the same grammar as a direct declaration. A direct parse failure and invalidation after successful cascade have distinct fallback behavior. |
+| G → G′a-geo → G′a → N → C1 → G′b | The unit type and calculation tree retain lexical precision, numeric category and percentage dependence. Each group admits the §1 supported units with a working reader and rejects deferred units at parse. |
 | N → C1 → C2 → S | N owns simplification. C1 retains unresolved references, C2 passes interpolation results through N before storage, and S renders that same computed or sampled payload. |
 | G′b → C2 | Before generic interpolation can produce mixed length-percentage samples, transform translation and background-position must both resolve them against their actual reference sizes. |
 | G′b → S | S serializes the typed values supplied by the migrated readers, preserving unresolved percentages where their computed type requires it. |
@@ -70,7 +72,7 @@ D’s single materializer/mutator lives in elidex-style. InlineStyle on the enti
 | css-flexbox-1 §7.1 The flex Shorthand | expand or omit | typed factors and basis | G → F | supported grammar | yes |
 | css-values-4 §5.4 Numbers with Units | dimension syntax | numeric token plus identifier | G | syntax | yes |
 | css-values-4 §6 Distance Units | length category and units | absolute and relative lengths, bare zero | G → G′ | length grammar | yes |
-| css-page-3 §7.1 Page size | resolve size descriptor | one/two lengths, page context | G′a | length branch | yes |
+| css-page-3 §7.1 Page size | resolve size descriptor | one/two lengths, page context | G′a-geo | length branch | yes |
 | css-values-4 §10.10.1 Simplification | simplify typed tree | computed, sampled or declared | N → C1/C2/S | supported math | yes |
 | css-values-4 §10.14 Combination of Math Functions | interpolate | sampled type and reference base | C2 → S | length-percentage | yes |
 | CSSOM §6.7.2 Serializing CSS Values | serialize a CSS value | representability and omission | H/S/F | supported families | yes |
@@ -79,7 +81,7 @@ Child plans own their complete algorithm/branch maps, including mediaqueries-4 �
 
 ## §4. Finding homes
 
-Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/l1/` under `gate-r2-9853348d.md`, `gate-r2-c2f27760.md`, `gate-r2-ab539f10.md`, `gate-umb-df8f8336.md` `gate-umb-1696e3b8.md` and `gate-umb-f73c77eb.md`. IDs are local to the indicated review head. An arrow assigns the producing contract and its consumer check.
+Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/l1/` under `gate-r2-9853348d.md`, `gate-r2-c2f27760.md`, `gate-r2-ab539f10.md`, `gate-umb-df8f8336.md`, `gate-umb-1696e3b8.md` and `gate-umb-f73c77eb.md`. IDs are local to the indicated review head. An arrow assigns the producing contract and its consumer check.
 
 | Flex @ 9853348d | Responsible slice |
 |---|---|
@@ -95,14 +97,14 @@ Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send
 
 | Parser @ c2f27760 | Responsible slice |
 |---|---|
-| F1, F2 | Umbrella → G/G′a/G′b/N/C1/C2 |
+| F1, F2 | Umbrella → G/G′a-geo/G′a/G′b/N/C1/C2 |
 | F3, F10, M20 | N |
 | F4, F6, F7 | C1 → C2 |
 | F5, F8 | G |
 | F9, M13, M14 | G |
-| F11, M12, M15 | G → G′a/G′b |
-| M16, M17, M18 | G/G′a/G′b/N/C1/C2 |
-| M19 | Umbrella → G/G′a/G′b/N/C1/C2 |
+| F11, M12, M15 | G → G′a-geo/G′a/G′b |
+| M16, M17, M18 | G/G′a-geo/G′a/G′b/N/C1/C2 |
+| M19 | Umbrella → G/G′a-geo/G′a/G′b/N/C1/C2 |
 
 | Declaration order and token @ ab539f10 | Responsible slice |
 |---|---|
@@ -121,9 +123,9 @@ Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send
 
 | Umbrella R2 at df8f8336 | Responsible slice or record |
 |---|---|
-| F1, M9, M15 | G vocabulary → G′a/page and G′b migration |
-| F2, M21 | Umbrella split/order → G′a/G′b reader acceptance |
-| F3 | T → G′a/G′b |
+| F1, M9, M15 | G vocabulary → G′a-geo (page), G′a (property readers) and G′b migration |
+| F2, M21 | Umbrella split/order → G′a-geo/G′a/G′b reader acceptance |
+| F3 | T → G′a-geo/G′a/G′b |
 | F4 | C2 → S |
 | F5, M11 | T → D |
 | F6, M10, M12, M13, M16, M22 | D |
@@ -133,7 +135,9 @@ Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send
 | M19 | G / coverage map |
 | M23 | Corrected original finding homes above |
 
-R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a (C-3, C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
+R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a-geo (C-3), G′a (C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
+
+PM 1001 reassigns the advisory at 17e44ba3: G′a-geo owns IMP-1, IMP-2, IMP-6 and IMP-7; G′a owns IMP-3 through IMP-5 and MIN-1. IMP-8 follows each property’s spec rows. MIN-2 assigns the render extraction to the standalone split and the remaining test placement to each reader owner. MIN-3 applies to each PR; MIN-4 is settled by §1 rows 3a–3c. For parser M17 the split owns the render module extraction; for M18/M19 it independently verifies behavioral parity and follows the same landing gates. N retains C-2 across both groups of readers. Each of the three children requires its own full review before implementation.
 
 Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
 
@@ -153,6 +157,8 @@ The original local review inputs remain available at 9853348d (Flex), c2f27760 (
 |---|---|
 | T | `flex-token/docs/plans/2026-11-shorthand-token-substitution.md` |
 | G | `flex-grammar/docs/plans/2026-11-flex-shorthand-parser-prerequisite.md` |
+| Render builder split | `render-builder-split/docs/plans/2026-11-render-builder-split.md` |
+| G′a-geo | `page-geometry/docs/plans/2026-11-selected-page-geometry.md` |
 | G′a | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
 | G′b | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
 | N | `flex-numeric/docs/plans/2026-11-css-numeric-evaluation.md` |
