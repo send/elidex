@@ -79,16 +79,19 @@ impl FocusValueSnapshot {
 /// (see [`take_change_on_blur`]).
 pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
     // Cheapest exclusion first: most focused elements are not form controls.
-    let Ok(first_focus) = dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .map(|fcs| fcs.value().to_owned())
-    else {
+    if dom.world().get::<&FormControlState>(entity).is_err() {
         return;
-    };
+    }
     if dom.is_html_namespace(entity)
         && (dom.has_tag(entity, "input") || dom.has_tag(entity, "textarea"))
     {
+        let Ok(first_focus) = dom
+            .world()
+            .get::<&FormControlState>(entity)
+            .map(|fcs| fcs.value().to_owned())
+        else {
+            return;
+        };
         let _ = dom.world_mut().insert_one(
             entity,
             FocusValueSnapshot {
