@@ -214,7 +214,7 @@ impl CanvasReconciler {
         }
         // A placeholder `<canvas>` (post-`transferControlToOffscreen`) has no
         // `Canvas2dContext` of its own — the OffscreenCanvas entity owns the
-        // bitmap now (spec: HTML §4.12.5 "placeholder canvas element"). The
+        // bitmap now (spec: HTML §4.12.5.3 "placeholder canvas element"). The
         // shared `reset_canvas_bitmap` below would already return false on a
         // placeholder (no Canvas2dContext = no-op), so this check is
         // observability-only, not a correctness gate.
