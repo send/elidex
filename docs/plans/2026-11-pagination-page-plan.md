@@ -47,6 +47,6 @@ Drive the stylesheet through the paged entry with a default 200×100 sheet and 1
 | css-page-3 §4.2.3 Blank-page pseudo-class: :blank | select blank page rules | forced blank, content without ink | page identity and style snapshot | supported selectors | yes |
 | css-break-3 §4 Rules for Breaking | guarantee fragmentation progress | used block extent zero or positive | content fragmentainer preparation | paged fragmentainer | yes |
 | css-page-3 §7.1 Page size: the size property | carry selected physical dimensions | nonnegative or rejected size | prepared geometry → entry | numeric controls | yes |
-| css-values-4 §9.1 Functional Notations for Numeric Values and §10.12 Range Checking | distinguish invalid syntax and computed clamping | direct/substituted negative math, negative literal | prepared size reader → pagination | size controls | yes |
+| css-values-4 §9.1 Numeric Functions and §10.12 Range Checking | distinguish invalid syntax and computed clamping | direct/substituted negative math, negative literal | prepared size reader → pagination | size controls | yes |
 
 Exercise the actual paged layout and interleaved builder entry points, keeping the 3a public counter 11→2 regression and command order.
