@@ -15,8 +15,10 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 3b.2g | G′a-geo · Grid item continuation | 3b.2, 3b.2f | Use the shared cursor when auto-repeat changes row membership. Run four auto-placed items in repeat(auto-fill, 40px) at 80→40px and 40→80px, verify each item is covered exactly once, compare explicit placement, and verify the remaining state of a spanning child. |
 | 3b.3 | G′a-geo · pagination plan | 3b.1, 3b.2, 3b.2f, 3b.2g | Pagination consumes typed break-boundary events once, determines blank/content entries from parity, then selects geometry for each entry. Replay the same entry order, source positions and geometry for counting and layout for paint. Preserve actual dimensions separately from the minimum 1px fragmentation progress extent. |
 | 3b.4 | G′a-geo · public page geometry | 3b.3, render builder split | Both public builders return per-page output records referencing the immutable geometry table owned by their result. Verify sheet dimensions, content origins and margin boxes on blank and content pages across repagination. |
-| 3c | G′a · lengths with a definite reference | 3b.4 | Migrate Text, table border spacing and Multicol length properties with their computed and used readers. Each accepted calculation ships with its evaluator. |
-| 4 | N · numeric semantics | G′a | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
+| 3c.1 | G′a · Text | 3b.4, T, G | Migrate font and spacing declarations, root and descendant reference selection, ordinary style and registered handler outputs. |
+| 3c.2 | G′a · Table | 3c.1 | Migrate border-spacing shorthand and both handler axes, inherited computed pair and separated-grid spacing. |
+| 3c.3 | G′a · Multicol | 3c.2 | Migrate columns and column-rule shorthands and their longhands, snapped computed and suppressed used rule widths, and width-to-count geometry. |
+| 4 | N · numeric semantics | 3c.3 | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
 | 5 | C1 · computed representation | N | One computed length-percentage payload for Dimension and FlexBasis, with ownership, equality and all mandatory reader changes including transform-origin. |
 | 6 | G′b · reference-dependent consumers | C1 | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
 | 7 | C2 · Flex used basis and generic animation | C1, G′b | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
@@ -140,7 +142,7 @@ Finding text is indexed in the lane handoff directory `/Users/kazuaki/repos/send
 | M19 | G / coverage map |
 | M23 | Corrected original finding homes above |
 
-R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a-geo (C-3), G′a (C-5, C-16), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
+R3 child homes at 1696e3b8: D (C-1, C-8, C-10–C-13), N (C-2, C-15), G′a-geo (C-3), 3c.1 (C-5 separate Web API disposition), 3c.3 (C-16 keyword control), G (C-4), S (C-6, C-14), F (C-7), H (C-9), T (C-13), G′b (C-16).
 
 PM 1008 splits G′a-geo into §1 rows 3b.1–3b.4. Each child needs an independent full plan review before implementation and its predecessor implementations before landing code. For the G′a-geo entries above, the page portions of §4 have these homes.
 
@@ -149,8 +151,25 @@ PM 1008 splits G′a-geo into §1 rows 3b.1–3b.4. Each child needs an independ
 | Parser @ c2f27760 | F1/F2 and F11/M12/M15 go to 3b.1 for grammar and readers, with actual consumption checked in 3b.3/4. Each child owns its applicable M16–M19 coverage, structure and gates. The standalone 3a extraction retains M17 for the builder split and M18/M19 for parity and landing checks. |
 | Umbrella R2 @ df8f8336 | F1/M9/M15 and F3 go from G/T to 3b.1. The umbrella owns the F2/M21 cut and order, with page-reader acceptance through 3b.1 → 3b.3 → 3b.4. |
 | Umbrella R3 @ 1696e3b8 | C-3 belongs to 3b.1 for each margin side’s grammar, cascade and evaluation, 3b.3 for page axes and breaks, and 3b.4 for public output. N retains C-2 for page and property readers. |
-| G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. G′a retains IMP-3–5 and MIN-1. Each reader owns its IMP-8 spec rows and MIN-2 tests after the 3a extraction. Each PR owns MIN-3. The revised order settles MIN-4. |
+| G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. 3c.1 owns IMP-3, 3c.3 owns IMP-4/5 and MIN-1 (pinned Multicol WPT). All three readers supply their IMP-8 spec rows and MIN-2 tests; the outstanding IMP-8 fixtures belong to 3c.1 and 3c.3. Each PR supplies its MIN-3 gate record. The revised order settles MIN-4. |
+| G′a binding @ e72f209e (PM 1019) | IMP-1 establishes the serial 3c.1–3c.3 split. 3c.1 owns IMP-2/3 and the Fonts shorthand part of MIN-1. 3c.3 owns IMP-4 and the Multicol shorthand, rule and column-count parts of MIN-1. FP-1 leaves wrapper retirement to G′b; FP-2 retains C-5’s distinct Web API grammar. N takes all three reader fixture sets after 3c.3. |
 | G′a-geo binding @ 6ffdfec2 | 3b.1 owns F1/F2/F7 and the bare-orientation control F9. 3b.2 owns F3’s cursor contract, with Flex and Grid consumers in 3b.2f and 3b.2g. 3b.3 owns F4/F8. 3b.4 owns F5 and closes F6 across the selected-geometry children. |
+
+PM 1020 assigns one closing child to each former G′a property obligation below. For cross-reader rows 3c.3 checks its own record against the landed Text and Table records before closing the ID. N subsequently replays the three fixture sets against the common arithmetic.
+
+| Source and property IDs | Closing child | Contributing evidence |
+|---|---|---|
+| Parser c2f27760 · F1, F2, F11, M12, M15 | 3c.3 | Each reader records its accepted categories, shared grammar calls and actual computed or used results. |
+| Parser c2f27760 · M16, M17, M18, M19 | 3c.3 | All three supply their applicable coverage, module structure, regression evidence and landing gates. |
+| Umbrella R2 df8f8336 · F1, M9, M15 | 3c.3 | Each reader demonstrates G’s unit vocabulary and the corresponding consumer. |
+| Umbrella R2 df8f8336 · F2, M21, F3 | 3c.3 | Text records the ordered cut. Each child records its working reader and T substitution cases. |
+| Umbrella R3 1696e3b8 · C-5 | 3c.1 | Record Intersection Observer’s separate margin grammar. |
+| Umbrella R3 1696e3b8 · C-16 | 3c.3 | Preserve the Multicol keyword control. G′b retains its distinct obligation. |
+| Advisory 17e44ba3 · IMP-3 | 3c.1 | Ordinary Text walk and registered readback. |
+| Advisory 17e44ba3 · IMP-4, IMP-5, MIN-1 | 3c.3 | Multicol shorthand, width-to-count geometry and pinned WPT. |
+| Advisory 17e44ba3 · IMP-8, MIN-2, MIN-3 | 3c.3 | Each child supplies its spec rows, test placement and gate record. Text and Multicol supply the outstanding range and phase fixtures. |
+| Binding e72f209e · IMP-1, IMP-2, IMP-3 | 3c.1 | Land subdivision and validate root context and Text category. |
+| Binding e72f209e · IMP-4, MIN-1 | 3c.3 | Verify rule phases and Multicol citations alongside Text’s landed shorthand citation. |
 
 | 組 | producer → consumer と判別観測 |
 |---|---|
@@ -183,7 +202,8 @@ The original local review inputs remain available at 9853348d (Flex), c2f27760 (
 | G | `flex-grammar/docs/plans/2026-11-flex-shorthand-parser-prerequisite.md` |
 | Render builder split | `render-builder-split/docs/plans/2026-11-render-builder-split.md` |
 | G′a-geo binding input @ 6ffdfec2 (before PM 1008) | `page-geometry/docs/plans/2026-11-selected-page-geometry.md` |
-| G′a | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
+| 3c.1 Text | `text-definite-lengths/docs/plans/2026-11-text-definite-lengths.md` |
+| G′a baseline (superseded by the three child plans) | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
 | G′b | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
 | N | `flex-numeric/docs/plans/2026-11-css-numeric-evaluation.md` |
 | C1 | `flex-computed/docs/plans/2026-11-computed-length-percentage.md` |
