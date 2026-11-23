@@ -1583,8 +1583,8 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) touch_prototype: Option<ObjectId>,
     /// `TouchList.prototype` (Touch Events §4).  Chains to
-    /// `Object.prototype`.  Length getter + indexed exotic +
-    /// `item(idx)` method backed by [`Self::touch_list_states`].
+    /// `Object.prototype`.  The `length` getter and `item(idx)` method read
+    /// from [`Self::touch_list_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_list_prototype: Option<ObjectId>,
     /// `DataTransfer.prototype` (HTML DnD §6.2).  Chains to
@@ -1619,8 +1619,8 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
     /// Per-`Touch` instance state (Touch Events §3).  Keyed by the
-    /// instance's `ObjectId`.  All 12 IDL members live here as
-    /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
+    /// instance's `ObjectId`.  Stores the attributes implemented by
+    /// [`host::events_modern::TouchState`].
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId`.  Sweep tail prunes entries whose key was

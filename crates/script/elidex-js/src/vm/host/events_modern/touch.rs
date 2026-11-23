@@ -6,12 +6,12 @@
 //! ```text
 //! TouchEvent : UIEvent
 //! Touch      : (Object)
-//! TouchList  : (Object — indexed exotic, no constructor)
+//! TouchList  : (Object — no public constructor)
 //! ```
 //!
 //! ## State storage
 //!
-//! - `Touch` instances are wrapper-only; the 12 IDL members live in
+//! - `Touch` instances are wrapper-only; the 12 implemented attributes live in
 //!   [`super::TouchState`] keyed by the wrapper's `ObjectId`.
 //! - `TouchList` instances likewise carry their ordered Vec of
 //!   member [`super::super::super::value::ObjectKind::Touch`] wrapper

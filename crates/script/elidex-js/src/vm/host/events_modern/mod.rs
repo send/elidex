@@ -258,8 +258,7 @@ pub(in crate::vm) enum DataTransferEntry {
 
 /// Per-`Touch` backing state (Touch Events §3).  Keyed in
 /// `crate::vm::VmInner::touch_states` by the wrapper's
-/// `ObjectId`.  All 12 IDL members live here as `f64` (Number
-/// idiom) + `Option<ObjectId>` (the EventTarget `target`).
+/// `ObjectId`.  Stores the 12 attributes exposed by this VM.
 pub(crate) struct TouchState {
     /// `Touch.identifier` (WebIDL `long`).
     pub(in crate::vm) identifier: i32,
@@ -290,8 +289,6 @@ pub(crate) struct TouchState {
 pub(crate) struct TouchListState {
     /// Member [`super::super::value::ObjectKind::Touch`] wrapper
     /// IDs in spec order.  Read via `.item(i)` /  `.length` only;
-    /// indexed-exotic bracket access (`list[i]`) is deferred to slot
-    /// `#11-events-modern-indexed-exotic` and currently resolves to
-    /// `undefined` (consistent with `DataTransferItemList`).
+    /// bracket access (`list[i]`) currently resolves to `undefined`.
     pub(in crate::vm) items: Vec<ObjectId>,
 }
