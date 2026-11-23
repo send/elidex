@@ -407,22 +407,10 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
             );
             obj
         }
-        // RSASSA-PKCS1-v1_5 / RSA-PSS: `{ name, modulusLength, publicExponent,
-        // hash: { name } }` (WebCrypto §20.7 / §21 `RsaHashedKeyAlgorithm`).
-        // Web IDL §2.7 orders dictionary members *inherited-first* (least- to
-        // most-derived), lexicographic within each level.  For
-        // `RsaHashedKeyAlgorithm : RsaKeyAlgorithm : KeyAlgorithm` that is
-        // `name` (KeyAlgorithm) ‖ `modulusLength`, `publicExponent`
-        // (RsaKeyAlgorithm) ‖ `hash` (RsaHashedKeyAlgorithm), so
-        // `Object.keys(key.algorithm)` is `name, modulusLength, publicExponent,
-        // hash` — *not* the plain lexicographic `hash < modulusLength < name <
-        // publicExponent` (the deeper, 3-level inheritance is why only RSA
-        // diverges from a flat lexicographic emit; the shallower AES / EC / HMAC
-        // dicts coincide).  The nested `hash` dict reuses the HMAC hash-object
-        // shape; `publicExponent` (`RsaKeyAlgorithm.publicExponent`, §20.6) is a
-        // fresh `Uint8Array` over the stored big-endian octets — the §13.4
-        // `algorithm` getter materializes a new ArrayBuffer per read, so the
-        // publicExponent round-trips byte-identical.
+        // Web IDL §3.2.17 emits dictionary members from base to derived, so
+        // the RSA object has name, modulusLength, publicExponent, then hash.
+        // Build the exponent byte array when constructing the cached algorithm
+        // object. Later reads of key.algorithm return that object (Web Crypto §13.4).
         KeyAlgorithm::Rsa {
             variant,
             modulus_length,
