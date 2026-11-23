@@ -116,10 +116,8 @@ fn zero_area_target_outside_root_reports_ratio_zero() {
 
 #[test]
 fn apply_root_margin_clamps_oversized_negative_margin_to_empty() {
-    // IO §3.6 (legacy `rootMargin`): negative margins shrink the
-    // root rect; a shrink larger than the dimension must collapse
-    // to 0, not produce a negative-sized rect (which would corrupt
-    // downstream `Rect::intersection_inclusive`).
+    // Intersection Observer §2.2 offsets the edges inward for negative margins.
+    // The geometry helper clamps the resulting size at zero.
     let root = Rect::new(0.0, 0.0, 50.0, 50.0);
     let neg = MarginComponent::Px(-100.0);
     let margin = [neg, neg, neg, neg]; // top/right/bottom/left = -100px
@@ -369,9 +367,8 @@ fn parse_root_margin_shorthand() {
 
 #[test]
 fn parse_root_margin_rejects_invalid_units() {
-    // W3C Intersection Observer §2.2 — `rootMargin` must be a
-    // valid `<length-percentage>{1,4}`.  `em` / `vh` / bare
-    // numbers / NaN / oversize shorthand are SyntaxError.
+    // Intersection Observer §2.2 rejects relative lengths, bare numbers and
+    // more than four components. The constructor reports SyntaxError (§3.2.1).
     for bad in [
         "10em",                 // unsupported unit
         "10vh 5px",             // mixed: second token ok, first fails

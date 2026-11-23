@@ -163,10 +163,8 @@ fn intersection_observer_threshold_out_of_range_throws() {
 
 #[test]
 fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
-    // W3C Intersection Observer §2.2 — `rootMargin` must be a valid
-    // `<length-percentage>{1,4}`.  `em` / `vh` / bare numbers fail
-    // SyntaxError, NOT TypeError (regression guard for the strict
-    // crate-side parser).
+    // Intersection Observer §2.2 rejects these margin tokens. Initialization
+    // throws SyntaxError on a parse failure (§3.2.1 step 3).
     for bad in ["10em", "10vh", "10", "NaNpx"] {
         let err = run_throws(&format!(
             "new IntersectionObserver(function(){{}}, {{rootMargin: '{bad}'}});"

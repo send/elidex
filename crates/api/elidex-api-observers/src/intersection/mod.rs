@@ -106,12 +106,8 @@ impl IntersectionObserverRegistry {
 
     /// Register a new intersection observer, returning its ID.
     ///
-    /// Parses `init.root_margin` at register-time (W3C Intersection
-    /// Observer §2.2 ctor step — `SyntaxError` if the shorthand is
-    /// not a valid `<length-percentage>{1,4}`); the parsed
-    /// `[MarginComponent; 4]` is cached on the registered observer so
-    /// `gather_observations` does not re-parse on every per-target
-    /// frame tick.
+    /// Cache the parsed root margin for subsequent observations. Intersection
+    /// Observer §3.2.1 step 3 requires a SyntaxError if parsing fails.
     ///
     /// # Errors
     ///
@@ -125,11 +121,7 @@ impl IntersectionObserverRegistry {
         mut init: IntersectionObserverInit,
     ) -> Result<IntersectionObserverId, RootMarginParseError> {
         let parsed_root_margin = parse_root_margin(&init.root_margin)?;
-        // Canonicalise threshold here (spec §2.4: "If options.threshold
-        // is not present, set it to [0]") so `gather_observations`'s
-        // hot path can use the slice unconditionally — the host-side
-        // constructor and any crate-only caller (test harness, future
-        // bindings) both get the same default.
+        // Intersection Observer §3.2.1 step 8 appends zero to an empty threshold list.
         if init.threshold.is_empty() {
             init.threshold = vec![0.0];
         }
@@ -447,8 +439,7 @@ fn crossed_threshold(old: f64, new: f64, thresholds: &[f64]) -> bool {
     false
 }
 
-/// One `rootMargin` component: an absolute px length or a percentage resolved
-/// against the root dimension (Intersection Observer §2.2 `rootMargin`).
+/// One component of the parsed root margin. See `apply_root_margin` for its basis.
 #[derive(Debug, Clone, Copy)]
 enum MarginComponent {
     Px(f32),
@@ -466,11 +457,8 @@ impl MarginComponent {
     }
 }
 
-/// `rootMargin` parse failure (W3C Intersection Observer §2.2 ctor
-/// step — "If options.rootMargin is given but is not a valid string
-/// representing a `<length-percentage> [<length-percentage>]{0,3}`,
-/// throw a SyntaxError").  Carries the offending token so the host
-/// can wrap it in an interface-scoped error message.
+/// Margin parsing failed. Initialization translates this into a SyntaxError
+/// (Intersection Observer §3.2.1 step 3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootMarginParseError {
     /// The offending whitespace-split token (`em`-suffixed value,
@@ -495,10 +483,8 @@ impl std::fmt::Display for RootMarginParseError {
 
 impl std::error::Error for RootMarginParseError {}
 
-/// Parse a CSS-margin-shorthand `rootMargin` string into `[top, right,
-/// bottom, left]` components (Intersection Observer §2.2 — strict
-/// `px` / `%` only; 1/2/3/4 value shorthand).  Anything else
-/// (`em` / `vh` / garbage / NaN) is a SyntaxError per spec.
+/// Intersection Observer §2.2 accepts percentages and absolute lengths,
+/// converting lengths to pixels. This parser accepts only percentages and px.
 fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseError> {
     let parse_one = |tok: &str| -> Result<MarginComponent, RootMarginParseError> {
         let invalid = || RootMarginParseError {
@@ -552,8 +538,8 @@ fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseE
 }
 
 /// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left)
-/// per W3C Intersection Observer §2.2 `rootMargin` (offset applied to the
-/// root intersection rect before the target-vs-root overlap is computed).
+/// before computing intersections. Intersection Observer §2.2 resolves every
+/// percentage against the original width. Here vertical percentages use height.
 fn apply_root_margin(root: Rect, margin: &[MarginComponent; 4]) -> Rect {
     let top = margin[0].resolve(root.size.height);
     let right = margin[1].resolve(root.size.width);

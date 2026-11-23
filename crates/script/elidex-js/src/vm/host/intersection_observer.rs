@@ -194,8 +194,8 @@ fn native_intersection_observer_constructor(
     }
 
     let init = parse_intersection_observer_init(ctx, args.get(1).copied())?;
-    // W3C Intersection Observer §2.2 ctor step — `SyntaxError` if
-    // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
+    // Intersection Observer §3.2.1 step 3 throws SyntaxError when
+    // the root margin fails to parse. The
     // crate-side `register` returns `RootMarginParseError` (engine-
     // independent); the host wraps it in an interface-scoped
     // SyntaxError matching the Chrome / Firefox shape.
@@ -317,12 +317,8 @@ fn parse_intersection_observer_init(
 ) -> Result<IntersectionObserverInit, VmError> {
     let mut init = IntersectionObserverInit::default();
     let value = match arg {
-        // No init → spec default applies.  `threshold = [0]`
-        // (§2.4: "If options.threshold is not present, set it to [0]")
-        // is canonicalised crate-side in
-        // `IntersectionObserverRegistry::register`, so leaving the
-        // default empty `Vec` here is intentional — registration is
-        // the single canonicalisation point.
+        // The dictionary defaults threshold to zero (§2.4). Registration
+        // fills the empty list with zero (§3.2.1 step 8).
         None | Some(JsValue::Undefined | JsValue::Null) => return Ok(init),
         Some(v) => v,
     };
@@ -362,10 +358,8 @@ fn parse_intersection_observer_init(
 
     let raw_threshold = ctx.get_property_value(opts_id, PropertyKey::String(wk_threshold))?;
     init.threshold = parse_threshold(ctx, raw_threshold)?;
-    // Spec §2.2: thresholds must be sorted ascending + deduplicated +
-    // each in [0,1].  Sort+dedup here; range validation per-value
-    // happens in `parse_threshold`.  Empty-list canonicalisation to
-    // `[0]` lives in `IntersectionObserverRegistry::register`.
+    // Intersection Observer §3.2.1 steps 6–9 range-check and sort the values.
+    // This VM additionally removes duplicate thresholds.
     init.threshold
         .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     init.threshold.dedup();
