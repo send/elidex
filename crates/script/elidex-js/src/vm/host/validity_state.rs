@@ -473,9 +473,8 @@ fn native_check_validity(
         // HTML §4.10.21.3 (check validity step 1.1): fire a
         // synthetic `invalid` event at the element
         // (cancelable=true, bubbles=false).
-        // Listeners can `preventDefault()` to suppress the UA's
-        // default validation reporting; `checkValidity()` itself
-        // still returns `false` regardless.
+        // Canceling this event has no effect on `checkValidity()`,
+        // which returns false for the failing control.
         let invalid_sid = ctx.vm.well_known.invalid_event;
         let _ = super::event_target_dispatch::dispatch_simple_event(
             ctx,

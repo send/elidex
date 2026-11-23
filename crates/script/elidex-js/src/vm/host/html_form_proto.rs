@@ -39,8 +39,8 @@
 //!   each form control back to its `default_value` /
 //!   `default_checked` (Group β F-7 + F-8 fold).
 //! - `checkValidity()` / `reportValidity()` — iterate the listed
-//!   elements, run `validate_control` on each candidate (skipping
-//!   disabled / `<input type=hidden>` per HTML §4.10.21.2), fire
+//!   elements, skip non-candidates (HTML §4.10.21.2, static validation
+//!   step 3.1), run `validate_control` on each candidate, fire
 //!   the synthetic `invalid` event on every failing control, and
 //!   return `false` if any control failed.  Form-level methods are
 //!   NOT installed via the `install_constraint_validation_mixin`

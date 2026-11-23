@@ -165,7 +165,7 @@ impl FormControlKind {
     }
 
     /// Returns `true` if the `readonly` attribute applies to this kind
-    /// (HTML §4.10.5.3.3 "The readonly attribute").  `readonly` is
+    /// (HTML §4.10.5.3.3 for input and §4.10.11 for textarea).  `readonly` is
     /// meaningful for text-editable controls (`text`, `password`,
     /// `textarea`, `email`, `url`, `tel`, `search`) and the
     /// type-specific input subtypes that accept user editing (`number`,
@@ -173,7 +173,7 @@ impl FormControlKind {
     /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
     /// `file`, `hidden`, button-typed) the attribute exists but has
     /// no effect — including for the constraint-validation barring
-    /// rule of §4.10.5.3.3.
+    /// rule.
     #[must_use]
     pub fn readonly_applies(self) -> bool {
         matches!(
