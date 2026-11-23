@@ -816,7 +816,7 @@ caller). The `ObjectKind::HostObject` definition is untouched by all three.
   record. **S / N**: consume the record (§1.3.2). **C**: extends the record kind (§1.3.4, §7.2); **`#11-vm-upvalue-tdz-check`**:
   no edge (the record uses no upvalue state).
 - **R-0b**: R-JS-1 classifies `this_env` in `mark_frame`; R-JS-2 removes `new_instance` from it. R-0b's §5.4
-  obligation (re-point the umbrella's two-site cells to `mark_frame`) has a trigger and a date (§9).
+  obligation (re-point the umbrella's two-site cells to `mark_frame`) is discharged by the umbrella's Rev 1.8 (§9).
 
 ## §7. Slot homing
 ### §7.1 Closed
@@ -907,7 +907,7 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
 **Umbrella items left for a later revision, each with its trigger** (R1 A3 MIN):
 - R-0b §5.4's re-pointing of the umbrella's two-site cells to `mark_frame`: **trigger R-0b's landing** (target 11-24);
   owner VM P4; due before R-JS-1 starts (11-28), since R-JS-1 edits `mark_frame`; a slip is reported to the PM.
-  It cannot be made now: the tree it describes does not exist before R-0b lands.
+  Discharged by the umbrella's Rev 1.8 (R-0b landed 11-22, #664 `c3c78070`).
 - None other: S-3's cite was re-made by #654 itself (C-7); "R-JS = three children" is made in Rev 1.7 (RS-5).
 **Reported to the PM** (Rev 3.3; Rev 3.4 names the converter): whether `vm_error_to_thrown` should refuse
 `InternalError` VM-wide — reached via `throw_error` and `Op::Call` / `Op::CallMethod` / `Op::New` (§1.3.3; not R-JS's).

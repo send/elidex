@@ -82,6 +82,7 @@ So there is no third storage site, nothing for R-0b to fold and no ordering ques
 | 2.2 | Cites re-anchored to `f9acca16` (drift findings reported to the driver). Code cites whose line only locates a symbol now name the symbol; ranges that are the claim (the two blocks, §2's census, §8's control) are re-measured at `f9acca16`; the §2 census re-run gives the same 17 rows. Cites of facts that #650 (`7af70b68`) or #644 (`4d7b41dd`) changed are marked `84fee8fa` and kept as written (§0.1's creation-window sites and `CallFrame` command, §1.2's four store sites, §5.5's L3 branch and abort-signal memo lines). | — |
 | 2.3 | Stale tree statements folded (#650 / #643 / #644 landed), no plan decision changed. #650: the coroutine-creation window is closed on the stack-rooting branch, no third residency (§0.1, §0.2, §0.3, §1 Out, §3, §8); `SuspendedFrame` store sites 4 → 2, D-2 and the `upvalue_slots` subset re-checked at both (§1.2). #643: the umbrella is ratified and on main at Rev 1.7, its cites re-pointed by § (§0, §5.4, §8), and R-JS plan's cite of this memo re-pointed when this memo lands (§5.4). #644: L3's branch landed, the rebase coupling removed, the abort memo's cite lines re-measured at `f9acca16` (§5.5). | — |
 | 2.4 | Focused re-check of Rev 2.2–2.3 (CRIT 0 / IMP 0 / MIN 5 + 1 pre-existing) folded; no plan decision changed. §0.1's `CallFrame` census classified completely with per-class counts and a positive control; §1.1's module-doc cite located; §5.4's R-JS cite paragraph put in the past tense; §5.5's abort-signal memo cites read against its `69fbe61f` pin, the PR-body listing dropped; §2's `CallMode` range `:628-641`. | — |
+| 2.5 | Post-landing: the D-3 narrowing slot cited by its registered ID (§1); §5.4's obligation marked discharged by the umbrella's Rev 1.8. No plan decision changed. | — |
 
 ## §1. Scope
 
@@ -159,10 +160,9 @@ and `Throw`, so `Normal` cannot be stored at all. That retypes a `CallFrame` fie
 forbids, and its writers and readers are outside `vm/gc/` (`route_to_next_finally`'s parameter, `vm/ops.rs`; its
 callers `op_end_finally` and `resume_generator`; `op_end_finally`'s `None | Some(Normal(_))` arm, `vm/ops.rs`,
 which is dead for the same reason). `FrameCompletion` itself stays three-variant: it is also the resumption kind, where
-`Normal(v)` is the `.next(v)` argument (`FrameCompletion`'s doc, `vm/coroutine_types.rs`). The narrowing is its own change, proposed to the
-PM as a slot (draft name **`#11-vm-pending-completion-type-narrowing`**, not registered at Rev 2.1; its scope includes
-deleting the dead `None | Some(Normal(_))` arm in `op_end_finally`). Once the PM registers it, this memo cites its ID
-here in place of the draft name. When it lands, D-3's `Normal` alternative disappears with the variant: the
+`Normal(v)` is the `.next(v)` argument (`FrameCompletion`'s doc, `vm/coroutine_types.rs`). The narrowing is its own change, the slot
+**`#11-vm-pending-completion-type-narrowing`** (its scope includes deleting the dead `None | Some(Normal(_))` arm in
+`op_end_finally`). When it lands, D-3's `Normal` alternative disappears with the variant: the
 or-pattern stops compiling until it is removed, so the two cannot drift.
 
 ## §2. Field census (at `f9acca16`; the same result at `84fee8fa`)
@@ -368,7 +368,7 @@ enumeration; R-JS edits both"); §4.1's R-0b bullet; §4.2's first edge to umbre
 after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). The R-JS plan
 on main records the same item with its trigger and due date (`docs/plans/2026-11-vm-native-construct-r-js.md` §9,
 "Umbrella items left for a later revision"). R-0b's PR body and its landing report to the PM name this obligation;
-this section is its durable statement.
+this section is its durable statement. Discharged by the umbrella's Rev 1.8.
 
 **The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) read
 this memo as an in-flight claim at Rev 2.1 (`c2e3dd5f`, branch `vm-r0b-frame-roots`, not on main), with its landing
