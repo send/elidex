@@ -53,7 +53,7 @@ fn rect_args(
 // Each `native_oc_*` is a 5-line dispatch wrapper that brand-checks via
 // `require_offscreen_canvas_2d_context` and forwards to the shared
 // `dispatch_2d_method` generic. WHATWG HTML §4.12.5.1 sub-sections by group:
-//   §4.12.5.1.2 — canvas state stack: save / restore
+//   §4.12.5.1.3 — canvas state stack: save / restore
 //   §4.12.5.1.5 — building paths: beginPath / closePath / moveTo / lineTo /
 //                                  rect / arc
 //   §4.12.5.1.6 — transforms: translate / rotate / scale
@@ -64,7 +64,7 @@ fn rect_args(
 //   §4.12.5.1.13 — compositing: globalAlpha (accessor)
 // ---------------------------------------------------------------------------
 
-/// `save()` (HTML §4.12.5.1.2 — canvas state stack push).
+/// `save()` (HTML §4.12.5.1.3 — canvas state stack push).
 pub(super) fn native_oc_save(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -81,7 +81,7 @@ pub(super) fn native_oc_save(
     Ok(JsValue::Undefined)
 }
 
-/// `restore()` (HTML §4.12.5.1.2 — canvas state stack pop).
+/// `restore()` (HTML §4.12.5.1.3 — canvas state stack pop).
 pub(super) fn native_oc_restore(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
