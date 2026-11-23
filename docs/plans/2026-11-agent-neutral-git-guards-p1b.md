@@ -136,7 +136,7 @@ Exit codes: 0 merged, or `--dry-run` with every check passed; 1 refused at steps
   nothing (cleanup lines 59–62, 116–120); if the first run left the worktree in place (a live session holds it), the
   second run prints the same note again. Harmless either way.
 
-**V — cut-over order** (the axis, V1, V2, V5 and V6: P1a memo §2).
+**V — cut-over order** (the axis, V1, V2 and V5: P1a memo §2).
 - V3 [P1b]. Raw `gh pr merge` is denied or adapted (Claude side, `:36`) before the PostToolUse merge entries
   (`:136`, `:142`) change; the reverse order leaves raw merges without sync / cleanup. Both are P1a memo §7.3 items.
 - V4 [P1b]. The post-merge scripts stay in `~/.claude/hooks/` whatever happens to their PostToolUse entries:
@@ -338,7 +338,7 @@ memo §7.4 check covers the unfiltered bypass guard only, and these entries carr
 
 ### §7.5 E2E cases
 
-The setup and E1–E24: P1a memo §7.5.
+The setup, E1–E19 and E24: P1a memo §7.5.
 
 `$S/pm` is an empty directory made for M1–M4 (`mkdir -p $S/pm/handoff/codex-lanes/go`) and removed with `$S`.
 
@@ -371,8 +371,7 @@ Q0, Q5 and the round records: P1a memo §8.
 
 ## §9 Layering and what is not touched
 
-Layering, what is not touched, and the global → tracked dependency: P1a memo §9. The cross-boundary
-dependency P1b owns:
+Layering and what is not touched: P1a memo §9. The cross-boundary dependency, which P1b owns:
 
 - **Tracked → global.** `merge-pr` (tracked) runs `~/.claude/hooks/post-merge-sync-main.sh` and
   `post-merge-cleanup-branch.sh` (global) with a hand-built PostToolUse payload (step 14: `.tool_input.command`,

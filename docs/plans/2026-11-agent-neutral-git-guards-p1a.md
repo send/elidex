@@ -8,8 +8,8 @@ sources, breadth and measurements of §3, the rung of §5, the E2E sites and set
 of §8, §9, §10 and §11). The P1b slice is `docs/plans/2026-11-agent-neutral-git-guards-p1b.md` (the **P1b memo**), which refers
 here instead of restating. Section numbers are those of the single memo the pair was split from, so a section or
 table row absent here is in the P1b memo, and a reference into it names that memo. Ids (the items of the axes
-I–VI, F and T, D1–D42, Q0–Q5, E1–E24, M1–M7, the steps A0–A4 and B0–B3) are unique across the pair; an id not
-defined in one memo is defined in the other.
+I–VI, F and T, D1–D42, Q0–Q5, E1–E24, M1–M7, the steps A0–A3 and B0–B3) are unique across the pair; an id not
+defined in one memo is defined in the other. A retired id is not reused: PM 950 retired D41, V6, A4 and E20–E23.
 §4.8 (the bypass-guard patch) is a third file since PM 916,
 `docs/plans/2026-11-agent-neutral-git-guards-p1a-bypass-guard.md` (the **bypass-guard memo**); it keeps its section
 number, and a reference to it here names that memo.
@@ -20,7 +20,8 @@ memo (its line 3: ratified by the user, PM 873; it points at §10 of this memo f
 this per-PR memo. This memo and the P1b memo are the plan for its phase **P1** (PLAN §5 P1, rows 1, 2, 3, 5, 6, 7, 8 and 17 of
 PLAN §1).
 **Scope source**: PM 873 / 874, restructured by PM 893; plan-review round 2 added PM 900 (the bypass-guard extension
-of bypass-guard memo §4.8, approved by the user) and the PM's A2-scope decision. The scope is not re-opened here; §8 records the
+of bypass-guard memo §4.8, approved by the user) and the PM's A2-scope decision; PM 950 (user, option D) withdrew
+the one change of a Claude hook that scope held, for `:24` / `:30`. The scope is not re-opened here; §8 records the
 decisions.
 **Slices (PM 893, overturning PM 874's "single PR")**: two PRs, one memo each since PM 908, **P1a first**.
 - **P1a — git hooks**: `pre-push`, `pre-commit`, the shim, the installer (`install-githooks`, `--check`), the
@@ -36,8 +37,8 @@ tests, one `mise` task; one modified tool (`.claude/tools/ecs_mission_ratchet.py
 row in the §2 PM-pass table of `.claude/skills/pm/SKILL.md` (§4.9). Zero `crates/**` diff. Nothing under
 `~/.claude` is edited by the PRs (bypass-guard memo §4.8 is a patch the PM applies at cut-over), and nothing is
 installed into any `.git/hooks`:
-installing the shim and changing the matching Claude hooks is the **cut-over**, done by the PM / user after each
-merge (§7).
+installing the shim and applying that patch is the **cut-over**, done by the PM / user after each merge (§7). P1a's
+cut-over changes no `settings.json` entry and no other Claude hook (PM 950).
 **Edge-dense**: yes — six intersecting axes (§2). So `/elidex-plan-review` is mandatory before implementation
 (CLAUDE.md Design discipline, "Edge-dense work"). P1a and P1b are each a terminal per-PR slice under the ratified
 program memo (decided Q0 in §8); each gets its own full review.
@@ -45,9 +46,10 @@ program memo (decided Q0 in §8); each gets its own full review.
 ## §1 Goal and non-goals
 
 **Goal.** The guards that today exist only as Claude Code PreToolUse / PostToolUse hooks, and that decide on the
-*text* of a Bash command, move to a layer every agent and every human goes through: git's own hooks (which see what
-git is about to do) and one merge wrapper (which is the merge). A Codex driver then gets the same guard as a Claude
-driver, from one implementation (CLAUDE.md "One issue, one way").
+*text* of a Bash command, get an implementation in a layer every agent and every human goes through: git's own hooks
+(which see what git is about to do) and one merge wrapper (which is the merge). A Codex driver then gets the same
+guard as a Claude driver, from one implementation (CLAUDE.md "One issue, one way"). The Claude Bash hooks for push
+branch and fmt (`settings.json` `:24`, `:30`) keep running beside the git hooks (PM 950; IV5).
 
 Files (all (NEW) unless marked):
 
@@ -56,7 +58,7 @@ Files (all (NEW) unless marked):
 | P1a | `.claude/tools/githooks/pre-push` | per pushed ref: reject non-fast-forward (force or delete), reject a target branch that is not the current branch (detached HEAD exempt), reject any push to `refs/heads/main`; then run the ECS-mission ratchet on each pushed commit (`--rev`) |
 | P1a | `.claude/tools/githooks/pre-commit` | rustfmt check of the staged `.rs` blobs, with the staged `.rustfmt.toml`; per-invocation opt-out naming the staged tree |
 | P1a | `.claude/tools/githooks/shim.sh` | the body the installer writes into the hooks directory, once per hook name; runs **`origin/main`'s** copy of the hook script; passes with a note while `origin/main` has none (absence is an exit-0 empty answer; an error rejects, I3) |
-| P1a | `.claude/tools/githooks/install.sh` | the installer; always run as **`origin/main`'s** copy, read into a variable and run with `bash -c` (§4.7) — by the `mise` task and by the §7.1 pass-through alike; `--check` reports any worktree the shims do not reach |
+| P1a | `.claude/tools/githooks/install.sh` | the installer; always run as **`origin/main`'s** copy, read into a variable and run with `bash -c` (§4.7); `--check` reports any worktree the shims do not reach |
 | P1a | `.claude/tools/githooks/isolated_git.py` | test helper (not a member): the isolated environment of T4 and its refusal on the real repository; imported by every test below |
 | P1a | `.claude/tools/githooks/test_githooks.py` | control + mutant tests for both hooks, the shim and the installer (split by scenario if it nears 1000 lines) |
 | P1a | `.claude/tools/ecs_mission_ratchet.py` (MODIFIED) | `--rev <sha>`: materialise `<sha>`'s tree in a temp dir and run **`<sha>`'s own ratchet module** on it; the running copy only orchestrates (§4.5) |
@@ -74,7 +76,7 @@ P1b's files (`merge-pr`, `test_merge_pr.py`): P1b memo §1.
   2. P3b: `CLAUDE.md` Workflow "Git" line (`CLAUDE.md:54` at 6cbe39e3): "CI 全 pass を目視確認してから squash merge
      (… この目視が最終ゲート)" — the check becomes `merge-pr` step 10; the line names `merge-pr` instead.
   3. P3b: `CLAUDE.md` Workflow worktree line (`CLAUDE.md:55`): names `~/.claude/hooks/git-push-branch-guard.sh` as what
-     blocks a branch-mismatch push — becomes pre-push.
+     blocks a branch-mismatch push — names pre-push, which decides for every agent (the Claude hook stays beside it, PM 950).
   4. P3b: `.github/workflows/ci.yml` `trip-wires` job comment (`ci.yml:191-194`) and `tools` job comment
      (`ci.yml:275-278`): "merging still rests on the CLAUDE.md convention of eyeballing CI" — becomes `merge-pr`.
   5. P3b: `.claude/skills/drive/SKILL.md` §6 step 4 (its raw `gh pr merge … --match-head-commit <sha>`) — becomes the
@@ -132,10 +134,10 @@ branch.
     `-ccore.hooksPath=…`, `--config-env=core.hooksPath=…`, a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment and
     `--no-verify` (its docstring lines 4–14); it has no rule for `git config … core.hooksPath` nor for
     `GIT_CONFIG_PARAMETERS`, both of which reroute (measured, §3.2). Codex: PLAN row 4's adapter (P2). Both are
-    global changes applied by the PM / user, not by this PR — cut-over prerequisites (§7.1 step A2). A command
+    global changes applied by the PM / user, not by this PR (the Claude one at §7.1 step A2). A command
     adapter sees commands only: indirect forms (`include.path` pointing at a file that sets the key, a direct file
     write into `config.worktree`) are not prevented, nor are the shapes whose cwd the Claude guard misreads (bypass-guard
-    memo §4.8, "`scan()`'s deny is not widened"). `--check` detects the persistent ones of both kinds.
+    memo §4.8, "`scan()`'s blind spots"). `--check` detects the persistent ones of both kinds.
   - **The Codex sandbox caveat.** PLAN §6 item 5 (as revised by PM 877) gives the Codex driver's workspace-write
     sandbox the `.git` common dir. A session that can write there can rewrite a shim in `<common dir>/hooks` or a
     worktree's `config.worktree` by a plain file write, which no command adapter sees. Such a write is detected,
@@ -225,22 +227,23 @@ branch.
 
 **III — merge decision order and TOCTOU** [P1b]: P1b memo §2 (steps 1–14, exit codes, III1–III5).
 
-**IV — coexistence with the Claude hooks** [both] (shim installed; the Claude hooks not yet changed, or changed
-only for elidex).
+**IV — coexistence with the Claude hooks** [both] (shim installed; the Claude hooks beside it).
 - IV1 [P1a]. On a Claude `git push` both the Claude PreToolUse hooks (`settings.json` lines 13 and 24) and pre-push
   decide; the push proceeds only if all of them allow. Where they differ: the Claude branch guard fires only on a
   `HEAD:<branch>` refspec in the command text (`git-push-branch-guard.sh` lines 22–24), pre-push on every ref
   (wider); the Claude force guard denies the *flag* text (`-f`, `--force`, `--force-with-lease`, line 13) even for a
-  fast-forward, and does not match a `+<refspec>` force, while pre-push decides on the ref shape. After §7.1
-  step A4, line 24 passes through for a command the pass-through grammar accepts (`cd` and the allowlisted `git push` / `git commit` only)
-  whose git calls all run in installed elidex worktrees, and only pre-push decides there; line 13 is unchanged (§7.3).
+  fast-forward, and does not match a `+<refspec>` force, while pre-push decides on the ref shape. No cut-over step
+  changes line 13 or line 24 (PM 950; §7.3).
 - IV2 [P1a]. On a Claude `git commit` the Claude fmt hook (line 30) checks the working-tree file of each path the
   *real* index lists; pre-commit checks the blobs of the index git commits from (VI1). They differ on partial
-  staging and on `git commit <path>` / `git commit -a`. Until step A4 a deliberate skip needs both opt-outs
-  (`# fmt-ok` and VI3's value); after it, for a commit command the pass-through defers (§7.1), only VI3's.
+  staging and on `git commit <path>` / `git commit -a`. A deliberate skip from a Claude session needs both opt-outs
+  (`# fmt-ok` and VI3's value).
 - IV3, IV4 [P1b]: P1b memo §2.
-- IV5 [both]. **Two coexistences the approved scope cannot end** (PM 893 (1)); each has an owner, a trigger and an
-  end. This is the strangler state "One issue, one way" forbids, so the memo names them instead of hiding them.
+- IV5 [both]. **Three coexistences this scope does not end** (PM 893 (1), PM 950). This is the strangler state "One
+  issue, one way" forbids, so the memo names them instead of hiding them.
+  - **Push branch and fmt (`:24`, `:30`).** Kept by decision (PM 950, user, option D): both Claude hooks run on every
+    command as today, and from A1 pre-push / pre-commit decide too; the stricter answer wins (IV1, IV2). No trigger
+    and no end in this scope.
   - **Merge (the stated gap).** Until the `:36` approval (§7.3) a Claude driver can still run a raw
     `gh pr merge`. Its only guard is `gh-pr-merge-head-guard.sh`, which allows a PR with no Codex assessment and
     fails open on any `gh` error (its header, lines 14–16), counts the summary row's `Completed` (its lexime #332
@@ -248,22 +251,19 @@ only for elidex).
     "no override to train onto" and V × F's "a fail-closed layer on merge" do **not** hold; they hold for the whole
     merge path only after `:36`. Owner: the PM, who carries `:36` to the user. Trigger: P1b's merge (from then on
     `merge-pr` exists and the raw path is the second procedure). Not pulled into this scope.
-  - **Force push.** Until the `:13` approval (§7.3) the Claude force guard denies the flag text (`-f`, `--force`,
+  - **Force push.** The Claude force guard (`:13`) denies the flag text (`-f`, `--force`,
     `--force-with-lease`), also on a fast-forward, and does not see a `+<refspec>`; pre-push II5 decides on the ref
-    shape. Both decide, so the stricter answer wins (IV1). Owner: the PM. Trigger: §7.1 step A4 (from then on, in an
-    installed worktree, `:13` decides on the text of every command, and `:24` / `:30` on every command the pass-through
-    does not defer: any but `cd` and the allowlisted `git push` / `git commit`, or one with a git call elsewhere). End: the `:13` approval, under which its force half passes through like `:24` and the amend half stays.
+    shape. Both decide, so the stricter answer wins (IV1). Owner: the PM. Trigger: §7.1 step A1 (from then on both
+    layers decide a force push). End: none in this scope; a change of `:13` needs a user approval (§7.3).
 
 **V — cut-over order** [both] (§7 has the steps and what is safe in each intermediate state).
 - V1 [P1a]. Nothing is installed before P1a is merged (an installed shim would pass everywhere: I3).
-- V2 [P1a]. The shim goes in before any Claude hook stops deciding. For `:24` / `:30` this holds by construction:
-  their pass-through defers only when the command is in its grammar and `installed(wt)` is true for every git call's
-  cwd (§4.1, §7.1 step A4); the grammar holds `cd` and the allowlisted `git push` / `git commit` only, so no git call hides in another's arguments; any other command keeps the Claude hook.
+- V2 [P1a]. No Claude hook stops deciding in P1a's cut-over: `:13`, `:24` and `:30` run on every command as today,
+  and the git hooks are added on top (PM 950).
 - V3, V4 [P1b]: P1b memo §2.
-- V5 [P1a]. The adapter-layer prevention of I4 (the bypass-guard memo §4.8 patch: prevented for the shapes its `scan()`
-  reads, not widened to the others (that memo), and detected by `--check` for every persistent reroute) is in place before `:24` / `:30` pass through; the `--check`
-  PM-pass item runs from shim install on. Without both, the pass-through makes I4 an unwatched hole for agents.
-- V6 [P1a]. `:30` passes through only after pre-commit is installed — by construction, as V2.
+- V5 [P1a]. The `--check` PM-pass item runs from shim install on (A1), so a persistent reroute (I4) is detected from
+  the first installed day; the adapter-layer prevention of I4 (the bypass-guard memo §4.8 patch: prevented for the
+  shapes its `scan()` reads, that memo) follows at A2. No later step depends on either.
 
 **F — fail direction per check** [both] (rule: decide by where an unknown falls, not by how complete a list is).
 
@@ -318,22 +318,22 @@ The P1b rows (`merge-pr`): P1b memo §2.
 | slice | pair | intersection |
 |---|---|---|
 | P1a | I × II | every push from every worktree and branch is judged by `origin/main`'s ref rules (I2), the same for every branch, old ones included; the ratchet's capture set is the pushed commit's own (I5, stated limit) |
-| both | I × IV | in a worktree with I4's override, `installed(wt)` is false, so the Claude hooks keep deciding there (no pass-through); in other repositories nothing changes for a git call in the command text (§7.1, Blast radius) |
+| both | I × IV | in a worktree with I4's override the git hooks do not run, so the Claude hooks decide alone there, as before P1a, and `--check` lists the worktree; in other repositories nothing changes (P1a changes no Claude hook but the bypass guard, whose rules are elidex-scoped) |
 | P1a | I × V | the installer writes one file per hook name into the shared hooks dir, so installation is all-worktrees-at-once; there is no per-worktree rollout |
 | P1a | I × VI | pre-commit, like pre-push, is `origin/main`'s copy; the staged config it reads (VI4) is the branch's, so the rule is shared and the edition is the commit's |
 | P1a | I × F | I3 is the one fail-open on the reject-side checks; it is taken only on an absence git reported with exit 0, never on an error |
 | both | I × T | tests build their own repositories and bare remotes inside a temp dir; T4 refuses the real repository |
 | — | II × III | **empty — the slice seam.** `merge-pr` pushes nothing, so pre-push never sees a merge; the only push-shaped event in a merge is server-side |
-| P1a | II × IV | double decisions are conjunctive, so until step A4 a push needs both layers to allow; IV1 lists where they disagree |
-| P1a | II × V | `:24` passes through only where the shim is installed, so II2 is in force wherever the Claude branch guard stops deciding; `:13` (force) is not changed (§7.3) |
+| P1a | II × IV | double decisions are conjunctive, so a Claude push needs both layers to allow; IV1 lists where they disagree |
+| P1a | II × V | no Claude push guard stops deciding at any step (`:13`, `:24` unchanged, V2), so the II rules are added to them from A1 on |
 | P1a | II × VI | the ratchet at push reads the pushed commit (II9) and pre-commit reads the index (VI1): neither reads the working tree, so what was committed is what is judged at push |
 | P1a | II × F | every ref rule fails closed; only the ratchet's environment error fails open, and it runs only after every ref rule has passed |
 | P1a | II × T | each II case is a real `git push` into a local bare repository, so the stdin the hook reads is git's own, not a fixture |
-| both | IV × V | IV is the state between §7.1 step A1 and step A4 for push / commit, and between P1b memo §7.2 step B3 and the §7.3 approvals for merge |
-| both | IV × VI | IV2: the two commit checks differ on partial staging and temporary indexes until step A4 |
+| both | IV × V | IV is the state from §7.1 step A1 on for push / commit (no end in this scope, IV5), and between P1b memo §7.2 step B3 and the §7.3 approvals for merge |
+| both | IV × VI | IV2: the two commit checks differ on partial staging and temporary indexes |
 | both | IV × F | in IV the stricter answer wins, so a fail-open on one layer is covered by the other where both look |
 | both | IV × T | the tests cannot run the Claude hooks (they live outside the repository); IV is checked by the PM's E2E only |
-| P1a | V × VI | V6: `:30` defers only where pre-commit is installed |
+| P1a | V × VI | pre-commit decides from A1 on; `:30` is unchanged at every step (V2) |
 | both | V × F | each intermediate state of §7 keeps at least one fail-closed layer on push and on commit; on merge only after the `:36` approval — before it, the raw `gh pr merge` path has the fail-open head guard only (IV5, the stated gap) |
 | both | V × T | the PRs' tests pass with nothing installed; installation is checked by the E2E, never by CI |
 | P1a | VI × F | the only fail-open in VI is rustfmt not running, behind CI `check`; a missing config fails closed |
@@ -390,7 +390,7 @@ GraphQL rows (K=2, M=8).
 No web-content input. The inputs are what an agent or a person types: refspecs and flags of `git push`, the index
 of `git commit`, the PR number given to `merge-pr`, and files under the PM dir. Each one reaches a decision only
 through git's own report (pre-push stdin, the index) or a `gh` response, never by parsing the command text — that is
-the point of the move (IV1, IV2).
+the point of the git-hook layer (IV1, IV2).
 
 ### §3.2 Measured behaviours the documents do not state
 
@@ -438,7 +438,7 @@ git 2.56.1, `HOME` / `GIT_CONFIG_GLOBAL=/dev/null` / `GIT_CONFIG_NOSYSTEM=1` iso
 
 ### §4.1 Shim, installer and `installed(wt)` [P1a]
 
-**`installed(wt)` — the one definition** (I4, `--check`, §6 and the §7.1 pass-through all refer here). Let
+**`installed(wt)` — the one definition** (I4, `--check` and §6 refer here). Let
 `D` = `$(git rev-parse --path-format=absolute --git-common-dir)/hooks`, resolved with `cd … && pwd -P`.
 `installed(wt)` is true iff `git -C <wt> rev-parse --path-format=absolute --git-path hooks`, resolved the same way,
 equals `D`, and `D/pre-push` and `D/pre-commit` exist, are executable, and are **byte-identical to `origin/main`'s
@@ -447,9 +447,8 @@ bytes decide, not a marker line: a shim edited in place, an older shim body, or 
 is not installed. There is no earlier shim version to accept (nothing has been installed before P1a; no backward
 compatibility). A hooks path that cannot be resolved, or a `shim.sh` that cannot be read from `origin/main`, makes it
 false. A fresh repository with `core.hooksPath` unset and the shims in `.git/hooks` satisfies it (§3.2).
-**Which copy evaluates it**: always `origin/main`'s `install.sh`, run in the §4.7 form — by the `mise` task (§4.7),
-by `--check`, and by the §7.1 pass-through. No caller runs a working-tree `install.sh`, so there is one predicate,
-not one per checkout.
+**Which copy evaluates it**: always `origin/main`'s `install.sh`, run in the §4.7 form — by the `mise` task (§4.7)
+and by `--check`. No caller runs a working-tree `install.sh`, so there is one predicate, not one per checkout.
 **Re-install when the shim changes**: a PR that changes `.claude/tools/githooks/shim.sh` writes a re-run of
 `mise run install-githooks` into its own cut-over; the PM confirms it landed (PM 921).
 
@@ -488,11 +487,8 @@ concurrent fetch cannot pair the entry of one commit with the blob of another.
 
 `install.sh --check` computes `D` and does step 3, and writes nothing. `mise run install-githooks -- --check` passes
 the flag through; this invocation is the PM's standing pass item and the one the negative control uses (§7.5 E19).
-`install.sh --installed` evaluates `installed(wt)` for the worktree of its cwd only: exit 0 when true, 1 otherwise,
-writes nothing, prints nothing on 0. In every mode `install.sh` reads nothing relative to `$0` (it runs as `bash -c`
-from a variable) and takes the shim bytes from `origin/main`, not from the working tree. `--installed` is the predicate
-as a command, so the §7.1 pass-through calls it instead of re-implementing it; its interface (exit 0 / 1, silent on
-0, runnable in the §4.7 form from any worktree of the repository) is a contract with that global hook (§9).
+In both modes `install.sh` reads nothing relative to `$0` (it runs as `bash -c` from a variable) and takes the shim
+bytes from `origin/main`, not from the working tree.
 
 ### §4.2 pre-push [P1a]
 
@@ -591,7 +587,6 @@ run = 'b=$(git show refs/remotes/origin/main:.claude/tools/githooks/install.sh) 
 
 `mise run install-githooks -- --check` appends `--check`, which reaches the script as `$1`. The `&&` makes a failed
 read fail the task: a pipe into `bash -s` would run an empty program on a failed read, and an empty program exits 0.
-The same form is the one the §7.1 pass-through runs.
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -638,7 +633,6 @@ gh / rustfmt documents of §3, and "incident" means a recorded incident in an ex
 | D38 | P1a | the bypass-guard patch (bypass-guard memo §4.8): the whole write grammar of `core.hooksPath` and `GIT_CONFIG_PARAMETERS`; `--file` in scope denies from anywhere | PM 900 (user approved); the PM's A2-scope decision; measured forms (§3.2) |
 | D39 | P1a | P1a break-glass: `--no-verify`, run by the user from the commands and record line the PM prepares (who acts: §7.4); recorded; the fix PR then takes the normal gate (§7.4) | round 2 A3-2 (driver decision); D32's pattern (no override, a recorded hand action); PM 908 (the PM is a Claude session, and the bypass guard denies it `--no-verify`) |
 | D40 | both | the raw-merge gap until `:36` is stated with owner (PM) and trigger (P1b's merge), not closed here | PM 893 (1) (approved scope); round 2 A3-1 (driver decision) |
-| D41 | P1a | the pass-through defers only on the positive minimal grammar of the bypass guard's `pass_through_grammar()` (segments of `cd <absolute path>` and of `git push` / `git commit` with their option allowlists, joined only by `;` / `&&`; no comment, heredoc, expansion, redirection, wrapper, nested shell, other subcommand or option), with at least one git call and every effective cwd, as `git_segments()` derives it, in scope and installed; any other command does not defer. The predicate is the bypass guard's `pass_through_defers()`, on the iterator its `scan()` is built on, with its `in_scope`. The grammar, the corpus and the counts: bypass-guard memo §4.8 | round 2 A2-3 (driver decision); One issue, one way (no second derivation, no copy of the roots); PM 922 (one iterator shared by `scan()` and the pass-through, user-approved option A); PM 930, then PM 936 (PM 930's enumerated marks passed the next class, zsh's builtins and precommands; principle: decide by where an unknown falls, F); PM 938 (any subcommand let `rebase --exec` and its kin run a git the walker does not see: only the subcommands the skipped hooks decide) |
 
 The P1b rows (D13–D19, D22–D25, D30–D32, D34–D37, D42): P1b memo §5.
 
@@ -677,7 +671,6 @@ case must kill.
 | P1a | D12 installer | install into a fresh scratch repo (key unset); re-install is a no-op | existing foreign `pre-push`; invoking worktree with a worktree-level `core.hooksPath` | overwrite unconditionally; drop the hooks-path equality test |
 | P1a | I4 `--check` | fresh scratch repo with `core.hooksPath` unset, shims installed → exit 0, nothing written; same with the key set to `D` | one linked worktree with `git config --worktree core.hooksPath <other>` → listed, exit 1; the same through `--worktree include.path` of a file that sets the key → listed; a shim missing → exit 1; a shim with one byte changed and its marker intact → listed; `origin/main` without `shim.sh` → listed | compare `git config --get core.hooksPath` with `hooks` (the fresh-repo control fails); read the key from the main worktree only (misses the worktree-level value); print the divergence but exit 0; test the marker line instead of the bytes (the edited shim passes) |
 | P1a | §4.7 read failure | the task's run string under `sh -c` with `origin/main` holding `install.sh` → runs it with `--check` as `$1` | `origin/main` without `install.sh` → non-zero | `git show … \| bash -s --` (the failed read runs an empty program, exit 0) |
-| P1a | `--installed` | installed worktree → exit 0, no output | the I4-overridden worktree → exit 1; a shim missing → exit 1 | `exit 0` unconditionally; evaluate the main worktree instead of the cwd's |
 | P1a | VI1 index | blob formatted, working-tree copy not | blob not formatted, working-tree copy formatted | read `$top/<path>` instead of `git show :<path>` |
 | P1a | VI1 temp index | real index holds an unformatted `b.rs`; `git commit -m x a.rs` (formatted) passes | `git commit -a` with an unformatted tracked change | `unset GIT_INDEX_FILE` |
 | P1a | D7 stdin check | — | unformatted blob (stub mirrors rustfmt: `--check` on stdin prints a diff, exits 0) | decide on `rustfmt --check` exit code |
@@ -693,7 +686,7 @@ The P1b rows (`merge-pr` steps 1–14, the overlay rule, III1, IV3): P1b memo §
 ## §7 Cut-over (PM / user, after each merge) and the E2E cases
 
 The repository documents that name the old procedure change in #663 (done) and P3b; their one list is §1 non-goals ("The repo docs
-that name the old procedure"), not restated here. **Where each E2E case runs, stated once**: E1–E18 and E20–E23 in
+that name the old procedure"), not restated here. **Where each E2E case runs, stated once**: E1–E18 in
 a scratch `git clone --local` under `$S` (§7.5 setup); E19 and E24 in the shared repository, after A1 (E19) and
 after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 is the first real merge after B3.
 
@@ -701,11 +694,10 @@ after A2 (E24); M1–M6 against a real open PR (they stop before the merge); M7 
 
 | step | action | state after it | safe because |
 |---|---|---|---|
-| A0 | P1a merges. Its PR also edits `.claude/skills/drive/codex.md` on `main` (there since #663, 1c50c3d0; PM 935, PM 936), clause by clause, removing only what P1a replaces (the one statement of the rule; the P1b memo §7.2 B0 edit follows it). Row "Claude の PreToolUse / Stop の guard (`~/.claude/settings.json`)": the "P1a 着地まで" label goes, because its clauses stay — `hooks.json` calling Claude's PreToolUse scripts, the Stop adapter (P2), the cut-out amend / force-push script (those scripts remain after A4, §7.3); "P1a の git hook (`pre-push` / `pre-commit`) が入ったらそちらが正" becomes: from A1 (the shim install) pre-push and pre-commit decide too, for every agent. Row "ECS-mission guard (Claude の編集 hook)": the label goes; the PR-body ratchet line (`/drive` §4) and the CI `tools` job stay; "P1a の `pre-push` が入ったらそれも加わる" becomes: from A1, pre-push runs the ratchet on each pushed commit (`--rev`) too. The provenance line ("名前の出所", pinned to this branch's sha) is re-pointed to the memos on `main`; its last sentence, 「下の「P1a / P1b 着地まで」の行は P1a / P1b の PR が外す (PM 935)」, becomes what the PRs do (PM 938): 「下の merge の行 (`/drive` §6 の 4) の暫定の節は P1b の PR が「B3 まで」と書き換え (P1b memo §7.2 B0)、B3 で外す (同 B3)」. That re-point and a check of these edits are items of the CI/tools landing list (PM 935 Q-H) | scripts on `origin/main`, nothing installed; the §4.9 PM-pass row is in the PM skill and reads `not installed yet` | nothing runs them; Claude hooks unchanged |
+| A0 | P1a merges. Its PR also edits `.claude/skills/drive/codex.md` on `main` (there since #663, 1c50c3d0; PM 935, PM 936), clause by clause, removing only what P1a replaces (the one statement of the rule; the P1b memo §7.2 B0 edit follows it). Row "Claude の PreToolUse / Stop の guard (`~/.claude/settings.json`)": the "P1a 着地まで" label goes, because its clauses stay — `hooks.json` calling Claude's PreToolUse scripts, the Stop adapter (P2), the cut-out amend / force-push script (those scripts remain, §7.3); "P1a の git hook (`pre-push` / `pre-commit`) が入ったらそちらが正" becomes: from A1 (the shim install) pre-push and pre-commit decide too, for every agent. Row "ECS-mission guard (Claude の編集 hook)": the label goes; the PR-body ratchet line (`/drive` §4) and the CI `tools` job stay; "P1a の `pre-push` が入ったらそれも加わる" becomes: from A1, pre-push runs the ratchet on each pushed commit (`--rev`) too. The provenance line ("名前の出所", pinned to this branch's sha) is re-pointed to the memos on `main`; its last sentence, 「下の「P1a / P1b 着地まで」の行は P1a / P1b の PR が外す (PM 935)」, becomes what the PRs do (PM 938): 「下の merge の行 (`/drive` §6 の 4) の暫定の節は P1b の PR が「B3 まで」と書き換え (P1b memo §7.2 B0)、B3 で外す (同 B3)」. That re-point and a check of these edits are items of the CI/tools landing list (PM 935 Q-H) | scripts on `origin/main`, nothing installed; the §4.9 PM-pass row is in the PM skill and reads `not installed yet` | nothing runs them; Claude hooks unchanged |
 | A1 | E2E E1–E18 in a scratch clone (§7.5), then user approval (PLAN §6 item 2), then `mise run install-githooks` from the main worktree; it must exit 0; then E19 in the shared repository; from here on the §4.9 row runs `--check` in every PM pass | git hooks + Claude hooks both decide (IV) | conjunctive: each push / commit needs both to allow; every branch is judged by `origin/main`'s rules (I2), so no list of unguarded branches is needed |
-| A2 | prerequisites for A4, global, PM / user: apply the patch of bypass-guard memo §4.8 to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants — the diff includes the `git_segments()` refactor of `scan()` (PM 922) and `pass_through_grammar()` / `pass_through_defers()` (PM 936, PM 938), and is shown to the user before it is applied (that section's application line) — then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for the direct commands the bypass guard reads (its blind spots listed in its docstring), detected by `--check` for everyone |
+| A2 | global, PM / user: apply the patch of bypass-guard memo §4.8 to `~/.claude/hooks/git-hook-bypass-guard.py` with its tests and mutants — the diff includes the `git_segments()` refactor of `scan()` (PM 922), and is shown to the user before it is applied (that section's application line) — then E24; the §4.9 PM-pass row keeps running `mise run install-githooks -- --check` (standing since A1, D33) | same | I4 is prevented for the direct commands the bypass guard reads (its blind spots listed in its docstring), detected by `--check` for everyone |
 | A3 | one good push and one good commit in a real lane worktree | same | real use, both layers deciding |
-| A4 | after A2; user approval of PLAN §6 item 3 (its text: 「git hook 移行後に Claude hook (`set:24,30`) を撤去するか (global)」), then **`:24` and `:30` only**: an elidex-scoped pass-through (below) instead of removal — narrower than that text (PM 893 (2)) | in an installed elidex worktree, for a `git push` / `git commit` command the pass-through grammar accepts, only the git hooks decide push-branch and fmt; every other command there, and every command elsewhere, still runs `:24` / `:30` as today | V2 / V5 / V6 |
 
 **For the user, from A1** (PM 908). The shims are installed at A1, so from then on the push / commit break-glass
 can be needed; before A2 and after it, the bypass guard denies `--no-verify` to every Claude session, the PM's
@@ -714,30 +706,10 @@ break-glass, §7.4), you run the bypass — in your own terminal, or as `! <comm
 commands and record line the PM gives you; no agent can run it. Before A2, check the `! <command>` form once
 (§7.4, the unverified premise and its one-command check); until it passes, use your own terminal.
 
-**The pass-through (A4).** `git-push-branch-guard.sh` (`:24`) and `cargo-fmt-precommit.sh` (`:30`) gain one early
-exit, taken only when `pass_through_defers(cmd, cwd, installed)` of `~/.claude/hooks/git-hook-bypass-guard.py`
-returns true (bypass-guard memo §4.8, PM 922 / 936 / 938; its rule: only the commands of one small grammar can defer);
-otherwise, and on any error, the hook runs unchanged. The function is true only when all three hold:
-- **The command is in the grammar.** `pass_through_grammar(cmd)` accepts it, and `git_segments(cmd, cwd)` — the
-  iterator that file's `scan()` is built on — yields at least one git segment. The grammar is owned by the
-  bypass-guard memo §4.8, "Defer only on a positive minimal grammar (PM 936, PM 938)"; it is not restated here.
-- **Every effective cwd** (the hook JSON's `cwd`, a preceding `cd`, `git -C <dir>`, as `git_segments` derives it) is
-  in scope by that file's `in_scope`. The pass-through imports that file by path and calls `pass_through_defers`; it
-  copies neither the derivation nor `SCOPE_ROOTS` / `SCOPE_PARENT`. (Two copies of the roots exist today — that file and
-  `ecs-mission-guard.py`; the pass-through adds none. The roots themselves are read in that file, not here.)
-- **`installed(wt)` holds** for every effective cwd: the `installed` the hook passes runs the §4.7 form there —
-  `b=$(git -C "$cwd" show refs/remotes/origin/main:.claude/tools/githooks/install.sh) && bash -c "$b" install.sh
-  --installed`, with that cwd as the process cwd — and only exit 0 counts. A failed read stops at `&&` (a pipe into
-  `bash -s` would run an empty program, which exits 0 and would read as installed).
-
-Then exit 0 (the git hook decides); any other command keeps the Claude hook (IV1). The `settings.json` entries stay.
-**Blast radius**: these hooks run for every repository on this machine and protect lexime and others (incidents lexime #332
-/ #350 / #354). For the git calls in the command text, nothing changes outside elidex: the hook defers only when the command
-is in the pass-through grammar (bypass-guard memo §4.8: `cd <absolute path>` and the allowlisted `git push` / `git commit`, so no git subcommand or option that runs a command)
-and every git call in it runs in an installed elidex worktree. Inside elidex a worktree the shims do not reach keeps the Claude hook too, and so does every command outside the grammar.
-Two assumptions bound this: no alias or function named `git` or `cd` in the session shell (that memo), and a git call not in the command text (one a script, a git hook or a configured command such as `core.sshCommand` runs) is seen by neither
-the walker nor the Claude hook, as today. The edit is global and the PM's / user's (`~/.claude` CLAUDE.md "変更の blast
-radius": state it, back up first); if those files are dotfiles-managed, it goes through the dotfiles session.
+**No `settings.json` step (PM 950).** The cut-over ends at A3. It changes no `settings.json` entry and neither
+`git-push-branch-guard.sh` (`:24`) nor `cargo-fmt-precommit.sh` (`:30`): both keep running on every command, in every
+repository, as today, and the git hooks decide beside them (IV5). The one global change is A2's patch; its blast
+radius and application are stated in the bypass-guard memo §4.8.
 
 ### §7.2 P1b cut-over
 
@@ -745,12 +717,12 @@ P1b memo §7.2.
 
 ### §7.3 Needs a further user approval (not in the approved scope)
 
-PM 893 (1) limits the approved change to `:24` and `:30`. The others, each with what it would become; the PM takes
-them to the user:
+PM 893 (1) limited the approved change to `:24` and `:30`, and PM 950 withdrew that one: both stay as they are
+(IV5). The others, each with what it would become; the PM takes them to the user:
 
 | line | today | would become |
 |---|---|---|
-| `:13` | amend / force deny on flag text (`git-amend-force-push-guard.sh`: a `grep -E` over `.tool_input.command`) | the force half: the same elidex-scoped pass-through (pre-push II5 covers `-f` and `+<refspec>`); **the amend half stays everywhere** |
+| `:13` | amend / force deny on flag text (`git-amend-force-push-guard.sh`: a `grep -E` over `.tool_input.command`) | no change is proposed here: both halves stay everywhere, and pre-push II5 decides `-f` and `+<refspec>` beside the force half (IV5). The earlier proposal for the force half was the `:24` / `:30` mechanism PM 950 withdrew |
 | `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. Break-glass is not changed by either form (P1b memo §7.4) |
 | `:42` | delete-branch worktree guard | in elidex, inert once raw merges are denied (`merge-pr` writes `--delete-branch=false`); kept as is under the adapter form |
 | `:136`, `:142` | PostToolUse sync / cleanup | unchanged entries; the scripts stay (V4). Under the deny form they never fire for elidex merges; under the adapter form they keep serving raw merges. Changed only after `:36` (V3) |
@@ -795,8 +767,8 @@ ratchet (F, "the branch deleted the ratchet").
 
 ### §7.5 E2E cases
 
-Unsafe orders: A4 before A1 (no push guard — prevented anyway by `installed(wt)`); changing `:136` / `:142` before
-`:36` (raw merges lose sync and cleanup); installing before A0 (the shim passes everywhere).
+Unsafe orders: changing `:136` / `:142` before `:36` (raw merges lose sync and cleanup); installing before A0 (the
+shim passes everywhere).
 
 **Setup, once (P1a cases).** Every command below runs with `GIT_ALLOW_PROTOCOL=file` exported (git then refuses
 every non-file transport, §3.2), so no case can reach GitHub. `git clone --local <shared repo> $S/repo`; check
@@ -837,10 +809,6 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E17 | P1a | E13 with `PATH` not holding a working `rustfmt` (the untrusted mise shim) | committed, warning |
 | E18 | P1a | in the scratch clone: `git -C $S/wt config --worktree core.hooksPath $S/alt`, then the §4.7 form with `--check` from `$S/repo` | lists `$S/wt`, exits 1; after `--unset`, exits 0 |
 | E19 | P1a | after A1, in the shared repository, through the PM's own invocation: `mise run install-githooks -- --check` → exit 0. Negative control through the same invocation, from a script file that installs a backstop first — `trap 'git worktree remove --force $S/neg 2>/dev/null' EXIT`, for an early exit only — then `git worktree add --detach $S/neg origin/main`, `git -C $S/neg config --worktree core.hooksPath $S/alt`, `mise run install-githooks -- --check; rc1=$?` from the main worktree → `rc1` is 1 and the output names `$S/neg`; then, explicitly, `git worktree remove --force $S/neg` and `mise run install-githooks -- --check; rc2=$?` → `rc2` is 0; the script ends with `[ "$rc1" = 1 ] && [ "$rc2" = 0 ]` as its status | as stated; the negative control is the one sanctioned write of the key, undone by the explicit removal (the trap only covers an exit before it) |
-| E20 | P1a | after A4, with `GIT_BYPASS_GUARD_EXTRA_SCOPE=$S` in the hook's environment (the bypass guard's test override, so `$S` counts as elidex): feed `{"tool_input":{"command":"git push origin HEAD:other"},"cwd":"$S/repo"}` to `git-push-branch-guard.sh`, and `git commit -m x` with an unformatted `.rs` staged (a command in the pass-through grammar) to `cargo-fmt-precommit.sh`, in the installed scratch clone | no output from either (passed through; the git hook decides) |
-| E21 | P1a | E20 with `cwd` = `$S/wt` after `git -C $S/wt config --worktree core.hooksPath $S/alt` (I4); a compound `cd $S/repo && git push origin HEAD:x; cd $S/wt && git push origin HEAD:y` from `$S/repo`; and three PM 930 shapes whose push runs in `$S/wt`: `git status && env -C $S/wt git push origin HEAD:y` and `git status && bash -lc 'cd $S/wt && git push origin HEAD:y'` with `cwd` = `$S/repo`, `(cd $S/repo); git push origin HEAD:y` with `cwd` = `$S/wt`; the PM 936 shape `chdir $S/wt; git push origin HEAD:y` and the PM 938 shape `git rebase --exec 'git -C $S/wt push origin HEAD:y' wtb`, with `cwd` = `$S/repo`; each fed with the hook's process cwd = the JSON `cwd` (the Claude hook resolves the branch from its process cwd unless the text has `-C`) | deny from the Claude hook (as before A4) in every case: one segment's worktree is not installed, or the command is outside the pass-through grammar (bypass-guard memo §4.8) |
-| E22 | P1a | E20 without `GIT_BYPASS_GUARD_EXTRA_SCOPE`, from a repository outside the scope (a scratch `git init` under `$S`, or a lexime worktree, read only); and, with it, the driver-confirmed PM 930 form `git status && env -C $O git push origin HEAD:x` with `cwd` = `$S/repo`, `$O` = `$S.o`, a scratch `git init` with one commit beside `$S` (outside the extra scope; removed with `$S`), on its default branch so that `HEAD:x` mismatches (the hook reads the text and `$O`'s branch through `-C`; nothing is pushed) | deny, as before A4, in both |
-| E23 | P1a | E20 after `git -C $S/repo update-ref refs/remotes/origin/main <a commit before P1a>` (the read of `install.sh` fails) | deny, as before A4 |
 | E24 | P1a | after A2 (the diff, refactor included, applied after the user saw it), in the shared repository: the bypass-guard memo §4.8 E2E line | as that section states |
 
 M1–M7 [P1b]: P1b memo §7.5.
@@ -856,8 +824,8 @@ No question is open. Each former question was decided by the driver (lens conver
 - **Q5** A tag moved forward passes II5: accepted as a stated limit, named in §1 non-goals. Ground: tags are not
   part of the PR / merge flow.
 - **PM 893** (plan-review round 1; labels such as "(C5)" or "(E22)" name the items of that round's decision list,
-  sections A–E, items 1–29): two slices, P1a first (D27); pre-commit as its own axis VI; cut-over limited to
-  `:24` / `:30` as an elidex-scoped pass-through, the rest in §7.3; shim runs `origin/main`'s copy (D11); ratchet
+  sections A–E, items 1–29): two slices, P1a first (D27); pre-commit as its own axis VI; the Claude lines other than
+  `:24` / `:30` in §7.3; shim runs `origin/main`'s copy (D11); ratchet
   `--rev` (D28); the Codex requirement of `merge-pr` step 8 and the `Completed` row departure (D30); no override, break-glass
   recorded (D32); `--check` standing (D33); the Codex execpolicy prerequisite (P1b memo §7.2 B1); tests isolated by
   construction (T4, D20); invocation site (D34); `ELIDEX_PM_DIR` set by the PM's kickoff (D22); `CLAUDE_PROJECT_DIR`
@@ -871,7 +839,7 @@ No question is open. Each former question was decided by the driver (lens conver
   stated with owner and trigger, `:36` not pulled into scope (IV5, D40); A3-2 the P1a break-glass (§7.4, D39); A5-1
   the assessed-sha derivation and the no-sha item as a finding (`merge-pr` step 8c, D30); A2-1 every `--rev` verdict input
   from `<sha>` (§4.5, D28); A2-2 `installed(wt)` by bytes, no earlier version, and the Codex sandbox caveat (§4.1,
-  I4, D12); A2-3 the pass-through per git segment (§7.1, D41); the go token path kept, PLAN §6 decision 6 being its
+  I4, D12); the go token path kept, PLAN §6 decision 6 being its
   ground (D42).
 - **PM 908** (after plan-review round 2): the plan is split into this memo (P1a, and everything both slices share)
   and the P1b memo (§0 Pair); the PM-skill row is in P1a's diff (§4.9, D33, §7.1 A0–A2); the P1a break-glass actor
@@ -882,14 +850,17 @@ No question is open. Each former question was decided by the driver (lens conver
   session's raw merge (§7.4: it allows an unassessed PR, fails open on `gh` errors, honours its overrides); the
   `! <command>` premise is unverified, and the user checks it before A2 (§7.4, the A1 note in §7.1).
 - **PM 922** (user approved option A): the effective-cwd derivation is one iterator, `git_segments()`, in the bypass
-  guard; `scan()` and the §7.1 pass-through both use it (bypass-guard memo §4.8, D41).
-- **PM 930** (after the delta attestation of the PM 922 revision): the pass-through defers only on shapes whose cwd
-  `git_segments()` derives positively, and any mark keeps the Claude hook (the marks are replaced by PM 936, below);
-  `scan()`'s deny is not widened (I4, V5); the break-glass actor rule rests on PM 908 /
-  PM 916 themselves, and `:36` is described by what it does, not as an enforcement (§7.4; P1b memo D32).
-- **PM 936** (after the attestation of the PM 930 revision): the pass-through defers only on a positive minimal grammar,
-  `pass_through_grammar()` (§7.1, D41; bypass-guard memo §4.8); `scan()`'s deny is not widened, its blind spots gain
-  zsh's forms; the codex.md edits are per clause and timed by A1 / B3 (§7.1 A0, P1b memo §7.2 B0). **PM 938**: its git segments are only `push` / `commit` with option allowlists (D41); codex.md line 9 in A0, the "B3 まで" clauses at B3.
+  guard, and `scan()` is built on it (bypass-guard memo §4.8).
+- **PM 930** (the part that stands): the break-glass actor rule rests on PM 908 / PM 916 themselves, and `:36` is
+  described by what it does, not as an enforcement (§7.4; P1b memo D32).
+- **PM 936, PM 938** (the part that stands): the codex.md edits are per clause and timed by A1 / B3 (§7.1 A0, P1b
+  memo §7.2 B0); codex.md line 9 in A0, the "B3 まで" clauses at B3.
+- [history] Superseded by PM 950, content not kept: PM 893's change of `:24` / `:30`, round 2's A2-3, the second
+  caller PM 922 gave the iterator, and the pass-through parts of PM 930, PM 936 and PM 938.
+- **PM 950** (user, option D): no pass-through. The Claude Bash hooks at `:24` / `:30` keep running on every command,
+  exactly as today, and P1a's git hooks are added on top (IV5, V2, §7.1). Kept from the approved scope:
+  `git_segments()` as the iterator `scan()` is built on (PM 922) and the deny of `core.hooksPath` writes (PM 900,
+  D38). This answers PLAN §6 item 3 (§10). The ids it retired: §0 Pair.
 
 ## §9 Layering and what is not touched
 
@@ -899,12 +870,8 @@ No engine code. The scripts live under `.claude/tools/` next to the ratchet they
 PM, outside them). The one modified tool is `.claude/tools/ecs_mission_ratchet.py` (P1a, `--rev`; its working-tree
 mode is unchanged).
 
-**Two runtime dependencies cross the repository boundary**; each has a contract and an owner:
-- **Tracked → global** (`merge-pr` → the post-merge scripts): P1b memo §9.
-- **Global → tracked.** After §7.1 A4 the global `:24` / `:30` hooks run `origin/main`'s `install.sh --installed`.
-  The contract is §4.1's: exit 0 / 1, silent on 0, runnable in the §4.7 form from any worktree; its owner is this
-  repository (the CI/tools lane), and `test_githooks.py` pins it. A change to it is a change to a global hook's
-  input and is reviewed as such.
+**One runtime dependency crosses the repository boundary**, with a contract and an owner — tracked → global
+(`merge-pr` → the post-merge scripts): P1b memo §9.
 
 ## §10 For the PM: PLAN.md corrections
 
@@ -948,8 +915,9 @@ wrong or incomplete:
 - **§1 preamble** ("shim は script が無い古い branch では通す"): the shim runs `origin/main`'s copy, so old branches
   are guarded too (PM 893; I2).
 - **§0.1** ("admin は bypass する"): the ruleset's admin bypass was removed on 11-21 (PM).
-- **§5 P1 completion and §6 item 3** ("`set:24,30` の Claude hook 撤去"): an elidex-scoped pass-through instead of
-  removal (PM 893; §7.1 A4); `set:13,36,42,136,142` need a further user approval (§7.3).
+- **§5 P1 completion and §6 item 3** ("`set:24,30` の Claude hook 撤去"): not removed and not changed — both keep
+  running on every command, and the git hooks are added on top (PM 950, user; §7.1); `set:13,36,42,136,142` need a
+  further user approval (§7.3).
 - **§1 row 6** (wrapper: "Codex 評価 head == head"): a dry verdict on the head after the last trigger with 0
   unresolved Codex threads; the summary row's `Completed` is not an assessment (PM 893; P1b memo §2 III step 8).
 - **§6 item 5** (Codex sandbox: add-dir の `.git` common dir): a session that can write the common dir can rewrite a
@@ -991,7 +959,7 @@ re-pointed to a scratch bare repository, and `git init` repositories with `HOME`
 - `git log --follow -- .claude/tools/ecs_mission_ratchet.py` (69fbe61f, 1b727d18) and, per commit, the `def main`,
   `def repo_root_of`, `def tracked_files` and `DEFAULT_ALLOWLIST` lines; `git ls-tree -r -l HEAD` (1957 blobs,
   42.9 MB at fca1f6cd).
-- bypass-guard memo §4.8 (PM 900, 922, 930, 936, 938): the live guard (`9902fe77…0438`) and its test copied, patched, run and
+- bypass-guard memo §4.8 (PM 900, 922, 950): the live guard (`9902fe77…0438`) and its test copied, patched, run and
   mutated in the scratchpad; how, and every count and probe result, only in that memo's Tests and Mutants paragraphs.
 - `~/.claude/hooks/gh-pr-merge-head-guard.sh` header lines 1–19; `.claude/skills/external-converge/project.md`
   § reviewer and `external-review/project.md` § reviewer; `~/.claude/skills/external-review/SKILL.md` Step 1
