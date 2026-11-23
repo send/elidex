@@ -248,7 +248,8 @@ fn week_invalid_strings_rejected() {
 
 #[test]
 fn time_convert_round_trip() {
-    // Minimal-digit serialization (HTML §2.3.5.4 valid time string).
+    // HTML §4.10.5.1.10 requires a valid time string for the given milliseconds.
+    // These assertions also pin the formatter's omission of unnecessary digits.
     let fmt = |ms: f64| convert_number_to_string(Time, ms).unwrap();
     assert_eq!(fmt(0.0), "00:00");
     assert_eq!(fmt(60_000.0), "00:01");
