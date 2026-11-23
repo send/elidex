@@ -62,7 +62,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// a TypeError matching Chrome / Firefox wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// the subtree (matches Blink's batch-upgrade isolation).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs	//! and `eprintln!`s it (matches Blink's batch isolation — one bad
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/document.rs	// `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/element_insert_adjacent.rs	/// is not an Element wrapper. Matches the Blink / Gecko message form.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event hand-rolled allocation + Chrome
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
