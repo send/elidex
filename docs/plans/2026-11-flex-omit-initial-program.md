@@ -150,7 +150,14 @@ PM 1008 splits G′a-geo into §1 rows 3b.1–3b.4. Each child needs an independ
 | G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. G′a retains IMP-3–5 and MIN-1. Each reader owns its IMP-8 spec rows and MIN-2 tests after the 3a extraction. Each PR owns MIN-3. The revised order settles MIN-4. |
 | G′a-geo binding @ 6ffdfec2 | 3b.1 owns F1/F2/F7 and the bare-orientation control F9. 3b.2 owns F3. 3b.3 owns F4/F8. 3b.4 owns F5 and closes F6 across all four children. |
 
-For F6 the 3b.4 plan traces each pair to its producer, consumer and distinguishing observation. Page-local substitution changes only the selected page’s break (pagination) and origin (paint). After a sheet change the affected page uses the new winner and the other page retains its own value (substitution × invalidation). The two builders reproduce the pagination plan’s blank/content order and geometry (pagination × paint). Changing a first-page rule moves a break and the downstream source cursor (pagination × invalidation). After repaint the old and new results each expose their own sheet and margin-box geometry (paint × invalidation).
+| 組 | producer → consumer と判別観測 |
+|---|---|
+| 置換 × pagination | 選択ページの margin 勝者 → fragmentainer。first だけの変数を変えると first の break が移り、通常ページの margin は一定。 |
+| 置換 × paint | page-local 勝者 → geometry table → 両 builder。first でだけ勝者を無効にしたとき unset の原点になり、以前の負けた宣言を描画しない。 |
+| 置換 × invalidation | 更新 sheet と不変 root map → style の新 snapshot。同じ変数名の first/通常ページで valid → invalid にした側だけが unset になる。 |
+| pagination × paint | blank/content entry → 両出力。ページ数・順序・物理寸法・原点が一致し、blank の margin box と続きの先頭語を確認。 |
+| pagination × invalidation | 更新した first 入力 → 新しい page plan。境界を跨ぐ箱の page 番号と後続の開始 cursor が変わり、旧 plan を再利用すると失敗する。 |
+| paint × invalidation | 新旧 layout 結果 → 描画 record。新しい margin box と原点を得た後も、保持した旧結果の table と描画 record が旧寸法を返す。 |
 
 L2 owns line existence and decoration, character transformation, list UA rules and counter order. The shared paths are tracked under #11-line-box-decorated-inline-content, #11-empty-line-box-inline-mbp, #11-dom-cr-is-not-segment-break and #11-list-counter-baking-ua-rule-and-hints. L1 owns preservation of source position, page events and geometry replay.
 
