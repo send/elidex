@@ -93,15 +93,18 @@ pub enum SplitTextError {
 ///    Fires [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert).
 /// 6. If `entity` has a parent, fire
 ///    [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
-///    (spec step 7 only; an orphan Text fires nothing) — boundaries on `entity` at `off > offset` migrate to
+///    (spec step 7 only; an orphan Text fires no `SplitText` and no
+///    `Insert`) — boundaries on `entity` at `off > offset` migrate to
 ///    `(new_node, off - offset)`. MUST run AFTER insert (so `new_node`
 ///    is alive) but BEFORE `set_text_data` (so the clamp does not
 ///    destroy the migration target).
 /// 7. `set_text_data(entity, head)` — truncates entity to head, fires
 ///    [`MutationEvent::TextChange`](elidex_ecs::MutationEvent::TextChange)
-///    which clamps any boundaries still on `entity`
-///    (i.e. `off ≤ offset`) to `head_len`. Those boundaries are by
-///    definition unaffected (off ≤ head_len = offset).
+///    which clamps any boundaries still on `entity` to `head_len`
+///    (spec step 8, *replace data*). For a parented Text only
+///    `off ≤ offset` boundaries remain, so the clamp changes nothing; for
+///    an orphan Text the `off > offset` boundaries are still on `entity`
+///    and this clamp moves them to `offset`.
 ///
 /// On failure: rolls back the inserted `new_node` and destroys it so
 /// the tree shape and `entity`'s data are unchanged.
@@ -192,9 +195,10 @@ pub fn split_text_at_offset(
         dom.fire_split_text(entity, new_node, offset_utf16, parent, node_index);
     }
 
-    // Step 7: truncate entity to head. Fires after_text_change which
-    // clamps boundaries still on entity (those with off ≤ offset) to
-    // head_len — vacuous for off ≤ offset by definition. The
+    // Step 7 (spec step 8): truncate entity to head. Fires
+    // after_text_change, which clamps boundaries still on entity to
+    // head_len — a no-op for a parented Text (only off ≤ offset remain),
+    // the step 8 move to `offset` for an orphan Text. The
     // `Option::None` arm covers a defensive-only branch (TextContent
     // disappeared after the brand check); roll back the insertion to
     // leave the tree shape unchanged.
