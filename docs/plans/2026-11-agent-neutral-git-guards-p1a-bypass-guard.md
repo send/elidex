@@ -257,7 +257,8 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as one class, `Segments`, that loads the
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
 the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950, re-run on the
-fix round's `hook-v7.diff`) against a scratch copy of the live file patched with `hook-v7-1.diff` (the block above)
+fix round's `hook-v7.diff` and on `hook-v7-1.diff`, PM 967: 20/20 and the live 12/12) against a scratch copy of the
+live file patched with `hook-v7-1.diff` (the block above)
 and `test-v6.diff`, both in
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20 tests OK; the same
 tests against the unpatched file: 40 failures and 5 errors (subtests counted); the live file's own 12 tests against
