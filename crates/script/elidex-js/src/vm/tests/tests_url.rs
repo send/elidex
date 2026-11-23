@@ -107,6 +107,26 @@ fn origin_getter_strips_userinfo_and_path() {
 }
 
 #[test]
+fn origin_getter_blob_adopts_inner_https_origin() {
+    // URL Standard, origin of a URL, blob steps 4-5.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new URL('blob:https://ex.com/u').origin;"),
+        "https://ex.com"
+    );
+}
+
+#[test]
+fn origin_getter_blob_with_non_http_inner_is_opaque() {
+    // URL Standard, origin of a URL, blob steps 4-5.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(&mut vm, "new URL('blob:wss://ex.com/u').origin;"),
+        "null"
+    );
+}
+
+#[test]
 fn protocol_getter_includes_trailing_colon() {
     let mut vm = Vm::new();
     assert_eq!(

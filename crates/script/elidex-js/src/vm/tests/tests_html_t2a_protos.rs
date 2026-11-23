@@ -131,6 +131,24 @@ fn anchor_origin_is_readonly() {
 }
 
 #[test]
+fn anchor_origin_blob_adopts_inner_https_origin() {
+    // URL Standard, origin of a URL, blob steps 4-5.
+    let out = run("var a = document.createElement('a'); \
+         a.href = 'blob:https://ex.com/u'; \
+         a.origin;");
+    assert_eq!(out, "https://ex.com");
+}
+
+#[test]
+fn anchor_origin_blob_with_non_http_inner_is_opaque() {
+    // URL Standard, origin of a URL, blob steps 4-5.
+    let out = run("var a = document.createElement('a'); \
+         a.href = 'blob:wss://ex.com/u'; \
+         a.origin;");
+    assert_eq!(out, "null");
+}
+
+#[test]
 fn anchor_to_string_returns_href() {
     let out = run("var a = document.createElement('a'); \
          a.href = 'https://example.com/path'; \
