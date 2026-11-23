@@ -440,7 +440,7 @@ pub struct ImageData {
 }
 
 /// External CSS loaded for a `<link rel="stylesheet">` element
-/// (HTML §4.6.7 — a `<link>` whose resource is successfully fetched and
+/// (HTML §4.6.8.23 — a `<link>` whose resource is successfully fetched and
 /// parsable has an *associated CSS style sheet*; that association is what
 /// includes the sheet in `document.styleSheets`, CSSOM §§6.2 and 6.2.3).
 ///

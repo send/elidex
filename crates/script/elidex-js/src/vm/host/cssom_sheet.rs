@@ -171,8 +171,8 @@ impl VmInner {
         self.style_sheet_list_prototype = Some(proto);
     }
 
-    /// Allocate (or return cached) `CSSStyleSheet` wrapper for `<style>`
-    /// `owner`. CSSOM §6.3.2 defines the associated sheet returned by `LinkStyle.sheet`.
+    /// Intern the sheet wrapper for a style or loaded stylesheet link element.
+    /// CSSOM §6.3.2 defines the associated sheet returned by `LinkStyle.sheet`.
     pub(crate) fn alloc_or_cached_stylesheet(&mut self, owner: Entity) -> ObjectId {
         self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::StyleSheet), |vm| {
             let proto = vm
@@ -752,8 +752,7 @@ pub(crate) fn try_indexed_get_style_sheet_list(
 /// receivers (`getter.call(<div>)` etc.) throw `TypeError` per WebIDL
 /// brand-check semantics — `<style>.sheet` is a HTMLStyleElement IDL
 /// member, so the prototype install lives on `html_style_proto.rs`
-/// (slot `#11-tags-T2b-passive`); non-`<style>` elements no longer
-/// have a `sheet` accessor on their prototype chain.
+/// (slot `#11-tags-T2b-passive`). Link elements have their own sheet getter.
 pub(super) fn native_html_style_get_sheet(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

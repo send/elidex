@@ -564,17 +564,11 @@ pub enum ObjectKind {
     /// collected; Computed wrappers are not cached so no prune needed.
     #[cfg(feature = "engine")]
     CSSStyleDeclaration { source: u8, key_bits: u64 },
-    /// `CSSStyleSheet` instance (CSSOM §6.1.2) — wraps a `<style>` element
-    /// entity; `cssRules` / `insertRule` / `deleteRule` route to the
-    /// per-`<style>` parsed `Stylesheet` snapshot in
-    /// `SessionCore::cssom_sheets`.  Identity preserved via
-    /// `VmInner::stylesheet_wrapper_cache` keyed by owner `Entity` so
-    /// `el.sheet === el.sheet`.
+    /// `CSSStyleSheet` instance (CSSOM §6.1.2) for a style or loaded link element.
+    /// The shared wrapper interner keys the sheet by its owner entity.
     ///
-    /// GC contract: payload-free in trace terms (`entity_bits` carries
-    /// no `ObjectId` reference).  Sweep tail prunes
-    /// `stylesheet_wrapper_cache` entries whose value `ObjectId` was
-    /// collected.
+    /// GC contract: the owner bits carry no object reference. Sweep removes
+    /// entries for collected wrappers from the shared wrapper store.
     #[cfg(feature = "engine")]
     CSSStyleSheet { entity_bits: u64 },
     /// `CSSRuleList` instance (CSSOM §6.4.1) — `[[Indexed]]` legacy
@@ -588,11 +582,10 @@ pub enum ObjectKind {
     /// `CSSStyleRule` instance (CSSOM §6.4.3) — opaque rule wrapper
     /// keyed by `(sheet entity, rule_id)` where `rule_id` is the stable
     /// id issued by [`elidex_css::Stylesheet::next_rule_id`] at parse /
-    /// `insertRule` time.  Identity preserved via
-    /// `VmInner::css_style_rule_wrapper_cache` keyed by `(Entity, u64)`.
+    /// `insertRule` time. The shared wrapper interner uses both parts of the key.
     ///
-    /// GC contract: payload-free.  Sweep tail prunes
-    /// `css_style_rule_wrapper_cache` entries whose value was collected.
+    /// GC contract: the rule key carries no object reference. Sweep removes
+    /// collected wrappers as described for [`Self::CSSStyleSheet`].
     #[cfg(feature = "engine")]
     CSSStyleRule {
         sheet_entity_bits: u64,
@@ -625,8 +618,7 @@ pub enum ObjectKind {
     /// `StyleSheetList` instance (CSSOM §6.2.2) — `[[Indexed]]` legacy
     /// platform object backing `document.styleSheets`.  Fresh-alloc
     /// on every read (mirrors `CSSRuleList`).  The walker enumerates
-    /// `<style>` descendants of the document; `<link rel="stylesheet">`
-    /// is deferred to slot `#11-link-stylesheet-loading`.
+    /// style elements and loaded stylesheet link elements in tree order.
     ///
     /// GC contract: payload-free.
     #[cfg(feature = "engine")]
