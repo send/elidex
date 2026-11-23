@@ -59,7 +59,7 @@ fn rect_args(
 //   §4.12.5.1.8 — transforms: translate / rotate / scale
 //   §4.12.5.1.8 — fill/stroke styles: fillStyle / strokeStyle (accessors)
 //   §4.12.5.1.11 — drawing rectangles: fillRect / strokeRect / clearRect
-//   §4.12.5.1.10 — text: measureText
+//   §4.12.5.1.12 — text: measureText
 //   §4.12.5.1.11 — drawing paths: fill / stroke
 //   §4.12.5.1.13 — compositing: globalAlpha (accessor)
 // ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ pub(super) fn native_oc_scale(
     Ok(JsValue::Undefined)
 }
 
-/// `measureText(text)` (HTML §4.12.5.1.10 — measure text width).
+/// `measureText(text)` (HTML §4.12.5.1.12 — measure text width).
 /// Returns a `TextMetrics`-shaped object carrying `width` only (full glyph
 /// metrics deferred with text rendering, `#11-canvas-2d-extended-ops`).
 pub(super) fn native_oc_measure_text(
