@@ -25,11 +25,16 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 5b.2 | C1b.2 · Flex item inputs | C1b.2-pre | Carry assigned content size and used margins through child dispatch. Replace Flex item style writes and resolve item bases against column content extent. |
 | 5b.3 | C1b.3 · Grid measurement and placement | C1b.2 | Resolve inputs per track-sizing callback and final area. Replace Grid style writes and resolve cyclic gaps in definitive placement. |
 | 5c | C1c · computed representation activation | C1b.3 | Switch both field families, writers, all existing readers, typed equality and animation apply together. |
-| 6 | G′b · reference-dependent consumers | C1c | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
-| 7 | C2 · Flex used basis and generic animation | C1c, G′b | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
+| 6.1 | G′b.1 · Grid | C1c | Migrate explicit and implicit track definitions, dependent breadths and repeat, intrinsic and final sizing. See [Grid track lengths](2026-11-grid-track-lengths.md). |
+| 6.2 | G′b.2 · Float | G′b.1 | Carry signed vertical-align through both declaration routes to inline baseline displacement using the inline's own used line-height. |
+| 6.3 | G′b.3 · Transform | G′b.2 | Resolve translation and origins at the reference box. Share length conversion for perspective property and function, preserving none and computed zero. Record PM 975 evidence. |
+| 6.4 | G′b.4 · Box | G′b.3 | Reuse existing width, edge and gap receivers. Project and apply both corner axes through shorthand, longhand, inheritance, borders, clips and drawing. Close C-16. |
+| 6.5 | G′b.5 · Background | G′b.4 | Carry typed per-layer sizes, positions and ordered family-specific gradient stops and hints from style through tile geometry to paint. |
+| 6.6 | G′b.6 · Closeout | G′b.5 | Remove remaining legacy wrappers as the final change, run both §1 searches on that exact head and close the five reader records. |
+| 7 | C2 · Flex used basis and generic animation | C1c, G′b.6 | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
 | 8 | D · declaration block activation | T | Activate rule/inline read, mutate, reflect and cascade together. Shared Declaration, winner, pending and provenance payloads live in elidex-plugin. Keep a single conversion for existing string handlers. |
 | 9 | H · handler signature | D, N | Move all handlers/helpers to typed pairs together, compare typed initials and remove D’s string conversion. |
-| 10 | S · numeric serialization | H, C2, G′b | Format declared and resolved values from typed inputs, including sampled values; preserve media breakpoint semantics. |
+| 10 | S · numeric serialization | H, C2, G′b.6 | Format declared and resolved values from typed inputs, including sampled values; preserve media breakpoint semantics. |
 | 11 | F · Flex omission | G, S | Implement the two family serializers using the common coordinator, typed comparison and public formatter. |
 
 G′ is split by the reader’s dependency, following its breadth warning and PM 965/971. G′a-geo and G′a compute with available context; G′b waits for C1 where percentages must survive to layout or paint. The page and property readers call G’s grammar, with the category required by each property. The acceptance condition is **one implementation of CSS length and length-percentage grammar**, including @page. Moving a consumer includes its direct, substituted (where applicable) and used-value paths. C1 precedes newly admitted inputs requiring its payload. N’s common semantics also apply to consumers switched later in G′b.
@@ -46,7 +51,7 @@ PM 975, as corrected by PM 977, selects the following unit boundary at G. The un
 | vi, vb, lvi, lvb | Large viewport along the box’s own inline or block axis (initial writing-mode when there is no element) | Reject at parse |
 | svw, svh, svi, svb, svmin, svmax; dvw, dvh, dvi, dvb, dvmin, dvmax | Small or dynamic viewport, plus box writing mode for logical axes | Reject at parse |
 
-If the G′b child review calls for another split, PM approves the revised cuts, prerequisites and reassignment of every affected §4 ID before implementation. Each part lands its grammar and readers together. The last part removes the remaining wrappers. C2 and S follow **all** G′b parts.
+PM 1035 makes the six G′b pieces serial. Each receives independent full plan review before implementation. Each domain ships all active grammar, style and reader paths together, removes its private decoder and records remaining wrapper callers. Its own declaration fixtures cover token boundaries, direct invalidation, winning invalid substitution, and trailing tokens. Closeout reruns these domain records and the deferred-family negatives; if it finds a live decoder, return that migration to its owner for review before deleting the final wrappers.
 
 The complement audit covers the entire code base at c3c78070. Inspect token readers, unit-string tables and text-based parsing, then trace callers. Length properties and descriptors are in scope; color channels, times, angles, grid flex units and non-CSS attribute grammars have different domains. Per-group dispositions, unit coverage and calc acceptance are in G, G′a-geo, G′a and G′b.
 
@@ -220,6 +225,21 @@ Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. P
 
 **Translation handoff.** **Owner**: L1. **Re-eval-date**: 2026-12-15. On that date PM checks G′b landing evidence and decides whether the former deferred draft can close. PM 975 records the separate approval required by PM 961 (2), derived from PM 965 F2 and PM 971 F2, for X/Y and Z translation calc and perspective length calc in G′b. The PM 965 F4 list of deferred transform features is empty. Direct transform parsing currently rejects mixed calc offsets and resolve_translate_value falls through to zero for a calc value. G′b owns admission plus reference-box evaluation after C1. This supersedes the proposed deferred transform slot; PM may close that draft against G′b’s landing evidence.
 
+### G′b transfer under PM 1035
+
+These entries transfer the former G′b portion of §4. The other source owners keep their existing obligations.
+
+| Source and IDs | Evidence and closing piece |
+|---|---|
+| Parser c2f27760 F1/F2 | All five reader pieces supply crossing evidence; 6.6 closes the split and matrix. |
+| Parser c2f27760 F11/M12/M15 | Each removes its private decoder and checks categories. 6.6 closes the complement audit and unknown-unit fallback count. |
+| Parser c2f27760 M16/M17/M18/M19 | Each records WPT, file placement, suites and gates. 6.6 verifies all five landing records. |
+| Umbrella df8f8336 F1/M9/M15, F2/M21, F3 | 6.1 records the cut and order. All five demonstrate G grammar, T substitution and their actual receiver. 6.6 closes these groups. |
+| Umbrella df8f8336 F7/F8/M18/M20 | 6.3 supplies the translation handoff for the PM ledger decision; D retains its inline-reference portion. |
+| Umbrella 1696e3b8 C-16 | 6.4 closes the Box keyword/numeric and four-site control. 3c.3 keeps its separate Multicol control. |
+| G′a e72f209e FP-1 | 6.6 retires the remaining wrappers and verifies zero independent in-scope decoders and zero unknown-unit fallbacks. |
+| G′b 43259c8c F1–F8, M1/M2, P1 | 6.1 owns the F1 split and F2 Grid payload. F3 → 6.2, F4 → 6.3, F5 → 6.4, F6/F7 → 6.5. Every piece carries F8's branch/site/fixture map and M1/M2's suites, placement, WPT and verified production entries. P1 is a false positive; C2 keeps interpolation and the existing ledger keeps declared border keyword fidelity. |
+
 ## §5. Review boundary
 
 The original local review inputs remain available at 9853348d (Flex), c2f27760 (parser) and ab539f10 (token/declaration order). The three November gates retain 14, 20 and 25 homes above. The July shorthand program remains the parent for other families. After R3, submit children individually against the approved program. Keep 9853348d and dca05c9e (G′a draft) pinned as immutable inputs. Before committing the F and G′a drafts, branch their worktrees at the pinned heads under new child branch names. The following draft locations use the L1 workspace as their root.
@@ -232,7 +252,7 @@ The original local review inputs remain available at 9853348d (Flex), c2f27760 (
 | G′a-geo binding input @ 6ffdfec2 (before PM 1008) | `page-geometry/docs/plans/2026-11-selected-page-geometry.md` |
 | 3c.1 Text | `text-definite-lengths/docs/plans/2026-11-text-definite-lengths.md` |
 | G′a baseline (superseded by the three child plans) | `length-consumers/docs/plans/2026-11-length-percentage-consumer-migration.md` |
-| G′b | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
+| G′b baseline (superseded by 6.1–6.6) | `flex-length-used/docs/plans/2026-11-length-percentage-used-readers.md` |
 | N | `flex-numeric/docs/plans/2026-11-css-numeric-evaluation.md` |
 | C1a | `cssom-resolved-geometry/docs/plans/2026-11-cssom-resolved-geometry.md` |
 | C1 baseline (superseded) | `flex-computed/docs/plans/2026-11-computed-length-percentage.md` |
