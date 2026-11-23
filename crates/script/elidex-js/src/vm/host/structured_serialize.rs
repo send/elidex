@@ -94,7 +94,7 @@ impl VmInner {
     /// **without** firing popstate). Used by `HostDriver::set_history_state` at
     /// document construction so a **cross-document traversal**'s rebuilt document
     /// reads the restored `history.state` before its initial scripts run (step
-    /// 8.4). `None` (a plain load, or the boa engine) → `null`.
+    /// 8.4). Absent bytes, including after a VM encoding failure, restore `null`.
     pub(crate) fn seed_history_state(&mut self, serialized_state: Option<Vec<u8>>) {
         self.navigation.current_state = match serialized_state {
             Some(bytes) => structured_deserialize(self, &bytes),

@@ -95,8 +95,7 @@ pub enum HistoryAction {
         title: String,
         /// The `StructuredSerializeForStorage(state)` bytes (WHATWG HTML §7.2.5
         /// step 3), stored on the pushed `HistoryEntry` so a later cross-document
-        /// traversal can restore `history.state`. `None` = null state (or the
-        /// **boa** engine, which passes `None` — light-touch, deletion-bound).
+        /// traversal can restore `history.state`. `None` means no restorable bytes.
         serialized_state: Option<SerializedState>,
     },
     /// `history.replaceState(state, title, url?)`
@@ -106,7 +105,7 @@ pub enum HistoryAction {
         /// Title (ignored per §7.2.5 — `unused` — but accepted for API compat).
         title: String,
         /// The `StructuredSerializeForStorage(state)` bytes (§7.2.5 step 3).
-        /// `None` = null state (or **boa**, light-touch).
+        /// `None` means no restorable bytes.
         serialized_state: Option<SerializedState>,
     },
 }
@@ -130,9 +129,8 @@ pub type SerializedState = Vec<u8>;
 /// hashchange.
 #[derive(Clone, Debug, Default)]
 pub struct HistoryStepEvents {
-    /// `Some(None)` = fire popstate with `state = null` (fragment nav, 5b);
-    /// `Some(Some(bytes))` = fire popstate with `StructuredDeserialize(restored)`
-    /// (5c traversal); `None` = do not fire popstate.
+    /// The outer option controls popstate delivery. When it fires, absent bytes
+    /// yield null; present bytes are decoded to restore the event's state.
     pub popstate_state: Option<Option<SerializedState>>,
     /// `Some((oldURL, newURL))` iff the fragment differs (§7.4.6.2 step 6.4.5);
     /// `None` = do not fire hashchange.
