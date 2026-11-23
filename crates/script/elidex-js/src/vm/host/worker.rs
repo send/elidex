@@ -484,10 +484,8 @@ fn marshal_worker_script_error(vm: &VmInner, err: &WorkerScriptError) -> VmError
 }
 
 /// `Worker.prototype.postMessage(message)` (WHATWG HTML §10.2.6.3): JSON-
-/// serialize `message` and route it to the worker thread. Throws
-/// `DataCloneError` when serialization fails (e.g. a circular reference) — the
-/// JSON-shortcut deviation from full StructuredSerialize is tracked by the
-/// defer slot `#11-worker-structured-serialize`.
+/// serialize `message` and route it to the worker thread. See the shared
+/// `worker_scope::serialize_message` error mapping (#11-worker-structured-serialize).
 fn native_worker_post_message(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
