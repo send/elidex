@@ -228,15 +228,15 @@ impl LiveRangeBridge {
     }
 
     /// Runs only inside DOM §4.11 *split a Text node* step 7 (`node` has a
-    /// parent); an orphan split never reaches here, so `parent` /
-    /// `node_index` are always present.
+    /// parent); an orphan split never reaches here, so `parent` is
+    /// always present (`node_index` is `None` only under the sibling cap).
     fn after_split_text(
         &mut self,
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
         parent: Entity,
-        node_index: usize,
+        node_index: Option<usize>,
     ) {
         // LiveRangeBridge runs AFTER the `insert_before` / `append_child` hook
         // (`after_insert`) has already fired with the new node's
@@ -251,13 +251,17 @@ impl LiveRangeBridge {
         // exactly `offset` stay on the original node at its new end
         // (PR186 R2 #2). `adjust_ranges_for_split_text` is node-side only.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
-        let equal_slot = node_index + 1;
-        for range in guard.values_mut() {
-            if range.start_container == parent && range.start_offset == equal_slot {
-                range.start_offset += 1;
-            }
-            if range.end_container == parent && range.end_offset == equal_slot {
-                range.end_offset += 1;
+        // The top-up is skipped only when `node_index` is `None`, i.e. under
+        // the sibling cap (slot `#11-index-in-parent-sibling-cap`).
+        if let Some(node_index) = node_index {
+            let equal_slot = node_index + 1;
+            for range in guard.values_mut() {
+                if range.start_container == parent && range.start_offset == equal_slot {
+                    range.start_offset += 1;
+                }
+                if range.end_container == parent && range.end_offset == equal_slot {
+                    range.end_offset += 1;
+                }
             }
         }
         for range in guard.values_mut() {

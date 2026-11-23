@@ -299,12 +299,20 @@ pub enum MutationEvent<'a> {
     ///   via strict-greater compare against the inserted-at index —
     ///   consumer MUST ONLY apply the missing `idx == node_idx + 1`
     ///   increment to avoid double-shifting).
+    ///
+    /// `parent` is non-Option: the event fires only inside step 7 (parent
+    /// non-null). `node_index` is `None` only when
+    /// `EcsDom::index_in_parent` gives up on a sibling list longer than
+    /// `MAX_ANCESTOR_DEPTH` — a known defect owned by slot
+    /// `#11-index-in-parent-sibling-cap`, which removes this `Option` when
+    /// it fixes the cap. Consumers skip the parent-side top-up then and
+    /// still do the node-side migration.
     SplitText {
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
         parent: Entity,
-        node_index: usize,
+        node_index: Option<usize>,
     },
 
     /// BEFORE the remove-merged-child step of `Node.normalize()`

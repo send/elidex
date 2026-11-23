@@ -146,7 +146,7 @@ fn bridge_after_split_text_migrates_to_new_node() {
     let id = reg.register(r);
 
     // Split at offset 5: end_offset 8 > 5 → migrate to (new_t, 3).
-    bridge.after_split_text(t, new_t, 5, parent, 0);
+    bridge.after_split_text(t, new_t, 5, parent, Some(0));
 
     reg.with_range(id, &dom, |range, _| {
         assert_eq!(range.start_container, t);
@@ -187,7 +187,7 @@ fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
     r_before.set_end(parent, 0);
     let id_before = reg.register(r_before);
 
-    bridge.after_split_text(t, dom.create_text_ownerless_fixture(""), 5, parent, 0);
+    bridge.after_split_text(t, dom.create_text_ownerless_fixture(""), 5, parent, Some(0));
 
     reg.with_range(id_gap, &dom, |range, _| {
         assert_eq!(range.start_offset, 2, "equal-slot boundary shifted +1");
@@ -221,7 +221,7 @@ fn bridge_after_split_text_node_side_equality_stays_on_original() {
     r.set_end(t, 5);
     let id = reg.register(r);
 
-    bridge.after_split_text(t, new_t, 5, parent, 0);
+    bridge.after_split_text(t, new_t, 5, parent, Some(0));
 
     reg.with_range(id, &dom, |range, _| {
         assert_eq!(range.start_container, t, "equality boundary stays on node");

@@ -162,11 +162,9 @@ pub fn split_text_at_offset(
     let mut records: Vec<MutationRecord> = Vec::new();
     if let Some(parent) = parent_opt {
         // Pre-split index of `entity` (spec "node's index", used by steps
-        // 7.4–7.5). A parented Text always has an exposed index.
-        let Some(node_index) = dom.index_in_parent(entity) else {
-            let _ = dom.destroy_entity(new_node);
-            return Err(SplitTextError::InternalInvariant);
-        };
+        // 7.4–7.5). `None` only under the sibling cap (slot
+        // `#11-index-in-parent-sibling-cap`); the split still proceeds.
+        let node_index = dom.index_in_parent(entity);
         // Resolve the insert reference via the EXPOSED next sibling, NOT the
         // raw `get_next_sibling`: `attach_shadow` links the host's `ShadowRoot`
         // into the raw child chain (§4.8 encapsulation), so when `entity` is
@@ -487,6 +485,38 @@ mod tests {
         let id = reg.register(r);
 
         let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        assert_eq!(bounds(&mut reg, id, &dom), (t, 2, n, 3));
+    }
+
+    /// Sibling-cap case (slot `#11-index-in-parent-sibling-cap`): with more
+    /// than `MAX_ANCESTOR_DEPTH` preceding siblings `index_in_parent` gives
+    /// up (None). The split must still succeed and migrate node-side, as
+    /// before the `parent`/`node_index` event change.
+    #[test]
+    fn parented_split_under_sibling_cap_still_succeeds_and_migrates() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let mut t = None;
+        // `index_in_parent` returns None once the preceding-sibling walk
+        // exceeds MAX_ANCESTOR_DEPTH (10_000): 10_001 preceding siblings.
+        for i in 0..=10_001 {
+            let c = dom.create_text_ownerless_fixture("0123456789");
+            assert!(dom.append_child(parent, c));
+            if i == 10_001 {
+                t = Some(c);
+            }
+        }
+        let t = t.unwrap();
+        assert!(dom.index_in_parent(t).is_none(), "premise: cap reached");
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
+        let mut r = Range::new(t);
+        r.set_start(t, 2);
+        r.set_end(t, 8);
+        let id = reg.register(r);
+
+        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok under cap");
 
         assert_eq!(bounds(&mut reg, id, &dom), (t, 2, n, 3));
     }
