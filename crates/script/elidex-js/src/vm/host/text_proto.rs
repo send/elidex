@@ -73,8 +73,8 @@ impl VmInner {
 /// ## Range live-tracking ordering (informational)
 ///
 /// `split_text_at_offset` orchestrates a three-step Range boundary
-/// dance (the first two only for a parented Text, i.e. inside DOM §4.11
-/// step 7; an orphan gets just the head truncate): `insert_before(new_node)` fires
+/// dance (the first two only for a parented Text; see
+/// [`split_text_at_offset`]'s doc): `insert_before(new_node)` fires
 /// [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert)
 /// (parent-side `off > node_idx + 1 → +1`), then `fire_split_text`
 /// carrying the pre-split `parent` + `node_index` fires

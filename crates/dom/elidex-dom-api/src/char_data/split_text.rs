@@ -93,7 +93,7 @@ pub enum SplitTextError {
 ///    Fires [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert).
 /// 6. If `entity` has a parent, fire
 ///    [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
-///    (spec step 7 only; an orphan fires nothing) — boundaries on `entity` at `off > offset` migrate to
+///    (spec step 7 only; an orphan Text fires nothing) — boundaries on `entity` at `off > offset` migrate to
 ///    `(new_node, off - offset)`. MUST run AFTER insert (so `new_node`
 ///    is alive) but BEFORE `set_text_data` (so the clamp does not
 ///    destroy the migration target).
@@ -145,13 +145,8 @@ pub fn split_text_at_offset(
     let owner = dom.node_document_for_new_nodes(entity);
     let new_node = dom.create_text_with_owner(tail, owner);
 
-    // Step 5: capture entity's pre-insert parent + index (used by the
-    // after_split_text hook for parent-side boundary adjustment per
-    // spec §4.11 steps 7.4–7.5), then insert new_node as next sibling (or
-    // append if entity is the last child). Fires
-    // `after_insert(new_node, parent, idx+1)`. Skips entirely when
-    // entity is orphan — parent-side adjustment is vacuous in that case.
-    let parent_opt = dom.get_parent(entity);
+    // Step 5: insert new_node as next sibling (or append if entity is the
+    // last child); fires `after_insert(new_node, parent, idx+1)`.
     // §4.11 step 7.1 = insert new_node (queues a `childList` record on
     // parent). Route through the record-producing `apply_*` primitives
     // (same `EcsDom::insert_before` mutation underneath, so the
@@ -160,10 +155,9 @@ pub fn split_text_at_offset(
     // returned vec = the primitive rejected the insert (= the old
     // `InsertFailed` path: rollback + destroy).
     let mut records: Vec<MutationRecord> = Vec::new();
-    if let Some(parent) = parent_opt {
-        // Pre-split index of `entity` (spec "node's index", used by steps
-        // 7.4–7.5). `None` only under the sibling cap (slot
-        // `#11-index-in-parent-sibling-cap`); the split still proceeds.
+    if let Some(parent) = dom.get_parent(entity) {
+        // Pre-split index of `entity` (spec "node's index", steps 7.4–7.5);
+        // `None` under the sibling cap (see `MutationEvent::SplitText`).
         let node_index = dom.index_in_parent(entity);
         // Resolve the insert reference via the EXPOSED next sibling, NOT the
         // raw `get_next_sibling`: `attach_shadow` links the host's `ShadowRoot`
@@ -194,9 +188,7 @@ pub fn split_text_at_offset(
         // per §4.11 steps 7.2/7.3 — equality boundaries stay on the
         // original node); parent-side boundary at exactly `node_index + 1`
         // shifts +1 (the `after_insert` hook fired by the insert already
-        // handled the `off > node_index + 1` cases). An orphan Text fires
-        // nothing here: only step 8 (replace data, via `set_text_data`
-        // below) touches its live ranges.
+        // handled the `off > node_index + 1` cases).
         dom.fire_split_text(entity, new_node, offset_utf16, parent, node_index);
     }
 
@@ -445,11 +437,9 @@ mod tests {
         r.set_end(t, 8);
         let id = reg.register(r);
 
-        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (_n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         assert_eq!(bounds(&mut reg, id, &dom), (t, 2, t, 5));
-        let (sc, _, ec, _) = bounds(&mut reg, id, &dom);
-        assert!(sc != n && ec != n, "no boundary lands on the new orphan");
     }
 
     #[test]
@@ -463,11 +453,9 @@ mod tests {
         r.set_end(t, 8);
         let id = reg.register(r);
 
-        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+        let (_n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
 
         assert_eq!(bounds(&mut reg, id, &dom), (t, 5, t, 5));
-        let (sc, _, ec, _) = bounds(&mut reg, id, &dom);
-        assert!(sc != n && ec != n, "no boundary lands on the new orphan");
     }
 
     /// Control: the parented split still migrates (step 7.2 / 7.3).
@@ -497,17 +485,17 @@ mod tests {
     fn parented_split_under_sibling_cap_still_succeeds_and_migrates() {
         let mut dom = EcsDom::new();
         let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
-        let mut t = None;
-        // `index_in_parent` returns None once the preceding-sibling walk
-        // exceeds MAX_ANCESTOR_DEPTH (10_000): 10_001 preceding siblings.
-        for i in 0..=10_001 {
+        // `index_in_parent` gives up once the preceding-sibling walk exceeds
+        // MAX_ANCESTOR_DEPTH, so `t` needs MAX_ANCESTOR_DEPTH + 1 preceding
+        // siblings. Build in linear time: append `t`, then prepend each
+        // sibling (each insert's own `index_in_parent` stops at once).
+        let t = dom.create_text_ownerless_fixture("0123456789");
+        assert!(dom.append_child(parent, t));
+        for _ in 0..=elidex_ecs::MAX_ANCESTOR_DEPTH {
             let c = dom.create_text_ownerless_fixture("0123456789");
-            assert!(dom.append_child(parent, c));
-            if i == 10_001 {
-                t = Some(c);
-            }
+            let first = dom.get_first_child(parent).expect("parent has t");
+            assert!(dom.insert_before(parent, c, first));
         }
-        let t = t.unwrap();
         assert!(dom.index_in_parent(t).is_none(), "premise: cap reached");
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
         dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));

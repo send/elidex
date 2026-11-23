@@ -278,8 +278,8 @@ pub enum MutationEvent<'a> {
     ///
     /// Fired inside step 7 only, i.e. when `node` has a parent: an orphan
     /// Text fires no `SplitText` (only step 8, *replace data*, touches its
-    /// live ranges, via [`Self::TextChange`]). Hence `parent` and
-    /// `node_index` are always present.
+    /// live ranges, via [`Self::TextChange`]). Hence `parent` is always
+    /// present.
     ///
     /// **Ordering invariant**: fired AFTER `new_node` is inserted as a
     /// sibling of `node` but BEFORE `node`'s text is truncated.

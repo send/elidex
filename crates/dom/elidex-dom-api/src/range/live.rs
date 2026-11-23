@@ -227,9 +227,9 @@ impl LiveRangeBridge {
         }
     }
 
-    /// Runs only inside DOM §4.11 *split a Text node* step 7 (`node` has a
-    /// parent); an orphan split never reaches here, so `parent` is
-    /// always present (`node_index` is `None` only under the sibling cap).
+    /// Runs only inside DOM §4.11 *split a Text node* step 7, so `parent` is
+    /// always present; `node_index` is `None` under the sibling cap — see
+    /// [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText).
     fn after_split_text(
         &mut self,
         node: Entity,
@@ -251,8 +251,8 @@ impl LiveRangeBridge {
         // exactly `offset` stay on the original node at its new end
         // (PR186 R2 #2). `adjust_ranges_for_split_text` is node-side only.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
-        // The top-up is skipped only when `node_index` is `None`, i.e. under
-        // the sibling cap (slot `#11-index-in-parent-sibling-cap`).
+        // The top-up is skipped when `node_index` is `None` (see the
+        // `MutationEvent::SplitText` doc).
         if let Some(node_index) = node_index {
             let equal_slot = node_index + 1;
             for range in guard.values_mut() {
