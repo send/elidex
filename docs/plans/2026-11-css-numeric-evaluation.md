@@ -15,6 +15,7 @@ Inventory call sites in style (padding/box, font, vertical-align), grid and medi
 | Token identity × numeric precision | T → G → N | Direct and substituted percentages derived from the same source digits have identical stored values. N compares independently converted lexemes at a binary32 rounding boundary and overflow. |
 | Grammar × evaluator | G → N | Test nonnegative literal rejection separately from number-typed calc(-1) accepted then clamped for a factor. N enumerates public parsing, overflow and top-level results for padding, font, vertical-align, grid, box model and media, including division by zero inside a larger sum. |
 | Arithmetic × declared text × media keys | N → S | Reparse calc(infinity * 1px), calc(-infinity * 1px) and calc(NaN * 1px). Test stable ordering and matching on either side of two representable nearby media thresholds. S documents which contexts can share rounded text and which require lossless keys. |
+| Percentage cancellation × phase | N → C1/C2 | Keep the 0% term of calc(100% - 100% + 1px) when its reference is absent. Resolve it when the reference is present. |
 
 ## §3. Spec coverage map
 
@@ -26,14 +27,15 @@ Inventory call sites in style (padding/box, font, vertical-align), grid and medi
 | css-values-4 §10.8 Syntax | calc-keyword leaves (§10.7.1–2) | e, pi, signed infinities, NaN | N evaluator | five keywords | yes |
 | css-values-4 §10.9 Type Checking | typed result and §10.9.2 arithmetic | factor, length-percentage, signed zero, infinity, NaN | G parse / N evaluate | arithmetic subset | yes |
 | css-values-4 §10.11 Computed Value | simplify then §10.12 range check | definite or percentage-dependent result | C1 consumes N simplification | supported arithmetic | yes |
-| css-values-4 §10.10.1 Simplification | sum/product flatten and numeric product | unresolved leaves or canonical unit | N simplification, consumed by C1/S | arithmetic subset | yes |
+| css-values-4 §10.10.1 Simplification | sum/product flatten and numeric product | retained zero percentage, typed special root or canonical unit | N simplification, consumed by C1/S | arithmetic subset | yes |
 | mediaqueries-4 §1.2 Values / §1.3 Units | evaluate a feature threshold | numeric range and initial-font-relative unit | media evaluator and media serialization | supported range features | yes |
+| mediaqueries-4 §2.4.3 Evaluating Media Features in a Range Context | compare feature and threshold | literal negative, computed bound, lossless cache identity | media parse/eval/cache | supported features | raw and calc queries, both cache orders |
 
 ## Binding R3 acceptance
 
 **C-2.** After G′a, inventory page size and margins, both border-spacing axes, column-width/rule-width, font size, line height and letter/word spacing. Redirect each arithmetic path to the plugin evaluator; prove no temporary G′a evaluator remains. Compare each public result for finite math before and after N and exercise exceptional math at each consuming boundary. Run media range regression cases and record which supported arithmetic cases N fixes under #11-media-css-values-fidelity; remaining media-feature defects stay with that slot.
 
-**C-15.** At the entry from original numeric text, compare exponent, signed zero, overflow and out-of-range literals against math results subject to a later clamp. Cover direct and substituted input.
+**C-15.** At the entry from original numeric text, compare exponent, authored zero signs, overflow and out-of-range literals against math results subject to a later clamp. Cover direct and substituted input.
 
 ## Production paths and numerical controls
 
@@ -42,8 +44,38 @@ At c3c78070, plugin css_resolve.rs::resolve_calc_typed performs arithmetic in bi
 | Input and route | Observable result |
 |---|---|
 | Compare a width breakpoint of calc(16777217px) at viewport widths 16777216px and 16777217px. | A min-width query is false then true. Reading the binary32 token first would turn the first result true. Check direct decimal conversion and cached matching in both orders. |
-| Evaluate calc(8px / (1 / 0)) in a definite length property and at a media threshold. | The inner division yields positive infinity and the full expression yields zero. Compare calc(8px / (1 / -0)) inside the evaluator by sign before top-level censorship. |
+| Evaluate calc(8px / (1 / 0)) in a definite length property and at a media threshold. | The inner division yields positive infinity and the full expression yields zero. Authored -0 also yields positive zero here. Use calc(8px / (1 / (-1 * 0))) for a negative zero intermediate and unsigned public zero. |
 | Evaluate calc((1px / 0) - (1px / 0) + 7px). | The intermediate difference yields NaN and the final top-level math value is censored to zero. Prematurely replacing each division by zero gives 7px. |
 | Simplify calc(2 * (10% + 3px)) with a missing percentage basis, then supply 200px. | Retain 20% and 6px for the computed consumer. Used evaluation returns 46px. Repeat at a zero basis to distinguish an available zero from an absent reference. |
 
 Use the plugin's css_resolve tests for intermediate sign and type, and the media crate's existing width, negative-range and NaN tests for public matching. Record the exact source lexeme, intermediate value and consumer result for each boundary. CSS Values 4 §§10.10–10.12 govern simplification and top-level clamping.
+
+## Evaluator inputs, outputs and limits
+
+Pass binary64 viewport dimensions and the applicable font metrics into the plugin without narrowing. Widen style's existing binary32 inputs exactly at its adapter. Represent the percentage basis as an optional binary64 value. The evaluator returns the simplified typed root with unresolved dependencies, or a definite typed scalar in its canonical unit. The owner supplies the value stage and signed or nonnegative target interval before converting to its destination type. Test a 16777217px viewport against (width: calc(100vw)) and (width: calc(100vw + 1px)): true and false. The viewport and the feature value arrive by independent paths.
+
+For calc(1px / 0), calc(-1px / 0) and calc(0px / 0), assert a length root of +∞, −∞ and NaN respectively after specified-value simplification. S can serialize each as the corresponding calc keyword multiplied by 1px. At computed conversion the same roots yield the applicable upper bound, lower bound and zero. Test both stages on the same authored tree. For calc(100% - 100% + 1px), combining like units gives 0% plus 1px. Preserve the percentage dependency while the basis is absent. With a definite 0px or 200px basis both yield 1px; C1 and C2 must still see the mixed type before resolution.
+
+### Per-reader checks
+
+Use H32 = f32::MAX and H64 = f64::MAX as the proposed finite storage ceilings. These are implementation limits. For each signed row, finite positive overflow and +∞ yield H, −∞ yields −H, and NaN yields zero. For each nonnegative row the same inputs yield H, zero and zero. Include negative finite overflow alongside negative infinity. Inspect the property's computed value before downstream layout limits and compare ordinary finite cases with the predecessor head.
+
+| Reader | Range and phase | Finite control and observable limit |
+|---|---|---|
+| Flex factors and definite basis | nonnegative, computed f32; unresolved basis waits for use | shrink 2 remains 2, definite 12px basis remains 12px; H32 |
+| Box size and padding; margins and vertical-align | size/padding nonnegative, margins and alignment signed; clamp when reference is definite | 12px padding and −3px alignment/margin survive; H32 |
+| Font size, line height, letter/word spacing | size and line height nonnegative; spacing signed; compute with parent or element font as applicable | parent 20px at 60% gives 12px; −2px spacing survives; H32 |
+| Grid sized tracks, both table border-spacing axes | nonnegative at definite reference or used track sizing | 16px track and 12px/8px spacing; H32 |
+| Column width and rule width | nonnegative at computation; column width has 1px used minimum | 0px computed width gives 1px used; H32 for computed numeric results |
+| Page size and margins | size nonnegative; margins signed; evaluate after page references arrive | 120px size and −2px margin; H32 at geometry storage |
+| Media width/height | nonnegative top-level calculation in binary64 at matching; literal comparisons follow MQ4 §2.4.3 | at viewport 0px equality with calc(-1px) is true, equality with literal −1px false; positive overflow or +∞ threshold matches min-width only at H64 |
+
+### Media inputs and identity
+
+At the base, media/parse.rs::parse_mf_value widens rounded token payloads for a bare number, dimension and ratio denominator. Convert all from their original numeric substrings and retain the tokenizer's integer flag for integer-only features. In media/eval.rs::range_feature_value compare the original device dppx with the binary64 query. Check 1.2dppx equality and an adjacent representable value, an aspect-ratio numerator and denominator straddling the binary32 boundary, and an integer-only color feature with 8 versus 8.0. Keep converted-unit tolerance confined to its existing conversion branch.
+
+At N’s landing, exercise the production match cache with two literal min-width queries, 16777216px and 16777217px, in the same 16777216px environment. Expect true and false for both insertion orders and on a second lookup. Audit media/serialize.rs's length and numeric conversions feeding keys; retain binary64 identity in keys independently of the public formatting work in S. Run the equivalent calculation queries too.
+
+### Verification and placement
+
+Place common evaluation and its tests in a sibling plugin numeric module. At baseline css_resolve.rs has 500 lines and values.rs 831. Recount after G′a and split an over-limit touched module before the migration. Put public matching controls in elidex-css's media tests and style controls in the actual property/used-reader suites. Run `cargo test --all-features -p elidex-plugin -p elidex-css -p elidex-style -p elidex-css-flex -p elidex-css-text -p elidex-css-table -p elidex-css-multicol -p elidex-layout-flex -p elidex-layout-multicol -p elidex-layout -p elidex-render -p elidex-css-grid -p elidex-layout-grid -p elidex-layout-table`. Refresh the inventory against the landed G′a readers. For WPT use css/css-values/calc-serialization.html and css/mediaqueries/relative-units-001.html at e00a7b14e8e3d9c04933e29ed247baf76c60706e. Record each applicable assertion, result and runner in the implementation PR.
