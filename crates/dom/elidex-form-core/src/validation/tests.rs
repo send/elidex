@@ -710,7 +710,7 @@ fn candidate_readonly_textarea_barred() {
 
 #[test]
 fn candidate_readonly_checkbox_still_candidate() {
-    // `readonly` does not apply to checkbox per HTML §4.10.5.1.4,
+    // `readonly` does not apply to checkbox per HTML §4.10.5.3.3,
     // so setting it must not bar the control from validation.
     let mut dom = elidex_ecs::EcsDom::new();
     let entity = dom.create_element_ownerless_fixture("input", Attributes::default());

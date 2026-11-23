@@ -400,7 +400,7 @@ fn check_validity_returns_true_for_readonly_text_input() {
 
 #[test]
 fn check_validity_runs_for_readonly_checkbox() {
-    // HTML §4.10.5.1.4: `readonly` does NOT apply to checkbox, so
+    // HTML §4.10.5.3.3: `readonly` does NOT apply to checkbox, so
     // setting it must not bar the control from validation — a
     // required, unchecked, readonly checkbox still fails validation
     // and fires `invalid`.
