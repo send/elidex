@@ -2649,15 +2649,12 @@ pub(crate) struct VmInner {
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
     /// Monotonic reference point for `performance.now()` and
-    /// `Event.timeStamp` (WHATWG DOM §2.2 / HR-Time §5).  Set once at
+    /// `Event.timeStamp` (DOM §2.5 / HR-Time §7.1).  Set once at
     /// `Vm::new`; both APIs return `self.start_instant.elapsed()` in
     /// milliseconds with sub-ms precision.  Sharing a single
     /// `Instant` guarantees `event.timeStamp` and `performance.now()`
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
-    ///
-    /// Consumed by `performance.now()` and `Event.timeStamp` —
-    /// HR-Time §5 requires the two to share a time origin.
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field

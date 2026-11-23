@@ -552,7 +552,7 @@ impl VmInner {
                 // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
                 // etc. resolve against `Object.prototype` as expected.
                 self.register_navigator_global();
-                // `performance` — HR-Time §5.  Shares the time origin
+                // `performance` — HR-Time §9.1.  Shares the time origin
                 // (`VmInner::start_instant`) with `Event.timeStamp`.
                 self.register_performance_global();
                 // `location` — WHATWG HTML §7.1.  Reads/writes
@@ -582,7 +582,7 @@ impl VmInner {
                 self.get_object_mut(self.global_object).prototype = self.worker_scope_prototype;
                 // `navigator` — WorkerNavigator (WHATWG HTML §10.3.2).
                 self.register_worker_navigator_global();
-                // `performance` — HR-Time §5, shared with the Window path.
+                // `performance` — HR-Time §9.1, shared with the Window path.
                 self.register_performance_global();
                 // `location` — WorkerLocation over the worker script URL
                 // (WHATWG HTML §10.3.3).
@@ -611,7 +611,7 @@ impl VmInner {
                 // `navigator` — WorkerNavigator (SW realms are
                 // `WorkerGlobalScope`s, WHATWG HTML §10.3.2).
                 self.register_worker_navigator_global();
-                // `performance` — HR-Time §5, shared with the Window path.
+                // `performance` — HR-Time §9.1, shared with the Window path.
                 self.register_performance_global();
                 // `location` — WorkerLocation over the SW *scope* URL
                 // (SW §4.1 / WHATWG HTML §10.3.3).
