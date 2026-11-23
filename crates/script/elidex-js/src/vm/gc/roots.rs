@@ -80,9 +80,8 @@ pub(super) struct GcRoots<'a> {
     /// between scheduling and firing.
     pub(super) timer_queue:
         &'a std::collections::BinaryHeap<super::super::natives_timer::TimerEntry>,
-    /// Currently-firing timer entry (popped out of `timer_queue`).  Same
-    /// invariant as `current_microtask`: the callback/args must survive
-    /// any GC triggered by the running callback.
+    /// Currently-firing timer entry (popped out of `timer_queue`); its
+    /// lifetime is stated in `VmInner::drain_timers`.
     pub(super) current_timer: Option<&'a super::super::natives_timer::TimerEntry>,
     /// Navigation state — `NavigationState.current_state: JsValue` holds the
     /// value last passed to `history.pushState` / `replaceState` (`history.state`).
