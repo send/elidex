@@ -85,7 +85,7 @@ pub struct AnimationEventInit {
     pub pseudo_element: String,
 }
 
-/// Initialization data for input events (HTML §4.10.5.5).
+/// Input event initialization data (UI Events §3.4.1.2, `InputEventInit`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InputEventInit {
     /// The type of input (e.g. "insertText", "deleteContentBackward").
