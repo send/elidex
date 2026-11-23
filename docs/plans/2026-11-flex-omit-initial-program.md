@@ -151,9 +151,25 @@ PM 1008 splits G′a-geo into §1 rows 3b.1–3b.4. Each child needs an independ
 | Parser @ c2f27760 | F1/F2 and F11/M12/M15 go to 3b.1 for grammar and readers, with actual consumption checked in 3b.3/4. Each child owns its applicable M16–M19 coverage, structure and gates. The standalone 3a extraction retains M17 for the builder split and M18/M19 for parity and landing checks. |
 | Umbrella R2 @ df8f8336 | F1/M9/M15 and F3 go from G/T to 3b.1. The umbrella owns the F2/M21 cut and order, with page-reader acceptance through 3b.1 → 3b.3 → 3b.4. |
 | Umbrella R3 @ 1696e3b8 | C-3 belongs to 3b.1 for each margin side’s grammar, cascade and evaluation, 3b.3 for page axes and breaks, and 3b.4 for public output. N retains C-2 for page and property readers. |
-| G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. 3c.1 owns IMP-3, 3c.3 owns IMP-4/5 and MIN-1 (pinned Multicol WPT). All three readers own their IMP-8 spec rows and MIN-2 tests; the outstanding IMP-8 fixtures belong to 3c.1 and 3c.3. Each PR owns MIN-3. The revised order settles MIN-4. |
+| G′a advisory @ 17e44ba3 | IMP-1 goes to 3b.3 → 3b.4, IMP-2/6 to 3b.1, and IMP-7 to 3b.1 → 3b.3/4. 3c.1 owns IMP-3, 3c.3 owns IMP-4/5 and MIN-1 (pinned Multicol WPT). All three readers supply their IMP-8 spec rows and MIN-2 tests; the outstanding IMP-8 fixtures belong to 3c.1 and 3c.3. Each PR supplies its MIN-3 gate record. The revised order settles MIN-4. |
 | G′a binding @ e72f209e (PM 1019) | IMP-1 establishes the serial 3c.1–3c.3 split. 3c.1 owns IMP-2/3 and the Fonts shorthand part of MIN-1. 3c.3 owns IMP-4 and the Multicol shorthand, rule and column-count parts of MIN-1. FP-1 leaves wrapper retirement to G′b; FP-2 retains C-5’s distinct Web API grammar. N takes all three reader fixture sets after 3c.3. |
 | G′a-geo binding @ 6ffdfec2 | 3b.1 owns F1/F2/F7 and the bare-orientation control F9. 3b.2 owns F3’s cursor contract, with Flex and Grid consumers in 3b.2f and 3b.2g. 3b.3 owns F4/F8. 3b.4 owns F5 and closes F6 across the selected-geometry children. |
+
+PM 1020 assigns one closing child to each former G′a property obligation below. For cross-reader rows 3c.3 checks its own record against the landed Text and Table records before closing the ID. N subsequently replays the three fixture sets against the common arithmetic.
+
+| Source and property IDs | Closing child | Contributing evidence |
+|---|---|---|
+| Parser c2f27760 · F1, F2, F11, M12, M15 | 3c.3 | Each reader records its accepted categories, shared grammar calls and actual computed or used results. |
+| Parser c2f27760 · M16, M17, M18, M19 | 3c.3 | All three supply their applicable coverage, module structure, regression evidence and landing gates. |
+| Umbrella R2 df8f8336 · F1, M9, M15 | 3c.3 | Each reader demonstrates G’s unit vocabulary and the corresponding consumer. |
+| Umbrella R2 df8f8336 · F2, M21, F3 | 3c.3 | Text records the ordered cut. Each child records its working reader and T substitution cases. |
+| Umbrella R3 1696e3b8 · C-5 | 3c.1 | Record Intersection Observer’s separate margin grammar. |
+| Umbrella R3 1696e3b8 · C-16 | 3c.3 | Preserve the Multicol keyword control. G′b retains its distinct obligation. |
+| Advisory 17e44ba3 · IMP-3 | 3c.1 | Ordinary Text walk and registered readback. |
+| Advisory 17e44ba3 · IMP-4, IMP-5, MIN-1 | 3c.3 | Multicol shorthand, width-to-count geometry and pinned WPT. |
+| Advisory 17e44ba3 · IMP-8, MIN-2, MIN-3 | 3c.3 | Each child supplies its spec rows, test placement and gate record. Text and Multicol supply the outstanding range and phase fixtures. |
+| Binding e72f209e · IMP-1, IMP-2, IMP-3 | 3c.1 | Land subdivision and validate root context and Text category. |
+| Binding e72f209e · IMP-4, MIN-1 | 3c.3 | Verify rule phases and Multicol citations alongside Text’s landed shorthand citation. |
 
 | 組 | producer → consumer と判別観測 |
 |---|---|
