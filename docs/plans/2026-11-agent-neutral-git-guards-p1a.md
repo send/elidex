@@ -137,7 +137,7 @@ branch.
     global changes applied by the PM / user, not by this PR (the Claude one at §7.1 step A2). A command
     adapter sees commands only: indirect forms (`include.path` pointing at a file that sets the key, a direct file
     write into `config.worktree`) are not prevented, nor are the shapes whose cwd the Claude guard misreads (bypass-guard
-    memo §4.8, "`scan()`'s blind spots"). `--check` detects the persistent ones of both kinds.
+    memo §4.8, "`scan()`'s deny is not widened; its blind spots"). `--check` detects the persistent ones of both kinds.
   - **The Codex sandbox caveat.** PLAN §6 item 5 (as revised by PM 877) gives the Codex driver's workspace-write
     sandbox the `.git` common dir. A session that can write there can rewrite a shim in `<common dir>/hooks` or a
     worktree's `config.worktree` by a plain file write, which no command adapter sees. Such a write is detected,
@@ -233,13 +233,13 @@ branch.
   `HEAD:<branch>` refspec in the command text (`git-push-branch-guard.sh` lines 22–24), pre-push on every ref
   (wider); the Claude force guard denies the *flag* text (`-f`, `--force`, `--force-with-lease`, line 13) even for a
   fast-forward, and does not match a `+<refspec>` force, while pre-push decides on the ref shape. No cut-over step
-  changes line 13 or line 24 (PM 950; §7.3).
+  changes line 13 or line 24 (PM 950, PM 964; IV5).
 - IV2 [P1a]. On a Claude `git commit` the Claude fmt hook (line 30) checks the working-tree file of each path the
   *real* index lists; pre-commit checks the blobs of the index git commits from (VI1). They differ on partial
   staging and on `git commit <path>` / `git commit -a`. A deliberate skip from a Claude session needs both opt-outs
   (`# fmt-ok` and VI3's value).
 - IV3, IV4 [P1b]: P1b memo §2.
-- IV5 [both]. **Three coexistences this scope does not end** (PM 893 (1), PM 950). This is the strangler state "One
+- IV5 [both]. **Three coexistences this scope does not end** (PM 893 (1), PM 950, PM 964). This is the strangler state "One
   issue, one way" forbids, so the memo names them instead of hiding them.
   - **Push branch and fmt (`:24`, `:30`).** Kept by decision (PM 950, user, option D): both Claude hooks run on every
     command as today, and from A1 pre-push / pre-commit decide too; the stricter answer wins (IV1, IV2). No trigger
@@ -253,8 +253,10 @@ branch.
     `merge-pr` exists and the raw path is the second procedure). Not pulled into this scope.
   - **Force push.** The Claude force guard (`:13`) denies the flag text (`-f`, `--force`,
     `--force-with-lease`), also on a fast-forward, and does not see a `+<refspec>`; pre-push II5 decides on the ref
-    shape. Both decide, so the stricter answer wins (IV1). Owner: the PM. Trigger: §7.1 step A1 (from then on both
-    layers decide a force push). End: none in this scope; a change of `:13` needs a user approval (§7.3).
+    shape. Both decide, so the stricter answer wins (IV1). Kept by decision (PM 964): no defect against the spec or
+    the elidex principles has been shown for `:13` in this scope, so both halves stay everywhere as today, and from
+    §7.1 step A1 pre-push II5 decides beside the force half. No end in this scope; a defect found later goes to the PM
+    as a slot draft at that time.
 
 **V — cut-over order** [both] (§7 has the steps and what is safe in each intermediate state).
 - V1 [P1a]. Nothing is installed before P1a is merged (an installed shim would pass everywhere: I3).
@@ -332,7 +334,7 @@ The P1b rows (`merge-pr`): P1b memo §2.
 | both | IV × V | IV is the state from §7.1 step A1 on for push / commit (no end in this scope, IV5), and between P1b memo §7.2 step B3 and the §7.3 approvals for merge |
 | both | IV × VI | IV2: the two commit checks differ on partial staging and temporary indexes |
 | both | IV × F | in IV the stricter answer wins, so a fail-open on one layer is covered by the other where both look |
-| both | IV × T | the tests cannot run the Claude hooks (they live outside the repository); IV is checked by the PM's E2E only |
+| both | IV × T | the tests cannot run the Claude hooks (they live outside the repository), and no E case targets IV: E1–E18 run their push and commit cases from a script file so that the Claude hooks do not see them (§7.5 setup), E19 is `--check`, and E24 is the bypass guard. Under PM 950 IV is the Claude hooks' unchanged behaviour plus the git hooks, observed in real use at §7.1 step A3 (both layers deciding) |
 | P1a | V × VI | pre-commit decides from A1 on; `:30` is unchanged at every step (V2) |
 | both | V × F | each intermediate state of §7 keeps at least one fail-closed layer on push and on commit; on merge only after the `:36` approval — before it, the raw `gh pr merge` path has the fail-open head guard only (IV5, the stated gap) |
 | both | V × T | the PRs' tests pass with nothing installed; installation is checked by the E2E, never by CI |
@@ -718,11 +720,11 @@ P1b memo §7.2.
 ### §7.3 Needs a further user approval (not in the approved scope)
 
 PM 893 (1) limited the approved change to `:24` and `:30`, and PM 950 withdrew that one: both stay as they are
-(IV5). The others, each with what it would become; the PM takes them to the user:
+(IV5), and by PM 964 `:13` stays as it is too (IV5). The others, each with what it would become; the PM takes them
+to the user:
 
 | line | today | would become |
 |---|---|---|
-| `:13` | amend / force deny on flag text (`git-amend-force-push-guard.sh`: a `grep -E` over `.tool_input.command`) | no change is proposed here: both halves stay everywhere, and pre-push II5 decides `-f` and `+<refspec>` beside the force half (IV5). The earlier proposal for the force half was the `:24` / `:30` mechanism PM 950 withdrew |
 | `:36` | `gh-pr-merge-head-guard.sh` | as PLAN §1 row 6: in elidex, an adapter onto the same core — a raw `gh pr merge <N>` runs `merge-pr --dry-run <N>`'s checks and is denied when they refuse; other repos unchanged. **Proposal (for the PM to take to the user)**: in elidex, deny raw `gh pr merge` outright, naming `merge-pr`. Reason: with the adapter two merge procedures remain (IV5) and the raw one still needs `:42` / `:136` / `:142`; with the deny, `merge-pr` is the one way. Break-glass is not changed by either form (P1b memo §7.4) |
 | `:42` | delete-branch worktree guard | in elidex, inert once raw merges are denied (`merge-pr` writes `--delete-branch=false`); kept as is under the adapter form |
 | `:136`, `:142` | PostToolUse sync / cleanup | unchanged entries; the scripts stay (V4). Under the deny form they never fire for elidex merges; under the adapter form they keep serving raw merges. Changed only after `:36` (V3) |
@@ -853,6 +855,8 @@ No question is open. Each former question was decided by the driver (lens conver
   guard, and `scan()` is built on it (bypass-guard memo §4.8).
 - **PM 930** (the part that stands): the break-glass actor rule rests on PM 908 / PM 916 themselves, and `:36` is
   described by what it does, not as an enforcement (§7.4; P1b memo D32).
+- **PM 930 / 936** (the part that stands): `scan()`'s deny is not widened; its blind spots, zsh's included, are
+  listed in the docstring (bypass-guard memo §4.8).
 - **PM 936, PM 938** (the part that stands): the codex.md edits are per clause and timed by A1 / B3 (§7.1 A0, P1b
   memo §7.2 B0); codex.md line 9 in A0, the "B3 まで" clauses at B3.
 - [history] Superseded by PM 950, content not kept: PM 893's change of `:24` / `:30`, round 2's A2-3, the second
@@ -861,6 +865,9 @@ No question is open. Each former question was decided by the driver (lens conver
   exactly as today, and P1a's git hooks are added on top (IV5, V2, §7.1). Kept from the approved scope:
   `git_segments()` as the iterator `scan()` is built on (PM 922) and the deny of `core.hooksPath` writes (PM 900,
   D38). This answers PLAN §6 item 3 (§10). The ids it retired: §0 Pair.
+- **PM 964**: no new `:13` design. No defect against the spec or the elidex principles has been shown for `:13` in
+  this scope, so the force-push coexistence is kept by decision, with no end in this scope; a defect found later goes
+  to the PM as a slot draft at that time (IV5).
 
 ## §9 Layering and what is not touched
 

@@ -9,7 +9,7 @@ E24 of its §7.5) owns applying it, by reference to this file. Every section and
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
 Since the move: PM 922 added the `git_segments()` iterator ("One derivation" below). [history] PM 930, PM 936 and
 PM 938 revised a pass-through decision layer this patch carried for the `:24` / `:30` hooks; PM 950 (user, option D)
-superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v6.diff`).
+superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7.diff`).
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -29,15 +29,17 @@ git segment, nested ones included; the violation is the one `check_git` (or an e
 becomes the first in-scope violation of that iterator (behaviour unchanged: every existing test passes on it), and
 it is the iterator's one caller, so the derivation exists once.
 
-**`scan()`'s blind spots.** The shapes whose cwd it misreads or whose git call it does not see are not denied, and
-its docstring lists them: a `cd` inside `( … )` read as leaking, `cd -`, `pushd` / `popd`, a `cd` target with `$`, a
+**`scan()`'s deny is not widened; its blind spots (PM 930, PM 936).** The shapes whose cwd it misreads or whose git
+call it does not see are not denied, the deny is not widened to them, and its docstring lists them, zsh's forms
+included (PM 936): a `cd` inside `( … )` read as leaking, `cd -`, `pushd` / `popd`, a `cd` target with `$`, a
 command starting with a reserved word, `bash -lc`, git after a wrapper's options, git in an argument position,
 `GIT_DIR=` / `GIT_WORK_TREE=` and `--git-dir` / `--work-tree`, zsh's `chdir` and the precommands (`noglob cd`,
-`nocorrect cd`, `repeat N cd`, `- cd`), a `#` comment and a heredoc body (both read as commands). Probed on
-2026-11-23 on the patched copy: 20 of 21 such commands, each of which would run `git commit --no-verify` in an
-elidex worktree, are not denied, and the two plain controls are. For what the git hooks decide (push and commit),
-the canonical guard is P1a's git hooks: git runs them whatever the shell spelling. The reroute of the hooks path
-itself, which no git hook sees, stays with this guard's text reading and `--check` (I4).
+`nocorrect cd`, `repeat N cd`, `- cd`), a `#` comment and a heredoc body (both read as commands). The probe of these
+shapes: the Tests paragraph below. A bypass through one of them (`--no-verify`, or a reroute of the hooks path) is
+not stopped locally: this guard misses it and git does not run the hooks. What the hooks would have checked is caught
+behind it by CI (`check` for fmt, `tools` for the ratchet), and a persistent reroute by `--check` (I4), as P1a §1's
+non-goal "Defeating a deliberate bypass" states. The reroute of the hooks path itself, which no git hook sees, stays
+with this guard's text reading and `--check` (I4).
 
 **No silent overlap with the existing rules.** `-c core.hooksPath=…` (and `-c core.hooksPath …`,
 `-ccore.hooksPath=…`), `--config-env=core.hooksPath=…` and a `GIT_CONFIG_KEY_<n>=core.hooksPath` assignment are
@@ -54,7 +56,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 ```diff
 --- a/git-hook-bypass-guard.py
 +++ b/git-hook-bypass-guard.py
-@@ -6,13 +6,30 @@
+@@ -6,13 +6,31 @@
      `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
    - commit / push / merge / pull / rebase / cherry-pick / am / revert の `--no-verify` (--no-ve... の省略形も)、
      `git commit -n` (-an / -nm のような束ね形も)
@@ -77,17 +79,18 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +変える形 (`include.path` / `includeIf.*.path` の書き込み、`-c include.path=...`、`GIT_CONFIG_GLOBAL` / `HOME` を
 +差し替えた file)、`.git/config` / `config.worktree` への直接の file 書き込み、cwd の外から `--git-dir` で elidex を
 +指す形。永続する迂回は `mise run install-githooks -- --check` (elidex の P1 plan memo の installed(wt)) が見つける。
-+実効 cwd の導出にも見えない所がある (git を見落とすか cwd を読み違える): `( ... )` の中の
++実効 cwd の導出にも見えない所がある (deny はここを広げない。git を見落とすか cwd を読み違える): `( ... )` の中の
 +`cd` を外へ漏れると読む、`cd -` / `pushd` / `popd` / `$` を含む `cd` の先、`if` / `{` など予約語で始まる command、`bash -lc`
 +(`-c` だけを認める)、`env -C` / `command -p` / `sudo ...` など wrapper の option の後ろの git、`xargs git` のように
 +引数の位置にある git、`GIT_DIR=` / `GIT_WORK_TREE=` と `--git-dir` / `--work-tree`、zsh の `chdir` と precommand
 +(`noglob cd` / `nocorrect cd` / `repeat N cd` / `- cd`)、`#` から行末までの comment (その中も command として読む)、
-+heredoc の本文 (command として読む)。長期の正はここではなく elidex の git hook (P1 plan memo の P1a、pre-push /
-+pre-commit): shell の綴りによらず git 自身が走らせる。
++heredoc の本文 (command として読む)。これらの形の `--no-verify` や hooksPath の迂回は deny されず、git hook も
++走らないので local では止まらない (意図した bypass は P1 plan memo の P1a の non-goal)。hook が見るはずだったものは
++CI (`check` / `tools` job) が後ろで拾い、永続する hooksPath の迂回は `--check` (同 memo の I4) が見つける。
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -35,6 +52,15 @@
+@@ -35,6 +53,15 @@
  COMMIT_VALUE_SHORT = set("mFCctSu")
  COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
                       "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
@@ -103,7 +106,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def state_dir():
-@@ -95,9 +121,16 @@
+@@ -95,9 +122,16 @@
  
  
  def env_hooks_assign(tok):
@@ -122,10 +125,12 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
  
  
  def hookspath_key(s):
-@@ -140,6 +173,58 @@
+@@ -138,6 +172,58 @@
+             if ch in COMMIT_VALUE_SHORT:
+                 break
      return False
- 
- 
++
++
 +def config_hookspath_write(args, cwd):
 +    """`git config` の後ろの token -> (violation or None, `--file` の先 or None)。
 +    位置引数は option とその値を除いた全部 (git は option を位置引数の後ろにも置ける)。未知の option が値を取って
@@ -176,12 +181,10 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +    if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:
 +        return None, target  # `git config core.hooksPath` = 旧形式の読み
 +    return "git config core.hooksPath", target
-+
-+
+ 
+ 
  def check_git(args, cwd):
-     """args: git の後ろの token。-> (violation or None, effective_cwd)"""
-     i, hits = 0, []
-@@ -173,6 +258,12 @@
+@@ -173,6 +259,12 @@
              break
      sub = args[i] if i < len(args) else None
      rest = args[i + 1:] if sub else []
@@ -194,7 +197,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -186,14 +277,16 @@
+@@ -186,14 +278,16 @@
      return (hits[0] if hits else None), eff
  
  
@@ -216,7 +219,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
          if j >= len(seg):
-@@ -204,13 +297,10 @@
+@@ -204,13 +298,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
@@ -232,7 +235,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
          elif prog in SHELLS or prog == "eval":
              inner = None
              if prog == "eval":
-@@ -218,9 +308,14 @@
+@@ -218,9 +309,14 @@
              elif "-c" in rest and rest.index("-c") + 1 < len(rest):
                  inner = rest[rest.index("-c") + 1]
              if inner:
@@ -254,12 +257,18 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as one class, `Segments`, that loads the
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
-the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950) against a
-scratch copy of the live file patched with `hook-v6.diff` (the block above) and `test-v6.diff`, both in
+the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950, re-run on the
+fix round's `hook-v7.diff`) against a scratch copy of the live file patched with `hook-v7.diff` (the block above)
+and `test-v6.diff`, both in
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20 tests OK; the same
 tests against the unpatched file: 40 failures and 5 errors (subtests counted); the live file's own 12 tests against
 the patched file: OK. The two diffs, applied with `patch -p1` to a fresh copy of the live files (`9902fe77…0438`),
-reproduce the patched files byte for byte. Each positive config form was measured to reroute, or to write, the key
+reproduce the patched files byte for byte. The blind-spot probe of `scan()` (the "`scan()`'s deny is not widened"
+paragraph above) on the same patched copy: 21 commands, one per listed shape, each of which would run
+`git commit --no-verify -m x` in an elidex worktree; 20 are not denied, and the one denied is
+`pushd <outside>; popd; git commit --no-verify -m x` with the hook's cwd in elidex (`pushd` / `popd` are both ignored,
+so the hook's cwd stands, which is where `popd` returns); the two plain controls (the commit with the cwd in elidex,
+and `cd <elidex> && …` from outside) are denied. Each positive config form was measured to reroute, or to write, the key
 (§3.2):
 
 | kind | commands (cwd in scope unless stated) | expected |
@@ -279,7 +288,7 @@ reproduce the patched files byte for byte. Each positive config form was measure
 | `scan()` on the iterator | `git_segments` replaced in the loaded module by one that yields a sentinel violation in scope | `scan("true", <out of scope>)` returns the sentinel |
 
 **Mutants** (each a replacement in a temp copy of the patched file, asserted to occur exactly once, run through the
-file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950) all 12 were killed by the tests above. The
+file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on `hook-v7.diff`) all 12 were killed by the tests above. The
 `scan()` row replaces a block, the others one line):
 
 | replaced | → | killed by |
@@ -300,7 +309,7 @@ file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950) all 12 wer
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v6.diff`, the block above, and `test-v6.diff`) — the `git_segments()` refactor of
+the whole diff (`guardpatch/hook-v7.diff`, the block above, and `test-v6.diff`) — the `git_segments()` refactor of
 `scan()` (PM 922) included — and apply it only after; apply the diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
