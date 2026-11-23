@@ -462,7 +462,7 @@ derivation; it yields three children, R-JS-1 / R-JS-2 / R-JS-3 (that plan's §1.
     `push_js_call_frame`) in other fields and statements, per child in §8.1; `home_class`, its `None` in `call_internal` and
     its rooting stay as they are.
   - **Two edges to umbrella 3.** (1) R-0b has folded `home_class`'s frame-marking into `mark_frame`
-    (`vm/gc/mod.rs`), so umbrella 3's obligation to retire "the two frame-marking sites" reads one site. (2) The this-binding and
+    (`vm/gc/mod.rs`), so umbrella 3's obligation reads "the retirement of the frame-marking site it replaces" (one site, #664). (2) The this-binding and
     umbrella 3's closure-carried home object are both reached through GetThisEnvironment's walk (S's AO).
     R-JS's plan decides only the this-binding, and shows that its representation leaves room for a home
     object beside it without a second capture mechanism; whether and how the home object moves stays
@@ -806,7 +806,7 @@ Under 1000 and touched: `vm/ops.rs` 893, `vm/natives_promise.rs` 961, `vm/host/r
 | `instantiate_module` (`vm/host/wasm/instance.rs:151`) | P0a-1 CP-3b: `check_entry` as the first statement | R-NAT: the receiver parameter and `.kind =` (`:188`) | P0a-1 | R-NAT |
 | `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads two `Err` arms (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`:216`), and D-4, `construct_synchronous` (`:278`) | R-JS-3: the call becomes a `VmInner::construct` call (row `construct_synchronous`; D-4's `Err` arm stays, on its result; step 11.4's error becomes a TypeError, PM 805); the read is deleted, and D-3's site goes with its two failure exits (S-2) | R-JS | P0a-2b re-checks D-4's anchor and drops D-3's row; the host comment cites of `#11-ce-upgrade-returned-object-typeerror` (`:300-301`, `:323`) are R-JS's rewrite, so its L3 PR rebases on R-JS if it lands later (PM 808 note) |
 | `run_reaction` (`vm/natives_promise.rs:665`) | P0a-1 D-16: `ReactionTarget` in the reaction record, the `Err` arm | none; R-NAT edits `native_promise_constructor` (`:712`) in the same file | P0a-1 | — (different function) |
-| `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`mark_roots`'s `mark_microtask`, `trace_work_list`'s `Promise` arm) | R-JS: `mark_frame` (`vm/gc/mod.rs`, R-0b), which both call | either | the later one (different statements) |
+| `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`mark_roots`'s `mark_microtask`, `trace_work_list`'s `Promise` arm) | R-JS: `mark_frame` (`vm/gc/mod.rs`, R-0b), which both call; R-JS-1's `trace_work_list` `Function` arm (`this_env`) and its new `ThisEnvironment` arm (R-JS plan §7) | either | the later one (different statements) |
 | `coroutine_types.rs` `Reaction` | P0a-1 D-16 changes the record | the shim retirement rewrites `value::Reaction` imports (§9.2) | P0a-1 | the retirement (script-regenerated) |
 
 ### §8.2 The census (P0a-2a)
