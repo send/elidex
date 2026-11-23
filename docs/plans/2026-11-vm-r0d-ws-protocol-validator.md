@@ -20,9 +20,12 @@ to `#11-http-token-predicate-unification` (PM 786, owner VM P4), not to R-0d. Wh
 
 **Dates** (umbrella §9.1 step 9, PM 750; §4.1, PM 784 (3)): target **11-24**, hard edge **12-04**. A date that would
 pass 11-26 goes to the PM. Order condition "after R-0c, one at a time": met, since R-0c landed 11-21 (#654 `3cbd5b88`).
+Sequence (PM 960): the prerequisite **R-0d-pre** (§1) lands 11-23, then this plan PR, then the code PR, expected
+**11-25**: one day past the target and inside 11-26 (PM 960 OK).
 
 **Base**: `origin/main` at **`c3c78070`** (#664, R-0b). Every `file:line` is at `c3c78070` unless it names another
-sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-ws/src`.
+sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-ws/src`. The code PR's base is main
+after R-0d-pre, which moves only test files, so the `H` / `W` / `headers.rs` anchors hold there.
 
 ### §0.1 Premises re-verified (at `c3c78070`)
 
@@ -62,9 +65,13 @@ sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-w
   not `DOMException`s. `VmError::syntax_error` builds `VmErrorKind::SyntaxError`, and `vm/ops.rs:185` turns that into
   the ECMAScript `SyntaxError` constructor's object. Step 9 throws "a "SyntaxError" `DOMException`" (§2). The host's
   other DOM paths already use `dom_exc_syntax_error` (`H/dom_bridge.rs:376-395`).
-- `is_valid_header_name`'s docstring (`headers.rs:63-66`) cites "Fetch spec §2.2.1" and "RFC 7230 §3.2.6". In webref,
+- `is_valid_header_name`'s docstring (`headers.rs:64-67`) cites "Fetch spec §2.2.1" and "RFC 7230 §3.2.6". In webref,
   §2.2.1 is Methods and the header name dfn is in §2.2.2 Headers (`webref dfn fetch 'header name'` →
-  `§2.2.2 Headers #header-name`). RFC 7230 is obsoleted by RFC 9110. R-0d rewrites those two docstring lines (§1).
+  `§2.2.2 Headers #header-name`). RFC 7230 is obsoleted by RFC 9110. R-0d rewrites that docstring (§1.2).
+- **Rev 1 errors** (R1): the `headers.rs` range is `:64-67` (`git grep -n '' c3c78070 -- <headers.rs>`), not `:63-66`,
+  and RFC 9110 §5.6.2 is `token`, not "field-name" (§1.2). R1's other premises match `c3c78070`.
+- Found in Rev 2: the `:354` comment `// Step 4: protocols coercion + token-ABNF validation.` names the docstring's own
+  step 4, not a spec step, and stays true. It is unchanged.
 
 ## §1. Scope
 
@@ -76,20 +83,33 @@ sha. `H` = `crates/script/elidex-js/src/vm/host`; `W` = `crates/api/elidex-api-w
 - `H/websocket.rs`: `:496-523` is replaced by one call,
   `elidex_api_ws::validate_ws_protocols(&out).map_err(|e| VmError::syntax_error(format!("Failed to construct 'WebSocket': {e}")))?;`.
   This is the same form as the constructor's `:350` / `:352`. `:527-559` is deleted. The docstrings and comments that
-  describe the moved checks (`:47`, `:306-308`, `:457-459`) now name the validator and cite step 9 (§2). No other line
+  describe the moved checks (`:47`, `:306-308`, `:457-459`) now name the validator and cite step 9 (§1.2). No other line
   of the file changes.
-- `crates/api/elidex-api-fetch/src/headers.rs:63-66`: the docstring is corrected to Fetch §2.2.2 *header name* and
-  RFC 9110 §5.6.2 (§0.2). It is comment only, and R-0d's new docstring links to it.
-- `crates/script/elidex-js/src/vm/tests/tests_realtime.rs`: the end-to-end cells of §3. Its coverage list in the
-  module doc gains one item.
+- `crates/api/elidex-api-fetch/src/headers.rs:64-67`: the docstring is corrected (§0.2) to the string in §1.2. It is
+  comment only, and R-0d's new docstring links to it.
+- **R-0d-pre** (standalone prerequisite PR, branch `vm-tests-websocket-split`, PM 960): `vm/tests/tests_websocket.rs`
+  (1442 lines, 78 tests) is split at its section banners into the directory module `vm/tests/tests_websocket/`. It is
+  a pure move, as `vm/tests/tests_mutation_observer/` was. Plan-review is skipped as a trivial pure move, like R-0c,
+  and its landing memo records why. The constructor URL and protocols sections (`:100-299`) go together into one file:
+  "the constructor file" below (its name is not final; likely `ctor.rs`).
+- The constructor file: the four protocol-rejecting `ctor_*` cells move from `contains` matching to exact checks, and
+  two cells are added (§3). There is no second, loosely overlapping set elsewhere (One issue, one way).
 
 **Out**: no change to what is accepted or rejected, to the error type, to the check order or to any message (§2). The
 ECMAScript-vs-`DOMException` type of the error (§0.2) is out of scope: slot `#11-host-syntaxerror-domexception` owns it (PM 958). The WebIDL union handling of the sequence arm
 (`parse_protocols`' Array fast path and the ToString fallback for other objects) is marshalling and is not touched.
 The host header copy and `validate_method` are untouched (§0). The stale `§9.3` / `§9.3.1` cites R-0d does not
 rewrite (`git grep -n -P '§9\.3' c3c78070 -- <H/websocket.rs> <W/websocket.rs>` → 24 lines) stay with the HTML
-section-renumber sweep (memory `project_html-section-renumber-sweep`, the WebSocket item). R-0d writes correct cites
-only on the lines it adds or rewrites, as #440 did. `tests_websocket.rs` (1442 lines) is not touched (§4).
+section-renumber sweep (memory `project_html-section-renumber-sweep`, the WebSocket item). This includes the
+neighbours of R-0d's lines: items 1–3 at `:300-305` and `W/websocket.rs:66`. R-0d writes correct cites only on the
+lines it adds or rewrites (§1.2), as #440 did.
+
+**Out, homed** (PM 960 Q2): non-Array iterables. A `Set`, a `Map` or a user iterable falls to the DOMString arm, so
+`new WebSocket(u, new Set(['chat']))` stringifies to `"[object Set]"` and throws SyntaxError (docstring `:449-452`,
+"Phase 1 accepts Array literals + DOMString only"). It predates R-0d, is unchanged by it, and belongs to the existing
+slot `#11-webidl-sequence-dense-array-fast-path` (PM 960 adds the site). Same root: the conversion skips WebIDL
+§3.2.25 Union types step 11.2.1, "Let method be ? GetMethod(V, %Symbol.iterator%)." (`webref body webidl js-union`,
+source `# https://webidl.spec.whatwg.org/#js-union`). R-0d rewrites the `:457-459` sentence only; `:449-452` stays.
 
 ### §1.1 The validator
 
@@ -100,8 +120,9 @@ The validator moves the body of `:496-523` unchanged in order, with the predicat
 /// step 9 (`webref body websockets dom-websocket-websocket`): no value may occur more than once, and each value must
 /// be a non-empty HTTP `token`. That is what "the requirements for elements that comprise the value of
 /// `Sec-WebSocket-Protocol` fields" come to under The WebSocket Protocol [WSP]. The `token` test is
-/// [`elidex_api_fetch::is_valid_header_name`] (Fetch §2.2.2 *header name*: the field-name `token` production,
-/// RFC 9110 §5.6.2). Checks run per value in list order (empty, then token), then for duplicates over the whole list.
+/// [`elidex_api_fetch::is_valid_header_name`] (Fetch §2.2.2 *header name*: the `field-name` production of RFC 9110's
+/// field names, `field-name = token`, whose `token` is RFC 9110 §5.6.2). Values are compared by exact string
+/// equality. Checks run per value in list order (empty, then token), then for duplicates over the whole list.
 /// The first failure is returned as the `SyntaxError` message without its "Failed to construct" prefix, which the
 /// caller adds.
 pub fn validate_ws_protocols(protocols: &[String]) -> Result<(), String>
@@ -112,6 +133,24 @@ The body has the same two loops: the per-value loop (`is_empty` → `"empty sub-
 **before** the predicate, and it must: `is_valid_header_name("")` is false, so without the empty check an empty value
 would get the token message instead (mutant M1, §3).
 
+**ECS-native judgement** (R1 F1): `validate_ws_protocols` is a pure `&[String] -> Result<(), String>` function. It
+adds no component, query, side-store, `ObjectKind` or event. The only state the list reaches is the existing per-VM
+WebSocket state and the `RendererToNetwork::WebSocketOpen` message, and R-0d does not touch either.
+
+### §1.2 Rewritten lines and their cite strings
+
+| Line (at `c3c78070`) | After R-0d (cite string exact) |
+|---|---|
+| `H/websocket.rs:47` (module doc) | "… + protocols coercion and validation (`elidex_api_ws::validate_ws_protocols`, WebSockets §3.1 constructor step 9) + …" |
+| `H/websocket.rs:306-308` (constructor docstring item 4) | "Parse `protocols` arg (`DOMString \| sequence<DOMString>`) and validate it with `elidex_api_ws::validate_ws_protocols` (WebSockets §3.1 constructor step 9). Empty / non-token / duplicate → SyntaxError." |
+| `H/websocket.rs:457-459` (`parse_protocols` docstring) | "The collected list is validated by `elidex_api_ws::validate_ws_protocols` (WebSockets §3.1 constructor step 9); its `Err` becomes a `SyntaxError`." |
+| `H/websocket.rs:354` (comment) | unchanged (§0.2) |
+| new validator docstring (`W/websocket.rs`) | "WebSockets §3.1 constructor step 9" (§1.1) |
+| `headers.rs:64-67` | "Validate a header name: Fetch §2.2.2 *header name*, the `field-name` production of RFC 9110's field names (`field-name = token`), whose `token` is RFC 9110 §5.6.2. It must not be empty." |
+
+"§3.1": `webref dfn websockets 'WebSocket(url, protocols)'` → `§3.1 Interface definition #dom-websocket-websocket`.
+RFC 9110's field-names section is named, not numbered (RFCs are outside webref); §5.6.2 is not webref-checked (§2).
+
 ## §2. The SyntaxError surface (behaviour-neutral) and spec map
 
 Step 9, from `webref body websockets dom-websocket-websocket` (source line
@@ -121,18 +160,21 @@ fields as defined by The WebSocket protocol, then throw a "SyntaxError" DOMExcep
 condition and one exception. It fixes no check order and no message. The element requirement is RFC 6455 §4.1 (client
 requirements) item 10 (`1#token`), and `token` today is RFC 9110 §5.6.2. RFCs are outside webref, so those two numbers
 are carried from the umbrella §4.1 (Rev 1.5 MIN) and are not machine-checked here. Fetch §2.2.2 *header name*
-(`webref body fetch header-name`, source `# https://fetch.spec.whatwg.org/#header-name`) reads: "A header name is a
-byte sequence that matches the field-name token production."
+(`webref body fetch header-name`, source `# https://fetch.spec.whatwg.org/#header-name`) prints: "header name is a
+byte sequence that matches the field-name token production." (no leading "A"; `webref body fetch terminology-headers`
+prints the sentence with it). Step 9 says "occur more than once" and gives no folding rule, and the code compares
+exactly. R-0d keeps that comparison (the table's duplicate row).
 
 What R-0d preserves, observable from script, with the cells that pin each in §3:
 
 | Part | Today (`H/websocket.rs` at `c3c78070`) | After R-0d |
 |---|---|---|
-| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2) | the same constructor, at the `map_err` in `parse_protocols` |
+| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2): `e.name` is `"SyntaxError"` and `e instanceof SyntaxError` is true | the same constructor, at the `map_err` in `parse_protocols` |
 | Collect before validate | every value is coerced by ToString first (`:461-494`); a throwing `toString` wins over an invalid earlier value | unchanged (the call follows the collect) |
 | Order | per value in list order: empty, then token; then duplicates over the list | the same, inside the validator |
 | Messages | `Failed to construct 'WebSocket': ` + one of `empty sub-protocol is not allowed` / `sub-protocol '<s>' contains a character not allowed by RFC 7230 token ABNF` / `duplicate sub-protocol '<a>'` | byte-identical: the validator's `Err` is the suffix, and the host adds the prefix with the same `format!` as `:350` / `:352` |
 | Accepted set | per `char`, 0x21..=0x7E minus 17 delimiters | `is_valid_header_name`: equivalent on every input (§2.1) |
+| Duplicate comparison | exact string equality (`a == b`) | the same `a == b` |
 
 The message keeps "RFC 7230", although RFC 7230 is obsolete. A message refresh would change what scripts see, so it
 is not done here (`#11-host-syntaxerror-domexception`, PM 958).
@@ -165,23 +207,20 @@ No open question on equivalence.
 
 | Spec section | Step | Branch | Touch | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WebSockets §3.1 `new WebSocket(url, protocols)` | 9 | empty / non-token (each delimiter, SP, HTAB, controls, DEL, non-ASCII) / duplicate (adjacent, non-adjacent) / accept | `validate_ws_protocols` (NEW, `W/websocket.rs`); caller `parse_protocols` (`H/websocket.rs:460`) | ✓ (§3 U7: all 128 ASCII bytes) | yes (script supplies `protocols`) |
+| WebSockets §3.1 `new WebSocket(url, protocols)` | 9 | empty / non-token (each delimiter, SP, HTAB, controls, DEL, non-ASCII) / duplicate (adjacent, non-adjacent; case-distinct is not one) / accept | `validate_ws_protocols` (NEW, `W/websocket.rs`); caller `parse_protocols` (`H/websocket.rs:460`) | ✓ (§3 U7: all 128 ASCII bytes) | yes (script supplies `protocols`) |
 
 **Breadth**: K=1, M=1. **User-input touch audit**: no new script-reachable site. The protocols reach the broker as
-before (`RendererToNetwork::WebSocketOpen`; `crates/net/elidex-net/src/ws/io_loop.rs:216` joins them into the header
-without re-validating). Re-validating at the broker boundary would be a separate security decision, which the new
-engine-independent home makes possible. That is noted in §5 and is not R-0d's.
+before (`RendererToNetwork::WebSocketOpen`). The broker's re-validation gap belongs to slot
+`#11-ws-broker-protocol-validation` (§5).
 
 ## §3. Tests and mutants
 
-**Existing VM cells** (`crates/script/elidex-js/src/vm/tests/tests_websocket.rs`, unchanged). They were found by
-reading the `ctor_*` block (`:226-302`). `git grep -n -i 'protocol' c3c78070 -- crates/script/elidex-js/src/vm/tests`
-gives 28 lines, all in this file, and the cells among them are:
-`ctor_accepts_single_string_protocol` (`:227`), `ctor_accepts_array_of_protocols` (`:235`),
-`ctor_rejects_empty_protocol` (`:243`), `ctor_rejects_protocol_with_separator` (`:257`),
-`ctor_rejects_protocol_with_space` (`:272`), `ctor_rejects_duplicate_protocols` (`:287`). They match the message
-with `contains` (`"Syntax"` plus `"empty"` / `"token"` / `"duplicate"`), so they do not pin the bytes. `elidex-api-ws`
-has no protocol cell today.
+**Existing VM cells** (`tests_websocket.rs:226-298` at `c3c78070`; `git grep -n -i 'protocol' c3c78070 --
+crates/script/elidex-js/src/vm/tests` gives 28 lines, all in this file): `ctor_accepts_single_string_protocol`,
+`ctor_accepts_array_of_protocols`, `ctor_rejects_empty_protocol`, `ctor_rejects_protocol_with_separator`,
+`ctor_rejects_protocol_with_space`, `ctor_rejects_duplicate_protocols`. The four `ctor_rejects_*` match
+`format!("{err:?}")` with `contains` (`_with_space` only `"Syntax"`), so they do not pin the bytes. The two
+`ctor_accepts_*` already assert exactly (`Ok`) and stay. `elidex-api-ws` has no protocol cell today.
 
 **New unit cells** (`W/websocket.rs` `mod tests`; exact `Err` strings):
 
@@ -194,33 +233,46 @@ has no protocol cell today.
 | U5 duplicate | `["chat", "chat"]` and `["a", "b", "a"]` → `Err("duplicate sub-protocol 'chat'")` / `'a'` |
 | U6 order | `["chat", "", "chat"]` → empty; `["a b", "a b"]` → token; `["a b", ""]` → token (the first value's token check comes before the second value's empty check) |
 | U7 ASCII table | every byte 0x00..=0x7F as a one-character value → `Ok` exactly for a literal 77-character tchar string written in the test (not derived from either predicate) |
+| U8 case | `["chat", "Chat"]` → `Ok` (exact equality, no ASCII case folding) |
 
-**New end-to-end cells** (`tests_realtime.rs`, 385 lines, using its `with_realtime_vm` with an `http:` page so `ws://`
-passes the mixed-content gate; no new harness copy). Each runs
-`try { new WebSocket('ws://example.com/s', P) } catch (e) { globalThis.r = e.name + '|' + e.message }` and checks `r`
-exactly with `assert_eval_string`. A cell checks `e.name`, not `instanceof SyntaxError`, so the `#11-host-syntaxerror-domexception` fix changes only the
-cells it should. V1 `P = ''` → `SyntaxError|Failed to construct 'WebSocket': empty sub-protocol is not allowed`. V2
-`P = 'bad,protocol'` → the token message. V3 `P = ['chat', 'chat']` → the duplicate message. V4
-`P = ['', {toString() { throw new TypeError('t') }}]` → `TypeError|t` (collect before validate).
+**End-to-end cells** (the constructor file, its `with_ws_vm(false, …)` harness: an `http:` page, so `ws://` passes
+the mixed-content gate; no new harness). Each runs
+`try { new WebSocket('ws://example.com/socket', P) } catch (e) { globalThis.r = <expr> }` and checks `r` exactly with
+`assert_eval_string` (`<expr>` = `e.name + '|' + e.message`) or `assert_eval_bool`.
 
-**Commits** (as R-0b §6): (1) V1–V4 alone, green on the pre-move code. The PR body records that commit's sha, the
-command `cargo test -p elidex-js --all-features -- vm::tests::tests_realtime`, and its `test result:` line. (2) The move,
-U1–U7, and the `headers.rs` docstring. The same command is green, recorded the same way, plus
-`cargo test -p elidex-api-ws`. The commit-(1) cells staying green is the measured neutrality evidence.
+| Cell | `P` → expected `r` |
+|---|---|
+| V1 `ctor_rejects_empty_protocol` (tightened) | `''` → `SyntaxError\|Failed to construct 'WebSocket': empty sub-protocol is not allowed` |
+| V2 `ctor_rejects_protocol_with_separator` (tightened) | `'bad,protocol'` → `SyntaxError\|Failed to construct 'WebSocket': sub-protocol 'bad,protocol' contains a character not allowed by RFC 7230 token ABNF` |
+| V2′ `ctor_rejects_protocol_with_space` (tightened) | `'bad protocol'` → the same message naming `'bad protocol'` |
+| V3 `ctor_rejects_duplicate_protocols` (tightened) | `['chat', 'chat']` → `SyntaxError\|Failed to construct 'WebSocket': duplicate sub-protocol 'chat'` |
+| V4 new, collect before validate | `['', {toString() { throw new TypeError('t') }}]` → `TypeError\|t` |
+| V5 new, error kind | `''`, with `<expr>` = `e instanceof SyntaxError` → `true` |
+
+V1–V3 check `e.name`, which a `DOMException` also gives, so they stay green across the kind fix. V5 is the cell that
+`#11-host-syntaxerror-domexception`'s PR must flip, and it pins the ECMAScript kind until then.
+
+**Commits** (as R-0b §6): (1) the four tightened cells, V4, V5 and nothing else, green on the pre-move code. The PR
+body records that commit's sha, the command `cargo test -p elidex-js --all-features -- vm::tests::tests_websocket`,
+and its `test result:` line. (2) The move, U1–U8, and the `headers.rs` docstring. The same command is green, recorded
+the same way, plus `cargo test -p elidex-api-ws`. The commit-(1) cells staying green is the measured neutrality
+evidence.
 
 **Mutants** (run locally on the final head only, at most 2 concurrent `cargo test` processes; record which cell goes red):
 
 | # | Mutant | Must turn red |
 |---|---|---|
-| M1 | drop the empty check (an empty value then gets the token message) | U2, V1, `ctor_rejects_empty_protocol` |
-| M2 | drop the duplicate loop | U5, V3, `ctor_rejects_duplicate_protocols` |
-| M3 | predicate → always true | U3, U4, U7, V2, `ctor_rejects_protocol_with_separator` / `_with_space` |
+| M1 | drop the empty check (an empty value then gets the token message) | U2, V1 |
+| M2 | drop the duplicate loop | U5, V3 |
+| M3 | predicate → always true | U3, U4, U7, V2, V2′ |
 | M4 | inner loop `&out[i..]` (an element compared with itself) | U1, `ctor_accepts_array_of_protocols` |
 | M5 | inner loop `&out[i + 2..]`, or adjacent pairs only (`windows(2)`) | U5 (adjacent), U5 (non-adjacent) respectively |
 | M6 | duplicate loop before the per-value loop | U6 |
 | M7 | host `map_err` drops or changes the prefix | V1–V3 |
-| M8 | host maps to `type_error` | V1–V3 (`e.name`) |
+| M8 | host maps to `type_error` | V1–V3 (`e.name`), V5 |
 | M9 | validation moved inside the collect loop | V4 |
+| M10 | host maps to `dom_exc_syntax_error` (as `H/dom_bridge.rs:395`) | V5 (V1–V3 stay green: same `name` and `message`) |
+| M11 | duplicate test `a.eq_ignore_ascii_case(b)` | U8 |
 
 Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p elidex-js --all-features`,
 `mise run ci`, `/pre-push`.
@@ -233,8 +285,7 @@ Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p el
 | `W/websocket.rs` | 338 | ≈440 | under 1000 |
 | `W/lib.rs` | 13 | 13–14 | — |
 | `crates/api/elidex-api-fetch/src/headers.rs` | 141 | 141 | — |
-| `vm/tests/tests_realtime.rs` | 385 | ≈450 | under 1000 |
-| `vm/tests/tests_websocket.rs` | 1442 | not touched | The new VM cells go to `tests_realtime.rs`, so this file is not touched and its touch-time split is not R-0d's. |
+| `vm/tests/tests_websocket.rs` | 1442 | split by R-0d-pre | The touch-time split is the standalone prereq R-0d-pre (§1). R-0d edits only the constructor file, ≈200 lines after the split plus ≈40; the PR re-measures it. `tests_realtime.rs` is not touched. |
 
 ## §5. Coupled sites and open questions
 
@@ -243,10 +294,17 @@ Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p el
   The later one rebases (umbrella §5.2).
 - R-NAT host chapter (umbrella §4.4, L3). It rewrites the constructor (`:329`) after R-0d and cites post-move anchors.
   It also re-measures `H/websocket.rs` (umbrella §7).
-- Broker re-validation (§2.2 audit). This is an observation for the driver, not a question for R-0d.
-
-**O-1 (decided, PM 958)**: out of scope; slot `#11-host-syntaxerror-domexception` owns it (the host's
-`VmError::syntax_error` sites where the spec throws a "SyntaxError" `DOMException`, incl. the "RFC 7230" message text).
+- **O-1 (decided, PM 958)**: `#11-host-syntaxerror-domexception` owns the host's `VmError::syntax_error` sites where
+  the spec throws a "SyntaxError" `DOMException`, incl. the "RFC 7230" message text. PM 960 Q1: after R-0d the "RFC 7230 token ABNF" message text lives in
+  the validator's `Err` in `W/websocket.rs`, not in `H/`. The PM adds that site to the slot's scope. The slot recounts
+  its sites by `git grep` at its own PR's head, so this memo fixes no count. That PR also flips V5 (§3).
+- `#11-ws-broker-protocol-validation` (new, PM 960 Q3; owner VM P4; trigger: R-0d's landing).
+  `crates/net/elidex-net/src/ws/io_loop.rs:216` joins the renderer's protocols with `", "` into `Sec-WebSocket-Protocol`
+  without checking them. The slot's PR decides the crate dependency direction. Basis: Security by structure.
+- `#11-webidl-sequence-dense-array-fast-path` gains the `:449-452` site (§1 Out; PM 960 Q2).
+- The Codex CS cite-sweep inventory (`/Users/kazuaki/repos/send.sh/elidex-pm-trial/handoff/codex-lanes/cs/sweep-inventory.md`,
+  its `vm/host/websocket.rs` rows). R-0d rewrites `:459` and moves the lines after the moved block (`:560` on) by about −57.
+  Whichever lands second re-derives the lines. (R-0d-pre moves its `tests_websocket.rs` rows the same way.)
 
 ## §6. Acceptance
 
@@ -276,3 +334,4 @@ rejected `elidex-plugin` home, and the other two `token` spellings. O-1 was a qu
 | Rev | Change | Decision |
 |---|---|---|
 | 1 | 2026-11-23. First draft at `c3c78070`. O-1 homed: `#11-host-syntaxerror-domexception` (§0.2, §1, §5). | PM 958 |
+| 2 | 2026-11-23. plan-review R1 at `18524ebb` (CRIT 0 / IMP 3 / MIN 9 / FP 2); F1–F12. | PM 960 |
