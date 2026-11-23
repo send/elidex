@@ -242,7 +242,8 @@ fn join_header_values(headers: &[(String, String)], name: &str) -> String {
 }
 
 /// Derive a cached entry's `vary_headers` match key from a response's
-/// `Vary` header (W3C Service Workers §5.4.5 "Cache.put").
+/// `Vary` header for steps 7–8 of W3C Service Workers
+/// [Request Matches Cached Item](https://w3c.github.io/ServiceWorker/#request-matches-cached-item).
 ///
 /// For each header name listed in the response's `Vary` header, captures
 /// the request's value for that header — the `(name, request-value)` pairs
