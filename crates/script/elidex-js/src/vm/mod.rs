@@ -1572,17 +1572,17 @@ pub(crate) struct VmInner {
     /// [`mouse_event_prototype`].  Adds `dataTransfer` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) drag_event_prototype: Option<ObjectId>,
-    /// `TouchEvent.prototype` (Touch Events §5.5).  Chains to
+    /// `TouchEvent.prototype` (Touch Events §5).  Chains to
     /// [`ui_event_prototype`].  Adds 7 own-data slots (3 TouchLists +
     /// 4 modifier flags).
     #[cfg(feature = "engine")]
     pub(crate) touch_event_prototype: Option<ObjectId>,
-    /// `Touch.prototype` (Touch Events §5.6).  Chains to
+    /// `Touch.prototype` (Touch Events §3).  Chains to
     /// `Object.prototype`.  All accessors read from
     /// [`Self::touch_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_prototype: Option<ObjectId>,
-    /// `TouchList.prototype` (Touch Events §5.6).  Chains to
+    /// `TouchList.prototype` (Touch Events §4).  Chains to
     /// `Object.prototype`.  Length getter + indexed exotic +
     /// `item(idx)` method backed by [`Self::touch_list_states`].
     #[cfg(feature = "engine")]
@@ -1618,7 +1618,7 @@ pub(crate) struct VmInner {
     /// tail prunes entries whose key was collected.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
-    /// Per-`Touch` instance state (Touch Events §5.6).  Keyed by the
+    /// Per-`Touch` instance state (Touch Events §3).  Keyed by the
     /// instance's `ObjectId`.  All 12 IDL members live here as
     /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
     ///
@@ -1627,7 +1627,7 @@ pub(crate) struct VmInner {
     /// collected.
     #[cfg(feature = "engine")]
     pub(crate) touch_states: HashMap<ObjectId, host::events_modern::TouchState>,
-    /// Per-`TouchList` instance state (Touch Events §5.6).  Keyed
+    /// Per-`TouchList` instance state (Touch Events §4).  Keyed
     /// by the instance's `ObjectId`.  Holds the ordered Vec of
     /// member `Touch` ObjectIds.
     ///

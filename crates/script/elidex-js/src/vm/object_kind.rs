@@ -1038,14 +1038,13 @@ pub enum ObjectKind {
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]
     DataTransferItemList { parent_dt_id: ObjectId },
-    /// `Touch` instance (Touch Events §5).  Payload-free; the
+    /// `Touch` instance (Touch Events §3).  Payload-free; the
     /// 12 IDL members (identifier / target / coordinates / radii /
     /// rotation / force) live in
     /// `super::VmInner::touch_states` keyed by this object's
     /// `ObjectId`.
     ///
-    /// `new Touch(init)` is exposed per Touch Events §5.5 since
-    /// 2014.  UA-fired touch events are deferred to slot
+    /// Touch Events §3 defines `new Touch(init)`. UA-fired touch events are deferred to slot
     /// `#11-event-dispatch-extra` (UA fire path still routes
     /// `EventPayload::Mouse`).
     ///
@@ -1055,7 +1054,7 @@ pub enum ObjectKind {
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     Touch,
-    /// `TouchList` instance (Touch Events §5.6).  Indexed platform
+    /// `TouchList` instance (Touch Events §4).  Indexed platform
     /// object backing TouchEvent.touches / targetTouches /
     /// changedTouches.  Payload-free; the ordered list of
     /// [`Self::Touch`] `ObjectId`s lives in

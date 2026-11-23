@@ -1,5 +1,5 @@
-//! `Touch` / `TouchList` / `TouchEvent` constructors + prototypes
-//! (Touch Events §5).
+//! Constructors for `Touch` and `TouchEvent`, plus their prototypes and
+//! the `TouchList` prototype (Touch Events §§3–5).
 //!
 //! ## Inheritance
 //!

@@ -574,7 +574,7 @@ define_well_known_strings! {
         predicted_events => "predictedEvents",
         get_coalesced_events => "getCoalescedEvents",
         get_predicted_events => "getPredictedEvents",
-        // TouchInit / Touch IDL members (Touch Events §5).
+        // TouchInit / Touch IDL members (Touch Events §3).
         // `target` / `screen_x` / `screen_y` / `client_x` /
         // `client_y` reused from earlier sections.
         identifier => "identifier",
