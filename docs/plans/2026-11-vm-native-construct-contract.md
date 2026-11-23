@@ -212,7 +212,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A3×A6 | `class C extends HTMLElement`: `super()` binds the element `HTMLElement` returns; the wrapper is no longer `this` before `super()` (E-6) |
 | A3×A7 | GetThisBinding's ReferenceError is thrown in the run loop and caught by `handle_exception`; no CP, no Rust recursion |
 | A3×A8 | — (core only) |
-| A3×A9 | `vm/dispatch.rs` (`PushThis` arm, exempt match), `vm/frame.rs` (967 + 221 after #625, both under 1000), `vm/gc/mod.rs`'s `mark_frame` (231; R-0b landed, §7) |
+| A3×A9 | `vm/dispatch.rs` (`PushThis` arm, exempt match), `vm/frame.rs` (967 + 221 after #625, both under 1000), `vm/gc/mod.rs`'s `mark_frame` (231 at `c3c78070`; R-0b, §4.1) |
 | A3×A10 | SuperCall step 6 before step 9: a second `super()` runs the parent's creation and side effects (an ECS spawn included) before the ReferenceError (E-2) |
 | A4×A5 | an object discarded by an Object return is garbage; nothing re-roots it |
 | A4×A6 | `HTMLElement` returns the stack element (an Object) and it wins; step 11.4 compares that |
@@ -223,7 +223,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 | A5×A6 | the element wrapper stays rooted by the wrapper cache; it is no longer handed to a constructor |
 | A5×A7 | CP-1 precedes every allocation the entry makes, so `rl_cp1_entry_failure_no_callee_effect` holds with no allocation (E-9) |
 | A5×A8 | — |
-| A5×A9 | the live-frame roots (`mark_roots` step (b)) and the suspended-frame roots (`trace_work_list`'s `Generator` arm) call one enumeration, `mark_frame` (`vm/gc/mod.rs`, R-0b); R-JS edits one function |
+| A5×A9 | the live-frame and the suspended-frame roots call one enumeration, `mark_frame` (R-0b, §4.1); R-JS edits one function |
 | A5×A10 | a creation step that writes state outside the object (an entity, a side-table row, a reverse-map entry, a sent message) has a window between that write and the object's allocation or link; the invariant for it is E-7 |
 | A6×A7 | P0a-2b reads two `Err` paths of `invoke_upgrade` (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`upgrade.rs:216`), and D-4, the `construct_synchronous` call (`:278`). R-JS-3 deletes `construct_synchronous` (§8.1): D-4's `Err` arm stays, on `VmInner::construct`'s result. R-JS deletes the read: D-3's site goes with its two failure exits (S-2, a flow change: P0a-2b's D-3 row has no site afterwards) |
 | A6×A8 | custom elements are engine-gated; the core entry has no CE knowledge |
@@ -348,7 +348,7 @@ input across a process boundary.
 - **R-0a: the value.rs split** (#625, landed 11-11 as `439fa47c`; 1176 → 967); R-JS edits `vm/frame.rs`.
 - **R-0b: one GC frame-root enumeration** (#664, landed 11-22 as `c3c78070`; VM P4). One frame-root function,
   `mark_frame` (`vm/gc/mod.rs`), marks every `CallFrame` handle for both residencies (`mark_roots` step (b),
-  `trace_work_list`'s `Generator` arm); `generator`, the one difference, is marked in it for both. R-JS edits it.
+  `trace_work_list`'s `Generator` arm; R-0b memo §1.1 / §1.2). R-JS edits it.
 - **R-0c: split `vm/host/events_modern/data_transfer.rs`** (1226, L3) at its three interfaces:
   `DataTransfer` (`:1-803`), `DataTransferItem` (`:804-984`), `DataTransferItemList` (`:985-1226`) (§7):
   a pure move, no body changed (PM 750). The other candidate seam, moving the drag-data-store algorithms
@@ -376,11 +376,10 @@ input across a process boundary.
 - **Plan-review of the prerequisites**, each against the skill's "Skip OK" clauses
   (`.claude/skills/elidex-plan-review/SKILL.md`; "the mandatory trigger is not met" is not one). **R-0c:
   skipped** as a "trivial cleanup / rename PR" (a pure move); the reason goes in its landing memo.
-  **R-0b** and **R-0d: a short plan memo and `/elidex-plan-review` each.** R-0b rewrites the root
-  enumeration of every frame, where an omitted field is a use-after-free; R-0d is a cross-crate move
-  with the dependency decision above and a SyntaxError surface that must not change. All three pass
-  `/pre-push`. R-0d keeps its 11-24 target and the 12-04 hard edge with the memo and the review ahead
-  (PM 784 (3); R-0b landed, #664); if its date would pass 11-26, it is reported to the PM (§9.1).
+  **R-0b** (landed, above) and **R-0d: a short plan memo and `/elidex-plan-review` each.** R-0d is a
+  cross-crate move with the dependency decision above and a SyntaxError surface that must not change. All
+  three pass `/pre-push`. R-0d keeps its 11-24 target and the 12-04 hard edge with the memo and the review
+  ahead (PM 784 (3)); if its date would pass 11-26, it is reported to the PM (§9.1).
 
 ### §4.2 R-JS (VM P4): ECMAScript `[[Construct]]` and SuperCall
 The derivation of `#11-vm-derived-constructor-this-binding` (an umbrella row with three axes:
@@ -462,7 +461,7 @@ derivation; it yields three children, R-JS-1 / R-JS-2 / R-JS-3 (that plan's §1.
     `home_class` through both entries. R-JS edits the same two functions (`call_internal`,
     `push_js_call_frame`) in other fields and statements, per child in §8.1; `home_class`, its `None` in `call_internal` and
     its rooting stay as they are.
-  - **Two edges to umbrella 3.** (1) R-0b (#664) has folded `home_class`'s frame-marking into `mark_frame`
+  - **Two edges to umbrella 3.** (1) R-0b has folded `home_class`'s frame-marking into `mark_frame`
     (`vm/gc/mod.rs`), so umbrella 3's obligation to retire "the two frame-marking sites" reads one site. (2) The this-binding and
     umbrella 3's closure-carried home object are both reached through GetThisEnvironment's walk (S's AO).
     R-JS's plan decides only the this-binding, and shows that its representation leaves room for a home
@@ -780,7 +779,7 @@ lines when it resumes.
 | File | Lines | Touch | Verdict |
 |---|---|---|---|
 | `vm/mod.rs` | 2797 | one `mod` line (the entry / helper module) | **no seam for this touch.** The file is the `VmInner` struct (`:188-2790`, 351 fields); its decomposition is a design program with its own slot, `#11-vm-inner-substruct-decomposition` (PM `:1445`, PM 517), not a touch-time split. A one-line declaration does not fire it (PM 654 Q-14 reasoning). |
-| `vm/gc/trace.rs` | 1255 | R-JS: the arrow `captured_this` (`trace_work_list`'s `Function` arm); the suspended-frame `new_instance` is now marked in `mark_frame` (`vm/gc/mod.rs`) | **seam discharged by R-0b** (#664): 1244 at `c3c78070`; the remainder is `trace_work_list`'s match over `ObjectKind` (a flat case table, exempt). |
+| `vm/gc/trace.rs` | 1255 | R-JS: the arrow `captured_this` (`trace_work_list`'s `Function` arm); the suspended-frame `new_instance` is now marked in `mark_frame` (`vm/gc/mod.rs`) | **seam discharged by R-0b** (§4.1): 1244 at `c3c78070`; the remainder is `trace_work_list`'s match over `ObjectKind` (a flat case table, exempt). |
 | `vm/host/events_modern/data_transfer.rs` | 1226 | R-NAT: the `DataTransfer` constructor (S-3) | **real seam: R-0c** (three interfaces, three files; landed, #654 `3cbd5b88`), a standalone prereq before R-NAT's host commits. PM 654 Q-14 ruled a one-`..` mechanical ripple out of scope; R-NAT's hunk is a content change to the constructor, so that ruling does not cover it. |
 | `vm/value.rs` | 1176 | R-JS: `FunctionObject::captured_this` (`:598`) | **discharged by R-0a** (967 after #625). |
 | `vm/dispatch.rs` | 1104 | R-JS: `Op::PushThis` (`:738`), `complete_inline_frame` (`:1087`) | **no prereq split.** The file is `run()`'s opcode match (exempt, per the touch-time record) plus `complete_inline_frame` (17 lines), which R-JS rewrites and moves into the entry module (net −17). |
@@ -807,7 +806,7 @@ Under 1000 and touched: `vm/ops.rs` 893, `vm/natives_promise.rs` 961, `vm/host/r
 | `instantiate_module` (`vm/host/wasm/instance.rs:151`) | P0a-1 CP-3b: `check_entry` as the first statement | R-NAT: the receiver parameter and `.kind =` (`:188`) | P0a-1 | R-NAT |
 | `invoke_upgrade` (`upgrade.rs:129`) | P0a-2b reads two `Err` arms (`p0a2b.md:175-176`, `:225`): D-3, the `prototype` read (`:216`), and D-4, `construct_synchronous` (`:278`) | R-JS-3: the call becomes a `VmInner::construct` call (row `construct_synchronous`; D-4's `Err` arm stays, on its result; step 11.4's error becomes a TypeError, PM 805); the read is deleted, and D-3's site goes with its two failure exits (S-2) | R-JS | P0a-2b re-checks D-4's anchor and drops D-3's row; the host comment cites of `#11-ce-upgrade-returned-object-typeerror` (`:300-301`, `:323`) are R-JS's rewrite, so its L3 PR rebases on R-JS if it lands later (PM 808 note) |
 | `run_reaction` (`vm/natives_promise.rs:665`) | P0a-1 D-16: `ReactionTarget` in the reaction record, the `Err` arm | none; R-NAT edits `native_promise_constructor` (`:712`) in the same file | P0a-1 | — (different function) |
-| `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`mark_roots`'s `mark_microtask`, `trace_work_list`'s `Promise` arm) | R-JS: `mark_frame` (`vm/gc/mod.rs`, R-0b #664), which both call | either | the later one (different statements) |
+| `mark_roots` / `trace_work_list` (`vm/gc/roots.rs`, `vm/gc/trace.rs`) | P0a-1 D-16: the reaction-target tracing (`mark_roots`'s `mark_microtask`, `trace_work_list`'s `Promise` arm) | R-JS: `mark_frame` (`vm/gc/mod.rs`, R-0b), which both call | either | the later one (different statements) |
 | `coroutine_types.rs` `Reaction` | P0a-1 D-16 changes the record | the shim retirement rewrites `value::Reaction` imports (§9.2) | P0a-1 | the retirement (script-regenerated) |
 
 ### §8.2 The census (P0a-2a)
@@ -859,8 +858,8 @@ Order, with the reason for each edge (dependency or regression):
 
 1. value.rs split (#625) — **landed 11-11** (`439fa47c`). R-0a; hard edge for R-JS.
 2. PR-A1 — **landed 11-13** (#628 `c0578223`). No shared function (assessment Q3, PR-0A review FP-3).
-3. R-0b frame-root split — **landed 11-22 (#664 `c3c78070`); was 11-24 (PM 688).** After this umbrella's
-   plan-review and #625, before R-JS's implementation (step 6), which edits `mark_frame`.
+3. R-0b frame-root split — **landed 11-22 (#664 `c3c78070`); was 11-24 (PM 688).** Before R-JS's
+   implementation (step 6), which edits `mark_frame`.
 4. default-row rustdoc PR — **11-25** (unchanged). Shares only the `vm/inner.rs:14` doc link (`:293`: §5.4).
 5. P0a-1 implementation — **11-28** (PM 687; the stack-safety program's date). Before R-JS:
    P0a-1's ratified plan cites `call_construct_native` / `construct_synchronous` as they are today, and

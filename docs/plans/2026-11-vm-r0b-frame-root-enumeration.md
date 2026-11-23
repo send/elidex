@@ -365,10 +365,8 @@ longer exists. In the main file: §2.1 A3×A9 (the `vm/gc/trace.rs` prereq split
 enumeration; R-JS edits both"); §4.1's R-0b bullet; §4.2's first edge to umbrella 3 ("Two edges to umbrella 3", item
 (1), `roots.rs:297` / `trace.rs:357`); §7's `vm/gc/trace.rs` row (the suspended-frame `new_instance` at `:350`); §8.1's
 `mark_roots` / `trace_work_list` row; §9.1 step 3 ("both copies change"). **Obligation**: the umbrella's first revision
-after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). The R-JS plan
-on main records the same item with its trigger and due date (`docs/plans/2026-11-vm-native-construct-r-js.md` §9,
-"Umbrella items left for a later revision"). R-0b's PR body and its landing report to the PM name this obligation;
-this section is its durable statement. Discharged by the umbrella's Rev 1.8.
+after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). Discharged by
+the umbrella's Rev 1.8 (the R-JS plan's §9 records the same).
 
 **The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) read
 this memo as an in-flight claim at Rev 2.1 (`c2e3dd5f`, branch `vm-r0b-frame-roots`, not on main), with its landing

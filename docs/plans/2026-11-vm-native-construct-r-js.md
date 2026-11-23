@@ -904,11 +904,8 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   (`#11-vm-native-callback-reentry-single-loop`) re-pointed from `construct_synchronous` to `VmInner::construct`.
 - **D-17b R4 G4-2** (`extends_null_default_ctor_is_base`): superseded by C-3 at R-JS-2.
 
-**Umbrella items left for a later revision, each with its trigger** (R1 A3 MIN):
-- R-0b §5.4's re-pointing of the umbrella's two-site cells to `mark_frame`: **trigger R-0b's landing** (target 11-24);
-  owner VM P4; due before R-JS-1 starts (11-28), since R-JS-1 edits `mark_frame`; a slip is reported to the PM.
-  Discharged by the umbrella's Rev 1.8 (R-0b landed 11-22, #664 `c3c78070`).
-- None other: S-3's cite was re-made by #654 itself (C-7); "R-JS = three children" is made in Rev 1.7 (RS-5).
+**Umbrella items left for a later revision** (R1 A3 MIN): none. R-0b §5.4's re-pointing to `mark_frame` was made by
+the umbrella's Rev 1.8; S-3's cite by #654 itself (C-7); "R-JS = three children" by Rev 1.7 (RS-5).
 **Reported to the PM** (Rev 3.3; Rev 3.4 names the converter): whether `vm_error_to_thrown` should refuse
 `InternalError` VM-wide — reached via `throw_error` and `Op::Call` / `Op::CallMethod` / `Op::New` (§1.3.3; not R-JS's).
 
