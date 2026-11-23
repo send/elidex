@@ -14,8 +14,8 @@ use super::Operation;
 /// (§18.4.4 step 5 `desiredType`), plus the bits `normalize` needs to
 /// build the result. This is the registry-membership oracle: a `Some`
 /// means the pair is in `supportedAlgorithms[op]` (step 5 found a key),
-/// a `None` means step 5 returns `NotSupportedError` before any
-/// params-dictionary member is read.
+/// a `None` means step 5 returns `NotSupportedError` before the
+/// step-6 dictionary conversion.
 ///
 /// Both [`crate::normalize`] and [`is_supported`] route through
 /// [`resolve_registry`] so the two cannot drift: there is one place that
