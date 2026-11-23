@@ -392,18 +392,24 @@ impl VmInner {
             // code — the callback can allocate arbitrarily and trigger a
             // collection, and without this slot `entry.callback` +
             // `entry.args` would only be held in a Rust local (the heap
-            // copy was removed by `pop`).  We take the entry back out
-            // after firing to make re-arm / active-set decisions.
+            // copy was removed by `pop`).  The entry STAYS in the slot
+            // through the per-fire checkpoint below: the checkpoint runs JS
+            // too (microtasks, tasks, CE reactions), and an interval's
+            // callback / args may be reachable only through this entry, so
+            // a collection there must still see them.  We take the entry
+            // back out only after the checkpoint, to make the re-arm /
+            // active-set decision.
+            let timer_id = entry.id;
             self.current_timer = Some(entry);
             let fire_result = self.fire_current_timer();
-            let entry = self.current_timer.take().expect("current_timer set above");
             if let Err(e) = &fire_result {
-                eprintln!("timer callback {} threw: {e}", entry.id);
+                eprintln!("timer callback {timer_id} threw: {e}");
             }
             results.push(fire_result);
             // Per-timer checkpoint: settle this callback's queued work before
             // the next ready timer runs (see [`Self::drain_timer_fire_checkpoint`]).
             self.drain_timer_fire_checkpoint();
+            let entry = self.current_timer.take().expect("current_timer set above");
             // Interval re-arm.  Re-check cancellation here so that a
             // callback that cancels its own interval (the classic
             // `setInterval(() => { if (...) clearInterval(id); })`
