@@ -68,13 +68,10 @@ publish = false
 [workspace.dependencies]
 # Dependency policy (PM 869): a requirement here is an API minimum, not a
 # security floor. Cargo.lock is canonical for what is built. The advisory gate
-# is `cargo deny check advisories`: the CI `deny` job (runs on changes to
-# deny.toml, Cargo.toml, Cargo.lock or the CI config, and on every push to
-# main) and the weekly `audit.yml`. A RUSTSEC fix arrives as a Dependabot
-# security-update PR (lock-only; enabled 2026-11-21, PM 871) or as a hand-made
-# lock-only PR (`cargo update -p <crate> --precise <version>`). For tokio and
-# rustls the minimum is set by dependents (hyper-util etc. need tokio ^1.44,
-# a dependent needs rustls ^0.23.27); re-measure if they change.
+# is `cargo deny check advisories`: the CI `deny` job and the weekly
+# `audit.yml`. A RUSTSEC fix arrives as a Dependabot security-update PR
+# (lock-only; enabled 2026-11-21, PM 871) or as a hand-made lock-only PR
+# (`cargo update -p <crate> --precise <version>`).
 anyhow = "1"
 base64 = "0.23"
 bitflags = "2"
@@ -95,8 +92,7 @@ markup5ever_rcdom = "0.40"
 reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Minimum bounded by dependents (see the policy block at the top).
-tokio = { version = "1.44", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 syn = { version = "2", features = ["full"] }
@@ -116,8 +112,7 @@ http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-# Minimum bounded by dependents (see the policy block at the top).
-rustls = { version = "0.23.27", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pki-types = "1"
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
@@ -237,8 +232,8 @@ elidex-indexeddb = { path = "crates/dom/elidex-indexeddb" }
 # rusqlite 0.41 needs rustc 1.89 (`rust-toolchain.toml`).
 #
 # Default features are off: the defaults are `cache` (no consumer calls
-# `prepare_cached`) and `ffi-sqlite-wasm-rs`, whose sqlite-wasm-rs bundles its
-# own SQLite that this advisory does not name. Add a feature here when a
+# `prepare_cached`) and `ffi-sqlite-wasm-rs`, whose sqlite-wasm-rs bundles a
+# second, separately versioned SQLite. Add a feature here when a
 # consumer uses it.
 rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
 egui = "0.34"
