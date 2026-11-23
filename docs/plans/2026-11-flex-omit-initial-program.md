@@ -20,8 +20,10 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 3c.3 | G′a · Multicol | 3c.2 | Migrate columns and column-rule shorthands and their longhands, snapped computed and suppressed used rule widths, and width-to-count geometry. |
 | 4 | N · numeric semantics | 3c.3 | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
 | 5a | C1a · CSSOM resolved values | N | Route DOM and geometry-dependent harness reads through one geometry-aware query on current types. |
-| 5b | C1b · layout reference inputs | C1a | On current types resolve sizes and edges at the parent phase and pass definite or explicitly unresolved results to block, grid, flex and replaced helpers. |
-| 5c | C1c · computed representation activation | C1b | Switch both field families, writers, all existing readers, typed equality and animation apply together. |
+| 5b.1 | C1b.1 · containing references and block consumers | C1a | Introduce the shared resolver entry. Migrate block, table and positioned callers and unify replaced sizing on existing types. |
+| 5b.2 | C1b.2 · Flex item inputs | C1b.1 | Carry assigned content size and used margins through child dispatch. Replace Flex item style writes and resolve item bases against column content extent. |
+| 5b.3 | C1b.3 · Grid measurement and placement | C1b.2 | Resolve inputs per track-sizing callback and final area. Replace Grid style writes and resolve cyclic gaps in definitive placement. |
+| 5c | C1c · computed representation activation | C1b.3 | Switch both field families, writers, all existing readers, typed equality and animation apply together. |
 | 6 | G′b · reference-dependent consumers | C1c | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
 | 7 | C2 · Flex used basis and generic animation | C1c, G′b | Resolve the Flex used basis and content probe consistently. One interpolation function for all properties combines through N and publishes the simplified sampled value. |
 | 8 | D · declaration block activation | T | Activate rule/inline read, mutate, reflect and cascade together. Shared Declaration, winner, pending and provenance payloads live in elidex-plugin. Keep a single conversion for existing string handlers. |
@@ -190,12 +192,14 @@ PM 1025 subdivides the former C1 work. Each child receives independent plan revi
 |---|---|---|
 | Parser c2f27760 · F1/F2, F4/F6/F7, M16–M19; umbrella R2 df8f8336 · M14 | C1c | Collect C1a public-query and C1b layout-reference evidence. Complete the Dimension/FlexBasis inventory, writer/reader migration, tests and gates at activation. C2 retains its used sizing and interpolation work. |
 | C1 binding ab6ac295 · F1, F6 (FP) | C1a | Geometry-aware CSSOM query, computed fallback and the Transforms §4 applicability rule. |
-| C1 binding ab6ac295 · F4 | C1b | Parent resolves edges and sizes once per probe/layout/replay. Cover zero vs absent bases, crossed padding axes and replaced aspect ratio without changing ECS style. |
+| C1 binding ab6ac295 · F4 | C1b.3 | Verify all three landed owner records. Parent resolves edges and sizes once per probe/layout/replay. Cover zero vs absent bases, crossed padding axes and replaced aspect ratio without changing ECS style. |
 | C1 binding ab6ac295 · F3 | C1a | Establish serial landing order. C1c verifies existing Flex dispatch for explicit basis and auto main size at activation. |
 | C1 binding ab6ac295 · F2, F5 | C1c | One typed computed-property projection through old/new comparison, underlying values and actual apply; CSS value view at serialization. Test scale(2) on handler-produced mixed origins in paint and hit testing. |
 | C1 advisory · IMP-4 | C1a | Close partial CSSOM result coverage through production DOM and harness. |
-| C1 advisory · IMP-6 | C1b | Close partial layout reference routing and replay. C1c reruns the same cases with mixed fields. |
+| C1 advisory · IMP-6 | C1b.3 | Close partial layout reference routing and replay. C1c reruns the same cases with mixed fields. |
 | C1 advisory · IMP-1/2/3/5/7, MIN-1–4 | C1c | Close partial IMP-1 through the actual projection/apply round trip; retain transform, table exception, equality, Flex route, WPT, placement, suites and gate evidence. |
+
+PM 1027 requires an independent full review before implementing each C1b child. Each replaces live callers on current types. For C1b binding af70a9d5, C1b.1 owns F3 (actual physical bases, containing writing mode and absence through consumers), F5 (shared normal/positioned replaced sizing) and F6 (Table suite). C1b.2 supplies F1’s Flex evidence. It carries formatter-assigned item content size and used margins in the existing child invocation and removes Flex style writeback. C1b.3 closes F1 with the corresponding Grid migration, F2 with per-measurement and final inputs, and F4 with the same auto grid’s intrinsic 100px height, definitive 10px gap and second row at 60px. F7 records the current-type fixture disposition. C1b.3 closes parent binding F4 and advisory IMP-6 across the three records. C1c follows C1b.3 and reruns the crossings with mixed values.
 
 Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
 
