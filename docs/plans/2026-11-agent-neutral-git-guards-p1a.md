@@ -163,7 +163,8 @@ branch.
 **II — push decisions × push shapes** [P1a]. pre-push stdin is one line per ref,
 `<local-ref> SP <local-sha> SP <remote-ref> SP <remote-sha>` (§3). Decisions, per line:
 - II1 [P1a]. `remote-ref == refs/heads/main` → reject, whatever the shape (new, FF, delete, from detached HEAD).
-- II2 [P1a]. HEAD attached on branch `B`, `remote-ref` under `refs/heads/` and `!= refs/heads/B` → reject. Keyed on
+- II2 [P1a]. HEAD attached, its full ref `R` (`git symbolic-ref -q HEAD`, e.g. `refs/heads/B`; not `--short`, which
+  answers `heads/B` when a tag `B` exists, §3.2, PM 989), `remote-ref` under `refs/heads/` and `!= R` → reject. Keyed on
   the **remote** ref, for every local-ref shape: the local ref is "supplied as it was originally given" (`HEAD` for
   `HEAD:x`, measured; an object name or `HEAD~` likewise), so a rule keyed on the local ref being `HEAD` — the
   current hook's scope — misses `<sha>:refs/heads/x`, `HEAD~0:refs/heads/x` and `git push origin <other-branch>`
@@ -427,6 +428,9 @@ git 2.56.1, `HOME` / `GIT_CONFIG_GLOBAL=/dev/null` / `GIT_CONFIG_NOSYSTEM=1` iso
 - `GIT_CONFIG_PARAMETERS="'core.hooksPath'='/alt'"` and `"'core.hookspath=/alt'"` reroute that one command; so does
   `git -c include.path=<file>` with `<file>` setting the key, and `git config --worktree include.path <file>`
   reroutes persistently (and `--git-path hooks` shows it).
+- (Codex #677 round 3, 2026-11-23, git 2.56.1) On branch `topic` with a tag `topic`: `git symbolic-ref --short -q
+  HEAD` → `heads/topic`, `git symbolic-ref -q HEAD` → `refs/heads/topic` (detached: empty, exit 1); `git push origin
+  HEAD` feeds pre-push `HEAD <sha> refs/heads/topic <zeros>`, and `git push origin topic` fails ("matches more than one").
 - `git for-each-ref --format='%(objectname)' refs/remotes/origin/main` with no such ref: no output, exit 0.
   `git ls-tree HEAD -- no/such`: no output, exit 0. `git ls-tree <absent ref> -- x`: exit 128.
   `git cat-file -e HEAD:no/such`: exit 128 (so `-e` cannot tell an absent path from an error).
@@ -496,7 +500,8 @@ bytes from `origin/main`, not from the working tree.
 
 As §2 II1–II9, in that order per line; all reasons are collected and printed to stderr with the rule's name and the
 remedy (FF: "merge, do not rebase or force"; branch: "push from the worktree that has the branch checked out";
-main: "open a PR"). Current branch: `git symbolic-ref --short -q HEAD` (empty = detached). The ratchet is run as in
+main: "open a PR"). Current branch: `git symbolic-ref -q HEAD`, the full ref compared as is with the remote ref
+(empty = detached; never `--short`, II2). The ratchet is run as in
 II9, after `python3 -c ''` succeeds; its exit code is mapped as the F table's II9 rows (0 pass, 1 / 2 / 3 reject,
 each with its own message: finding, usage, error).
 
@@ -650,6 +655,7 @@ case must kill.
 | P1a | II5 unknown remote | — | remote advanced by another clone, local never fetched (exit 128) | reject only on exit 1 |
 | P1a | II4 delete | — | `git push origin --delete <current>` | skip lines whose local ref is `(delete)` |
 | P1a | II2 branch | push `refs/heads/<current>` | `HEAD:other`, and `git push origin <other-local-branch>` | compare only when the local ref is `HEAD` (the Claude hook's scope) → the second bad case passes |
+| P1a | II2 same-name tag | with a tag named as the branch: `git push origin HEAD` | the same, `HEAD:other` | compare `refs/heads/` + `--short` (control fails: `refs/heads/heads/<b>`) |
 | P1a | II2 detached | detached HEAD pushes `HEAD:refs/heads/x` | detached HEAD force-pushes over `x` (II5 still rejects) | drop the detached exemption (control fails); exempt detached HEAD from II5 too (bad case passes) |
 | P1a | II1 main | push `refs/heads/domain` | push to `refs/heads/main` from branch `main` (FF, branch matches), and from detached HEAD | drop the main rule; or match `*main` (the `domain` control fails) |
 | P1a | II6 several refs | — | one good line + one bad line; the remote is unchanged afterwards | reject flag set inside a piped `while read` subshell (last line wins) |
@@ -796,7 +802,7 @@ hooks. Run cases one at a time; `$S` is deleted at the end.
 | E2 | P1a | new commit, `git push origin wtb` (FF) | pushed; ratchet "ok" line on stderr |
 | E3 | P1a | `git reset --hard HEAD~1 && git push origin +wtb` | rejected, FF rule; remote unchanged |
 | E4 | P1a | `git push origin --delete wtb` | rejected, delete |
-| E5 | P1a | `git push origin HEAD:other` | rejected, branch mismatch |
+| E5 | P1a | `git push origin HEAD:other`; then `git tag wtb`, `git push origin HEAD`, `HEAD:other`, `git tag -d wtb` | rejected, branch mismatch; with the tag: pushed, rejected |
 | E6 | P1a | `git branch side && git push origin side` | rejected, branch mismatch (the Claude hook would have allowed this) |
 | E7 | P1a | `git checkout --detach && git commit --allow-empty -m d && git push origin HEAD:refs/heads/det` | pushed |
 | E8 | P1a | in `$S/repo` on `main`: new commit, `git push origin main` | rejected, main |

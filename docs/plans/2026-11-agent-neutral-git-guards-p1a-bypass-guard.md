@@ -10,7 +10,8 @@ E24 of its §7.5) owns applying it, by reference to this file. Every section and
 Since the move: PM 922 added the `git_segments()` iterator ("One derivation" below). [history] PM 930, PM 936 and
 PM 938 revised a pass-through decision layer this patch carried for the `:24` / `:30` hooks; PM 950 (user, option D)
 superseded them and removed that layer, so the patch is the deny rules and the iterator only. PM 986 (Codex #677
-round 2) added the reading of abbreviated long options ("Long options as git reads them" below): `hook-v7-3.diff`.
+round 2) added the reading of abbreviated long options ("Long options as git reads them" below): `hook-v7-3.diff`;
+PM 989 (round 3) added one docstring blind spot (a short value-taking option, below): `hook-v7-4.diff`.
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -51,7 +52,9 @@ denied once, with the first hit's name.
 file), or when `--file` names a path in scope (an elidex `.git/config` written from outside). `--global` /
 `--system` from outside the scope stay allowed: the shared repository's local `core.hooksPath` (I1) outranks them.
 The docstring names what the rule cannot see (indirect `include.path`, a swapped `GIT_CONFIG_GLOBAL` / `HOME`, a
-direct file write, `--git-dir` from outside); the persistent ones are detected by `--check` (I4).
+direct file write, `--git-dir` from outside, and — PM 986 terminator, Codex #677 round 3, the parser not widened — a
+short value-taking option (e.g. `-t <type>`) shifting the positional arguments: `git config -t path --remove-section
+core` reads the section name as `path`); the persistent ones are detected by `--check` and the git hooks (I4).
 
 **Long options as git reads them (Codex #677 round 2, PM 986).** git's parse-options takes any unique prefix of a
 long option for the option (`git config --rename parking core` is `--rename-section`, measured: the hooks path moves
@@ -82,7 +85,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
 ```diff
 --- a/git-hook-bypass-guard.py
 +++ b/git-hook-bypass-guard.py
-@@ -4,15 +4,40 @@
+@@ -4,15 +4,43 @@
  deny する形 (git の呼び出し 1 つごとに判定):
    - `-c core.hooksPath=...` / `-c core.hooksPath ...` / `-ccore.hooksPath=...` /
      `--config-env=core.hooksPath=...` (キー名は大文字小文字を区別しない。`git -C dir` 付きも)
@@ -115,6 +118,9 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
 +変える形 (`include.path` / `includeIf.*.path` の書き込み、`-c include.path=...`、`GIT_CONFIG_GLOBAL` / `HOME` を
 +差し替えた file)、`.git/config` / `config.worktree` への直接の file 書き込み、cwd の外から `--git-dir` で elidex を
 +指す形。永続する迂回は `mise run install-githooks -- --check` (elidex の P1 plan memo の installed(wt)) が見つける。
++`git config` の値をとる短い option (`-t <type>` 等) の値は読まないので位置引数がずれる (`git config -t path
++--remove-section core` は section 名を `path` と読んで deny しない)。parser は広げない (PM 986)。後ろに立つのは
++`--check` と git hook (P1 plan memo の P1a I4)。
 +実効 cwd の導出にも見えない所がある (deny はここを広げない。git を見落とすか cwd を読み違える): `( ... )` の中の
 +`cd` を外へ漏れると読む、`cd -` / `pushd` / `popd` / `$` を含む `cd` の先、`if` / `{` など予約語で始まる command、`bash -lc`
 +(`-c` だけを認める)、`env -C` / `command -p` / `sudo ...` など wrapper の option の後ろの git、`xargs git` のように
@@ -126,7 +132,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
-@@ -35,6 +60,33 @@
+@@ -35,6 +63,33 @@
  COMMIT_VALUE_SHORT = set("mFCctSu")
  COMMIT_VALUE_LONG = {"--message", "--file", "--reuse-message", "--reedit-message", "--author", "--date",
                       "--template", "--fixup", "--squash", "--cleanup", "--trailer", "--gpg-sign"}
@@ -160,7 +166,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
  
  
  def state_dir():
-@@ -95,19 +147,44 @@
+@@ -95,19 +150,44 @@
  
  
  def env_hooks_assign(tok):
@@ -208,12 +214,10 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
  def commit_value_skips(args):
      """commit の引数で -m 等の「値」にあたる位置の index 集合。値は option でも message でもない。"""
      skip = set()
-@@ -138,6 +215,65 @@
-             if ch in COMMIT_VALUE_SHORT:
-                 break
+@@ -140,6 +220,65 @@
      return False
-+
-+
+ 
+ 
 +def config_hookspath_write(args, cwd):
 +    """`git config` の後ろの token -> (violation or None, `--file` の先 or None)。
 +    subcommand は最初の引数だけ (git もそう読む)。位置引数は option とその値を除いた全部 (git は option を位置引数の
@@ -271,10 +275,12 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
 +    if sub is None and len(names) == 1 and not acts & CONFIG_WRITE_ACTIONS:
 +        return None, target  # `git config core.hooksPath` = 旧形式の読み
 +    return "git config core.hooksPath", target
- 
- 
++
++
  def check_git(args, cwd):
-@@ -173,6 +309,12 @@
+     """args: git の後ろの token。-> (violation or None, effective_cwd)"""
+     i, hits = 0, []
+@@ -173,6 +312,12 @@
              break
      sub = args[i] if i < len(args) else None
      rest = args[i + 1:] if sub else []
@@ -287,7 +293,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
      if sub in HOOKED_SUBCMDS:
          skip = commit_value_skips(rest) if sub == "commit" else set()
          for k, r in enumerate(rest):
-@@ -186,14 +328,16 @@
+@@ -186,14 +331,16 @@
      return (hits[0] if hits else None), eff
  
  
@@ -309,7 +315,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
          while j < len(seg) and (is_assign(seg[j]) or os.path.basename(seg[j]) in WRAPPERS):
              j += 1
          if j >= len(seg):
-@@ -204,13 +348,10 @@
+@@ -204,13 +351,10 @@
              if d:
                  cwd = os.path.join(cwd, os.path.expanduser(d))
          elif prog == "export":
@@ -325,7 +331,7 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
          elif prog in SHELLS or prog == "eval":
              inner = None
              if prog == "eval":
-@@ -218,9 +359,14 @@
+@@ -218,9 +362,14 @@
              elif "-c" in rest and rest.index("-c") + 1 < len(rest):
                  inner = rest[rest.index("-c") + 1]
              if inner:
@@ -349,7 +355,8 @@ read as before. `commit_value_skips` still compares the value-taking commit opti
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
 the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950; re-run on
 `hook-v7.diff`, `hook-v7-1.diff` (PM 967) and `hook-v7-2.diff` (the rename into `core`, Codex #677 P2); last run on
-`hook-v7-3.diff`, PM 986) against a scratch copy of the live file patched with `hook-v7-3.diff` (the block above) and
+`hook-v7-3.diff`, PM 986; then `hook-v7-4.diff`, PM 989, a docstring-only change: `test-v7-3.diff`'s tests 20/20 and the
+live 12/12 again) against a scratch copy of the live file patched with `hook-v7-4.diff` (the block above) and
 `test-v7-3.diff`, both in
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20/20 tests OK; the same
 tests against the unpatched file: 53 failures and 5 errors (subtests counted); against `hook-v7-2.diff`: 12 failures,
@@ -369,7 +376,9 @@ the full `--no-verify`): 21 commands, one per listed shape, each of which would 
 `git commit --no-verify -m x` in an elidex worktree; 20 are not denied, and the one denied is
 `pushd <outside>; popd; git commit --no-verify -m x` with the hook's cwd in elidex (`pushd` / `popd` are both ignored,
 so the hook's cwd stands, which is where `popd` returns); the two plain controls (the commit with the cwd in elidex,
-and `cd <elidex> && …` from outside) are denied. Each positive config form was measured to reroute, or to write, the key
+and `cd <elidex> && …` from outside) are denied. On the `hook-v7-4.diff` copy (PM 989), `git config -t path
+--remove-section core` and `git config -t path --rename-section parking core` are not denied (a documented blind spot);
+the control `git config --remove-section core` is. Each positive config form was measured to reroute, or to write, the key
 (§3.2; the rename into `core` on 2026-11-23, git 2.56.1, `HOME` / `GIT_CONFIG_GLOBAL=/dev/null` /
 `GIT_CONFIG_NOSYSTEM=1` isolated: with `parking.hooksPath /alt` set, `--rename-section parking core`,
 `config rename-section parking Core` and `--file .git/config --rename-section parking core` move
@@ -416,7 +425,7 @@ on 2026-11-23 in the same isolation, each in a fresh repository with the key it 
 
 **Mutants** (each a replacement in a temp copy of the patched file, asserted to occur exactly once, run through the
 file's own `GIT_BYPASS_GUARD_SCRIPT` override, one at a time; on 2026-11-23 (PM 950, re-run on `hook-v7.diff` and
-`hook-v7-2.diff`: 13/13; last run on `hook-v7-3.diff` / `test-v7-3.diff`, PM 986, by `guardpatch/mutants-v7-3.py
+`hook-v7-2.diff`: 13/13; last run on `hook-v7-4.diff` / `test-v7-3.diff`, PM 989, by `guardpatch/mutants-v7-3.py
 <patched hook> <patched test>`) all 22 were killed by the tests above (22/22). The `scan()` row replaces a block, the
 others one line; the last nine are new in `hook-v7-3.diff`):
 
@@ -448,7 +457,7 @@ others one line; the last nine are new in `hook-v7-3.diff`):
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v7-3.diff`, the block above, and `test-v7-3.diff`) — the `git_segments()` refactor of
+the whole diff (`guardpatch/hook-v7-4.diff`, the block above, and `test-v7-3.diff`) — the `git_segments()` refactor of
 `scan()` (PM 922) included — and apply it only after; apply the diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
