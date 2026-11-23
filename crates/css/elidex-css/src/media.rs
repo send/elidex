@@ -3,10 +3,8 @@
 //! A pure `parse + evaluate` library for media queries — no JS, no DOM, no
 //! engine state. Consumers build a [`MediaEnvironment`] and call in:
 //!
-//! - [`parse_media_query_list`] — total parser (mediaqueries-4 §3 Syntax,
-//!   §3.2 Error Handling): never errors or panics; a top-level grammar-malformed
-//!   query becomes `not all`, while an unknown/invalid feature inside `( … )`
-//!   becomes `<general-enclosed>` → Kleene unknown.
+//! - [`parse_media_query_list`] applies the MQ4 §3 grammar. A malformed top-level
+//!   query becomes `not all` under §3.2. An unknown feature produces unknown.
 //! - [`evaluate`] — Kleene 3-valued evaluation (mediaqueries-4 §3.1), with the
 //!   `Unknown → false` coercion applied once at the public boundary.
 //!
@@ -56,7 +54,7 @@ mod tests {
         evaluate(&parse_media_query_list(query), env)
     }
 
-    // --- §3 empty list -----------------------------------------------------
+    // MQ4 §3 permits an empty list, which matches under §2.1.
 
     #[test]
     fn empty_list_is_true() {
@@ -79,7 +77,7 @@ mod tests {
 
     #[test]
     fn unknown_media_type_is_negatable_false() {
-        // §3.2: unknown/deprecated type → definite false, but `not` negates it.
+        // MQ4 §§2.2.1, 2.3 and 3.2 define negation and nonmatching deprecated and unknown types.
         assert!(!matches("aural", &landscape()));
         assert!(matches("not aural", &landscape()));
         assert!(!matches("tty", &landscape()));
@@ -105,15 +103,13 @@ mod tests {
         assert!(!matches("(max-weight: 3kg)", &landscape()));
         assert!(!matches("not (max-weight: 3kg)", &landscape()));
         assert!(!matches("(unknownboolfeature)", &landscape()));
-        // …but unknown is Kleene unknown, not a poison: `true OR unknown` = true,
-        // so a sibling that matches rescues the query (the §3.2 fix).
+        // MQ4 §3.1 makes a disjunction true when either operand is true.
         assert!(matches("(color) or (max-weight: 3kg)", &landscape()));
     }
 
     #[test]
     fn unknown_feature_nukes_only_its_own_query_in_a_list() {
-        // §3.2: recovery at the top-level comma — the sibling query survives.
-        // (Each comma-separated query is its own standalone unknown → false.)
+        // MQ4 §2.1 makes the list match if the second query matches.
         assert!(matches(
             "(max-weight: 3kg), (min-width: 500px)",
             &landscape()
@@ -183,12 +179,8 @@ mod tests {
 
     #[test]
     fn unknown_feature_truth_is_environment_dependent() {
-        // R7-3 / §3.2: the decisive proof that an unknown feature is Kleene
-        // unknown (not a parse-time `not all` poison) — `(color) or (unknown)`
-        // is TRUE on a color device but FALSE on a monochrome one. A parse-time
-        // replacement with `not all` could not be environment-dependent, so the
-        // §3.2 "value unknown → not all" rule must be the §3.1 boundary coercion
-        // applied per environment at eval, not a poison of the sibling `or`.
+        // MQ4 §3.2 gives the unknown feature its unknown value. Under §3.1,
+        // a true color operand makes the disjunction true, while a false one leaves it unknown.
         let color = landscape(); // color_bits = 8
         let mono = MediaEnvironment {
             color_bits: 0,
@@ -232,13 +224,10 @@ mod tests {
         // forbids `=`. A mixed-direction / `=` form does not match any feature
         // production, so the block falls to `( <any-value> )` =
         // `<general-enclosed>` → Kleene unknown (§3.1/§3.2) — NOT `not all`.
-        // (Reverts R3-5, which wrongly poisoned these to `not all`: the outcome
-        // is environment-dependent — `unknown OR true` = true — so it cannot be
-        // a parse-time replacement.)
+        // MQ4 §3.1 lets a matching sibling determine the disjunction.
         let env = landscape(); // width 1024
         assert!(!matches("(400px < width > 700px)", &env)); // mixed → unknown → false
         assert!(!matches("not (400px = width = 700px)", &env)); // not unknown → false
-                                                                // unknown is rescuable by a true sibling OR (the §3.2 fix).
         assert!(matches("(400px < width > 700px) or (min-width: 1px)", &env));
         // single-sided `=` value-first stays a valid feature (§ allows `<mf-eq>`).
         assert!(matches("(1024px = width)", &env));
@@ -530,9 +519,8 @@ mod tests {
 
     #[test]
     fn color_requires_an_integer_token() {
-        // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so a
-        // decimal `<number>` token (`8.0`) is invalid even with a zero fraction →
-        // not all, while the integer `8` matches. (R3-4.)
+        // MQ4 §6.1 requires an integer. In CSS Values 4 §5.2, the decimal point
+        // in `8.0` excludes it from the literal integer grammar.
         let env = landscape(); // color_bits = 8
         assert!(matches("(color: 8)", &env));
         assert!(!matches("(color: 8.0)", &env));
@@ -596,12 +584,8 @@ mod tests {
 
     #[test]
     fn deeply_nested_parens_does_not_panic() {
-        // §3.2 total contract: pathologically nested parentheses (a DoS vector
-        // for untrusted CSS / matchMedia) must never abort the process via stack
-        // overflow. The depth cap bounds the `parse_nested_block` recursion; the
-        // over-cap block then drains iteratively (cssparser `next()` returns a
-        // nested `( … )` as a single token without descending) and becomes
-        // general-enclosed → Kleene unknown → false. (R4-3.)
+        // The parser's nesting limit bounds recursion. The over-limit block
+        // evaluates to unknown, which becomes false in this boolean context (MQ4 §3.1).
         let env = landscape();
         let deep = format!(
             "{}(min-width: 1px){}",

@@ -73,8 +73,7 @@ pub fn evaluate(list: &MediaQueryList, env: &MediaEnvironment) -> bool {
     list.0.iter().any(|q| eval_query(q, env) == Tri::True)
 }
 
-/// Evaluate one `<media-query>`: `(type-match AND condition)` then apply the
-/// `not`/`only` qualifier — §3.1.
+/// Combine the media type and condition, then apply the query modifier (MQ4 §2.2).
 fn eval_query(query: &MediaQuery, env: &MediaEnvironment) -> Tri {
     let type_tri = match &query.media_type {
         None => Tri::True, // condition-only query
@@ -123,9 +122,8 @@ fn eval_condition(cond: &MediaCondition, env: &MediaEnvironment) -> Tri {
     }
 }
 
-/// Evaluate a single `<media-feature>` against the environment — a feature
-/// always resolves to a definite true/false here (an unknown feature
-/// name/value was already turned into `not all` at parse, §3.2).
+/// Evaluate a recognized media feature. Unknown names or values produce unknown
+/// under MQ4 §3.2 and reach `eval_condition` as `GeneralEnclosed` (MQ4 §3.1).
 fn eval_feature(feature: &MediaFeature, env: &MediaEnvironment) -> Tri {
     match feature {
         MediaFeature::Range {
