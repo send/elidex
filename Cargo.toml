@@ -66,12 +66,13 @@ authors = ["send.sh"]
 publish = false
 
 [workspace.dependencies]
-# Dependency policy (PM 869): a requirement here is the semver line the code
+# Dependency policy (PM 869 / 980): a requirement here is the semver line the code
 # is written against, not a security floor; it is not measured as a minimum
 # (no minimal-versions check). Cargo.lock is canonical for what is built.
 # The advisory gate is `cargo deny check advisories`: the CI `deny` job and
-# the weekly `audit.yml` (a red scheduled run is not routed to anyone yet:
-# `#11-ci-scheduled-failure-unrouted`).
+# the weekly `audit.yml` (a failure on main, push CI or scheduled run, has no
+# named owner or route yet: `#11-ci-scheduled-failure-unrouted`; until then
+# the PM checks `gh run list --branch main` each pass).
 # A RUSTSEC fix whose fixed version is inside the requirement arrives as a
 # lock-only PR: a Dependabot security update (enabled 2026-11-21, PM 871) or
 # by hand with `cargo update -p <crate> --precise <version>`. When the fix
