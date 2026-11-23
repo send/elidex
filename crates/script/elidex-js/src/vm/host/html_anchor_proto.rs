@@ -69,7 +69,7 @@ impl VmInner {
     }
 
     fn install_html_anchor_enumerated_reflect(&mut self, proto_id: ObjectId) {
-        // `referrerPolicy` enumerated reflect (HTML §6.6.5).
+        // `referrerPolicy` enumerated reflect (HTML §2.5.5).
         let sid = self.strings.intern("referrerPolicy");
         self.install_accessor_pair(
             proto_id,
