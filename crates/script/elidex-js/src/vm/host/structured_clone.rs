@@ -10,13 +10,10 @@
 //!
 //! ## Algorithm
 //!
-//! - Primitives copy by value.
-//! - Object values dispatch on [`ObjectKind`]; the supported set is
-//!   narrow and deliberately enumerated: Ordinary / Array / RegExp /
-//!   Error / primitive-wrappers / ArrayBuffer / Blob / TypedArray /
-//!   DataView / CryptoKey (WebCrypto §13.5 `[Serializable]`).
-//!   Everything else throws `DOMException("DataCloneError")` per spec
-//!   §2.9 step 27 ("otherwise throw DataCloneError").
+//! - Primitive values other than Symbols pass through. Object values dispatch
+//!   on [`ObjectKind`]. Unsupported kinds produce `DataCloneError`; HTML
+//!   §2.7.4 checks Symbols at step 6, platform objects at step 21, and
+//!   callable objects at step 22.
 //! - A cycle memo (source `ObjectId` → cloned `ObjectId`) makes
 //!   `a.self = a` round-trip and shared references observe the same
 //!   cloned identity on the output side.  **Memo insert happens
@@ -91,9 +88,7 @@ fn clone_recursive(
     memo: &mut HashMap<ObjectId, ObjectId>,
 ) -> Result<JsValue, VmError> {
     let src_id = match input {
-        // Primitives: StringId / BigIntId / SymbolId handles are
-        // pool-permanent, so copying the handle is copy-by-value at
-        // the spec level as well.
+        // Strings and BigInts use permanent pool handles.
         JsValue::Empty
         | JsValue::Undefined
         | JsValue::Null
@@ -101,10 +96,7 @@ fn clone_recursive(
         | JsValue::Number(_)
         | JsValue::String(_)
         | JsValue::BigInt(_) => return Ok(input),
-        // Bare Symbol primitives are explicitly unclonable (spec §2.9
-        // "if Type(input) is Symbol, throw DataCloneError").  Symbol
-        // *wrappers* (`Object(Symbol())`) are also rejected below
-        // under [`ObjectKind::SymbolWrapper`].
+        // HTML §2.7.4 step 6 rejects Symbol primitives.
         JsValue::Symbol(_) => return Err(data_clone_error(vm, "Symbol")),
         JsValue::Object(id) => id,
     };
@@ -568,9 +560,8 @@ fn clone_array(
     Ok(JsValue::Object(new_id))
 }
 
-/// Clone a RegExp — re-compile the source pattern + flags.  Per
-/// §2.9 step 15, `lastIndex` is **not** carried over; fresh RegExp
-/// instances start at 0.
+/// HTML §2.7.4 step 13 records the RegExp source and flags; §2.7.7 step 12
+/// constructs a fresh RegExp whose `lastIndex` starts at zero.
 fn clone_regexp(vm: &mut VmInner, src: ObjectId) -> Result<JsValue, VmError> {
     let (pattern, flags) = match &vm.get_object(src).kind {
         ObjectKind::RegExp { pattern, flags, .. } => (*pattern, *flags),
@@ -595,12 +586,7 @@ fn clone_regexp(vm: &mut VmInner, src: ObjectId) -> Result<JsValue, VmError> {
         prototype: proto,
         extensible: true,
     });
-    // `source` / `flags` / `lastIndex` are own data properties on
-    // RegExp instances (§21.2.5.10 / §21.2.5.3 / §21.2.5.3).  The
-    // PushConst path installs them at ctor time with the same
-    // attrs; we mirror that layout here so the cloned RegExp's
-    // shape matches a freshly-constructed one.  `lastIndex` resets
-    // to 0 per §2.9 step 15.
+    // Match the `Constant::RegExp` literal layout in `dispatch_helpers`.
     vm.define_shaped_property(
         new_id,
         PropertyKey::String(vm.well_known.source),
@@ -709,22 +695,13 @@ fn alloc_wrapper(vm: &mut VmInner, kind: ObjectKind, proto: Option<ObjectId>) ->
     })
 }
 
-/// Deep-copy an ArrayBuffer.  The backing bytes are freshly allocated
-/// (no `Arc::clone` sharing) so mutations through one buffer cannot
-/// be observed through the other — the defining contract of
-/// StructuredSerialize for transferable ArrayBuffers when no
-/// `transfer` list is present (HTML §2.7.3 StructuredSerializeInternal
-/// step 13.2.4 `CopyDataBlockBytes`).
+/// Deep-copy the backing bytes (HTML §2.7.4 step 14.2.4). Changes to the
+/// source buffer after the copy do not affect the clone.
 ///
 /// Reuse one cloned buffer across views, following the memo rules in
 /// [`alloc_memoized_wrapper`]. This helper records the buffer after copying it.
 ///
-/// Throws `DataCloneError DOMException` when `src` is detached per
-/// HTML §2.7.3 step 13.2.1 ("If `IsDetachedBuffer(value)` is true,
-/// then throw a 'DataCloneError' DOMException").  Pre-F3 this branch
-/// was unreachable (detach was unrepresentable); post-F3 + post-D-16
-/// `WebAssembly.Memory.grow` makes a detached `ArrayBuffer`
-/// observable to `structuredClone`.
+/// A detached source throws `DataCloneError` (HTML §2.7.4 step 14.2.1).
 fn clone_array_buffer(
     vm: &mut VmInner,
     src: ObjectId,
@@ -736,11 +713,7 @@ fn clone_array_buffer(
     if super::array_buffer::is_detached_buffer(vm, src) {
         return Err(data_clone_error(vm, "detached ArrayBuffer"));
     }
-    // `body_data.get(&src).cloned()` snapshots the source bytes
-    // into a fresh owned `Vec<u8>` — independent memory from the
-    // source, satisfying HTML §2.7.3 step 13.2.4 (the clone owns
-    // its bytes; a later mutation through the source ArrayBuffer
-    // must not propagate to the clone).
+    // Copy into owned storage, as required by the byte-copy step above.
     //
     // **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5
     // Stage 4.1): wasm-backed source ArrayBuffers — surfacing here
@@ -816,15 +789,8 @@ fn clone_crypto_key(
 /// Two views of the same source buffer observably share the same
 /// cloned buffer (identity preserved).
 ///
-/// Throws `DataCloneError DOMException` when the underlying buffer
-/// is detached per HTML §2.7.3 step 14.1 ("If
-/// `IsArrayBufferViewOutOfBounds(value)` is true, then throw a
-/// 'DataCloneError' DOMException").  In v1 elidex the
-/// `IsArrayBufferViewOutOfBounds` predicate (ECMA-262 §10.4.5.19)
-/// reduces to `IsDetachedBuffer(buffer)` because no resizable
-/// `ArrayBuffer` exists (`.maxByteLength` / `.resize` deferred); the
-/// inner `clone_array_buffer` call is the SoT for that branch and
-/// propagates the error via `?` here.
+/// HTML §2.7.4 step 15.1 rejects an out-of-bounds view. For this fixed-size
+/// backing buffer, detachment is checked by `clone_array_buffer`.
 fn clone_typed_array(
     vm: &mut VmInner,
     src: ObjectId,
@@ -863,9 +829,7 @@ fn clone_typed_array(
 }
 
 /// Clone a `DataView` — same pattern as `clone_typed_array`, no
-/// `element_kind` slot.  Detached-buffer handling: see
-/// `clone_typed_array` docstring (HTML §2.7.3 step 14.1 + v1
-/// `IsArrayBufferViewOutOfBounds` reduction).
+/// `element_kind` slot. See `clone_typed_array` for the view bounds check.
 fn clone_data_view(
     vm: &mut VmInner,
     src: ObjectId,
