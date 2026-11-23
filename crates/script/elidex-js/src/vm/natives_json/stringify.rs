@@ -400,13 +400,10 @@ pub(in crate::vm) fn stringify_to_string(
 /// The JSON shortcut stands in for StructuredSerialize on two paths — worker / SW
 /// `postMessage` ([`super::super::host::worker_scope::serialize_message`]) and
 /// `history.state`
-/// ([`super::super::host::structured_serialize::structured_serialize_for_storage`]). A
-/// `Date` is [Serializable], so real structured clone round-trips it, but
-/// `JSON.stringify` flattens it through `toJSON` (ECMA-262 §21.4.4.37) into an ISO
-/// String — the peer's `JSON.parse` / `StructuredDeserialize` would then hand back
-/// a **String** where structured clone hands back a Date. Every *other* way the
-/// shortcut departs from structured clone fails **loudly** (a `BigInt`, a cycle,
-/// and the depth cap all throw), which is why only a Date needs an explicit arm.
+/// ([`super::super::host::structured_serialize::structured_serialize_for_storage`]).
+/// HTML records a Date's internal time value (§2.7.4 step 12). JSON can call
+/// `toJSON` instead, so this encoder guards Date explicitly. JSON omits ordinary object
+/// properties whose value is undefined or remains callable after `toJSON` runs.
 ///
 /// The check lives **inside** the walk, on the value `SerializeJSONProperty`
 /// observes and before the `toJSON` hook. That placement is what makes it correct

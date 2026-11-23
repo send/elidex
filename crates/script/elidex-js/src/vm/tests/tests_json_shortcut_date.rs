@@ -6,8 +6,8 @@
 //! so real structured clone round-trips it — but `JSON.stringify` flattens it
 //! through `toJSON` (ECMA-262 §21.4.4.37) into an ISO String, which would hand the
 //! peer (or a history traversal) a **String** where structured clone gives a Date.
-//! Every *other* shortcut gap fails loudly (a `BigInt`, a cycle, the depth cap all
-//! throw), so only a Date needed an explicit arm.
+//! This guard addresses Date specifically. JSON can still silently drop an
+//! ordinary object's properties, including an own property valued `undefined`.
 //!
 //! What these tests pin is *where* that arm lives: **inside** the JSON walk, on the
 //! value `SerializeJSONProperty` observes and before the `toJSON` hook. Codex R5

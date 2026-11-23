@@ -362,20 +362,12 @@ fn native_worker_post_message(
 /// a getter can throw, but a callable value is rejected without invoking it.
 /// Codec representation failures, including cycles, become `DataCloneError`.
 ///
-/// A `Date` is the one cloneable kind the shortcut mis-encodes *silently* rather
-/// than failing (`toJSON` → ISO String).
-/// [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
-/// therefore fails on it **inside** the walk, before the `toJSON` hook — so a Date
-/// returned by an accessor is caught, the walk's depth cap still fires first on a
-/// deep payload, and a user exception reached earlier still propagates ahead of it.
-/// That failure is a non-`ThrowValue` error, so it lands in the `DataCloneError`
-/// branch below unchanged and the peer never receives a String. The faithful
-/// encoding lands with `#11-worker-structured-serialize`.
+/// The guarded encoder rejects Date objects during the walk before calling
+/// their JSON hook. Other values can still lose information: for example,
+/// an ordinary object's own `undefined` property disappears from JSON.
 ///
-/// Uses [`stringify_to_string`](super::super::natives_json::stringify_to_string)
-/// (non-interning) rather than `native_json_stringify`: the blob is copied
-/// straight into the crossbeam channel, so interning it into the GC-less
-/// `StringPool` would leak unboundedly for chatty workers.
+/// [`stringify_for_structured_shortcut`](super::super::natives_json::stringify_for_structured_shortcut)
+/// returns an owned string for the channel without interning it in the VM.
 pub(in crate::vm) fn serialize_message(
     ctx: &mut NativeContext<'_>,
     data: JsValue,
