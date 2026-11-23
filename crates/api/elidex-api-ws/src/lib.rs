@@ -1,6 +1,6 @@
 //! Engine-independent WebSocket and EventSource protocol types.
 //!
-//! Provides connection state, URL validation, and readyState constants
+//! Provides connection state, URL and sub-protocol list validation, and readyState constants
 //! shared across script engine bindings. Does NOT depend on any JS engine.
 
 mod event_source;

@@ -171,13 +171,21 @@ fn ctor_rejects_empty_protocol() {
 #[test]
 fn ctor_rejects_protocol_with_separator() {
     // RFC 9110 §5.6.2 `token`: a comma is a delimiter, not a tchar.
-    assert_ctor_protocols_throw("'bad,protocol'", "e.name + '|' + e.message", "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad,protocol' contains a character not allowed by RFC 7230 token ABNF");
+    assert_ctor_protocols_throw(
+        "'bad,protocol'",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad,protocol' contains a character not allowed by RFC 7230 token ABNF",
+    );
 }
 
 #[test]
 fn ctor_rejects_protocol_with_space() {
-    // Space (0x20) is below the 0x21..=0x7E token range.
-    assert_ctor_protocols_throw("'bad protocol'", "e.name + '|' + e.message", "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad protocol' contains a character not allowed by RFC 7230 token ABNF");
+    // RFC 9110 §5.6.2 `token`: SP is not a tchar.
+    assert_ctor_protocols_throw(
+        "'bad protocol'",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad protocol' contains a character not allowed by RFC 7230 token ABNF",
+    );
 }
 
 #[test]

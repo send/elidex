@@ -171,7 +171,7 @@ What R-0d preserves, observable from script, with the cells that pin each in §3
 
 | Part | Today (`H/websocket.rs` at `c3c78070`) | After R-0d |
 |---|---|---|
-| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2): `e.name` is `"SyntaxError"` and `e instanceof SyntaxError` is true | the same constructor, at the `map_err` in `parse_protocols` |
+| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2): `e.name` is `"SyntaxError"` and `e instanceof DOMException` is false (`instanceof SyntaxError` cannot tell kinds apart: see the code-PR erratum in the Changelog) | the same constructor, at the `map_err` in `parse_protocols` |
 | Collect before validate | every value is coerced by ToString first (`:461-494`); a throwing `toString` wins over an invalid earlier value | unchanged (the call follows the collect) |
 | Order | per value in list order: empty, then token; then duplicates over the list | the same, inside the validator |
 | Messages | `Failed to construct 'WebSocket': ` + one of `empty sub-protocol is not allowed` / `sub-protocol '<s>' contains a character not allowed by RFC 7230 token ABNF` / `duplicate sub-protocol '<a>'` | byte-identical: the validator's `Err` is the suffix, and the host adds the prefix with the same `format!` as `:350` / `:352` |
@@ -251,7 +251,7 @@ the mixed-content gate; no new harness). Each runs
 | V2′ `ctor_rejects_protocol_with_space` (tightened) | `'bad protocol'` → the same message naming `'bad protocol'` |
 | V3 `ctor_rejects_duplicate_protocols` (tightened) | `['chat', 'chat']` → `SyntaxError\|Failed to construct 'WebSocket': duplicate sub-protocol 'chat'` |
 | V4 new, collect before validate | `['', {toString() { throw new TypeError('t') }}]` → `TypeError\|t` |
-| V5 new, error kind | `''`, with `<expr>` = `e instanceof SyntaxError` → `true` |
+| V5 new, error kind | `''`, with `<expr>` = `(e instanceof DOMException) + '\|' + e.name` → `false\|SyntaxError` (code-PR erratum; was `e instanceof SyntaxError`) |
 | V6 new, duplicate comparison | `['chat', 'Chat']`, run without the `try`, as the `ctor_accepts_*` cells → `Ok` |
 | V7 new, order | `['chat', '', 'chat']` → `SyntaxError\|Failed to construct 'WebSocket': empty sub-protocol is not allowed` |
 
