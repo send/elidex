@@ -29,9 +29,8 @@
 //!   `length + 1`); the shell re-pushes the authoritative `(index, length)` via
 //!   `set_session_history` after a navigation/traversal commits.
 //!
-//! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
-//! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
-//! `#11-history-state-traversal-popstate-fidelity` slot.
+//! HTML §7.2.5 serializes the state for storage at step 3. The interim JSON
+//! codec and its supported values are documented in [`super::structured_serialize`].
 
 #![cfg(feature = "engine")]
 
