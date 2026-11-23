@@ -184,10 +184,7 @@ fn parse_media_in_parens<'i>(
         return Err(input.new_custom_error(()));
     }
     input.skip_whitespace();
-    // A function token (`name(...)`) can only be <general-enclosed>. Capture its
-    // raw text (the whole `name( … )`, its own delimiters included) for
-    // serialization — `slice_from` spans the function token through the closing
-    // `)` consumed by `parse_nested_block`.
+    // Preserve the function's source through its closing delimiter or EOF.
     let fn_start = input.position();
     if input.try_parse(expect_function_token).is_ok() {
         input.parse_nested_block(drain_block)?;
@@ -229,9 +226,7 @@ fn parse_parens_content<'i>(
     inner: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
-    // Capture the raw inner text up front for the <general-enclosed> fallback;
-    // the caller already consumed the surrounding `( )`, so it is re-wrapped
-    // below. (`trim` drops the leading whitespace this spans before skipping.)
+    // Save the start of the nested input for the parenthesized fallback below.
     let content_start = inner.position();
     inner.skip_whitespace();
     // 1. nested `( <media-condition> )`.
@@ -247,9 +242,8 @@ fn parse_parens_content<'i>(
     if let Some(feature) = parse_media_feature(inner) {
         return Ok(MediaCondition::Feature(feature));
     }
-    // Unknown name / invalid value / trailing junk / malformed range — all
-    // still match `( <any-value> )` → Kleene unknown (§3.1/§3.2). Preserve the
-    // raw text (re-wrapped in its parens) so `.media` serializes it back.
+    // An unrecognized feature evaluates to unknown (MQ4 §3). Store its trimmed
+    // inner text between parentheses, including when the input ended at EOF.
     while inner.next().is_ok() {}
     Ok(MediaCondition::GeneralEnclosed(
         format!("({})", inner.slice_from(content_start).trim()).into(),
