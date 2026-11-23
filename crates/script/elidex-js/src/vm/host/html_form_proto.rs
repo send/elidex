@@ -534,11 +534,11 @@ fn native_form_request_submit(
         }
     };
 
-    // HTML §4.10.22.3 invokes interactive validation
-    // (§4.10.21.2) during form submission: if neither
-    // the form's `novalidate` nor the submitter's `formnovalidate`
-    // override the validation step,
-    // walk every submittable descendant via [`run_form_check_validity`]
+    // HTML §4.10.22.3 invokes interactive validation (§4.10.21.2)
+    // during form submission: if neither the form's `novalidate`
+    // nor the submitter's `formnovalidate` override the validation
+    // step, walk every submittable descendant via
+    // [`run_form_check_validity`]
     // (which also fires synthetic `invalid` events on failing
     // controls).  Validation failure aborts before any `submit`
     // event fires — listeners on `submit` must NOT observe a request
@@ -610,10 +610,11 @@ fn native_form_reset(
 
 /// Walk every listed-element descendant of the form, calling
 /// `validate_control()` on each that is a candidate for constraint
-/// validation.  Per HTML §4.10.21.2, static validation step 6, `invalid` must fire on
-/// EVERY failing control before the method returns; we therefore
-/// iterate the full set, dispatch the synthetic event on each
-/// failure, and return `false` if any control failed.  Mirrors the
+/// validation.  Per HTML §4.10.21.2 (static validation step 6),
+/// `invalid` must fire on EVERY failing control before the method
+/// returns; we therefore iterate the full set, dispatch the
+/// synthetic event on each failure, and return `false` if any
+/// control failed.  Mirrors the
 /// per-control `checkValidity()` shape installed by the
 /// ConstraintValidation mixin but iterates the form's submittable
 /// element set rather than a single entity.
@@ -631,8 +632,9 @@ fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Resul
         let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
             continue;
         };
-        // HTML §4.10.21.2, static validation step 3.1 — bar non-candidates from validation,
-        // centralised in `elidex_form::is_constraint_validation_candidate`.
+        // HTML §4.10.21.2 static validation step 3.1 — skip
+        // non-candidates, centralised in
+        // `elidex_form::is_constraint_validation_candidate`.
         if !elidex_form::is_constraint_validation_candidate(&state, control, dom) {
             continue;
         }

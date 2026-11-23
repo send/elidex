@@ -470,8 +470,9 @@ fn native_check_validity(
             elidex_form::validate_control(&state).is_valid()
         });
     if !valid {
-        // HTML §4.10.21.3, check validity step 1.1: fire a synthetic `invalid`
-        // event at the element (cancelable=true, bubbles=false).
+        // HTML §4.10.21.3 (check validity step 1.1): fire a
+        // synthetic `invalid` event at the element
+        // (cancelable=true, bubbles=false).
         // Listeners can `preventDefault()` to suppress the UA's
         // default validation reporting; `checkValidity()` itself
         // still returns `false` regardless.

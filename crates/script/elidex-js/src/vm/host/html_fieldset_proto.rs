@@ -23,9 +23,10 @@
 //!   `willValidate` / `checkValidity()` / `reportValidity()` /
 //!   `setCustomValidity()`) is installed by
 //!   `VmInner::install_constraint_validation_mixin` from Phase 9.
-//!   The fieldset exposes the API (HTML §4.10.15). It is not submittable,
-//!   so `willValidate` returns false and `checkValidity()` and
-//!   `reportValidity()` return true (HTML §4.10.21.1 and §4.10.21.3).
+//!   The fieldset exposes the API (HTML §4.10.15) but is not
+//!   submittable, so it is never a candidate for constraint
+//!   validation (`elidex_form::is_constraint_validation_candidate`):
+//!   `willValidate` is false and the validity checks return true.
 
 #![cfg(feature = "engine")]
 

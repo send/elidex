@@ -383,11 +383,11 @@ fn check_validity_returns_true_for_hidden_input_even_when_required() {
 
 #[test]
 fn check_validity_returns_true_for_readonly_text_input() {
-    // R21 regression — HTML §4.10.5.3.3 and §4.10.11: `readonly` bars constraint
-    // validation when the attribute applies to the kind (text /
-    // textarea / etc), so a readonly required-empty text input
-    // returns `checkValidity() == true` and `willValidate == false`,
-    // and no `invalid` event fires.
+    // R21 regression — HTML §4.10.5.3.3 and §4.10.11: `readonly`
+    // bars constraint validation when the attribute applies to the
+    // kind (text / textarea / etc), so a readonly required-empty text
+    // input returns `checkValidity() == true` and
+    // `willValidate == false`, and no `invalid` event fires.
     let out = run("var i = document.createElement('input'); \
          i.required = true; \
          i.readOnly = true; \
