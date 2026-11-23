@@ -350,9 +350,7 @@ fn match_empty_with_whitespace_only_text() {
 
 #[test]
 fn match_empty_excludes_nbsp() {
-    // U+00A0 (NBSP) is NOT document white space (Selectors L4 §3.7), so an
-    // element containing only `&nbsp;` is NOT :empty (spec example
-    // `<div>&nbsp;</div>`).
+    // Selectors 4 §13.2 gives <div>&nbsp;</div> as an example that fails :empty.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     let nbsp = dom.create_text_ownerless_fixture("\u{00A0}");
