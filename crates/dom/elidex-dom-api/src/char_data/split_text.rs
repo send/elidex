@@ -404,6 +404,82 @@ mod tests {
         .expect("range present");
     }
 
+    /// Boundaries of the registered range `id` as
+    /// `(start_container, start_offset, end_container, end_offset)`.
+    fn bounds(
+        reg: &mut LiveRangeRegistry,
+        id: crate::range::RangeId,
+        dom: &EcsDom,
+    ) -> (Entity, usize, Entity, usize) {
+        reg.with_range(id, dom, |r, _| {
+            (
+                r.start_container,
+                r.start_offset,
+                r.end_container,
+                r.end_offset,
+            )
+        })
+        .expect("range present")
+    }
+
+    /// DOM §4.11 *split a Text node* step 7 ("If parent is non-null") holds
+    /// the live-range migration (7.2 / 7.3); an orphan Text only gets step 8
+    /// (*replace data*), which clamps boundaries into the new length.
+    #[test]
+    fn orphan_split_clamps_range_end_and_keeps_it_on_original() {
+        let mut dom = EcsDom::new();
+        let t = dom.create_text_ownerless_fixture("0123456789");
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
+        let mut r = Range::new(t);
+        r.set_start(t, 2);
+        r.set_end(t, 8);
+        let id = reg.register(r);
+
+        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        assert_eq!(bounds(&mut reg, id, &dom), (t, 2, t, 5));
+        let (sc, _, ec, _) = bounds(&mut reg, id, &dom);
+        assert!(sc != n && ec != n, "no boundary lands on the new orphan");
+    }
+
+    #[test]
+    fn orphan_split_collapses_range_past_offset_at_split_point_on_original() {
+        let mut dom = EcsDom::new();
+        let t = dom.create_text_ownerless_fixture("0123456789");
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
+        let mut r = Range::new(t);
+        r.set_start(t, 6);
+        r.set_end(t, 8);
+        let id = reg.register(r);
+
+        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        assert_eq!(bounds(&mut reg, id, &dom), (t, 5, t, 5));
+        let (sc, _, ec, _) = bounds(&mut reg, id, &dom);
+        assert!(sc != n && ec != n, "no boundary lands on the new orphan");
+    }
+
+    /// Control: the parented split still migrates (step 7.2 / 7.3).
+    #[test]
+    fn parented_split_migrates_range_end_to_new_node() {
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let t = dom.create_text_ownerless_fixture("0123456789");
+        let _ = dom.append_child(parent, t);
+        let (mut reg, bridge) = LiveRangeRegistry::new_pair();
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
+        let mut r = Range::new(t);
+        r.set_start(t, 2);
+        r.set_end(t, 8);
+        let id = reg.register(r);
+
+        let (n, _records) = split_text_at_offset(t, 5, &mut dom).expect("split ok");
+
+        assert_eq!(bounds(&mut reg, id, &dom), (t, 2, n, 3));
+    }
+
     /// Codex PR426 R1 — splitting the last EXPOSED light child of a shadow host
     /// must NOT put the host's internal `ShadowRoot` into the childList record's
     /// `nextSibling`. `attach_shadow` appends the `ShadowRoot` as the host's
