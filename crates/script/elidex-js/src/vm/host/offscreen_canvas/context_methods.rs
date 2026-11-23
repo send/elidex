@@ -56,7 +56,7 @@ fn rect_args(
 //   §4.12.5.1.3 — canvas state stack: save / restore
 //   §4.12.5.1.5 — building paths: beginPath / closePath / moveTo / lineTo /
 //                                  rect / arc
-//   §4.12.5.1.6 — transforms: translate / rotate / scale
+//   §4.12.5.1.8 — transforms: translate / rotate / scale
 //   §4.12.5.1.8 — fill/stroke styles: fillStyle / strokeStyle (accessors)
 //   §4.12.5.1.9 — drawing rectangles: fillRect / strokeRect / clearRect
 //   §4.12.5.1.10 — text: measureText
@@ -301,7 +301,7 @@ pub(super) fn native_oc_clear_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `translate(tx, ty)` (HTML §4.12.5.1.6 — translate the current transform).
+/// `translate(tx, ty)` (HTML §4.12.5.1.8 — translate the current transform).
 pub(super) fn native_oc_translate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -319,7 +319,7 @@ pub(super) fn native_oc_translate(
     Ok(JsValue::Undefined)
 }
 
-/// `rotate(angle)` (HTML §4.12.5.1.6 — rotate the current transform, radians).
+/// `rotate(angle)` (HTML §4.12.5.1.8 — rotate the current transform, radians).
 pub(super) fn native_oc_rotate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -337,7 +337,7 @@ pub(super) fn native_oc_rotate(
     Ok(JsValue::Undefined)
 }
 
-/// `scale(sx, sy)` (HTML §4.12.5.1.6 — scale the current transform).
+/// `scale(sx, sy)` (HTML §4.12.5.1.8 — scale the current transform).
 pub(super) fn native_oc_scale(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
