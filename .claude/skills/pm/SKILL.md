@@ -170,7 +170,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   commit しない。lane は最終文言と前後の diff を PM に送り、PM の commit の上に自分の PR を積む。
 - global 変更 (`~/.claude/**`): 適用前に「global で全プロジェクトに効く」と明示 → `$PMD/backup/` に
   backup → diff を user に見せる → 適用 → dotfiles session に報告。skill を変えた後の検証は新しい agent で。
-  `~/.claude/**` を書く主体 (PM・pmo・coder など、どの agent でも) は、別の path に書き → diff を見せ → 置き換える (その場で書き換えない、PM 527)。
+  `~/.claude/**` を書く主体 (PM・pmo・coder など、どの agent でも) は、別の path に書き → diff を見せ → 置き換える (その場で書き換えない、PM 527 / 973)。
   global の hook を変える brief は、参照元の検索に hook を使う repo 側も入れる (`git grep -n '<hook 名>'` を各 repo で、hook を読む parity test を拾うため、PM 530)。
 
 ### 3.5 委譲 — 誰が書くか

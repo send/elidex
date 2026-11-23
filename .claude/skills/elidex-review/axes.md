@@ -152,7 +152,7 @@ Rule: CLAUDE.md § "Layering mandate" — "Core vs compat split" 段落 (elidex-
 
 - `[both]` `// stub:` / `// minimal v1` / `// for now` / `// quick fix` / `// temporary` / `// placeholder` 等 marker (diff: code、plan: 文中 phrase)
 - `[diff]` `unimplemented!()` / `todo!()` macro 追加 (existing 除外)
-- `[both]` script から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に script から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は memo か PR にある command で、示した内部不変条件は assert 可。既定の severity は IMP。満たさない経路が出たら PM が調停する (PM 584 (5))
+- `[both]` script から作れる条件で engine を abort させる release の経路 (`[diff]`: コード、`[plan]`: memo の設計に script から到達できる release の abort がある)。例: `assert!` / `panic!` / `unreachable!` / `expect` / test の外の `.unwrap()` / 添字の境界外 / `RefCell` の二重借用 / `process::abort` (語の一覧は例で、母集団は性質で決める)。「到達不能」の証拠は memo か PR にある command で、示した内部不変条件は assert 可。既定の severity は IMP。満たさない経路が出たら PM が調停する (PM 584 (5) / PM 973)
 - `[both]` `TODO` / `FIXME` 追加で defer slot 番号 (`#11-*`) の citation 無し
 - `[both]` "later" / "future PR" / "M4-13" 等の deferral 言及で defer slot 引用無し
 - `[both]` Shim / fallback / backwards-compat wrapper 追加
