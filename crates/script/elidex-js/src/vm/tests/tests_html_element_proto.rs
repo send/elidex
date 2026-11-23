@@ -240,7 +240,7 @@ fn redundant_focus_does_not_reseed_change_snapshot() {
     // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
     // Otherwise a redundant focus() after the user edits drops the mark, so the
     // later (shell) blur suppresses the §4.10.5.5 `change` event. Mirrors the
-    // shell `set_focus` reconciler's `old == Some(entity)` early return. The user
+    // VM's copy of focusing steps step 5 (`focusing_steps`), until A2c (LR-B4). The user
     // edit runs from Rust between two binds (a VM script write is not a user
     // edit), so the snapshot is marked before the redundant focus().
     let (mut dom, holder) = redundant_focus_after_user_edit(

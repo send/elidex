@@ -26,8 +26,8 @@
 //! mark; no non-user writer does.
 //!
 //! "The plan" below is `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`
-//! (its B-2, QB-1..3, O-B1 and §4.4); "the re-derivation" is
-//! `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (D-4, R-2, PE-2).
+//! (its B-1, B-2, QB-1..3, O-B1 and §4.4); "the re-derivation" is
+//! `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (R-1, R-2, R-3, D-3, D-4, PE-2).
 //!
 //! The blur's verdict is computed in one place, [`take_change_on_blur`]; every
 //! focus sink calls it and only dispatches `change`.
@@ -78,28 +78,25 @@ impl FocusValueSnapshot {
 /// seeded component yields `change` is decided at focus loss, by the kind then
 /// (see [`take_change_on_blur`]).
 pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
-    // Cheapest exclusion first: most focused elements are not form controls.
-    if dom.world().get::<&FormControlState>(entity).is_err() {
-        return;
-    }
-    if dom.is_html_namespace(entity)
-        && (dom.has_tag(entity, "input") || dom.has_tag(entity, "textarea"))
-    {
-        let Ok(first_focus) = dom
-            .world()
-            .get::<&FormControlState>(entity)
-            .map(|fcs| fcs.value().to_owned())
-        else {
+    let first_focus = {
+        // Cheapest exclusion first: most focused elements are not form controls.
+        let Ok(fcs) = dom.world().get::<&FormControlState>(entity) else {
             return;
         };
-        let _ = dom.world_mut().insert_one(
-            entity,
-            FocusValueSnapshot {
-                first_focus,
-                user_change_from: None,
-            },
-        );
-    }
+        if !(dom.is_html_namespace(entity)
+            && (dom.has_tag(entity, "input") || dom.has_tag(entity, "textarea")))
+        {
+            return;
+        }
+        fcs.value().to_owned()
+    };
+    let _ = dom.world_mut().insert_one(
+        entity,
+        FocusValueSnapshot {
+            first_focus,
+            user_change_from: None,
+        },
+    );
 }
 
 /// Mark `entity`'s component: a user edit changed the value from `before`.

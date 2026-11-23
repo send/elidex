@@ -306,7 +306,10 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         // runs (R-1): "first focused" is step 4.1's designation, so a `focus` /
         // `focusin` listener's value write is after it. Nothing runs between
         // the designation and the seed, so no "still focused" guard is needed;
-        // a listener that moves focus on finds `new` already seeded. A user
+        // a listener that moves focus on finds `new` already seeded. A listener that
+        // moves focus through a writer that does not re-enter the transition (VM
+        // `focus()`) leaves `new`'s component in place, unreachable until its
+        // next designation re-seeds it (B-9 of the plan). A user
         // edit is marked only by the user-edit funnel, so a listener's write
         // alone fires no `change` (I-B5).
         sink.seed_focus_snapshot(new);
