@@ -9,7 +9,7 @@ E24 of its §7.5) owns applying it, by reference to this file. Every section and
 (§3.2, §7.1, I1, I4, …) is the P1a memo's; this file defines none of its own.
 Since the move: PM 922 added the `git_segments()` iterator ("One derivation" below). [history] PM 930, PM 936 and
 PM 938 revised a pass-through decision layer this patch carried for the `:24` / `:30` hooks; PM 950 (user, option D)
-superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7.diff`).
+superseded them and removed that layer, so the patch is the deny rules and the iterator only (`hook-v7-1.diff`).
 
 ### §4.8 The bypass-guard patch (global; the PM applies it at §7.1 A2) [P1a cut-over]
 
@@ -36,9 +36,8 @@ command starting with a reserved word, `bash -lc`, git after a wrapper's options
 `GIT_DIR=` / `GIT_WORK_TREE=` and `--git-dir` / `--work-tree`, zsh's `chdir` and the precommands (`noglob cd`,
 `nocorrect cd`, `repeat N cd`, `- cd`), a `#` comment and a heredoc body (both read as commands). The probe of these
 shapes: the Tests paragraph below. A bypass through one of them (`--no-verify`, or a reroute of the hooks path) is
-not stopped locally: this guard misses it and git does not run the hooks. What the hooks would have checked is caught
-behind it by CI (`check` for fmt, `tools` for the ratchet), and a persistent reroute by `--check` (I4), as P1a §1's
-non-goal "Defeating a deliberate bypass" states. The reroute of the hooks path itself, which no git hook sees, stays
+not stopped locally: this guard misses it and git does not run the hooks. What stands behind it, and the two classes
+nothing stands behind, are P1a I4's "Residual accepted gap". The reroute of the hooks path itself, which no git hook sees, stays
 with this guard's text reading and `--check` (I4).
 
 **No silent overlap with the existing rules.** `-c core.hooksPath=…` (and `-c core.hooksPath …`,
@@ -85,8 +84,8 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 +引数の位置にある git、`GIT_DIR=` / `GIT_WORK_TREE=` と `--git-dir` / `--work-tree`、zsh の `chdir` と precommand
 +(`noglob cd` / `nocorrect cd` / `repeat N cd` / `- cd`)、`#` から行末までの comment (その中も command として読む)、
 +heredoc の本文 (command として読む)。これらの形の `--no-verify` や hooksPath の迂回は deny されず、git hook も
-+走らないので local では止まらない (意図した bypass は P1 plan memo の P1a の non-goal)。hook が見るはずだったものは
-+CI (`check` / `tools` job) が後ろで拾い、永続する hooksPath の迂回は `--check` (同 memo の I4) が見つける。
++走らないので local では止まらない。後ろに何があるか (と、何も無い 2 つ) は P1 plan memo の P1a I4
++(Residual accepted gap) を見よ。
  
  Fails OPEN: どんな内部エラーでも no output, exit 0。
  Env overrides (tests): GIT_BYPASS_GUARD_STATE_DIR, GIT_BYPASS_GUARD_EXTRA_SCOPE (os.pathsep 区切り)。
@@ -258,7 +257,7 @@ direct file write, `--git-dir` from outside); the persistent ones are detected b
 **Tests** (added to the `DENY` / `ALLOW` lists, as two methods of `T`, and as one class, `Segments`, that loads the
 script under test by path, in `git-hook-bypass-guard.test.py`). **This paragraph and the Mutants paragraph below are
 the one home of the counts and probe results** (the P1a memo points here): run on 2026-11-23 (PM 950, re-run on the
-fix round's `hook-v7.diff`) against a scratch copy of the live file patched with `hook-v7.diff` (the block above)
+fix round's `hook-v7.diff`) against a scratch copy of the live file patched with `hook-v7-1.diff` (the block above)
 and `test-v6.diff`, both in
 `/Users/kazuaki/repos/send.sh/elidex-pm-trial/ci-tools-lane/guardpatch/` (`guardpatch/` below): 20 tests OK; the same
 tests against the unpatched file: 40 failures and 5 errors (subtests counted); the live file's own 12 tests against
@@ -309,7 +308,7 @@ file's own `GIT_BYPASS_GUARD_SCRIPT` override; on 2026-11-23 (PM 950, re-run on 
 **The PM's application and E2E line** (global: it acts on every session on this machine at once, other
 repositories' sessions included, `~/.claude` CLAUDE.md "変更の blast radius"): back up both files
 (`cp -p ~/.claude/hooks/git-hook-bypass-guard{,.test}.py <backup dir>/`, the path into the PM's log); show the user
-the whole diff (`guardpatch/hook-v7.diff`, the block above, and `test-v6.diff`) — the `git_segments()` refactor of
+the whole diff (`guardpatch/hook-v7-1.diff`, the block above, and `test-v6.diff`) — the `git_segments()` refactor of
 `scan()` (PM 922) included — and apply it only after; apply the diff and the test additions, then `python3 ~/.claude/hooks/git-hook-bypass-guard.test.py` → OK, then the mutants
 above → each killed. E2E, from a Claude session whose cwd is an elidex worktree: the Bash call
 `git config --worktree core.hooksPath /tmp/x` → denied with "git config core.hooksPath" in the reason, and
