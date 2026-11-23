@@ -115,7 +115,7 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
 /// Validate the `protocols` list of the `new WebSocket(url, protocols)` constructor, WebSockets §3.1 constructor
 /// step 9 (`webref body websockets dom-websocket-websocket`): no value may occur more than once, and each value must
 /// be a non-empty HTTP `token`. That is what "the requirements for elements that comprise the value of
-/// `Sec-WebSocket-Protocol` fields" come to under The WebSocket Protocol [WSP]. The `token` test is
+/// `Sec-WebSocket-Protocol` fields" come to under The WebSocket Protocol \[WSP\]. The `token` test is
 /// [`elidex_api_fetch::is_valid_header_name`] (Fetch §2.2.2 *header name*: the `field-name` production of RFC 9110's
 /// field names, `field-name = token`, whose `token` is RFC 9110 §5.6.2). Values are compared by exact string
 /// equality. Checks run per value in list order (empty, then token), then for duplicates over the whole list.
