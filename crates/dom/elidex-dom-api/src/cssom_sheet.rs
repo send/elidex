@@ -1,5 +1,5 @@
 //! `CSSStyleSheet` / `CSSStyleRule` / `CSSRuleList` / `StyleSheetList` DOM API
-//! handlers (CSSOM §6.2 / §6.4 / §6.6 / §6.8).
+//! handlers (CSSOM §§6.1.2, 6.4.3, 6.4.1 and 6.2.2, respectively).
 //!
 //! ## Storage model
 //!
@@ -786,13 +786,13 @@ pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
 /// `true` if `entity` is a `<link>` with an associated CSS style sheet —
 /// non-null only after a successful load (CSSOM §6.3), i.e. a
 /// `LinkStylesheet` component is attached. Backs the host `link.sheet`
-/// getter (CSSOM §6.2 `LinkStyle.sheet`).
+/// getter (CSSOM §6.3.2 `LinkStyle.sheet`).
 #[must_use]
 pub fn link_has_loaded_sheet(entity: Entity, dom: &EcsDom) -> bool {
     dom.world().get::<&LinkStylesheet>(entity).is_ok()
 }
 
-/// Resolved absolute URL of a `<link>`-loaded sheet (CSSOM §6.2
+/// Resolved absolute URL of a `<link>`-loaded sheet (CSSOM §6.1.1
 /// `StyleSheet.href`); `None` for a `<style>` sheet (no href). Backs the
 /// host `sheet.href` getter.
 #[must_use]

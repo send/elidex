@@ -564,7 +564,7 @@ pub enum ObjectKind {
     /// collected; Computed wrappers are not cached so no prune needed.
     #[cfg(feature = "engine")]
     CSSStyleDeclaration { source: u8, key_bits: u64 },
-    /// `CSSStyleSheet` instance (CSSOM §6.2) — wraps a `<style>` element
+    /// `CSSStyleSheet` instance (CSSOM §6.1.2) — wraps a `<style>` element
     /// entity; `cssRules` / `insertRule` / `deleteRule` route to the
     /// per-`<style>` parsed `Stylesheet` snapshot in
     /// `SessionCore::cssom_sheets`.  Identity preserved via
@@ -577,16 +577,15 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     CSSStyleSheet { entity_bits: u64 },
-    /// `CSSRuleList` instance (CSSOM §6.3) — `[[Indexed]]` legacy
+    /// `CSSRuleList` instance (CSSOM §6.4.1) — `[[Indexed]]` legacy
     /// platform object backing `CSSStyleSheet.cssRules`.  Fresh-alloc
-    /// on every `cssRules` read (matches WPT identity rules — repeated
-    /// reads do NOT preserve the same reference; framework code rarely
-    /// holds the rule list anyway).
+    /// on every `cssRules` read. CSSOM §6.1.2 requires repeated reads
+    /// to return the same list object.
     ///
     /// GC contract: same as [`Self::CSSStyleSheet`] — payload-free.
     #[cfg(feature = "engine")]
     CSSRuleList { sheet_entity_bits: u64 },
-    /// `CSSStyleRule` instance (CSSOM §6.4 / §6.6) — opaque rule wrapper
+    /// `CSSStyleRule` instance (CSSOM §6.4.3) — opaque rule wrapper
     /// keyed by `(sheet entity, rule_id)` where `rule_id` is the stable
     /// id issued by [`elidex_css::Stylesheet::next_rule_id`] at parse /
     /// `insertRule` time.  Identity preserved via
@@ -623,7 +622,7 @@ pub enum ObjectKind {
         sheet_entity_bits: u64,
         rule_id: u64,
     },
-    /// `StyleSheetList` instance (CSSOM §6.8) — `[[Indexed]]` legacy
+    /// `StyleSheetList` instance (CSSOM §6.2.2) — `[[Indexed]]` legacy
     /// platform object backing `document.styleSheets`.  Fresh-alloc
     /// on every read (mirrors `CSSRuleList`).  The walker enumerates
     /// `<style>` descendants of the document; `<link rel="stylesheet">`
