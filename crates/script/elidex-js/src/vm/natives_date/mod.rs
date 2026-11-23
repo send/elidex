@@ -401,8 +401,8 @@ fn native_date_set_month(
     store(ctx, id, time_clip(make_date(new_day, time_within_day(t))))
 }
 
-/// §21.4.4.21 `setFullYear(year, month?, date?)` — the one setter that can
-/// revive an Invalid Date (a `NaN` receiver is treated as `+0`).
+/// `setFullYear` (§21.4.4.21) and `setUTCFullYear` (§21.4.4.29) use
+/// `+0` as the starting time value when the stored date value is `NaN`.
 fn native_date_set_full_year(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

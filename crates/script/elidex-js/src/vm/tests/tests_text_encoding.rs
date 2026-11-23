@@ -168,7 +168,7 @@ fn text_encoder_encode_into_reads_utf16_units() {
 #[test]
 fn text_encoder_encode_into_requires_uint8array() {
     let mut vm = Vm::new();
-    // A plain Array is not a Uint8Array — TypeError per §8.2.3.
+    // A plain Array is not a Uint8Array — encodeInto requires a Uint8Array (Encoding §7.4).
     assert!(eval_bool(
         &mut vm,
         "var r = false; \
@@ -235,8 +235,8 @@ fn text_decoder_invalid_label_throws_range_error() {
 #[test]
 fn text_decoder_replacement_encoding_rejected() {
     let mut vm = Vm::new();
-    // Encoding §10.2.1 step 2: labels that map to the "replacement"
-    // encoder (used as an XSS defence for e.g. `iso-2022-kr`,
+    // Encoding §7.2 constructor step 2: labels that map to the "replacement"
+    // encoding (used as an XSS defence for e.g. `iso-2022-kr`,
     // `hz-gb-2312`, `iso-2022-cn`) must be rejected with RangeError.
     for label in ["replacement", "iso-2022-kr", "hz-gb-2312", "iso-2022-cn"] {
         let src = format!(

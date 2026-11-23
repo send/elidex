@@ -24,12 +24,12 @@
 //!
 //! IDL state-backed:
 //! - `value` reads/writes `FormControlState.value` (setter marks
-//!   dirty per HTML §4.10.5.1.6).
+//!   the value dirty in value mode, HTML §4.10.5.4).
 //! - `defaultValue` reflects content attribute `value` (mirrors
 //!   `default_value` in FormControlState).
 //! - `checked` / `defaultChecked` for checkbox/radio.
 //! - `indeterminate` round-trips through
-//!   `FormControlState.indeterminate` (HTML §4.10.5.1.16); a
+//!   `FormControlState.indeterminate` (HTML §4.10.5); a
 //!   JS-only IDL bit independent of `checked`, observable via the
 //!   `:indeterminate` CSS pseudo-class once styling lands.
 //!
@@ -47,8 +47,8 @@
 //! - `showPicker()` — `NotSupportedError` stub
 //!   (`#11-show-picker`).
 //!
-//! `valueAsNumber` returns `NaN` for non-numeric types per
-//! HTML §4.10.5.1.4 step 1 fallback.
+//! The `valueAsNumber` getter returns `NaN` for input types to which it
+//! does not apply (HTML §4.10.5.4).
 
 #![cfg(feature = "engine")]
 // Cast-sign-loss: every `as usize` conversion in this module is
@@ -895,7 +895,7 @@ fn native_input_get_files(
 ) -> Result<JsValue, VmError> {
     // FileAPI integration (slot `#11-file-api` Phase 3).  Returns a
     // real per-instance FileList wrapper (NOT null) per HTML
-    // §4.10.5.1.18 — `input.files` is an empty FileList when no files
+    // §4.10.5.4 — `input.files` is an empty FileList when no files
     // are staged, never null while the input remains a `type=file`.
     //
     // Identity-stable via the unified wrapper store keyed by

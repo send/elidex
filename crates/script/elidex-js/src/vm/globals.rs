@@ -244,7 +244,7 @@ impl VmInner {
             // ValidityState.prototype + ConstraintValidation mixin
             // install on the 5 form-control prototypes that already
             // exist above (Input / Select / TextArea / Button /
-            // FieldSet).  HTML §4.10.20.4 — must run after each
+            // FieldSet).  HTML §4.10.21.3 — must run after each
             // host-element prototype is allocated.
             self.register_validity_state_prototype();
             if let Some(input_proto) = self.html_input_prototype {
@@ -401,7 +401,7 @@ impl VmInner {
             // DOMTokenList / DOMStringMap prototype installs that the
             // sibling `classList` / `dataset` accessors depend on.
             self.register_css_style_declaration_prototype();
-            // CSSOM §6.2 / §6.3 / §6.6 / §6.8 — CSSStyleSheet,
+            // CSSOM §§6.1.2, 6.4.1, 6.4.3 and 6.2.2 — CSSStyleSheet,
             // CSSRuleList, CSSStyleRule, StyleSheetList prototypes.
             // Must land after `css_style_declaration_prototype` (the
             // Rule-source CSSStyleDeclaration wrapper chains there).
@@ -552,7 +552,7 @@ impl VmInner {
                 // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
                 // etc. resolve against `Object.prototype` as expected.
                 self.register_navigator_global();
-                // `performance` — HR-Time §5.  Shares the time origin
+                // `performance` — HR-Time §9.1.  Shares the time origin
                 // (`VmInner::start_instant`) with `Event.timeStamp`.
                 self.register_performance_global();
                 // `location` — WHATWG HTML §7.1.  Reads/writes
@@ -582,7 +582,7 @@ impl VmInner {
                 self.get_object_mut(self.global_object).prototype = self.worker_scope_prototype;
                 // `navigator` — WorkerNavigator (WHATWG HTML §10.3.2).
                 self.register_worker_navigator_global();
-                // `performance` — HR-Time §5, shared with the Window path.
+                // `performance` — HR-Time §9.1, shared with the Window path.
                 self.register_performance_global();
                 // `location` — WorkerLocation over the worker script URL
                 // (WHATWG HTML §10.3.3).
@@ -611,7 +611,7 @@ impl VmInner {
                 // `navigator` — WorkerNavigator (SW realms are
                 // `WorkerGlobalScope`s, WHATWG HTML §10.3.2).
                 self.register_worker_navigator_global();
-                // `performance` — HR-Time §5, shared with the Window path.
+                // `performance` — HR-Time §9.1, shared with the Window path.
                 self.register_performance_global();
                 // `location` — WorkerLocation over the SW *scope* URL
                 // (SW §4.1 / WHATWG HTML §10.3.3).
@@ -919,7 +919,7 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_fetch_global();
 
-        // `structuredClone(value, options?)` (WHATWG HTML §2.9).
+        // HTML §2.7.11 structuredClone uses serialization and deserialization with transfer.
         // Must run after `register_blob_global` / `register_array_buffer_global`
         // because the clone path allocates fresh ArrayBuffer / Blob
         // instances that read the target-realm prototypes from

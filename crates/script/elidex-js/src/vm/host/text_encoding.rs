@@ -22,7 +22,7 @@
 //!   - `.encodeInto(source, destination)` → `{read, written}`
 //!     plain object.  Writes UTF-8 bytes directly into the
 //!     destination `Uint8Array`'s backing buffer up to capacity.
-//! - `TextDecoder(label?, options?)` — WHATWG §10.1.2.
+//! - `TextDecoder(label?, options?)` — Encoding §7.2.
 //!   - `label` defaults to `"utf-8"`; resolved via
 //!     `encoding_rs::Encoding::for_label` (case-insensitive, trims
 //!     ASCII whitespace).  Unsupported labels throw `RangeError`.
@@ -58,7 +58,7 @@
 //!
 //! **Intentionally rejected**: the WHATWG "replacement" encoding
 //! is filtered out in `resolve_encoding_label` per Encoding
-//! §10.2.1 step 2 ("if encoding is failure **or replacement**,
+//! §7.2 constructor step 2 ("if encoding is failure **or replacement**,
 //! then throw a RangeError") — labels like `iso-2022-kr` /
 //! `hz-gb-2312` / `iso-2022-cn` that map to "replacement" are a
 //! cross-site scripting defence surface and TextDecoder is
@@ -85,10 +85,9 @@ use super::super::{NativeFn, VmInner};
 ///
 /// `decoder` carries the resolved encoding (via
 /// [`encoding_rs::Decoder::encoding`]) so no separate slot is
-/// needed.  It is rebuilt per non-stream `decode()` call to match
-/// the spec's "at end of stream, reset I/O queue" semantics
-/// (§10.1.3 step 9) *and* so that BOM-sniffing state is reset —
-/// `encoding_rs` exposes no public "reset BOM state" method.
+/// needed. Encoding §7.2 decode step 1 starts a new sequence with a
+/// fresh decoder, an empty input queue and the BOM flag cleared. This VM
+/// prepares that state when the preceding non-streaming call finishes.
 /// Streaming calls re-use the same decoder so its internal
 /// partial-sequence buffer persists.
 pub(crate) struct TextDecoderState {
@@ -119,7 +118,7 @@ impl TextDecoderState {
     }
 
     /// Recreate the decoder so the next call starts from a fresh
-    /// state.  Called after every non-stream `decode()` per §10.1.3.
+    /// state (Encoding §7.2, decode step 1).
     fn reset_decoder(&mut self) {
         self.decoder = build_decoder(self.decoder.encoding(), self.ignore_bom);
     }
@@ -391,7 +390,7 @@ fn native_text_encoder_encode_into(
         }
     };
 
-    // WHATWG §8.2.3 `encodeInto`: walk source code points, encode
+    // Encoding §7.4 `encodeInto`: walk source code points, encode
     // into a scratch buffer until the next code point would
     // overflow `dest_len`, then perform a single
     // [`super::byte_io::write_at`] on `body_data[buffer_id]`.
@@ -420,9 +419,8 @@ fn native_text_encoder_encode_into(
         super::byte_io::write_at_with_routing(ctx.vm, buffer_id, dest_offset, &scratch);
     }
 
-    // Build the `{read, written}` result object.  Data properties
-    // per §8.2.3 step 10-11 are plain enumerable/writable/configurable
-    // (default `Object.create()` semantics).
+    // Encoding §7.4 returns the read and written counts in a
+    // TextEncoderEncodeIntoResult dictionary.
     let result_id = ctx.vm.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -486,7 +484,7 @@ fn resolve_encoding_label(
     let raw = ctx.vm.strings.get_utf8(label);
     // WHATWG §4.2 "get an encoding" normalisation (ASCII
     // whitespace strip + case fold) runs inside `for_label`.
-    // Encoding §10.2.1 step 2 rejects both `failure` (unknown
+    // Encoding §7.2 constructor step 2 rejects both `failure` (unknown
     // label) *and* `replacement` — the latter covers labels like
     // `iso-2022-kr` that map to the XSS-defence `replacement`
     // encoder, which TextDecoder is explicitly forbidden from
@@ -530,8 +528,8 @@ fn native_text_decoder_get_encoding(
 ) -> Result<JsValue, VmError> {
     let id = require_text_decoder_this(ctx, this, "encoding")?;
     // `encoding_rs::Encoding::name()` returns the canonical
-    // Pascal-Case name (e.g. "UTF-8"); WHATWG §8.1 requires lower-
-    // case.  Fast-path the three interned names so the common case
+    // name (e.g. "UTF-8"); Encoding §7.1 requires ASCII lowercase.
+    // Fast-path the three interned names so the common case
     // skips both the `to_ascii_lowercase` allocation and the
     // `intern` hashmap probe.  Other encodings fall through to the
     // per-call intern.
@@ -600,9 +598,7 @@ fn native_text_decoder_decode(
     let input_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    // TextDecoder.decode(input?, ...) — `input` is OPTIONAL per
-    // §10.1.3 step 1 ("If input is missing, let input be an empty
-    // buffer source"), so accept `undefined` as empty bytes.
+    // Encoding §7.2, decode step 3: only append bytes when input is supplied.
     let bytes = extract_buffer_source_bytes(
         ctx,
         input_arg,
@@ -641,7 +637,7 @@ fn native_text_decoder_decode(
                 .decoder
                 .decode_to_string_without_replacement(&bytes, &mut out, last);
             if matches!(result, DecoderResult::Malformed(_, _)) {
-                // Per §10.1.3 step 6: a malformed token with fatal
+                // Per Encoding §7.2, decode’s error branch: a malformed token with fatal
                 // flag set throws TypeError.  Rebuild the decoder
                 // so subsequent calls start fresh rather than
                 // inheriting the aborted state.
@@ -698,9 +694,8 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 ///
 /// `allow_undefined_as_empty` flips the `undefined` arm of the
 /// match: callers whose IDL signature marks the parameter optional
-/// (TextDecoder.decode — §10.1.3 step 1 explicitly returns empty
-/// bytes when `input` is missing) pass `true`; callers whose IDL
-/// signature marks the parameter required (SubtleCrypto.digest —
+/// (Encoding §7.2: decode adds no bytes when input is omitted) pass `true`.
+/// Callers whose IDL signature marks the parameter required (SubtleCrypto.digest —
 /// `BufferSource data` with no `?`) pass `false` so missing /
 /// `undefined` data flows through the BufferSource-conversion
 /// TypeError path per WebIDL §3.10.18.

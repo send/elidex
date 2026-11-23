@@ -5,16 +5,14 @@
 **Umbrella**: the native-construct protocol (R) umbrella, `docs/plans/2026-11-vm-native-construct-contract.md`
 (ratified; on main since #643 `b46a030c`, 11-18; Rev 1.7 at `f9acca16`; its own code anchors are at its base
 `4b723d4b`). This memo is the per-PR plan of its §4.1 **R-0b** bullet ("R-0b: one GC frame-root enumeration"), which,
-in §4.1's plan-review paragraph, asks for "a short plan memo and `/elidex-plan-review`" because an omitted field in a
+in §4.1's plan-review paragraph at Rev 1.7, asked for "a short plan memo and `/elidex-plan-review`" because an omitted field in a
 root enumeration is a use-after-free. Lane: VM P4. (Rev 1–2.2 read the umbrella at Rev 1.6, `414dd70d` on branch
 `vm-native-construct-plan`.)
 
-**Dates** (umbrella §9.1 step 3, PM 688; §4.1's plan-review paragraph, PM 784 (3)): target **11-24**, hard edge
-**12-04**; a date that would pass 11-26 is reported to the PM. **Ratification condition** (§9.1 step 3): R-0b is
-implemented against the reviewed umbrella. Met: the umbrella was ratified and landed at #643 (11-18), so this memo's
-review is the remaining gate before R-0b's implementation, which stays ahead of R-JS's (§9.1 step 6, 11-28 at the
-earliest), which changes `CallFrame`'s field set. (Until Rev 2.2 this paragraph made 11-24 conditional on a
-ratification by 11-23.)
+**Dates** (umbrella Rev 1.7 at `f9acca16`: §9.1 step 3, PM 688; §4.1's plan-review paragraph, PM 784 (3)): target was
+**11-24**, hard edge **12-04**. Its ratification condition (R-0b implemented against the reviewed umbrella) was met by
+#643 (11-18), so this memo's review was the last gate before R-0b, ahead of R-JS (§9.1 step 6), which changes
+`CallFrame`'s field set. R-0b has since landed (umbrella §9.1 step 3).
 
 **Base**: `origin/main` at **`f9acca16`** (Rev 2.2; Rev 1–2.1 were written at `84fee8fa`). Every `file:line` below is at
 `f9acca16` unless it names another sha. A cite marked `84fee8fa` states a fact of that tree which a later PR changed; it is
@@ -82,6 +80,7 @@ So there is no third storage site, nothing for R-0b to fold and no ordering ques
 | 2.2 | Cites re-anchored to `f9acca16` (drift findings reported to the driver). Code cites whose line only locates a symbol now name the symbol; ranges that are the claim (the two blocks, §2's census, §8's control) are re-measured at `f9acca16`; the §2 census re-run gives the same 17 rows. Cites of facts that #650 (`7af70b68`) or #644 (`4d7b41dd`) changed are marked `84fee8fa` and kept as written (§0.1's creation-window sites and `CallFrame` command, §1.2's four store sites, §5.5's L3 branch and abort-signal memo lines). | — |
 | 2.3 | Stale tree statements folded (#650 / #643 / #644 landed), no plan decision changed. #650: the coroutine-creation window is closed on the stack-rooting branch, no third residency (§0.1, §0.2, §0.3, §1 Out, §3, §8); `SuspendedFrame` store sites 4 → 2, D-2 and the `upvalue_slots` subset re-checked at both (§1.2). #643: the umbrella is ratified and on main at Rev 1.7, its cites re-pointed by § (§0, §5.4, §8), and R-JS plan's cite of this memo re-pointed when this memo lands (§5.4). #644: L3's branch landed, the rebase coupling removed, the abort memo's cite lines re-measured at `f9acca16` (§5.5). | — |
 | 2.4 | Focused re-check of Rev 2.2–2.3 (CRIT 0 / IMP 0 / MIN 5 + 1 pre-existing) folded; no plan decision changed. §0.1's `CallFrame` census classified completely with per-class counts and a positive control; §1.1's module-doc cite located; §5.4's R-JS cite paragraph put in the past tense; §5.5's abort-signal memo cites read against its `69fbe61f` pin, the PR-body listing dropped; §2's `CallMode` range `:628-641`. | — |
+| 2.5 | Post-landing: the D-3 narrowing slot cited by its registered ID (§1); §5.4's obligation marked discharged by the umbrella's Rev 1.8; the family code-anchor sweep's slot cited by its ID (§5); §0's dates pinned to umbrella Rev 1.7 and, with §5.1's obligation text, put in the past. No plan decision changed. | — |
 
 ## §1. Scope
 
@@ -159,10 +158,9 @@ and `Throw`, so `Normal` cannot be stored at all. That retypes a `CallFrame` fie
 forbids, and its writers and readers are outside `vm/gc/` (`route_to_next_finally`'s parameter, `vm/ops.rs`; its
 callers `op_end_finally` and `resume_generator`; `op_end_finally`'s `None | Some(Normal(_))` arm, `vm/ops.rs`,
 which is dead for the same reason). `FrameCompletion` itself stays three-variant: it is also the resumption kind, where
-`Normal(v)` is the `.next(v)` argument (`FrameCompletion`'s doc, `vm/coroutine_types.rs`). The narrowing is its own change, proposed to the
-PM as a slot (draft name **`#11-vm-pending-completion-type-narrowing`**, not registered at Rev 2.1; its scope includes
-deleting the dead `None | Some(Normal(_))` arm in `op_end_finally`). Once the PM registers it, this memo cites its ID
-here in place of the draft name. When it lands, D-3's `Normal` alternative disappears with the variant: the
+`Normal(v)` is the `.next(v)` argument (`FrameCompletion`'s doc, `vm/coroutine_types.rs`). The narrowing is its own change, the slot
+**`#11-vm-pending-completion-type-narrowing`** (its scope includes deleting the dead `None | Some(Normal(_))` arm in
+`op_end_finally`). When it lands, D-3's `Normal` alternative disappears with the variant: the
 or-pattern stops compiling until it is removed, so the two cannot drift.
 
 ## §2. Field census (at `f9acca16`; the same result at `84fee8fa`)
@@ -321,10 +319,10 @@ The compiler, not a test, is the guard; the §6 cells prove today's rooted set, 
 
 ### §5.1 Umbrella 3 (`docs/plans/2026-07-vm-p4-slice-plan.md:951`, VM-P4 family)
 
-Its obligation reads "the retirement of the two frame-marking sites" of `home_class`, citing `vm/gc/roots.rs:297` and
+At `f9acca16` its obligation read "the retirement of the two frame-marking sites" of `home_class`, citing `vm/gc/roots.rs:297` and
 `vm/gc/trace.rs:357` (one line stale at `84fee8fa`, §0.2; at `f9acca16` `roots.rs:297` is the `home_class` line
 again and `trace.rs:357` is still one line off, `:358`). After R-0b there is one site, inside `mark_frame`. **R-0b's
-implementation PR edits** the two cites into `mark_frame` (`vm/gc/mod.rs`) and "the two frame-marking sites" into "the
+implementation PR (#664) edited** the two cites into `mark_frame` (`vm/gc/mod.rs`) and "the two frame-marking sites" into "the
 frame-marking site"; nothing else in the obligation changes (it still owes a tracing edge for the closure-carried home
 object). Then: `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-07-vm-p4-es-language-completeness.md`
 → exit 0 (baseline at `f9acca16`: exit 0). No link to a memo outside the family is added
@@ -365,10 +363,8 @@ longer exists. In the main file: §2.1 A3×A9 (the `vm/gc/trace.rs` prereq split
 enumeration; R-JS edits both"); §4.1's R-0b bullet; §4.2's first edge to umbrella 3 ("Two edges to umbrella 3", item
 (1), `roots.rs:297` / `trace.rs:357`); §7's `vm/gc/trace.rs` row (the suspended-frame `new_instance` at `:350`); §8.1's
 `mark_roots` / `trace_work_list` row; §9.1 step 3 ("both copies change"). **Obligation**: the umbrella's first revision
-after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). The R-JS plan
-on main records the same item with its trigger and due date (`docs/plans/2026-11-vm-native-construct-r-js.md` §9,
-"Umbrella items left for a later revision"). R-0b's PR body and its landing report to the PM name this obligation;
-this section is its durable statement.
+after R-0b lands (owner VM P4, the umbrella's owner) re-points these cells to `mark_frame` (one site). Discharged by
+the umbrella's Rev 1.8 (`docs/plans/2026-11-vm-native-construct-r-js.md` §9 records the same).
 
 **The R-JS plan's cite of this memo.** The R-JS plan (`docs/plans/2026-11-vm-native-construct-r-js.md`, #657) read
 this memo as an in-flight claim at Rev 2.1 (`c2e3dd5f`, branch `vm-r0b-frame-roots`, not on main), with its landing
@@ -395,8 +391,8 @@ Removing the two blocks shifts every later line of `vm/gc/roots.rs` (after `:277
 - **VM-P4 family memos whose frame-block cites are already stale at `84fee8fa`** (R-0b did not make them stale):
   `docs/plans/2026-07-vm-p4-slot-ledger.md:286` (`roots.rs:294-295`, `trace.rs:353-355`), `2026-07-vm-p4-slice-plan.md:943`
   and `2026-07-vm-p4-slice-1a-1b-call-spread-detail.md:470` (`trace.rs:345-370`). They are pre-existing and
-  outside R-0b. No slot homes VM-P4 family code-anchor sweeps today; the driver proposes one to the PM as their home (a
-  slot, not a report). (§5.1's `slice-plan.md:951` and §5.2's I-7 are edited by R-0b because R-0b makes their *statement* false, not only their line numbers.)
+  outside R-0b. Their home is the slot `#11-vm-p4-family-code-anchor-sweep` (PM
+  ledger, PM 944; owner VM P4). (§5.1's `slice-plan.md:951` and §5.2's I-7 are edited by R-0b because R-0b makes their *statement* false, not only their line numbers.)
 
 ## §6. Tests
 

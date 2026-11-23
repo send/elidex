@@ -40,8 +40,8 @@
 //!
 //! `window.screen` is a `[SameObject, Replaceable]` readonly attribute
 //! (CSSOM-View §4). It is installed as a **no-setter RO accessor on
-//! `Window.prototype`** whose getter returns the cached singleton `ObjectId`
-//! (the `localStorage` / `[SameObject]` form), normalizing it onto the same
+//! `Window.prototype`** whose getter returns the cached singleton `ObjectId`,
+//! giving it the same
 //! treatment its sibling `[Replaceable]` Window attrs (`innerWidth` / `scrollX`
 //! / `devicePixelRatio`) already use — replacing the anomalous writable
 //! `globals.insert`. (Proper `[Replaceable]` value-shadowing is implemented for

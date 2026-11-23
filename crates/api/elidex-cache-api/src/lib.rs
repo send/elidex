@@ -6,7 +6,7 @@
     clippy::cast_lossless
 )]
 
-//! Cache API storage backend for elidex (WHATWG Cache API).
+//! Cache API storage backend for elidex (W3C Service Workers §5).
 //!
 //! Provides storage operations for the Cache API, built on top of
 //! `elidex-storage-core`'s `SqliteConnection`. Each origin gets

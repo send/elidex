@@ -301,7 +301,7 @@ fn native_get_context(
 ) -> Result<JsValue, VmError> {
     let entity = require_canvas_element(ctx, this, "getContext")?;
     // Post-`transferControlToOffscreen`, the `<canvas>` is a "placeholder
-    // canvas element" (HTML §4.12.5) and getContext throws InvalidStateError
+    // canvas element" (HTML §4.12.5.3) and getContext throws InvalidStateError
     // — the bitmap is owned by the OffscreenCanvas now.
     if is_placeholder(ctx.host().dom(), entity) {
         return Err(VmError::dom_exception(

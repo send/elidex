@@ -179,6 +179,7 @@ mod tests_symbol_iter;
 mod tests_template_owner_document;
 mod tests_text_encoding;
 mod tests_timer;
+mod tests_timer_checkpoint_gc;
 mod tests_to_primitive_fallback;
 mod tests_traversal;
 mod tests_try_catch_finally;

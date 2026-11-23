@@ -29,9 +29,8 @@
 //!   `length + 1`); the shell re-pushes the authoritative `(index, length)` via
 //!   `set_session_history` after a navigation/traversal commits.
 //!
-//! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
-//! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
-//! `#11-history-state-traversal-popstate-fidelity` slot.
+//! HTML §7.2.5 serializes the state for storage at step 3. The interim JSON
+//! codec and its supported values are documented in [`super::structured_serialize`].
 
 #![cfg(feature = "engine")]
 
@@ -174,16 +173,8 @@ fn state_mutate(
         Some(ctx.vm.strings.get_utf8(sid))
     };
 
-    // §7.2.5 step 3: `serializedData = StructuredSerializeForStorage(data)` — after
-    // the WebIDL arg coercions (above), before the step-5 URL parse + gate. The
-    // interim JSON-shortcut serializer is TOTAL (never throws): a representable value
-    // → `Some(bytes)`, anything else → `None`. A throwing `toJSON` does NOT abort
-    // (`StructuredSerializeInternal` serializes objects via `? Get`, §2.7.3 step
-    // 26.4, and never invokes `toJSON`) — it degrades
-    // like BigInt/cyclic (CR-3). `None` = no restorable state (a cross-document
-    // traversal restores `null`). The spec's "Rethrow any exceptions" is vacuous in
-    // the interim; the full walker slot re-enables real throwing (`DataCloneError` +
-    // getter-exception propagation), at which point this regains a fallible result.
+    // HTML §7.2.5 step 3 serializes the state for storage before checking the URL.
+    // The interim encoder continues with absent bytes on failure; see structured_serialize.
     let serialized_state =
         super::structured_serialize::structured_serialize_for_storage(ctx, state);
 

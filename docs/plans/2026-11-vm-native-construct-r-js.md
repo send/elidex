@@ -1,5 +1,5 @@
 # R-JS — ECMAScript `[[Construct]]`, the this-binding and SuperCall (per-PR plan, native-construct umbrella §4.2)
-Status: **plan (pre-implementation), Rev 3.4** (folds the targeted A3 MINs per PM 904; local cites re-pointed per PM 899 / PM 904, §13; Rev 3.3: re-check at `2dcce2e2` folded per PM 899, §12; Rev 3.2.1 moved §13's tables to a tracked companion, §13; re-check at `b8029ab9` folded per PM 892 with an additions ledger, §13; re-check at `58b666a6` folded per PM 886, §13; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
+Status: **plan (pre-implementation), Rev 3.4.1** (C3: R-0b's landing re-stated per umbrella Rev 1.8, PM 944, §13; Rev 3.4 folds the targeted A3 MINs per PM 904; local cites re-pointed per PM 899 / PM 904, §13; Rev 3.3: re-check at `2dcce2e2` folded per PM 899, §12; Rev 3.2.1 moved §13's tables to a tracked companion, §13; re-check at `b8029ab9` folded per PM 892 with an additions ledger, §13; re-check at `58b666a6` folded per PM 886, §13; plan-review R1 at `bee45988` folded, §13; PM 883 D1 / D2 / IMPs; PM 880 in Rev 2),
 for `/elidex-plan-review` (edge-dense: §2). Owner: VM P4. Umbrella:
 `docs/plans/2026-11-vm-native-construct-contract.md` (ratified at #643 `b46a030c`, PM 811 / PM 818). This memo is the
 derivation the repo ledger row `#11-vm-derived-constructor-this-binding` (`docs/plans/2026-07-vm-p4-slot-ledger.md`,
@@ -13,7 +13,7 @@ files, only `vm/interpreter_call.rs` and `vm/natives_generator.rs`; `git diff --
 of them (the `data_transfer` split, `events_modern/mod.rs`, `tests_events_modern.rs` and the umbrella); §6.1 and the
 umbrella's §8.1 rows are read at `3cbd5b88`; every M-2 count is identical at all three shas (§12 M-2). The R-0b per-PR plan is
 `docs/plans/2026-11-vm-r0b-frame-root-enumeration.md` (this memo read it as a claim at Rev 2.1 `c2e3dd5f`,
-before it landed, and R-0b's plan PR re-points this cite; PM 899 / PM 904: no repo cite to a local path).
+before it landed, and R-0b's plan PR, #662, re-pointed this cite; PM 899 / PM 904: no repo cite to a local path).
 Each child re-reads its anchors at its own base; where a child's base must contain one of them, the child says so (§8).
 
 **Spec numbers.** Every ECMA-262 number below is printed by `.claude/tools/webref aoid ecma262 <AO>` or `heading
@@ -769,7 +769,7 @@ row has no site and D-4 reads `construct`'s `Err` (both reported to its owner); 
 |---|---|---|---|
 | `vm/mod.rs` | 2787 | R-JS-2: one `mod construct;` line; R-JS-3: the helper module's `mod` line | no seam for this touch (umbrella §7 row; `#11-vm-inner-substruct-decomposition`) |
 | `vm/object_kind.rs` | 1646 | R-JS-1: one variant (+ doc) in the `ObjectKind` enum | **no split**: the enum is a flat case table (CLAUDE.md 1000-line rule's exemption) and the touch is one variant; the umbrella's conditional row resolves here. `HostObject`'s definition untouched (PM 642 (a) not fired) |
-| `vm/gc/trace.rs` | 1265 | R-JS-1: the Function arm's `this_env` mark and the `ThisEnvironment` arm | R-0b's seam lands first (§8); the remainder is the exempt `ObjectKind` match (umbrella §7) |
+| `vm/gc/trace.rs` | 1265 | R-JS-1: the Function arm's `this_env` mark and the `ThisEnvironment` arm | R-0b's seam is on main (umbrella §9.1 step 3); the remainder is the exempt `ObjectKind` match (umbrella §7) |
 | `vm/dispatch.rs` | 1105 | R-JS-1/3: `Op::PushThis`; R-JS-2: `complete_inline_frame` leaves (net −17) and the three entry-frame return sites call the step | no prereq split: the opcode match is exempt and the file shrinks (umbrella §7) |
 | `vm/tests/tests_custom_elements.rs` | 1321 | R-JS-3: comment lines only | no seam for this touch; new cells go to `tests_construct_upgrade.rs` |
 
@@ -816,7 +816,7 @@ caller). The `ObjectKind::HostObject` definition is untouched by all three.
   record. **S / N**: consume the record (§1.3.2). **C**: extends the record kind (§1.3.4, §7.2); **`#11-vm-upvalue-tdz-check`**:
   no edge (the record uses no upvalue state).
 - **R-0b**: R-JS-1 classifies `this_env` in `mark_frame`; R-JS-2 removes `new_instance` from it. R-0b's §5.4
-  obligation (re-point the umbrella's two-site cells to `mark_frame`) has a trigger and a date (§9).
+  obligation (re-point the umbrella's two-site cells to `mark_frame`) is discharged by the umbrella's Rev 1.8 (§9).
 
 ## §7. Slot homing
 ### §7.1 Closed
@@ -854,8 +854,8 @@ The rule (§9.1 step 6): R-JS's implementation starts at the later of P0a-1's la
 this plan's review (seven days after the umbrella's ratification); 11-28 holds while the umbrella was ratified by
 11-20; each day past 11-20 moves step 6 and its dependants. **The umbrella was ratified on 11-18 (PM 818), so nothing
 moves**: this plan 11-21 … 11-23, its plan-review 11-24 … 11-27, implementation 11-28 … 12-04, R-JS (= R-JS-3's
-landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (11-24, step 3), #653 (landed
-`378633f6`, 11-21), P0a-1 (11-28, step 5).
+landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (landed, umbrella §9.1 step 3), #653
+(landed `378633f6`, 11-21), P0a-1 (11-28, step 5).
 
 **Child dates (PM 880 Q-1: set here, inside 11-28 … 12-04).**
 
@@ -865,16 +865,15 @@ landing) **12-05**. Prerequisites on main before R-JS-1's implementation: R-0b (
 | R-JS-2 | 11-30 … 12-01 | 12-02 | main with R-JS-1 |
 | R-JS-3 | 12-02 … 12-04 | **12-05** (= R-JS) | main with R-JS-2 |
 
-Rules the dates follow: **(a)** R-JS-1 starts on the later of P0a-1's and R-0b's landings, since it edits R-0b's
-`mark_frame` (§4.1) and §9.1 step 6 starts R-JS at P0a-1's (step 5 dates P0a-1's *implementation* 11-28 and step 6
-reads that date as its landing, so 11-28 assumes P0a-1 lands that day; R-0b, step 3, targets 11-24, so the later is
-P0a-1's while R-0b holds; a later landing of either moves R-JS-1 to it); **(b)** each child is cut from main on the day its predecessor lands and starts then
+Rules the dates follow: **(a)** R-JS-1 starts on P0a-1's landing, since §9.1 step 6 starts R-JS at P0a-1's (step 5
+dates P0a-1's *implementation* 11-28 and step 6 reads that date as its landing, so 11-28 assumes P0a-1 lands that day;
+a later landing moves R-JS-1 to it); R-0b's `mark_frame`, which R-JS-1 edits (§4.1), is on main (umbrella §9.1 step 3); **(b)** each child is cut from main on the day its predecessor lands and starts then
 (§1.2 order, no stacked branches), so a child's landing day is its successor's start; **(c)** the last child's
 landing is R-JS's 12-05 (§9.1 step 6); **(d)** the window is split by size: R-JS-3 (the entry, rooting, the upgrade)
 gets three days, R-JS-1 and R-JS-2 two each, and each child's days include its `/pre-push` and single-pass Codex
 (§1.2). A child that slips moves its successors day for day; when that would move R-JS-3 past 12-05, the slip is
 reported to the PM with the §9.1 step 6 consequences (steps 10-15 and §5.4's R-JS-keyed Re-eval proposals). A slip
-of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
+of P0a-1 past 11-28 moves all three (rule (a)).
 
 ## §9. Ledger / erratum edits
 **Made in this PR** (PM 880, PM 883, PM 886, PM 892; each a reviewed item, §0.3):
@@ -882,8 +881,8 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   marked done.
 - **Umbrella Rev 1.7** (RS-1, RS-2, RS-3, RS-5, RS-9): §1.2 "Unchanged", §3's §10.4.1.2 row, §4.2 (three children,
   the [C11] range with 6.c, 2ab's body), §8.1's four rows, §8.3, §7's and §9.1's R-0c, §9.1 step 6, the §0.2 history
-  row (with (4)'s step split and (6)'s sites, Rev 3.2; (7), PM 904's re-cites, Rev 3.4) and order; the RS-9 sites. Line count held at 999: every
-  erratum replaces text on its own line.
+  row (with (4)'s step split and (6)'s sites, Rev 3.2; (7), PM 904's re-cites, Rev 3.4) and order; the RS-9 sites. Rev 1.7 held the umbrella at 999
+  lines: every erratum replaces text on its own line.
 - **Slice plan** (RS-6, RS-8): row C's classification, its S / N clause and its I-7 sentence; forward pointers in rows
   3 and N. **RS-9 sweep** (PM 886): slice-plan rows S, 1a, 2a, 2ab, 9a, the 2ab ordering paragraph (Rev 3.2: row S's
   wording, 1a's stack-layout pointer, 2ab's E-10 cite).
@@ -904,11 +903,8 @@ of P0a-1 past 11-28, or of R-0b past it, moves all three (rule (a)).
   (`#11-vm-native-callback-reentry-single-loop`) re-pointed from `construct_synchronous` to `VmInner::construct`.
 - **D-17b R4 G4-2** (`extends_null_default_ctor_is_base`): superseded by C-3 at R-JS-2.
 
-**Umbrella items left for a later revision, each with its trigger** (R1 A3 MIN):
-- R-0b §5.4's re-pointing of the umbrella's two-site cells to `mark_frame`: **trigger R-0b's landing** (target 11-24);
-  owner VM P4; due before R-JS-1 starts (11-28), since R-JS-1 edits `mark_frame`; a slip is reported to the PM.
-  It cannot be made now: the tree it describes does not exist before R-0b lands.
-- None other: S-3's cite was re-made by #654 itself (C-7); "R-JS = three children" is made in Rev 1.7 (RS-5).
+**Umbrella items left for a later revision** (R1 A3 MIN): none. R-0b §5.4's re-pointing to `mark_frame` was made by
+the umbrella's Rev 1.8; S-3's cite by #654 itself (C-7); "R-JS = three children" by Rev 1.7 (RS-5).
 **Reported to the PM** (Rev 3.3; Rev 3.4 names the converter): whether `vm_error_to_thrown` should refuse
 `InternalError` VM-wide — reached via `throw_error` and `Op::Call` / `Op::CallMethod` / `Op::New` (§1.3.3; not R-JS's).
 
@@ -998,3 +994,6 @@ The per-finding disposition tables for plan-review R1 (at `bee45988`), the R1-fi
 **Rev 3.4** (PM 904): the targeted A3 re-check of Rev 3.3 (at `f1db3ef8`; CRIT 0 / IMP 0 / MIN 6) folded — §1.3.1's
 visibility, §1.3.3's `create_closure` rooting order and the `Unobserved` error's reach, §4.1's wire #5 scan and
 standing control, §9's PM note; local-path cites re-pointed to stable ids (PM 899 / PM 904). Table: companion §13.3.
+
+**Rev 3.4.1** (C3, PM 944; umbrella Rev 1.8): R-0b landed (umbrella §9.1 step 3); §6's R-0b bullet, §8's prerequisites
+and rule (a), §9's umbrella items re-stated against it. No date or plan decision changed.

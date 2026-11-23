@@ -264,7 +264,7 @@ impl App {
             }
         }
 
-        // Broadcast storage changes to other same-origin tabs (WHATWG HTML §11.2.1).
+        // Broadcast storage changes to other same-origin tabs (WHATWG HTML §12.2.1).
         for (source_tab_id, change) in &storage_changes {
             for tab in mgr.tabs_mut() {
                 if tab.id == *source_tab_id {

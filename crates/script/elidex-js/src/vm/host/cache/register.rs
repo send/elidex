@@ -1,4 +1,4 @@
-//! Cache API global + prototype registration (WHATWG Service Workers §5;
+//! Cache API global + prototype registration (W3C Service Workers §5;
 //! slot `#11-cache-api-vm` / D-19 PR-1).
 //!
 //! ```text

@@ -241,11 +241,7 @@ fn fetch_user_set_origin_dropped_in_favour_of_auto_attach() {
 
 #[test]
 fn request_headers_drop_method_override_family() {
-    // WHATWG Fetch §2.2.2 forbidden-request-header list includes
-    // `X-HTTP-Method`, `X-HTTP-Method-Override`, and
-    // `X-Method-Override` so script can't smuggle forbidden HTTP
-    // methods past the method gate.  Originally missed in PR #131,
-    // added in the follow-up.
+    // Each method-override value below contains a forbidden method (Fetch §2.2.2).
     let mut vm = Vm::new();
     vm.eval(
         "globalThis.r1 = 'unset'; \
@@ -273,13 +269,8 @@ fn request_headers_drop_method_override_family() {
 
 #[test]
 fn request_headers_user_agent_and_set_cookie2_are_settable() {
-    // WHATWG Fetch §2.2.2 does NOT list `User-Agent` or
-    // `Set-Cookie2` in forbidden request-header names — `User-Agent`
-    // is a header with a default value (UA can override) but script
-    // can still set it on a Request, and `Set-Cookie2` is forbidden
-    // *response*-header (§2.2.6), not request.  Covered here as an
-    // explicit FP guard so a future overzealous expansion of
-    // `is_forbidden_request_header` regresses against this test.
+    // Fetch §2.2.2 permits both request-header names here. Set-Cookie2 is
+    // on the forbidden response-header name list.
     let mut vm = Vm::new();
     vm.eval(
         "globalThis.r1 = ''; \
