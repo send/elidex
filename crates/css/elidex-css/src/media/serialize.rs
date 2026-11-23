@@ -250,11 +250,8 @@ fn write_value(f: &mut fmt::Formatter<'_>, value: &RangeValue) -> fmt::Result {
         RangeValue::Calc(expr) => write!(f, "calc({})", expr.to_css_string()),
         RangeValue::Ratio { num, den } => write!(f, "{} / {}", fmt_num(*num), fmt_num(*den)),
         RangeValue::Dppx(dppx) => {
-            // §5.1: a `+∞` resolution serializes as the `infinite` keyword — the
-            // canonical form for both the keyword itself and a `+∞`-overflowed
-            // `dppx`/`x` token, so equivalent inputs share a cache key. A `-∞`
-            // (an overflowed negative `dppx`) has no keyword and falls through to
-            // the dimension form, where `fmt_num` keeps it `-∞`.
+            // MQ4 §5.1 defines the infinite resolution keyword. This serializer
+            // also emits it for numeric inputs that overflow to positive infinity.
             if dppx.is_infinite() && *dppx > 0.0 {
                 f.write_str("infinite")
             } else {
