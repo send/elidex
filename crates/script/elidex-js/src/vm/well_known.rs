@@ -1255,8 +1255,7 @@ define_well_known_strings! {
         selection_type_caret => "Caret",
         selection_type_range => "Range",
         selection_dir_directionless => "directionless",
-        // `selectionchange` event name (Selection API §3.4 +
-        // HTML §8.1.7.1 "selection task source").
+        // `selectionchange` event name (Selection API §6.2).
         selectionchange_event => "selectionchange",
         // `slotchange` event name (WHATWG DOM §4.2.2.5 +
         // §4.3 "notify mutation observers").
