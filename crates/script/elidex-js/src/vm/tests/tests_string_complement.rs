@@ -724,7 +724,7 @@ fn error_to_string_includes_name_and_message() {
 
 #[test]
 fn array_to_locale_string_invokes_per_element() {
-    // §23.1.3.32: each element's own toLocaleString must be called.
+    // Each object supplies its own toLocaleString method in this fixture.
     assert_eq!(
         eval_string(
             "var a = {toLocaleString: function() { return 'A'; }};
@@ -737,10 +737,9 @@ fn array_to_locale_string_invokes_per_element() {
 
 #[test]
 fn array_to_locale_string_honors_primitive_prototype_override() {
-    // §23.1.3.32 step 7.c calls `Invoke(element, "toLocaleString")`.
-    // Invoke = `? Call(? GetV(V, P), V)`, and GetV boxes primitives via
-    // ToObject for property lookup — so prototype overrides on
-    // Number/String/Boolean must be observed for primitive elements.
+    // JoinIndexedProperties invokes the element method (ECMA-262 §23.1.3.18.1).
+    // GetV looks up the method on the number’s prototype and preserves the
+    // primitive receiver for the call.
     assert_eq!(
         eval_string(
             "Number.prototype.toLocaleString = function() { return 'N:' + this; };

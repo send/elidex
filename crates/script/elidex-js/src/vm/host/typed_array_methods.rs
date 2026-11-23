@@ -18,8 +18,7 @@
 //! - `reverse()` (§23.2.3.23)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
-//! - `toLocaleString(reserved1?, reserved2?)` (§23.2.3.31) —
-//!   no-Intl per-element `Invoke("toLocaleString")`, joined `","`
+//! - `toLocaleString(locales?, options?)` forwards the ECMA-402 §20.6.1 argument pair.
 //!
 //! Higher-order callback methods (`forEach` / `every` / `some` /
 //! `find` / `findIndex` / `findLast` / `findLastIndex` / `map` /
@@ -850,25 +849,12 @@ pub(crate) fn native_typed_array_join(
 }
 
 // ---------------------------------------------------------------------------
-// toLocaleString(reserved1?, reserved2?)
+// toLocaleString(locales?, options?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.toLocaleString(reserved1?, reserved2?)`
-/// (ECMA-262 §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
-/// "toLocaleString", « locales, options »))`, joined with `","`.
-///
-/// elidex has no `Intl` support yet, so `(locales, options)` flow
-/// through to per-element overrides unobserved by the built-in
-/// [`super::super::natives_symbol::native_object_prototype_to_locale_string`]
-/// shim (which redirects to `toString`).  Forwarding the reserved
-/// args still matters for user overrides on
-/// `Number.prototype.toLocaleString` /
-/// `BigInt.prototype.toLocaleString`, which can read them.
-///
-/// TypedArray elements are always non-nullish (Number or BigInt),
-/// so the `Array.prototype.toLocaleString` empty-or-nullish skip
-/// (spec §23.1.3.32 step 7.a) doesn't apply here — every index
-/// contributes a string segment.
+/// elidex joins the converted elements with a comma and forwards locales and
+/// options as in ECMA-402 §20.6.1 step 4. JoinIndexedProperties (ECMA-262
+/// §23.1.3.18.1) invokes the element method with that pair.
 ///
 /// ## Rooting
 ///
@@ -895,10 +881,7 @@ pub(crate) fn native_typed_array_to_locale_string(
         ..
     } = parts;
     let to_locale_key = PropertyKey::String(ctx.vm.well_known.to_locale_string);
-    // §23.2.3.31 step 7 forwards exactly `« locales, options »` to
-    // each per-element `Invoke` — extra caller-supplied args must
-    // not reach the override.  Materialise the pair once outside the
-    // loop so every iteration calls with the same fixed-arity slice.
+    // Build the two arguments once and reuse them for each element.
     let invoke_args = [
         args.first().copied().unwrap_or(JsValue::Undefined),
         args.get(1).copied().unwrap_or(JsValue::Undefined),
