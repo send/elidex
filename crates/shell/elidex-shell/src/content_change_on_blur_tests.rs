@@ -598,7 +598,7 @@ fn c20_user_returns_to_script_written_value_textarea() {
 
 /// The W3–W8 pattern: UA focus; `writer` changes the value to `expected`;
 /// user `z`, Backspace (back to `expected`); UA blur → no `change`.
-fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &str) {
+fn writer_then_net_zero_user_edit(body: &str, before_focus: &str, writer: &str, expected: &str) {
     let (mut s, _b) = setup(body);
     if !before_focus.is_empty() {
         eval(&mut s.pipeline, before_focus);
@@ -620,8 +620,8 @@ fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &s
 
 /// C21 (W3).
 #[test]
-fn c21_textarea_default_value_write_rebaselines() {
-    writer_rebaselines(
+fn c21_textarea_default_value_write_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<textarea id=b>p</textarea><input id=c>",
         "",
         "document.getElementById('b').defaultValue = 'q';",
@@ -631,8 +631,8 @@ fn c21_textarea_default_value_write_rebaselines() {
 
 /// C22 (W4).
 #[test]
-fn c22_value_attribute_write_rebaselines() {
-    writer_rebaselines(
+fn c22_value_attribute_write_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\"p\"><input id=c>",
         "",
         "document.getElementById('b').setAttribute('value', 'q');",
@@ -642,8 +642,8 @@ fn c22_value_attribute_write_rebaselines() {
 
 /// C23 (W5).
 #[test]
-fn c23_type_change_sanitize_rebaselines() {
-    writer_rebaselines(
+fn c23_type_change_sanitize_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\" a\"><input id=c>",
         "",
         "document.getElementById('b').type = 'url';",
@@ -654,8 +654,8 @@ fn c23_type_change_sanitize_rebaselines() {
 /// C24 (W6; DC-9): D-3, class (b) — the net-zero user edit after a script
 /// write fires no `change`.
 #[test]
-fn c24_email_multiple_toggle_rebaselines() {
-    writer_rebaselines(
+fn c24_email_multiple_toggle_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b type=email value=\"a@b, c@d\"><input id=c>",
         "",
         "document.getElementById('b').setAttribute('multiple', '');",
@@ -665,8 +665,8 @@ fn c24_email_multiple_toggle_rebaselines() {
 
 /// C25 (W7).
 #[test]
-fn c25_set_range_text_rebaselines() {
-    writer_rebaselines(
+fn c25_set_range_text_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\"p\"><input id=c>",
         "",
         "document.getElementById('b').setRangeText('q', 0, 0);",
@@ -676,8 +676,8 @@ fn c25_set_range_text_rebaselines() {
 
 /// C26 (W8).
 #[test]
-fn c26_form_reset_rebaselines() {
-    writer_rebaselines(
+fn c26_form_reset_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<form id=f><input id=b value=\"d\"></form><input id=c>",
         "document.getElementById('b').value = 'x';",
         "document.getElementById('f').reset();",
