@@ -198,7 +198,7 @@ fn hkdf_derivebits_primitive_hash_converts_at_step6_before_siblings() {
 }
 
 #[test]
-fn kdf_import_reads_name_twice_step5_and_step6() {
+fn kdf_import_reads_algorithm_name_twice() {
     // Web Crypto §18.4.4 converts the object to Algorithm at step 2 and to
     // the selected dictionary at step 6. Both conversions read `name`.
     let src = "globalThis.n = 0; globalThis.r = 'pending'; \
