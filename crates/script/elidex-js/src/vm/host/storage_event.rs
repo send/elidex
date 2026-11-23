@@ -1,4 +1,4 @@
-//! `StorageEvent` interface (WHATWG HTML §11.4.2) — VM thin binding.
+//! `StorageEvent` interface (WHATWG HTML §12.2.4) — VM thin binding.
 //!
 //! ## Shape
 //!
@@ -14,15 +14,18 @@
 //! `precomputed_event_shapes.storage` shape and read directly without
 //! a side table.
 //!
-//! ## Dispatch (out of scope for this slot)
+//! ## Dispatch
 //!
-//! Per WHATWG §11.2.5 step 8, a `setItem` / `removeItem` / `clear`
-//! mutation fires a `storage` event on **other** Documents in the
-//! same origin — never on the originating document.  In a
-//! single-VM world the event is unobservable from the originating
-//! script; cross-VM fan-out via the shell broker is tracked at
-//! `#11-storage-event-broker`.  This file ships only the
-//! constructor + class definition; the dispatch path is left absent.
+//! For localStorage changes, `enqueue_local_storage_change` queues a broadcast
+//! (HTML §12.2.1). The shell event loop drains the tab runtime's queue.
+//! The browser thread filters other tabs by their top-level origin in
+//! `drain_content_messages`. Each recipient content thread calls
+//! `dispatch_storage_event`. Per-document recipient selection is missing
+//! (`#11-storage-broadcast-per-document-recipient`).
+//!
+//! Mode-aware delivery is tracked in `#11-storage-event-mode-aware-delivery`,
+//! sessionStorage delivery in `#11-browsing-context-model-window-open-postmessage`,
+//! and the event's currently null `storageArea` in `#11-storage-extras`.
 
 #![cfg(feature = "engine")]
 

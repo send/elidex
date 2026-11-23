@@ -171,7 +171,7 @@ pub enum EventPayload {
     HashChange(HashChangeEventInit),
     /// Page transition event data (WHATWG HTML §7.8.2.4).
     PageTransition(PageTransitionEventInit),
-    /// Storage event data (WHATWG HTML §11.2.1).
+    /// Storage event data (WHATWG HTML §12.2.4).
     Storage {
         /// The key that changed (`None` for `clear()`).
         key: Option<String>,
