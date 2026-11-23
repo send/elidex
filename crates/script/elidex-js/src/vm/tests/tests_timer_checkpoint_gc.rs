@@ -25,11 +25,10 @@ fn interval_callback_and_args_survive_per_fire_checkpoint_gc() {
     let mut vm = Vm::new();
     vm.eval(
         "globalThis.seen = []; \
-         globalThis.queued = false; \
          globalThis.mfn = function () { return {}; }; \
          setInterval(function (a) { \
              globalThis.seen.push(a.tag); \
-             if (!globalThis.queued) { globalThis.queued = true; queueMicrotask(globalThis.mfn); } \
+             queueMicrotask(globalThis.mfn); \
          }, 10, { tag: 'x' });",
     )
     .unwrap();

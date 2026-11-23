@@ -392,13 +392,11 @@ impl VmInner {
             // code — the callback can allocate arbitrarily and trigger a
             // collection, and without this slot `entry.callback` +
             // `entry.args` would only be held in a Rust local (the heap
-            // copy was removed by `pop`).  The entry STAYS in the slot
-            // through the per-fire checkpoint below: the checkpoint runs JS
-            // too (microtasks, tasks, CE reactions), and an interval's
-            // callback / args may be reachable only through this entry, so
-            // a collection there must still see them.  We take the entry
-            // back out only after the checkpoint, to make the re-arm /
-            // active-set decision.
+            // copy was removed by `pop`).  The entry stays in the slot
+            // through the per-fire checkpoint below, which runs JS
+            // (microtasks / tasks / CE reactions) and may collect while an
+            // interval's callback / args are reachable only through this
+            // entry; it is taken out for the re-arm / active-set decision.
             let timer_id = entry.id;
             self.current_timer = Some(entry);
             let fire_result = self.fire_current_timer();
