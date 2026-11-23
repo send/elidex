@@ -297,8 +297,8 @@ fn intersection_observer_deliver_box_less_target_delivers_initial_zero_once() {
     )
     .unwrap();
 
-    // No LayoutBox attached → spec-mandated initial observation
-    // (Intersection Observer §2.2).  Second deliver must not re-fire.
+    // Registration initializes the previous threshold index to -1 (§3.2.2).
+    // The first update queues an entry (§3.2.10), and the unchanged second update adds none.
     vm.deliver_intersection_observations();
     vm.deliver_intersection_observations();
 

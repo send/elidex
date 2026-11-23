@@ -287,11 +287,9 @@ impl IntersectionObserverRegistry {
         // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
         // touch disjoint components, so they coexist).
         //
-        // A box-less target (`rect_fn` → None: display:none / pre-layout) is
-        // NOT skipped: per Intersection Observer §2.2 (observe) the first
-        // "update intersection observations" run must still deliver an initial
-        // entry (ratio 0 / isIntersecting false / zero rects), so we treat the
-        // missing box as a zero-area target and run the same crossing logic.
+        // Registration starts with threshold index -1 (§3.2.2). The first update
+        // queues an entry when the index changes (§3.2.10 step 18). For a missing
+        // layout box, this registry reports zero rectangles and no intersection.
         for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
             let maybe_rect = rect_fn(&*dom, entity);
             for obs in &comp.0 {
@@ -366,12 +364,10 @@ impl IntersectionObserverRegistry {
     }
 }
 
-/// The raw ids of the intersection observers that currently have ≥1 active
-/// observation — Intersection Observer §3.3 "Lifetime" ("the observer is not
-/// observing any targets" ⇒ collectible) mechanised by the `[[ObservationTargets]]`
-/// slot (§3.1.3), here the per-entity `IntersectionObservedBy` components. Derived
-/// in one hecs archetype query, flat-mapping every observation's `observer` id
-/// into the set.
+/// Collect the ids of observers with active targets. Intersection Observer §3.3
+/// keeps an observer alive while it has scripting references or observed targets.
+/// This query covers the target condition using the per-entity registrations
+/// that represent `[[ObservationTargets]]` (§3.1.3).
 ///
 /// This is the GC-keepalive predicate `elidex-js` marshals (S5-3c): an
 /// `IntersectionObserver` wrapper stays rooted iff its id is in this set.
