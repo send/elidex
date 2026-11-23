@@ -47,22 +47,32 @@ pub(crate) fn user_append(dom: &mut EcsDom, e: Entity, text: &str) {
     assert!(edit.changed);
 }
 
-/// `e`'s change-on-blur snapshot, as the three cases tests distinguish.
+/// `e`'s change-on-blur component, as the three cases tests distinguish.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Snap {
-    /// No snapshot.
+    /// No component.
     Absent,
-    /// A snapshot with no baseline (no user value change since focus).
-    Unmarked,
-    /// A marked snapshot and its baseline.
-    Baseline(String),
+    /// Seeded at first focus; no user value change since (no mark).
+    Unmarked { first_focus: String },
+    /// Seeded, and marked by the first user value change.
+    Marked {
+        first_focus: String,
+        user_change_from: String,
+    },
 }
 
 pub(crate) fn snap(dom: &EcsDom, e: Entity) -> Snap {
     match dom.world().get::<&FocusValueSnapshot>(e) {
         Err(_) => Snap::Absent,
-        Ok(s) => s
-            .baseline()
-            .map_or(Snap::Unmarked, |b| Snap::Baseline(b.to_string())),
+        Ok(s) => {
+            let first_focus = s.first_focus().to_string();
+            match s.user_change_from() {
+                None => Snap::Unmarked { first_focus },
+                Some(p) => Snap::Marked {
+                    first_focus,
+                    user_change_from: p.to_string(),
+                },
+            }
+        }
     }
 }

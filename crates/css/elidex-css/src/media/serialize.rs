@@ -556,7 +556,7 @@ mod tests {
         rt("projection and (color)");
     }
 
-    // --- §3.1 general-enclosed passthrough -------------------------------
+    // This serializer preserves the source text of MQ4 §3 `<general-enclosed>` blocks.
 
     #[test]
     fn general_enclosed_passthrough() {

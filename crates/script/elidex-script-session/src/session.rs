@@ -11,7 +11,7 @@ use crate::mutation::{apply_mutation, Mutation, MutationRecord};
 use crate::types::{ComponentKind, JsObjectRef, ReadyState};
 
 /// Per-`<style>` parsed-stylesheet snapshot backing the CSSOM
-/// `CSSStyleSheet` API surface (CSSOM §6.2). The cache is keyed by the
+/// `CSSStyleSheet` API surface (CSSOM §6.1.2). The cache is keyed by the
 /// `<style>` element entity; entries are populated lazily on first
 /// CSSOM access and refreshed when the `<style>` subtree's
 /// `inclusive_descendants_version` diverges from
@@ -43,7 +43,7 @@ pub struct CssomSheetState {
 /// - **Mutation buffering** — DOM changes are recorded and applied on [`flush()`](Self::flush)
 /// - **CSSOM stylesheet cache** — parsed `Stylesheet` per `<style>` for
 ///   `CSSStyleSheet` rule-list stability across `insertRule`/`deleteRule`
-///   (CSSOM §6.4 / §6.5)
+///   (CSSOM §6.1.2)
 ///
 /// In Phase 2's single-threaded model, `flush()` is called at the end of each
 /// script task (microtask checkpoint).

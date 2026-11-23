@@ -1,5 +1,5 @@
 //! `HTMLLinkElement.prototype` intrinsic — per-tag prototype layer
-//! for `<link>` wrappers (HTML §4.6.7, slot `#11-tags-T2a-url-bearing`).
+//! for `<link>` wrappers (HTML §4.2.4, slot `#11-tags-T2a-url-bearing`).
 //!
 //! ## Layering
 //!
@@ -12,8 +12,7 @@
 //! deferred to slot `#11-link-stylesheet-dynamic-fetch`.
 //!
 //! `<link>.sizes` is a `[SameObject, PutForwards=value]` DOMTokenList
-//! (HTML §4.6.7 — e.g. `<link rel="icon" sizes="16x16 32x32">`).
-//! Identity is preserved via `link_sizes_wrapper_cache` (CRIT-2 Option A).
+//! (HTML §4.2.4 — e.g. `<link rel="icon" sizes="16x16 32x32">`).
 
 #![cfg(feature = "engine")]
 
@@ -432,11 +431,10 @@ fn link_set_sizes(
 // sheet getter — CSSOM `LinkStyle.sheet`
 // ---------------------------------------------------------------------------
 
-/// `HTMLLinkElement.prototype.sheet` (CSSOM §6.2 `LinkStyle.sheet`,
-/// `[SameObject]` — same citation as the sibling `<style>.sheet` getter).
-/// Returns the `[SameObject]` `CSSStyleSheet` wrapper
+/// `HTMLLinkElement.prototype.sheet` (CSSOM §6.3.2 `LinkStyle.sheet`).
+/// Returns the cached `CSSStyleSheet` wrapper
 /// for the `<link>`'s associated CSS style sheet (present only after a
-/// successful load, HTML §4.6.7), or `null` when there is none (no
+/// successful load, HTML §4.6.8.23), or `null` when there is none (no
 /// `LinkStylesheet` component — non-stylesheet `rel`, missing href, or
 /// failed fetch). The "has a sheet?" predicate is delegated to the
 /// engine-independent [`elidex_dom_api::link_has_loaded_sheet`]; this

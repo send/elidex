@@ -163,10 +163,8 @@ fn intersection_observer_threshold_out_of_range_throws() {
 
 #[test]
 fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
-    // W3C Intersection Observer §2.2 — `rootMargin` must be a valid
-    // `<length-percentage>{1,4}`.  `em` / `vh` / bare numbers fail
-    // SyntaxError, NOT TypeError (regression guard for the strict
-    // crate-side parser).
+    // Intersection Observer §2.2 rejects these margin tokens. Initialization
+    // throws SyntaxError on a parse failure (§3.2.1 step 3).
     for bad in ["10em", "10vh", "10", "NaNpx"] {
         let err = run_throws(&format!(
             "new IntersectionObserver(function(){{}}, {{rootMargin: '{bad}'}});"
@@ -181,7 +179,7 @@ fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
 #[test]
 fn intersection_observer_threshold_accepts_single_number_or_sequence() {
     // Spec §2.4 accepts `double` or `sequence<double>` — the parser
-    // routes through `webidl_iter_to_vec` (the WebIDL §3.10.16
+    // routes through `webidl_iter_to_vec` (the Web IDL §3.2.21
     // sequence helper, already merged as #11-webidl-sequence-helper-extraction
     // / #202), so `Array.prototype[@@iterator]` overrides and other
     // iterables are honoured uniformly.
@@ -299,8 +297,7 @@ fn intersection_observer_deliver_box_less_target_delivers_initial_zero_once() {
     )
     .unwrap();
 
-    // No LayoutBox attached → spec-mandated initial observation
-    // (Intersection Observer §2.2).  Second deliver must not re-fire.
+    // With threshold [0], the registry delivers one entry across these two updates.
     vm.deliver_intersection_observations();
     vm.deliver_intersection_observations();
 
@@ -364,18 +361,13 @@ fn intersection_observer_root_margin_expands_root_bounds() {
 
 #[test]
 fn intersection_observer_threshold_string_coerces_to_double() {
-    // WebIDL §3.10.25 union resolution for `(double or sequence<double>)`:
-    // a primitive String routes to the `double` branch (ToNumber), NOT
-    // the sequence branch — even though `String.prototype[@@iterator]`
-    // exists (code-point iteration).  Regression guard: a bug where
-    // `parse_threshold` probed `@@iterator` on any value would iterate
-    // `'.', '5'` and RangeError on the first NaN.
+    // Web IDL §3.2.25 selects double for a primitive string in this union.
     let out = run("try { \
             var io = new IntersectionObserver(function(){}, {threshold: '0.5'}); \
             'ok' \
          } catch(e) { 'threw: ' + e.message; }");
     assert_eq!(out, "ok");
-    // And a clearly invalid string still RangeErrors after ToNumber→NaN.
+    // The VM reports RangeError here. Web IDL §3.2.7 requires TypeError for NaN.
     let err = run_throws("new IntersectionObserver(function(){}, {threshold: 'not-a-number'});");
     assert!(
         err.contains("finite numbers in [0, 1]"),

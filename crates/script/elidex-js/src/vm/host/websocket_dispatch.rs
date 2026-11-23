@@ -218,9 +218,8 @@ pub(super) fn dispatch_ws_error(ctx: &mut NativeContext<'_>, instance: ObjectId)
 /// broker's reported bytes-flushed count.  Saturating arithmetic
 /// guards against the broker over-reporting (e.g. due to internal
 /// re-fragmentation accounting that diverges from the JS-visible
-/// `saturating_add` in `send()`).  No event fires per WebSockets
-/// Standard §3 (The WebSocket interface)
-/// — `bufferedAmount` is a pull-only observable.
+/// `saturating_add` in `send()`).  Scripts read the updated byte count through the
+/// `bufferedAmount` getter (WebSockets §3.1, Interface definition).
 pub(super) fn dispatch_ws_bytes_sent(ctx: &mut NativeContext<'_>, instance: ObjectId, n: u64) {
     let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
         return;

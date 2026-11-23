@@ -113,6 +113,8 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
   PM が理由を問うたら答え、loop 継続の判定が出るまで次の round を撃たない。
 - loop の終わり方は round を始める前に PM と合意し、lane SSoT に書く (§9 の「終わり方と今のカウント」)。
   「次に出たら user へ」を既定の終わり方にしない。
+- **範囲を広げる指摘** (PM 959 (4)): advisory な下見や gate の指摘が PR に crate・利用者の群・不変条件の軸を足すものなら、
+  その場で直さず PM への範囲の問いにする (§2)。
 - **自分で wake できない mode** (Claude Desktop の prompting mode 等) なら、その旨を lane SSoT に書き、
   single-pass の verdict の poll を PM に頼む (PM 361)。
 
@@ -140,6 +142,7 @@ merge の後、PM に 1 通で送る:
 - 比例性の回数 (§5)
 - slot の文案は PM が前提を確かめてから登録する (`/pm` §8)。lane が出す文案の前提は claim であって確認済みではない
 - slot の文面 (BEGIN/END) に行番号を書かない。cite は「file + symbol」で書き、sha は台帳の出典欄にある merge commit の 1 つだけにする (squash merge の後に辿れない sha と、基準の混ざった行番号を生まないため) (PM 648)
+- lane が書く slot の文案には `**Re-eval-date**: YYYY-MM-DD` を付ける (PM 489)。overdue scan の読み方は `$PMD/tools/overdue_scan.py` の docstring が正
 - 件数は計測の出力として、コマンド・head・件数の 3 つで書き、固定の数字で書かない。母集団は性質で定義し、件数は「その head での測定値」とする (PM 659/662)
 
 台帳・MEMORY Active state は書かない (PM が pmo に渡す)。自分の lane SSoT だけを更新する。
@@ -152,6 +155,7 @@ merge の後、PM に 1 通で送る:
   `feedback_mise-probes-isolate-state-dir.md` (PM 151 / 230) / `feedback_cap-delegate-experiment-parallelism.md` /
   `feedback_kill-by-pid-not-pattern.md` / `feedback_disk-budget-for-measurement-clones.md`。
 - **disk の下限**: PM が新しい測定 batch を止めたら (`/pm` §2 行 3) 新しい batch を始めない。
+- **local の `mise run` は machine 全体で同時に 1 本** (暫定: CI/tools の機構が着地するまで、PM 968): `mise run` (`ci` も単独の task も) の前に `pgrep -fl '^(/[^ ]*/)?mise run '` を打つ。何かが走っていれば空くまで待ち、他の session の run を kill しない (PM 912 / 968)。30 分待っても空かなければ PM に伝える。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 

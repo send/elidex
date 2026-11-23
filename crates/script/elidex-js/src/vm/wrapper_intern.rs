@@ -134,7 +134,7 @@ pub(crate) enum WrapperSubkey {
     None,
     /// Attribute qualified-name (`attr_wrapper_cache`).
     Name(StringId),
-    /// CSSOM rule id (`css_style_rule_wrapper_cache` / `rule_style_wrapper_cache`).
+    /// CSSOM rule id used by both style rule and rule declaration wrapper keys.
     RuleId(u64),
     /// DataTransfer item index (`data_transfer_item_wrapper_cache`).
     Index(u32),

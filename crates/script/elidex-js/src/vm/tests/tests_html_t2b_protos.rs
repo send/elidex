@@ -8,11 +8,11 @@
 //! - `<title>.text` textContent alias (round-trip + replaces children)
 //! - `<base>.href` URL-resolve-fallback-to-raw + plain `<base>.target`
 //! - `<meta>` 6 string-reflect (incl. camelCase IDL → hyphen attr)
-//! - `<style>.{media,type}` reflect + `<style>.sheet` `[SameObject]`
+//! - `<style>.{media,type}` reflect + `<style>.sheet` wrapper identity
 //! - `<style>.disabled` deferred — accessor not present
 //! - `<ol>.reversed` boolean reflect (presence-only)
 //! - `<ol>.start` long IDL (default 1, parse fail → default)
-//! - `<ol>.type` "limited to only known values" (case-sensitive)
+//! - `<ol>.type` case-sensitive keyword lookup
 //! - `<li>.value` long IDL (default 0)
 //! - `<map>.areas` live HTMLCollection (mutate descendants → length)
 //! - `<map>.areas` `[SameObject]` identity
@@ -297,7 +297,7 @@ fn style_type_round_trip() {
 
 #[test]
 fn style_sheet_same_object_identity() {
-    // CSSOM §6.2 `[SameObject]` for HTMLStyleElement.sheet.
+    // Repeated reads return the wrapper cached for this style element.
     // Detached `<style>` is sufficient: the wrapper cache is keyed
     // by the `<style>` Entity, not by document attachment state.
     let out = run("var s = document.createElement('style'); \
@@ -447,7 +447,7 @@ fn ol_start_setter_routes_object_through_value_of() {
 
 #[test]
 fn ol_type_missing_returns_empty() {
-    // "limited to only known values" — missing default = "".
+    // An absent reflected DOMString reads as the empty string (HTML §2.6.1).
     let out = run("var ol = document.createElement('ol'); \
          (ol.type === '') ? 'empty' : 'not-empty:' + ol.type;");
     assert_eq!(out, "empty");

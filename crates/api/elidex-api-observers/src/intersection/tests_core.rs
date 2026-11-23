@@ -34,9 +34,8 @@ fn intersection_ratio_not_visible() {
 
 #[test]
 fn edge_adjacent_target_reports_is_intersecting() {
-    // IO §3.2.7: target sharing an edge with root has a degenerate
-    // (zero-width) intersection; spec says `isIntersecting = true`
-    // even though `intersectionRatio = 0`.
+    // Intersection Observer §3.2.10 steps 11–12 count edge adjacency as
+    // intersecting. This positive-area target has zero overlap area and ratio.
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
     let mut reg = IntersectionObserverRegistry::new();
@@ -62,8 +61,7 @@ fn edge_adjacent_target_reports_is_intersecting() {
 
 #[test]
 fn zero_area_target_inside_root_reports_ratio_one() {
-    // IO §3.2.7: a zero-area target (e.g. an empty scroll sentinel) that
-    // sits inside the root reports ratio = 1.0, not 0/0 = NaN/0.
+    // Intersection Observer §3.2.10 step 12 gives an intersecting zero-area target a ratio of one.
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
     let mut reg = IntersectionObserverRegistry::new();
@@ -88,8 +86,7 @@ fn zero_area_target_inside_root_reports_ratio_one() {
 
 #[test]
 fn zero_area_target_outside_root_reports_ratio_zero() {
-    // IO §3.2.7 complement: a zero-area target outside the root is
-    // not intersecting and reports ratio = 0.
+    // Intersection Observer §3.2.10 step 12 gives a nonintersecting zero-area target a ratio of zero.
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
     let mut reg = IntersectionObserverRegistry::new();
@@ -116,10 +113,8 @@ fn zero_area_target_outside_root_reports_ratio_zero() {
 
 #[test]
 fn apply_root_margin_clamps_oversized_negative_margin_to_empty() {
-    // IO §3.6 (legacy `rootMargin`): negative margins shrink the
-    // root rect; a shrink larger than the dimension must collapse
-    // to 0, not produce a negative-sized rect (which would corrupt
-    // downstream `Rect::intersection_inclusive`).
+    // Intersection Observer §2.2 offsets the edges inward for negative margins.
+    // The geometry helper clamps the resulting size at zero.
     let root = Rect::new(0.0, 0.0, 50.0, 50.0);
     let neg = MarginComponent::Px(-100.0);
     let margin = [neg, neg, neg, neg]; // top/right/bottom/left = -100px
@@ -292,9 +287,7 @@ fn observe_unregistered_id_is_noop() {
 
 #[test]
 fn box_less_target_delivers_initial_observation() {
-    // display:none / pre-layout target (rect_fn → None) must still get the
-    // mandated initial observation: ratio 0, isIntersecting false, zero
-    // rects — and only once (no re-delivery while it stays box-less).
+    // With threshold [0], the box-less target's first ratio of 0 crosses the threshold.
     let mut dom = EcsDom::new();
     let el = elem(&mut dom, "div");
 
@@ -369,9 +362,8 @@ fn parse_root_margin_shorthand() {
 
 #[test]
 fn parse_root_margin_rejects_invalid_units() {
-    // W3C Intersection Observer §2.2 — `rootMargin` must be a
-    // valid `<length-percentage>{1,4}`.  `em` / `vh` / bare
-    // numbers / NaN / oversize shorthand are SyntaxError.
+    // Intersection Observer §2.2 rejects relative lengths, bare numbers and
+    // more than four components. The constructor reports SyntaxError (§3.2.1).
     for bad in [
         "10em",                 // unsupported unit
         "10vh 5px",             // mixed: second token ok, first fails

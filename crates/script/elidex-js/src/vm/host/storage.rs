@@ -1,4 +1,4 @@
-//! `Storage` interface (WHATWG HTML §11.2) — VM thin binding.
+//! `Storage` interface (WHATWG HTML §12.2.1) — VM thin binding.
 //!
 //! ## Layering
 //!
@@ -24,11 +24,7 @@
 //! - `sessionStorage` (`is_local = false`) — per-VM, in-memory.  Routes
 //!   through `HostData::session_storage`.
 //!
-//! Identity is preserved via `VmInner::storage_local_instance` /
-//! `VmInner::storage_session_instance` so the Window getters return a
-//! single cached `ObjectId` across reads (`localStorage ===
-//! localStorage`).  Both fields are cleared on `Vm::unbind` to prevent
-//! cross-origin data leak through a retained reference after a rebind.
+//! See `VmInner::storage_local_instance` for the wrapper cache lifetime.
 //!
 //! ## Named-property exotic
 //!
@@ -420,6 +416,8 @@ fn require_receiver(
 // Quota error mapping
 // ---------------------------------------------------------------------------
 
+/// The named DOMException lacks the specialized interface tracked by
+/// `#11-quotaexceedederror-interface`.
 fn quota_exceeded(vm: &VmInner, message: impl Into<String>) -> VmError {
     VmError::dom_exception(vm.well_known.dom_exc_quota_exceeded_error, message.into())
 }
@@ -761,10 +759,7 @@ pub(crate) fn collect_keys(
 }
 
 impl VmInner {
-    /// Clear the per-VM Storage instance cache.  Called from
-    /// `Vm::unbind` so a retained `localStorage` reference cannot
-    /// serve the previous origin's data after a rebind to a document
-    /// with a different origin.
+    /// Clear the wrapper caches described by [`Self::storage_local_instance`].
     pub(in crate::vm) fn clear_storage_instance_cache(&mut self) {
         self.storage_local_instance = None;
         self.storage_session_instance = None;

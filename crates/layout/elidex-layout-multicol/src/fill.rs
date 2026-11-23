@@ -1,6 +1,6 @@
 //! Column filling algorithms: sequential and balanced.
 //!
-//! CSS Multi-column Layout Level 1 §7 (column-fill) and §8 (overflow columns).
+//! CSS Multi-column Layout Level 1 §7.1 (column-fill) and §8.2 (overflow columns).
 
 use elidex_ecs::{BoxFragment, ColumnFlowSlice, EcsDom, Entity, ImageData, InlineFlowLine};
 use elidex_layout_block::block::stack_block_children;
@@ -467,8 +467,8 @@ fn build_column_input<'a>(
             } else {
                 input.containing.width
             },
-            // Column box is an independent formatting context (§3.1):
-            // percentage heights resolve against the column height, not the parent's.
+            // The column box forms the containing block for its non-positioned
+            // children (CSS Multicol §2).
             height: if is_horizontal {
                 Some(frag_ctx.available_block_size)
             } else {
@@ -479,7 +479,7 @@ fn build_column_input<'a>(
         offset: col_pos,
         font_db: input.font_db,
         depth: input.depth + 1,
-        float_ctx: None, // Each column resets float context (§3)
+        float_ctx: None, // Each column establishes an independent block formatting context (§2).
         viewport: input.viewport,
         fragmentainer: Some(frag_ctx),
         break_token,
