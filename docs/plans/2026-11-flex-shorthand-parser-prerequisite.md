@@ -72,6 +72,8 @@ Through a real stylesheet animate from `flex:0 4 auto` to `flex:calc(1 + 1) calc
 
 Cite css-flexbox-1 §§7.1, 7.2.1–3 on the shorthand, shared factor and basis entry points. Cite CSS Values §§10.8–10.9 on shared calc syntax/type checking, §10.12 on top-level clamping and §9.1 on computed/used timing at the reader. Use normative §7.1 in the rewritten implementation. §7.1.1 Basic Values of flex is informative. Reproduce headings with `.claude/tools/webref heading css-flexbox-1 7` and `.claude/tools/webref heading css-flexbox-1 9.7`. Use `.claude/tools/webref body css-flexbox-1 flex-property` for the group grammar and omission rules. [Flex shorthand and components](https://drafts.csswg.org/css-flexbox-1/#flex-property).
 
+The seven specification labels trigger the preflight split default. PM 1002 keeps the two consumer fixes in G because the first head that accepts these inputs must also paint the correct literal length and publish the correct factor. Both use existing resolvers or interpolation; PM 1001’s standalone builder split and subsequent geometry migration retain their original landing order.
+
 ### §3.1 User-input touch audit
 
 The token stream comes from inline markup, stylesheet rules or CSSOM setters. Exercise malformed functions, repeated groups, invalid dimensions and trailing tokens before the next declaration. Bound tentative parsing to the two grammar groups. Retain the existing parser depth/node budgets and test that failure leaves the next declaration readable.
