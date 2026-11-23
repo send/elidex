@@ -21,7 +21,8 @@ Flex and flex-flow declared getters will serialize the winning typed longhands w
 | 4 | N · numeric semantics | 3c.3 | One lexeme conversion, arithmetic and simplification implementation in elidex-plugin for all consumers, including style and media. |
 | 5a | C1a · CSSOM resolved values | N | Route DOM and geometry-dependent harness reads through one geometry-aware query on current types. |
 | 5b.1 | C1b.1 · containing references and block consumers | C1a | Introduce the shared resolver entry. Migrate block, table and positioned callers and unify replaced sizing on existing types. |
-| 5b.2 | C1b.2 · Flex item inputs | C1b.1 | Carry assigned content size and used margins through child dispatch. Replace Flex item style writes and resolve item bases against column content extent. |
+| 5b.2-pre | C1b.2-pre · Computed item display | C1b.1 | Resolve blockification through contents before style publication. See [the prerequisite plan](2026-11-flex-item-blockification.md). |
+| 5b.2 | C1b.2 · Flex item inputs | C1b.2-pre | Carry assigned content size and used margins through child dispatch. Replace Flex item style writes and resolve item bases against column content extent. |
 | 5b.3 | C1b.3 · Grid measurement and placement | C1b.2 | Resolve inputs per track-sizing callback and final area. Replace Grid style writes and resolve cyclic gaps in definitive placement. |
 | 5c | C1c · computed representation activation | C1b.3 | Switch both field families, writers, all existing readers, typed equality and animation apply together. |
 | 6 | G′b · reference-dependent consumers | C1c | Migrate grid, float, transform, box and background with their reference-size readers. Retire remaining duplicate decoders and legacy plugin wrappers here. |
@@ -200,6 +201,14 @@ PM 1025 subdivides the former C1 work. Each child receives independent plan revi
 | C1 advisory · IMP-1/2/3/5/7, MIN-1–4 | C1c | Close partial IMP-1 through the actual projection/apply round trip; retain transform, table exception, equality, Flex route, WPT, placement, suites and gate evidence. |
 
 PM 1027 requires an independent full review before implementing each C1b child. Each replaces live callers on current types. For C1b binding af70a9d5, C1b.1 owns F3 (actual physical bases, containing writing mode and absence through consumers), F5 (shared normal/positioned replaced sizing) and F6 (Table suite). C1b.2 supplies F1’s Flex evidence. It carries formatter-assigned item content size and used margins in the existing child invocation and removes Flex style writeback. C1b.3 closes F1 with the corresponding Grid migration, F2 with per-measurement and final inputs, and F4 with the same auto grid’s intrinsic 100px height, definitive 10px gap and second row at 60px. F7 records the current-type fixture disposition. C1b.3 closes parent binding F4 and advisory IMP-6 across the three records. C1c follows C1b.3 and reruns the crossings with mixed values.
+
+PM 1029 splits C1b.2 binding F1 at the style/layout boundary. C1b.2-pre supplies the computed display and pre-layout observation. C1b.2 removes both Flex collection and placement writes and checks zero computed-style updates across the real Flex path. Its revised memo must cover these remaining rulings before implementation:
+
+- F2 and F4. Pass the item's margin-box origin and per-edge assignments to the common receiver. Apply each used edge once and preserve sibling cursor progression. Inventory Grid, Table, Multicol, block, nested Flex, replaced and early-return paths, including a nested Grid assertion.
+- F3. Basis and minimum probes use their own references and available space. Cross measurement receives assigned main and unresolved cross. Final layout receives both assigned content axes.
+- F5. Choose the physical inner main extent once from flex direction and container writing mode for percentage basis and main-axis constraints. Keep the 30px/15px control and add the vertical-writing 120×80 column contrast.
+- F6. Extend 3b.2f's interrupted p/q item with 50% width, zero edges and no grow/shrink. Assert 40px then 60px at entry widths 80px then 120px, remaining space on resumption and the p-to-q continuation independently in count and replay.
+
 
 Focused re-check at f73c77eb: C2 owns V-C1, T and G own V-C2, and G owns V-C3. PM 977 accepted the umbrella at this head.
 
