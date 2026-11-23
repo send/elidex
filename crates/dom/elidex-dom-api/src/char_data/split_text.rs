@@ -8,7 +8,9 @@
 //! `insert → fire_split_text → set_text_data` ensures Range
 //! live-tracking on the original `entity` migrates boundaries to the
 //! new node BEFORE `set_text_data` clamps remaining boundaries to the
-//! truncated head length.
+//! truncated head length. `fire_split_text` runs only inside spec step 7
+//! (parent non-null); an orphan Text skips it, so its boundaries are only
+//! clamped by step 8.
 //!
 //! # Why `insert` before `fire_split_text`
 //!
@@ -89,8 +91,9 @@ pub enum SplitTextError {
 ///    (`node_document_for_new_nodes(entity)` → `create_text_with_owner`).
 /// 5. If `entity` has a parent: insert `new_node` as the next sibling.
 ///    Fires [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert).
-/// 6. Fire [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
-///    — boundaries on `entity` at `off > offset` migrate to
+/// 6. If `entity` has a parent, fire
+///    [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
+///    (spec step 7 only; an orphan fires nothing) — boundaries on `entity` at `off > offset` migrate to
 ///    `(new_node, off - offset)`. MUST run AFTER insert (so `new_node`
 ///    is alive) but BEFORE `set_text_data` (so the clamp does not
 ///    destroy the migration target).
@@ -149,7 +152,6 @@ pub fn split_text_at_offset(
     // `after_insert(new_node, parent, idx+1)`. Skips entirely when
     // entity is orphan — parent-side adjustment is vacuous in that case.
     let parent_opt = dom.get_parent(entity);
-    let node_index = parent_opt.and_then(|_| dom.index_in_parent(entity));
     // §4.11 step 7.1 = insert new_node (queues a `childList` record on
     // parent). Route through the record-producing `apply_*` primitives
     // (same `EcsDom::insert_before` mutation underneath, so the
@@ -159,6 +161,12 @@ pub fn split_text_at_offset(
     // `InsertFailed` path: rollback + destroy).
     let mut records: Vec<MutationRecord> = Vec::new();
     if let Some(parent) = parent_opt {
+        // Pre-split index of `entity` (spec "node's index", used by steps
+        // 7.4–7.5). A parented Text always has an exposed index.
+        let Some(node_index) = dom.index_in_parent(entity) else {
+            let _ = dom.destroy_entity(new_node);
+            return Err(SplitTextError::InternalInvariant);
+        };
         // Resolve the insert reference via the EXPOSED next sibling, NOT the
         // raw `get_next_sibling`: `attach_shadow` links the host's `ShadowRoot`
         // into the raw child chain (§4.8 encapsulation), so when `entity` is
@@ -181,15 +189,18 @@ pub fn split_text_at_offset(
             return Err(SplitTextError::InsertFailed);
         }
         records = insert_records;
-    }
 
-    // Step 6: fire after_split_text BEFORE truncate. Boundaries on
-    // entity at off > offset migrate to (new_node, off - offset)
-    // (strict-greater per spec §4.11 step 7.2/7.3 — equality boundaries
-    // stay on the original node); parent-side boundary at exactly
-    // `node_index + 1` shifts +1 (the `after_insert` hook fired by
-    // step 5 already handled the `off > node_index + 1` cases).
-    dom.fire_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
+        // Step 6 (inside spec step 7 only — parent non-null): fire
+        // after_split_text BEFORE truncate. Boundaries on entity at
+        // off > offset migrate to (new_node, off - offset) (strict-greater
+        // per §4.11 steps 7.2/7.3 — equality boundaries stay on the
+        // original node); parent-side boundary at exactly `node_index + 1`
+        // shifts +1 (the `after_insert` hook fired by the insert already
+        // handled the `off > node_index + 1` cases). An orphan Text fires
+        // nothing here: only step 8 (replace data, via `set_text_data`
+        // below) touches its live ranges.
+        dom.fire_split_text(entity, new_node, offset_utf16, parent, node_index);
+    }
 
     // Step 7: truncate entity to head. Fires after_text_change which
     // clamps boundaries still on entity (those with off ≤ offset) to

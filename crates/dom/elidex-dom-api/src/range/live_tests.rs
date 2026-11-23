@@ -146,7 +146,7 @@ fn bridge_after_split_text_migrates_to_new_node() {
     let id = reg.register(r);
 
     // Split at offset 5: end_offset 8 > 5 → migrate to (new_t, 3).
-    bridge.after_split_text(t, new_t, 5, Some(parent), Some(0));
+    bridge.after_split_text(t, new_t, 5, parent, 0);
 
     reg.with_range(id, &dom, |range, _| {
         assert_eq!(range.start_container, t);
@@ -159,7 +159,7 @@ fn bridge_after_split_text_migrates_to_new_node() {
 
 #[test]
 fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
-    // Spec §4.10 step 7.2 requires the parent boundary at exactly
+    // Spec §4.11 steps 7.4–7.5 require the parent boundary at exactly
     // `node_idx + 1` to shift. The `after_insert` hook fired by
     // the prior `insert_before` only shifts boundaries with
     // `off > node_idx + 1`, so the LiveRangeBridge tops up the equality
@@ -187,13 +187,7 @@ fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
     r_before.set_end(parent, 0);
     let id_before = reg.register(r_before);
 
-    bridge.after_split_text(
-        t,
-        dom.create_text_ownerless_fixture(""),
-        5,
-        Some(parent),
-        Some(0),
-    );
+    bridge.after_split_text(t, dom.create_text_ownerless_fixture(""), 5, parent, 0);
 
     reg.with_range(id_gap, &dom, |range, _| {
         assert_eq!(range.start_offset, 2, "equal-slot boundary shifted +1");
@@ -209,7 +203,7 @@ fn bridge_after_split_text_parent_boundary_at_equal_slot_shifts() {
 
 #[test]
 fn bridge_after_split_text_node_side_equality_stays_on_original() {
-    // Spec §4.10 step 7.2 / 7.3 use strict-greater (`off > offset`)
+    // Spec §4.11 steps 7.2 / 7.3 use strict-greater (`off > offset`)
     // to migrate boundaries to `new_node`. The equality case
     // (`off == offset`) stays on the original `node` at its new
     // end — a Range collapsed at the split point is preserved on
@@ -227,7 +221,7 @@ fn bridge_after_split_text_node_side_equality_stays_on_original() {
     r.set_end(t, 5);
     let id = reg.register(r);
 
-    bridge.after_split_text(t, new_t, 5, Some(parent), Some(0));
+    bridge.after_split_text(t, new_t, 5, parent, 0);
 
     reg.with_range(id, &dom, |range, _| {
         assert_eq!(range.start_container, t, "equality boundary stays on node");

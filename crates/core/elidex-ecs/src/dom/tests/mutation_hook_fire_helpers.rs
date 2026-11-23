@@ -16,7 +16,7 @@ fn fire_split_text_helper_routes_to_hook() {
     assert!(dom.append_child(parent, new_text));
 
     let events = install_mock(&mut dom);
-    dom.fire_split_text(text, new_text, 5, Some(parent), Some(0));
+    dom.fire_split_text(text, new_text, 5, parent, 0);
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -25,8 +25,8 @@ fn fire_split_text_helper_routes_to_hook() {
             node: text,
             new_node: new_text,
             offset: 5,
-            parent: Some(parent),
-            node_index: Some(0),
+            parent,
+            node_index: 0,
         }]
     );
 }
@@ -95,7 +95,7 @@ fn fire_helpers_silent_when_no_hook_installed() {
     let parents_before = (dom.get_parent(text), dom.get_parent(new_text));
 
     // No hook installed — helpers must be no-ops, not panic.
-    dom.fire_split_text(text, new_text, 1, Some(parent), Some(0));
+    dom.fire_split_text(text, new_text, 1, parent, 0);
     dom.fire_normalize_merge(new_text, text, 2, Some(parent), Some(1));
     dom.fire_clone_created(parent, CloneScope::Subtree);
 

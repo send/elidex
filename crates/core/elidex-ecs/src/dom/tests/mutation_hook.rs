@@ -39,8 +39,8 @@ pub(super) enum MockEvent {
         node: Entity,
         new_node: Entity,
         offset: usize,
-        parent: Option<Entity>,
-        node_index: Option<usize>,
+        parent: Entity,
+        node_index: usize,
     },
     NormalizeMerge {
         merged_child: Entity,

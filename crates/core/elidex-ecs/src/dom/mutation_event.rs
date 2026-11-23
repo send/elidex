@@ -125,8 +125,8 @@ pub struct AdoptedContents {
 ///
 /// - [`Self::SplitText`] — fired by `EcsDom::fire_split_text` AFTER
 ///   `new_node` is inserted as a sibling of `node` but BEFORE `node`'s
-///   text is truncated. Source spec: **WHATWG DOM §4.11** Interface
-///   Text "split a Text node" step 7. Boundary migration ordering
+///   text is truncated, only when `node` has a parent. Source spec:
+///   **WHATWG DOM §4.11** Interface Text "split a Text node" step 7. Boundary migration ordering
 ///   contract: consumer MUST migrate boundaries on `node` with
 ///   `off > offset` to `(new_node, off - offset)` BEFORE the
 ///   subsequent `set_text_data(node, head)` fires
@@ -276,6 +276,11 @@ pub enum MutationEvent<'a> {
     /// A `Text.splitText(offset)` operation (WHATWG DOM §4.11
     /// Interface Text "split a Text node" step 7).
     ///
+    /// Fired inside step 7 only, i.e. when `node` has a parent: an orphan
+    /// Text fires no `SplitText` (only step 8, *replace data*, touches its
+    /// live ranges, via [`Self::TextChange`]). Hence `parent` and
+    /// `node_index` are always present.
+    ///
     /// **Ordering invariant**: fired AFTER `new_node` is inserted as a
     /// sibling of `node` but BEFORE `node`'s text is truncated.
     /// Boundary-on-`node` boundaries with `off > offset` MUST be
@@ -298,8 +303,8 @@ pub enum MutationEvent<'a> {
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
-        parent: Option<Entity>,
-        node_index: Option<usize>,
+        parent: Entity,
+        node_index: usize,
     },
 
     /// BEFORE the remove-merged-child step of `Node.normalize()`
