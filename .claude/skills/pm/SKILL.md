@@ -110,7 +110,7 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
-- Codex driver の gate 依頼 (`/drive` の `codex.md`): Claude helper を起こし、依頼の head を `git worktree add --detach` した helper 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、helper はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、helper は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
+- Codex driver の gate 依頼 (`/drive` の `codex.md` §1、PM 994): PM が新しい Codex session (Orca の worker-start、spec は PM が書く) を起こし、依頼の head を `git worktree add --detach` した session 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、session はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、session は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
 - Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある Claude の gate は直した後の head に回す。gate の規則は変えない。
   下見や gate の指摘の扱いのうち、範囲を広げるもの (PM 959 (4)) は全 lane に効き、`/drive` §5 が正 (PM 948 の下見は Codex driver の lane だけ)。
 - Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
@@ -206,7 +206,7 @@ gh pr checks <N> -R send/elidex
 - [ ] review 3 channel を `/external-review` Step 1 で読む (reviewThreads は改ページして `totalCount` == 取得数)。
       skill の手順内の読み取りには `# converge-manual-ok`。未解決 thread は 0 か、各々に返信と理由
 - [ ] Codex の評価対象 commit == current head、かつ dry。silent 👍 は verdict でない
-- [ ] Codex driver が書いた PR: helper gate の file (`/drive` の `codex.md`) の head が merge する head の祖先で、その後の commit は gate file の disposition にある fix か main の merge だけ (Skip-OK の PR は push の go の依頼にある skip の理由で代える、PM 927 / 934)
+- [ ] Codex driver が書いた PR: 独立 Codex session の gate file (`/drive` の `codex.md` §1) の head が merge する head の祖先で、その後の commit は gate file の disposition にある fix か main の merge だけ (Skip-OK の PR は push の go の依頼にある skip の理由で代える、PM 927 / 934)
 - [ ] gate の後に main の merge commit があれば `git show --remerge-diff <merge>` を読む。空 (clean) なら gate はやり直さない。空でない (conflict を解いた) なら、gate をやり直すかを PM が決める (PM 934)
 - [ ] **その PR の plan の landing 条件を読み直す** (PM 425 → 437): 対象は PR body、PR が実装する plan memo、
       その umbrella plan。memo は PR head の版を読む (`git fetch -q origin pull/<N>/head` の後

@@ -50,4 +50,5 @@ CS は comment だけの PR を自分で検証して merge する (merge の打�
 | gate が MIN だけ | fix せず進め、MIN は CS の inventory に記録して同じ spec group の次の batch で直す |
 | `@codex review` | head が動いて verdict が古い head のものだけの時、head ごとに 1 回。2 回目は PM |
 | sibling の取りこぼし | 絞った再確認で IMP 以上の新しい sibling が出たら、直すのをやめて該当 commit を PR から外し、clean な commit を出す |
+| 外した commit を出す時 (PM 996 addendum) | 外した commit を出す時と clean な commit だけを出す時は、origin/main から作った branch に cherry-pick し、各 commit の `git patch-id --stable` が gate で見た commit と一致することを log に残せば gate をやり直さない。一致しなければ PM |
 | batch の大きさ (試行、数 PR の後に見直す) | 1 PR に spec group 4–6 個 (comment 約 60 行、同じ spec 文書を優先)、group ごとに 1 commit。Stage 2 と独立 gate は PR ごとに 1 回で、gate は commit ごとに verdict を出し、IMP の commit は直すか次の PR に回す。semantics の行と dependency の更新は別 PR |
