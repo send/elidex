@@ -371,17 +371,11 @@ fn parse_threshold(ctx: &mut NativeContext<'_>, raw: JsValue) -> Result<Vec<f64>
     if matches!(raw, JsValue::Undefined) {
         return Ok(Vec::new());
     }
-    // WebIDL §3.10.25 union resolution for `(double or sequence<double>)`:
-    // probe `@@iterator` only on **Objects**.  Primitives — including
-    // `String`, which has an `@@iterator` of its own (code-point
-    // iteration) — must coerce directly to the `double` branch.
-    // Without the `JsValue::Object` gate, `threshold: '0.5'` would
-    // iterate `'.'` / `'5'` / `'0'` as code points and ToNumber-NaN
-    // the first one into a RangeError.  `null` falls through to the
-    // primitive coercion path as `0` per ES `ToNumber`.
+    // For the threshold union, Web IDL §3.2.25 checks objects for an iterator.
+    // A primitive string such as "0.5" converts directly to double.
     if matches!(raw, JsValue::Object(_)) {
         if let Some(iter @ JsValue::Object(_)) = ctx.vm.resolve_iterator(raw)? {
-            // Sequence branch — drain via the shared WebIDL §3.10.16
+            // Sequence branch — drain via the shared Web IDL §3.2.21
             // helper so `Array.prototype[@@iterator]` overrides and
             // other iterables are honoured uniformly.  Cap is a
             // safety bound on pathological iterators; real consumers
