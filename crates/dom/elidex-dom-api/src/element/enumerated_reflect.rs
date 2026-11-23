@@ -95,14 +95,15 @@ pub const LOADING_VALUES: &[&str] = &["eager", "lazy"];
 pub const LOADING_MISSING_DEFAULT: &str = "eager";
 pub const LOADING_INVALID_DEFAULT: &str = "eager";
 
-/// `decoding` IDL attribute (HTML §4.8.3 image decoding hint).
+/// HTML §4.8.3 defines img.decoding. Section 4.8.4.3.4 defines its hint keywords.
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const DECODING_VALUES: &[&str] = &["sync", "async", "auto"];
 pub const DECODING_MISSING_DEFAULT: &str = "auto";
 pub const DECODING_INVALID_DEFAULT: &str = "auto";
 
-/// `fetchpriority` IDL attribute (HTML §2.5.9 fetch priority attributes).
+/// HTML §2.5.9 defines the `fetchpriority` content attribute. HTMLImageElement
+/// exposes it as `fetchPriority` (HTML §4.8.3).
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const FETCH_PRIORITY_VALUES: &[&str] = &["high", "low", "auto"];
@@ -128,7 +129,7 @@ pub const SCOPE_MISSING_DEFAULT: &str = "";
 pub const SCOPE_INVALID_DEFAULT: &str = "";
 
 // ---------------------------------------------------------------------------
-// "Limited to only known values" — case-sensitive variant
+// Case-sensitive marker lookup used by the current ol.type getter
 // ---------------------------------------------------------------------------
 
 /// Return an exact match from the supplied table, or the empty string. The
