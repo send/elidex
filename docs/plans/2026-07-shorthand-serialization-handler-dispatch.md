@@ -153,7 +153,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
 - **PR 0 (this)**: foundational relocation + trait slot (behavior-preserving).
 - **PR 1**: MulticolHandler — `column-rule` / `columns` (ordered omit-initial, own
   initials).
-- **PR 2**: FlexHandler — `flex-flow` (+ `flex` keyword cases none/auto/initial).
+- **PR 2 (Flex)**: the [Flex omit-initial program](2026-11-flex-omit-initial-program.md) owns the prerequisites, typed handler migration, public formatting, and final Flex family PR (PM 959). The string trait example above describes the foundational PR until the typed-handler slice lands.
 - **PR 3**: TextHandler — `text-decoration`.
 - **PR 4**: BoxHandler — `border` (nested 4-side + omit-initial).
 - **PR 5+**: layered/grid (BackgroundHandler `background`; `font`; GridHandler
@@ -167,7 +167,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
   the same umbrella until the `list-style` longhand mapping is completed (a separate
   sub-task); flagged here so it is not orphaned.
 
-Each per-family PR is small (one handler's `serialize_shorthand` arm + tests),
+After its prerequisites land, each family increment adds its handler arm and tests,
 uses that handler's `initial_value` (no duplication), spec-cited per module.
 
 ## §3. Spec coverage map
