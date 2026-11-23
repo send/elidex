@@ -191,7 +191,7 @@ fn ol_set_start(
     )
 }
 
-// -- type (DOMString limited-to-only-known-values, case-sensitive) --------
+// The VM's type getter filters the attribute through its case-sensitive marker table.
 
 fn ol_get_type(
     ctx: &mut NativeContext<'_>,

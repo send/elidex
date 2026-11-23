@@ -244,7 +244,7 @@ pub(super) fn get_enumerated_reflect_referrer_policy(
 /// content attribute is absent, matching IDL `DOMString?` semantics.
 /// Used by `crossOrigin` (`<img>` / `<script>` / `<link>`), the only
 /// nullable enumerated reflect in the T2a slot — the others
-/// (`referrerpolicy` / `decoding` / `loading` / `fetchpriority`) are
+/// (`referrerPolicy` / `decoding` / `loading` / `fetchPriority`) are
 /// non-null `DOMString` and use the regular getter.
 pub(super) fn get_enumerated_reflect_nullable(
     ctx: &mut NativeContext<'_>,

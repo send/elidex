@@ -863,7 +863,7 @@ pub(crate) struct VmInner {
     /// and `relList`.
     #[cfg(feature = "engine")]
     pub(crate) html_area_prototype: Option<ObjectId>,
-    /// `HTMLImageElement.prototype` (HTML §4.8.4).  Carries
+    /// `HTMLImageElement.prototype` (HTML §4.8.3).  Carries
     /// DOMString reflect (`alt`, `src`, `srcset`, `sizes`, `useMap`),
     /// enumerated reflect (`crossOrigin`, `referrerPolicy`,
     /// `decoding`, `loading`, `fetchpriority`), boolean reflect
@@ -1000,8 +1000,8 @@ pub(crate) struct VmInner {
     pub(crate) html_quote_prototype: Option<ObjectId>,
     /// `HTMLOListElement.prototype` (HTML §4.4.5).  Carries
     /// `reversed` (boolean), `start` (long, default 1), and `type`
-    /// (DOMString limited-to-only-known-values: `1` / `a` / `A` /
-    /// `i` / `I`, case-sensitive match per spec).  Deprecated
+    /// (reflected DOMString). The VM currently filters `type` through
+    /// its five case-sensitive marker keywords. Deprecated
     /// `compact` deferred.
     #[cfg(feature = "engine")]
     pub(crate) html_olist_prototype: Option<ObjectId>,
