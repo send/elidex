@@ -67,6 +67,7 @@ For the PM 1113 prerequisite, exercise these crossings through real Block and Mu
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-break-3 §5.1 Breaking into Varying-size Fragmentainers | Continue content progress at the new size | Wider, narrower, same width | Inline collection, line commit, Block token producers and both resume paths | Supported inline paths | yes |
+| css-break-3 §5.1 Breaking into Varying-size Fragmentainers | Commit the selected Block source contribution before column publication | Clean boundary, local run, interrupted child, completion without a token | Block stack and direct inline producer → Multicol membership, Flex and Grid prerequisite | All three Block alternatives | yes |
 
 Review this memo together with the 3b.2f and 3b.2g umbrella rows. The 3b.1 plan landed at be0c5d24; implementation follows its style-to-layout handoff. Test elidex-layout-block and elidex-layout through their normal entry points. The later page-plan child supplies the integrated page sequence for public replay.
 
