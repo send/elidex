@@ -84,6 +84,16 @@ fn snapshot_box(dom: &EcsDom, entity: Entity) -> Option<BoxFragment> {
     Some(BoxFragment::from(&*lb))
 }
 
+fn interrupted_child(token: Option<&BreakToken>) -> Option<Entity> {
+    match token.and_then(|token| token.mode_data.as_ref()) {
+        Some(BreakTokenData::Block {
+            continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
+            ..
+        }) => Some(child.entity),
+        _ => None,
+    }
+}
+
 /// Maximum number of binary search iterations for balanced fill.
 const MAX_BALANCE_ITERATIONS: u32 = 10;
 
@@ -127,13 +137,7 @@ pub fn fill_columns_sequential(
     let mut stalled = false;
     // Snapshot an incoming interrupted child even when it finishes in this column.
     // A clean child boundary has no incoming box fragment.
-    let mut carry_midbreak = carry_break_token.as_ref().and_then(|t| match &t.mode_data {
-        Some(BreakTokenData::Block {
-            continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
-            ..
-        }) => Some(child.entity),
-        _ => None,
-    });
+    let mut carry_midbreak = interrupted_child(carry_break_token.as_ref());
 
     // Safety limit to prevent infinite loops.
     let total_limit = max_columns.min(MAX_OVERFLOW_COLUMNS);
@@ -172,16 +176,7 @@ pub fn fill_columns_sequential(
         );
 
         // Only a split inside a child snapshots that child's per-column box.
-        let break_out_child = result
-            .break_token
-            .as_ref()
-            .and_then(|bt| match &bt.mode_data {
-                Some(BreakTokenData::Block {
-                    continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
-                    ..
-                }) => Some(child.entity),
-                _ => None,
-            });
+        let break_out_child = interrupted_child(result.break_token.as_ref());
 
         let mut col_children: Vec<_> = result
             .contribution

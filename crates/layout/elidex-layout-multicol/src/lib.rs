@@ -443,6 +443,39 @@ fn layout_normal_segment(
     (batch, height)
 }
 
+fn column_shift_roots(
+    dom: &EcsDom,
+    children: &[Entity],
+    frags: &[fill::ColumnFragment],
+    atomic_exclude: &std::collections::HashSet<Entity>,
+) -> Vec<Vec<Entity>> {
+    // Each live entity retains its last fragment. A descendant can finish in an
+    // earlier column than its parent. Move its subtree at its own column offset.
+    let mut last_column = std::collections::HashMap::new();
+    for (column, fragment) in frags.iter().enumerate() {
+        for (_, entity) in fragment.contribution.contributed_items() {
+            last_column.insert(entity, column);
+        }
+    }
+    let mut shift_roots = vec![Vec::new(); frags.len()];
+    let mut pending: Vec<_> = children.iter().map(|&child| (child, None)).collect();
+    while let Some((entity, inherited_column)) = pending.pop() {
+        if atomic_exclude.contains(&entity) {
+            continue;
+        }
+        let column = last_column.get(&entity).copied().or(inherited_column);
+        if let Some(index) = column.filter(|&index| Some(index) != inherited_column) {
+            shift_roots[index].push(entity);
+        }
+        pending.extend(
+            dom.composed_children(entity)
+                .into_iter()
+                .map(|child| (child, column)),
+        );
+    }
+    shift_roots
+}
+
 /// Position column fragment children by shifting them to their column's
 /// physical position (writing-mode aware).
 fn position_column_fragments(
@@ -513,32 +546,9 @@ fn position_column_fragments(
     // born-absolute lines excluded from the column shift by construction (timing).
     let mut flows: std::collections::HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>> =
         std::collections::HashMap::new();
-    // Each live entity retains its last fragment. A descendant can finish in an
-    // earlier column than its parent. Move its subtree at its own column offset.
-    let mut last_column = std::collections::HashMap::new();
-    for (column, fragment) in frags.iter().enumerate() {
-        for (_, entity) in fragment.contribution.contributed_items() {
-            last_column.insert(entity, column);
-        }
-    }
-    let mut shift_roots = vec![Vec::new(); frags.len()];
+    let shift_roots = column_shift_roots(dom, children, frags, &atomic_exclude);
     let mut exclude = atomic_exclude.clone();
-    let mut pending: Vec<_> = children.iter().map(|&child| (child, None)).collect();
-    while let Some((entity, inherited_column)) = pending.pop() {
-        if atomic_exclude.contains(&entity) {
-            continue;
-        }
-        let column = last_column.get(&entity).copied().or(inherited_column);
-        if let Some(index) = column.filter(|&index| Some(index) != inherited_column) {
-            shift_roots[index].push(entity);
-            exclude.insert(entity);
-        }
-        pending.extend(
-            dom.composed_children(entity)
-                .into_iter()
-                .map(|child| (child, column)),
-        );
-    }
+    exclude.extend(shift_roots.iter().flatten().copied());
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
