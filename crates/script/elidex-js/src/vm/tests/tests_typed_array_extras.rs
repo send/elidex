@@ -373,13 +373,13 @@ fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
 
 // ---------------------------------------------------------------------------
 // fromIndex / offset coercion edge cases
-// (lastIndexOf §23.2.3.17 + set §23.2.3.26)
+// (lastIndexOf §23.2.3.20 + set §23.2.3.26)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn last_index_of_too_negative_from_index_returns_minus_one() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.17 step 5: when `len + fromIndex` < 0, the scan
+    // ECMA-262 §23.2.3.20 steps 5–7: when `len + fromIndex` < 0, the scan
     // has nothing to inspect → return -1.  Must NOT wrap to
     // `max(len + fromIndex, 0)` (the indexOf semantics) — that
     // would surface a false positive at index 0.

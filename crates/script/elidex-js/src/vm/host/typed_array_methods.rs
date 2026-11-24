@@ -700,7 +700,7 @@ pub(crate) fn native_typed_array_last_index_of(
     if len_elem == 0 {
         return Ok(JsValue::Number(-1.0));
     }
-    // ECMA-262 §23.2.3.20 step 5: if the adjusted fromIndex (`len +
+    // ECMA-262 §23.2.3.20 steps 5–7: if the adjusted fromIndex (`len +
     // relativeIndex` when negative) is still < 0, return -1 — the
     // reverse scan has nothing to inspect.  Mirrors
     // `Array.prototype.lastIndexOf`.
