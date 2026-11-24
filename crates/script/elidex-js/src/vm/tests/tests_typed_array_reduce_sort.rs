@@ -239,7 +239,7 @@ fn sort_default_handles_negative_numbers() {
 #[test]
 fn sort_default_places_nan_at_end_in_float_arrays() {
     let mut vm = Vm::new();
-    // Spec TypedArrayElementSortCompare sorts NaN to the end.
+    // CompareTypedArrayElements (§23.2.4.8 steps 3–5) sorts NaNs last.
     assert!(eval_bool(
         &mut vm,
         "var a = new Float64Array([3, NaN, 1, NaN, 2]); \
