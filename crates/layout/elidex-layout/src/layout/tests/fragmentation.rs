@@ -695,3 +695,51 @@ fn assert_rejected_before_publication(
         before
     );
 }
+
+#[test]
+fn block_reports_only_rows_admitted_by_table_grid() {
+    use elidex_layout_block::{FragmentainerContext, FragmentationType};
+    for with_cells in [false, true] {
+        let mut dom = EcsDom::new();
+        let mut node = |tag, display, parent| {
+            let id = dom.create_element_ownerless_fixture(tag, Attributes::default());
+            dom.world_mut().insert_one(
+                id,
+                ComputedStyle {
+                    display,
+                    ..Default::default()
+                },
+            );
+            if let Some(owner) = parent {
+                dom.append_child(owner, id);
+            }
+            id
+        };
+        let block = node("div", Display::Block, None);
+        let table = node("table", Display::Table, Some(block));
+        let count = if with_cells { 4001 } else { 1 };
+        let mut rows = Vec::new();
+        for _ in 0..count {
+            let row = node("tr", Display::TableRow, Some(table));
+            if with_cells {
+                node("td", Display::TableCell, Some(row));
+            }
+            rows.push(row);
+        }
+        let fonts = FontDatabase::new();
+        let frag = FragmentainerContext {
+            available_block_size: 1_000_000.0,
+            fragmentation_type: FragmentationType::Page,
+        };
+        let outcome = dispatch_layout_child(&mut dom, block, &contribution_input(&fonts, &frag));
+        assert!(outcome.break_token.is_none());
+        assert!(outcome.contribution.is_finished(block, table));
+        for (index, row) in rows.into_iter().enumerate() {
+            assert_eq!(
+                outcome.contribution.is_finished(table, row),
+                index < 4000,
+                "row {index}"
+            );
+        }
+    }
+}
