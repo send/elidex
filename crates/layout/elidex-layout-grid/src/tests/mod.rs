@@ -23,6 +23,10 @@ fn do_layout_grid(
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
             height: containing_height,

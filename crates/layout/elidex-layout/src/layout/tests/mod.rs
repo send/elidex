@@ -5,6 +5,7 @@ use elidex_ecs::Attributes;
 use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 
 mod basic;
+mod flex_assignment;
 mod fragmentation;
 mod provenance;
 
@@ -18,7 +19,26 @@ pub(super) struct DispatchObservation {
 }
 
 thread_local! {
+    pub(super) static TRACK_CHILD: std::cell::Cell<Option<Entity>> = const { std::cell::Cell::new(None) };
+    pub(super) static TRACK_WIDTH: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
     pub(super) static FIRST_FORMATTER: std::cell::Cell<Option<DispatchObservation>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn record_flex_dispatch(
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    effective: &LayoutInput<'_>,
+    formatter: &'static str,
+) {
+    if input.depth == 0 {
+        FIRST_FORMATTER.set(Some(DispatchObservation {
+            entity,
+            formatter,
+            incoming_width: input.containing.width,
+            effective_width: effective.containing.width,
+            shrink_to_fit: !std::ptr::eq(input, effective),
+        }));
+    }
 }
 
 fn get_layout(dom: &EcsDom, entity: Entity) -> LayoutBox {

@@ -19,6 +19,17 @@ pub struct EdgeSizes<T = f32> {
     pub left: T,
 }
 
+impl Default for EdgeSizes<Option<f32>> {
+    fn default() -> Self {
+        Self {
+            top: None,
+            right: None,
+            bottom: None,
+            left: None,
+        }
+    }
+}
+
 impl Default for EdgeSizes<f32> {
     fn default() -> Self {
         Self {

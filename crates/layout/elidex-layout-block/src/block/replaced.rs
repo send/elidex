@@ -4,19 +4,38 @@ use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, EdgeSizes};
 
 use crate::{horizontal_pb, resolve_dimension_value, sanitize, vertical_pb};
 
+#[cfg(test)]
+thread_local! { pub(super) static SOLVE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 /// Resolve width for a replaced element (e.g. `<img>`).
 ///
 /// CSS 2.1 §10.3.2: replaced elements with `width: auto` use intrinsic width.
 /// When only height is specified, width is computed from the aspect ratio.
 pub(super) fn resolve_replaced_width(
     style: &ComputedStyle,
-    containing_width: f32,
-    iw: f32,
-    ih: f32,
+    width_reference: Option<f32>,
+    intrinsic: elidex_plugin::Size,
+    assigned: elidex_plugin::Size<Option<f32>>,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
-    if style.width == Dimension::Auto {
+    #[cfg(test)]
+    SOLVE_COUNT.set(SOLVE_COUNT.get() + 1);
+    let elidex_plugin::Size {
+        width: iw,
+        height: ih,
+    } = intrinsic;
+    if let Some(width) = assigned.width {
+        return width;
+    }
+    let width = match style.width {
+        Dimension::Percentage(_) if width_reference.is_none() => Dimension::Auto,
+        width => width,
+    };
+    if width == Dimension::Auto {
+        if let Some(height) = assigned.height.filter(|_| ih > 0.0) {
+            return height * iw / ih;
+        }
         match style.height {
             Dimension::Length(h) if h.is_finite() && ih > 0.0 => {
                 // height specified, width auto: compute from aspect ratio.
@@ -30,7 +49,11 @@ pub(super) fn resolve_replaced_width(
             _ => iw, // Both auto or height auto: use intrinsic width.
         }
     } else {
-        let raw = sanitize(resolve_dimension_value(style.width, containing_width, iw));
+        let raw = sanitize(resolve_dimension_value(
+            width,
+            width_reference.unwrap_or_default(),
+            iw,
+        ));
         if style.box_sizing == BoxSizing::BorderBox {
             (raw - horizontal_pb(padding, border)).max(0.0)
         } else {
@@ -46,14 +69,20 @@ pub(super) fn resolve_replaced_width(
 pub(super) fn resolve_replaced_height(
     style: &ComputedStyle,
     used_width: f32,
-    iw: f32,
-    ih: f32,
+    intrinsic: elidex_plugin::Size,
+    assigned: elidex_plugin::Size<Option<f32>>,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
+    #[cfg(test)]
+    SOLVE_COUNT.set(SOLVE_COUNT.get() + 1);
+    let elidex_plugin::Size {
+        width: iw,
+        height: ih,
+    } = intrinsic;
     match style.height {
         Dimension::Auto => {
-            if !matches!(style.width, Dimension::Auto) && iw > 0.0 {
+            if (assigned.width.is_some() || style.width != Dimension::Auto) && iw > 0.0 {
                 // width specified, height auto: compute from aspect ratio.
                 (used_width * ih / iw).max(0.0)
             } else {

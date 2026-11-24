@@ -53,7 +53,8 @@ pub fn dispatch_layout_child(
     let effective_input = if matches!(
         style.display,
         Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
-    ) && style.width == elidex_plugin::Dimension::Auto
+    ) && input.assigned.content.width.is_none()
+        && style.width == elidex_plugin::Dimension::Auto
     {
         let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
         let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
@@ -86,7 +87,11 @@ pub fn dispatch_layout_child(
         anonymous_table::ensure_table_wrappers(dom, entity);
     }
 
-    let outcome = match style.display {
+    #[cfg(test)]
+    if !input.is_probe && tests::TRACK_CHILD.get() == Some(entity) {
+        tests::TRACK_WIDTH.set(Some(input.containing.width));
+    }
+    let mut outcome = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
@@ -102,15 +107,12 @@ pub fn dispatch_layout_child(
         Display::Flex | Display::InlineFlex => {
             let formatter = elidex_layout_flex::layout_flex;
             #[cfg(test)]
-            if input.depth == 0 {
-                tests::FIRST_FORMATTER.set(Some(tests::DispatchObservation {
-                    entity,
-                    formatter: std::any::type_name_of_val(&formatter),
-                    incoming_width: input.containing.width,
-                    effective_width: effective_input.containing.width,
-                    shrink_to_fit: !std::ptr::eq(input, effective_input),
-                }));
-            }
+            tests::record_flex_dispatch(
+                entity,
+                input,
+                effective_input,
+                std::any::type_name_of_val(&formatter),
+            );
             formatter(dom, entity, effective_input, dispatch_layout_child)
         }
         Display::Grid | Display::InlineGrid => {
@@ -139,32 +141,39 @@ pub fn dispatch_layout_child(
     // paged media rendering. The walk skips entities whose generation
     // doesn't match the current page. Non-paged paths use generation=0.
     if input.layout_generation > 0 {
+        outcome.layout_box.layout_generation = input.layout_generation;
         if let Some(mut lb) = dom.layout_box_mut(entity) {
             lb.layout_generation = input.layout_generation;
         }
     }
 
-    // CSS 2.1 §9.4.3: relative offset.
-    // Return the original LayoutBox (without offset) so siblings use the
-    // unshifted space. The ECS LayoutBox is updated with the offset.
     if style.position == Position::Relative {
-        let lb = &outcome.layout_box;
-        let mut offset_lb = lb.clone();
-        positioned::apply_relative_offset(
-            &mut offset_lb,
-            &style,
-            input.containing.width,
-            input.containing.height,
-        );
-        let delta = offset_lb.content.origin - lb.content.origin;
-        dom.set_layout_box(entity, offset_lb);
-        if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
-            let children: Vec<_> = dom.children_iter(entity).collect();
-            elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
-        }
+        publish_relative_offset(dom, entity, input, &style, &outcome.layout_box);
     }
-
     outcome
+}
+
+/// CSS 2.1 §9.4.3. Publish the offset box while preserving the normal-flow result.
+fn publish_relative_offset(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    style: &ComputedStyle,
+    lb: &LayoutBox,
+) {
+    let mut offset_lb = lb.clone();
+    positioned::apply_relative_offset(
+        &mut offset_lb,
+        style,
+        input.containing.width,
+        input.containing.height,
+    );
+    let delta = offset_lb.content.origin - lb.content.origin;
+    dom.set_layout_box(entity, offset_lb);
+    if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
+        let children: Vec<_> = dom.children_iter(entity).collect();
+        elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
+    }
 }
 
 /// Result of laying out a single page fragment in paged media.
@@ -221,6 +230,10 @@ pub fn layout_paged(
     };
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
         offset: area.origin,
@@ -390,6 +403,10 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         .ok();
 
     let root_input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(viewport.width, viewport.height),
         containing_inline_size: viewport.width,
         offset: elidex_plugin::Point::ZERO,

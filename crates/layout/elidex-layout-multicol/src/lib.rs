@@ -55,87 +55,80 @@ pub fn layout_multicol(
     let font_db = input.font_db;
     let depth = input.depth;
 
+    let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal);
+
     // --- Resolve box model ---
     let containing_inline = input.containing_inline_size;
     let padding = resolve_padding(&style, containing_inline);
     let border = sanitize_border(&style);
     let i_pb = elidex_layout_block::inline_pb(&wm, &padding, &border);
 
-    let margin_top =
-        elidex_layout_block::block::resolve_margin(style.margin_top, containing_inline);
-    let margin_bottom =
-        elidex_layout_block::block::resolve_margin(style.margin_bottom, containing_inline);
-    let margin_left =
-        elidex_layout_block::block::resolve_margin(style.margin_left, containing_inline);
-    let margin_right =
-        elidex_layout_block::block::resolve_margin(style.margin_right, containing_inline);
+    let margin = input.assigned.margins(elidex_layout_block::resolve_margins(
+        &style,
+        containing_inline,
+    ));
+    let EdgeSizes {
+        top: margin_top,
+        right: margin_right,
+        bottom: margin_bottom,
+        left: margin_left,
+    } = margin;
 
     let (margin_inline_start, margin_inline_end) = if is_horizontal {
         (margin_left, margin_right)
     } else {
         (margin_top, margin_bottom)
     };
-    let (margin_block_start, margin_block_end) = if is_horizontal {
-        (margin_top, margin_bottom)
-    } else if wm.is_block_reversed() {
-        (margin_right, margin_left)
-    } else {
-        (margin_left, margin_right)
-    };
+    let content_inline = assigned_inline.unwrap_or_else(|| {
+        let available_inline = if is_horizontal {
+            input.containing.width
+        } else {
+            input.containing.height_or_width()
+        };
 
-    let available_inline = if is_horizontal {
-        input.containing.width
-    } else {
-        input.containing.height_or_width()
-    };
-
-    // --- Resolve inline-size ---
-    let inline_size_dim = if is_horizontal {
-        style.width
-    } else {
-        style.height
-    };
-    let inline_extra = margin_inline_start + margin_inline_end + i_pb;
-    let auto_inline = (available_inline - inline_extra).max(0.0);
-    let mut content_inline =
-        resolve_dimension_value(inline_size_dim, available_inline, auto_inline).max(0.0);
-    // box-sizing: border-box — subtract inline p+b from specified inline-size.
-    if style.box_sizing == BoxSizing::BorderBox {
-        if let Dimension::Length(_) | Dimension::Percentage(_) = inline_size_dim {
-            content_inline = (content_inline - i_pb).max(0.0);
-        }
-    }
-    // Apply min/max inline-size constraints.
-    let (min_inline_dim, max_inline_dim) = if is_horizontal {
-        (style.min_width, style.max_width)
-    } else {
-        (style.min_height, style.max_height)
-    };
-    {
-        let mut min_i =
-            elidex_layout_block::resolve_min_max(min_inline_dim, containing_inline, 0.0);
-        let mut max_i =
-            elidex_layout_block::resolve_min_max(max_inline_dim, containing_inline, f32::INFINITY);
+        // --- Resolve inline-size ---
+        let inline_size_dim = if is_horizontal {
+            style.width
+        } else {
+            style.height
+        };
+        let inline_extra = margin_inline_start + margin_inline_end + i_pb;
+        let auto_inline = (available_inline - inline_extra).max(0.0);
+        let mut content_inline =
+            resolve_dimension_value(inline_size_dim, available_inline, auto_inline).max(0.0);
+        // box-sizing: border-box — subtract inline p+b from specified inline-size.
         if style.box_sizing == BoxSizing::BorderBox {
-            adjust_min_max_for_border_box(&mut min_i, &mut max_i, i_pb);
+            if let Dimension::Length(_) | Dimension::Percentage(_) = inline_size_dim {
+                content_inline = (content_inline - i_pb).max(0.0);
+            }
         }
-        content_inline = clamp_min_max(content_inline, min_i, max_i);
-    }
+        // Apply min/max inline-size constraints.
+        let (min_inline_dim, max_inline_dim) = if is_horizontal {
+            (style.min_width, style.max_width)
+        } else {
+            (style.min_height, style.max_height)
+        };
+        {
+            let mut min_i =
+                elidex_layout_block::resolve_min_max(min_inline_dim, containing_inline, 0.0);
+            let mut max_i = elidex_layout_block::resolve_min_max(
+                max_inline_dim,
+                containing_inline,
+                f32::INFINITY,
+            );
+            if style.box_sizing == BoxSizing::BorderBox {
+                adjust_min_max_for_border_box(&mut min_i, &mut max_i, i_pb);
+            }
+            content_inline = clamp_min_max(content_inline, min_i, max_i);
+        }
 
-    // --- Content position ---
-    let content_origin = if is_horizontal {
-        Point::new(
-            input.offset.x + margin_inline_start + border.left + padding.left,
-            input.offset.y + margin_block_start + border.top + padding.top,
-        )
-    } else {
-        let l_padding = elidex_plugin::LogicalEdges::from_physical(padding, wm);
-        let l_border = elidex_plugin::LogicalEdges::from_physical(border, wm);
-        Point::new(
-            input.offset.x + margin_block_start + l_border.block_start + l_padding.block_start,
-            input.offset.y + margin_inline_start + l_border.inline_start + l_padding.inline_start,
-        )
-    };
+        content_inline
+    });
+
+    let content_origin = Point::new(
+        input.offset.x + margin.left + border.left + padding.left,
+        input.offset.y + margin.top + border.top + padding.top,
+    );
 
     // --- Column geometry ---
     let column_gap = resolve_dimension_value(style.column_gap, content_inline, 0.0).max(0.0);
@@ -152,8 +145,8 @@ pub fn layout_multicol(
     } else {
         Some(input.containing.width)
     };
-    let definite_height =
-        resolve_definite_block_size(&style, containing_block, &padding, &border, wm);
+    let definite_height = assigned_block
+        .or_else(|| resolve_definite_block_size(&style, containing_block, &padding, &border, wm));
 
     // Resolve max-block-size for balanced fill upper bound.
     let max_block_dim = if is_horizontal {
@@ -240,6 +233,10 @@ pub fn layout_multicol(
                     (content_origin.x + block_cursor, content_origin.y)
                 };
                 let spanner_input = LayoutInput {
+                    available_height_if_indefinite: None,
+                    containing_width_definite: true,
+                    is_flex_item: false,
+                    assigned: elidex_layout_block::UsedAssignment::default(),
                     containing: CssSize {
                         width: if is_horizontal {
                             content_inline
@@ -287,34 +284,14 @@ pub fn layout_multicol(
         style.min_width
     };
     let min_block = elidex_layout_block::resolve_min_max(min_block_dim, containing_for_minmax, 0.0);
-    let final_block = clamp_min_max(content_block, min_block, max_block_size);
+    let final_block =
+        assigned_block.unwrap_or_else(|| clamp_min_max(content_block, min_block, max_block_size));
 
     // --- Build LayoutBox ---
     let (phys_width, phys_height) = if is_horizontal {
         (content_inline, final_block)
     } else {
         (final_block, content_inline)
-    };
-
-    let margin = if is_horizontal {
-        EdgeSizes::new(
-            margin_block_start,
-            margin_inline_end,
-            margin_block_end,
-            margin_inline_start,
-        )
-    } else {
-        let (phys_left, phys_right) = if wm.is_block_reversed() {
-            (margin_block_end, margin_block_start)
-        } else {
-            (margin_block_start, margin_block_end)
-        };
-        EdgeSizes::new(
-            margin_inline_start,
-            phys_right,
-            margin_inline_end,
-            phys_left,
-        )
     };
 
     let lb = LayoutBox {
