@@ -1,0 +1,591 @@
+use super::fragmentation::contribution_input;
+use super::*;
+
+#[test]
+fn positive_room_for_an_unstarted_size_only_child_respects_class_a_avoid() {
+    use elidex_layout_block::{
+        BlockContinuation, BreakTokenData, FragmentainerContext, FragmentationType,
+    };
+    use elidex_plugin::BreakValue;
+    let fonts = FontDatabase::new();
+    let frag = FragmentainerContext {
+        available_block_size: 15.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    for avoid in [false, true] {
+        let mut dom = EcsDom::new();
+        let owner = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(
+            owner,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        let items = [10.0, 30.0].map(|height| {
+            let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+            dom.append_child(owner, child);
+            dom.world_mut().insert_one(
+                child,
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Dimension::Length(height),
+                    ..Default::default()
+                },
+            );
+            child
+        });
+        if avoid {
+            dom.world_mut()
+                .get::<&mut ComputedStyle>(items[1])
+                .unwrap()
+                .break_before = BreakValue::Avoid;
+        }
+        let input = contribution_input(&fonts, &frag);
+        let outcome = dispatch_layout_child(&mut dom, owner, &input);
+        let token = outcome.end.into_token().unwrap();
+        let Some(BreakTokenData::Block {
+            child_index: 1,
+            continuation,
+            ..
+        }) = token.mode_data
+        else {
+            panic!("expected second child route")
+        };
+        assert!(outcome.contribution.is_finished(owner, items[0]));
+        if avoid {
+            let BlockContinuation::InterruptedChild(child) = continuation else {
+                panic!("only an avoided class A boundary")
+            };
+            assert_eq!(child.entity, items[1]);
+            assert_eq!(child.specified_size_fraction, Some(5.0 / 30.0));
+            assert_eq!(
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(items[1])
+                    .unwrap()
+                    .content
+                    .size
+                    .height,
+                5.0
+            );
+        } else {
+            assert!(matches!(continuation, BlockContinuation::ChildBoundary));
+            assert!(!dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(items[1])
+                .is_ok_and(|lb| lb.layout_generation == input.layout_generation));
+        }
+    }
+}
+
+fn make_parallel_grid() -> (EcsDom, Entity, Vec<(Entity, Entity, Entity)>, Entity) {
+    use elidex_plugin::{BreakValue, GridTrackList, TrackSection, TrackSize};
+    let mut dom = EcsDom::new();
+    let mut node = |style, parent| {
+        let entity = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(entity, style);
+        if let Some(parent) = parent {
+            dom.append_child(parent, entity);
+        }
+        entity
+    };
+    let grid = node(
+        ComputedStyle {
+            display: Display::Grid,
+            grid_template_columns: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Fr(1.0); 3],
+                line_names: Vec::new(),
+            }),
+            grid_template_rows: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Length(60.0)],
+                line_names: Vec::new(),
+            }),
+            ..Default::default()
+        },
+        None,
+    );
+    let block = |height| ComputedStyle {
+        display: Display::Block,
+        height: Dimension::Length(height),
+        ..Default::default()
+    };
+    let mut interrupted = Vec::new();
+    for height in [140.0, 210.0] {
+        let child = node(block(height), Some(grid));
+        let prefix = node(block(12.0), Some(child));
+        let suffix = node(
+            ComputedStyle {
+                break_before: BreakValue::Page,
+                ..block(14.0)
+            },
+            Some(child),
+        );
+        interrupted.push((child, prefix, suffix));
+    }
+    let whole = node(block(10.0), Some(grid));
+    (dom, grid, interrupted, whole)
+}
+
+#[test]
+fn grid_replays_two_parallel_child_routes_by_identity() {
+    use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType};
+    let (mut dom, grid, interrupted, whole) = make_parallel_grid();
+    let fonts = FontDatabase::new();
+    let mut saved = vec![None];
+    for replay in [false, true] {
+        for (page, room) in [95.0, 60.0, 30.0, 30.0].into_iter().enumerate() {
+            let frag = FragmentainerContext {
+                available_block_size: room,
+                fragmentation_type: FragmentationType::Page,
+            };
+            let generation = 1 + u32::from(replay) * 4 + u32::try_from(page).unwrap();
+            let input = elidex_layout_block::LayoutInput {
+                break_token: saved[page].as_ref(),
+                layout_generation: generation,
+                medium: elidex_plugin::Medium::Print,
+                ..contribution_input(&fonts, &frag)
+            };
+            let outcome = dispatch_layout_child(&mut dom, grid, &input);
+            let visible = |id| {
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(id)
+                    .is_ok_and(|lb| lb.layout_generation == generation)
+            };
+            assert_eq!(visible(whole), page == 0);
+            assert_eq!(outcome.contribution.is_finished(grid, whole), page == 0);
+            for (i, &(child, prefix, suffix)) in interrupted.iter().enumerate() {
+                let last = if i == 0 { 1 } else { 3 };
+                assert_eq!(visible(child), page <= last);
+                if page <= last {
+                    let expected = [[95.0, 45.0, 0.0, 0.0], [95.0, 60.0, 30.0, 25.0]][i][page];
+                    assert_eq!(
+                        dom.world()
+                            .get::<&elidex_plugin::LayoutBox>(child)
+                            .unwrap()
+                            .content
+                            .size
+                            .height,
+                        expected
+                    );
+                }
+                assert_eq!(visible(prefix), page == 0);
+                assert_eq!(visible(suffix), page == 1);
+                assert_eq!(outcome.contribution.is_finished(child, prefix), page == 0);
+                assert_eq!(outcome.contribution.is_finished(child, suffix), page == 1);
+                assert_eq!(outcome.contribution.is_finished(grid, child), page == last);
+            }
+            if page == 3 {
+                assert!(outcome.end.is_complete());
+            } else {
+                let token = outcome.end.into_token().unwrap();
+                let Some(BreakTokenData::Grid {
+                    child_break_tokens, ..
+                }) = &token.mode_data
+                else {
+                    panic!("expected Grid continuation")
+                };
+                let unresolved = if page == 0 {
+                    &interrupted[..]
+                } else {
+                    &interrupted[1..]
+                };
+                assert_eq!(child_break_tokens.len(), unresolved.len());
+                for ((child, token), (expected, _, _)) in child_break_tokens.iter().zip(unresolved)
+                {
+                    assert_eq!(child, expected);
+                    assert_eq!(token.entity, *expected);
+                }
+                if !replay {
+                    saved.push(Some(token));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn multicol_finishes_geometry_only_fragments_of_an_empty_grid() {
+    let mut dom = EcsDom::new();
+    let multi = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
+    dom.append_child(multi, grid);
+    dom.world_mut().insert_one(
+        multi,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(40.0),
+            column_count: Some(2),
+            column_fill: elidex_plugin::ColumnFill::Auto,
+            ..Default::default()
+        },
+    );
+    dom.world_mut().insert_one(
+        grid,
+        ComputedStyle {
+            display: Display::Grid,
+            height: Dimension::Length(210.0),
+            ..Default::default()
+        },
+    );
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 200.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+    let outcome = dispatch_layout_child(&mut dom, multi, &contribution_input(&fonts, &frag));
+    assert!(outcome.end.is_complete());
+    assert!(outcome.contribution.is_finished(multi, grid));
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::MulticolInfo>(multi)
+            .unwrap()
+            .segments[0]
+            .0,
+        6
+    );
+}
+
+#[test]
+fn multicol_admits_grid_rows_before_judging_progress() {
+    use elidex_plugin::{ColumnFill, GridTrackList, TrackSection, TrackSize};
+    let mut dom = EcsDom::new();
+    let mut node = |parent, style| {
+        let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(id, style);
+        if let Some(parent) = parent {
+            dom.append_child(parent, id);
+        }
+        id
+    };
+    let block = ComputedStyle {
+        display: Display::Block,
+        ..Default::default()
+    };
+    let owner = node(
+        None,
+        ComputedStyle {
+            height: Dimension::Length(100.0),
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            ..block.clone()
+        },
+    );
+    let grid = node(
+        Some(owner),
+        ComputedStyle {
+            display: Display::Grid,
+            grid_template_columns: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Fr(1.0)],
+                line_names: Vec::new(),
+            }),
+            ..Default::default()
+        },
+    );
+    let items: Vec<_> = (0..3)
+        .map(|_| {
+            node(
+                Some(grid),
+                ComputedStyle {
+                    height: Dimension::Length(60.0),
+                    ..block.clone()
+                },
+            )
+        })
+        .collect();
+    let sibling = node(Some(owner), block);
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 100.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Column,
+    };
+    let input = elidex_layout_block::LayoutInput {
+        fragmentainer: None,
+        ..contribution_input(&fonts, &frag)
+    };
+    let outcome = dispatch_layout_child(&mut dom, owner, &input);
+    assert!(
+        outcome.end.is_complete(),
+        "column flow ended as {:?}",
+        outcome.end
+    );
+    for item in items {
+        assert!(outcome.contribution.is_finished(grid, item));
+    }
+    assert!(outcome.contribution.is_finished(owner, grid));
+    assert!(outcome.contribution.is_finished(owner, sibling));
+}
+
+fn element(dom: &mut EcsDom, parent: Option<Entity>, style: ComputedStyle) -> Entity {
+    let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+    dom.world_mut().insert_one(id, style);
+    if let Some(parent) = parent {
+        dom.append_child(parent, id);
+    }
+    id
+}
+
+fn sized(display: Display, height: f32) -> ComputedStyle {
+    ComputedStyle {
+        display,
+        height: Dimension::Length(height),
+        ..Default::default()
+    }
+}
+
+fn tracks(size: f32) -> elidex_plugin::GridTrackList {
+    elidex_plugin::GridTrackList::Explicit(elidex_plugin::TrackSection {
+        tracks: vec![elidex_plugin::TrackSize::Length(size)],
+        line_names: vec![],
+    })
+}
+
+fn page(room: f32) -> elidex_layout_block::FragmentainerContext {
+    elidex_layout_block::FragmentainerContext {
+        available_block_size: room,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    }
+}
+
+#[test]
+fn empty_child_after_clean_column_boundary_finishes() {
+    let fonts = FontDatabase::new();
+    for (room, height) in [(40.0, 95.0), (15.0, 30.0)] {
+        let mut dom = EcsDom::new();
+        let owner = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                column_count: Some(2),
+                column_fill: elidex_plugin::ColumnFill::Auto,
+                ..sized(Display::Block, room)
+            },
+        );
+        let children =
+            [10.0, height, 1.0].map(|h| element(&mut dom, Some(owner), sized(Display::Block, h)));
+        let frag = page(room);
+        let outcome = dispatch_layout_child(&mut dom, owner, &contribution_input(&fonts, &frag));
+        assert!(outcome.end.is_complete());
+        for child in children {
+            assert!(outcome.contribution.is_finished(owner, child));
+        }
+    }
+}
+
+#[test]
+fn whole_grid_keeps_ordinary_size_and_sibling_position() {
+    let fonts = FontDatabase::new();
+    let frag = page(100.0);
+    for fragmented in [false, true] {
+        let mut dom = EcsDom::new();
+        let owner = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        let grid = element(
+            &mut dom,
+            Some(owner),
+            ComputedStyle {
+                grid_template_rows: tracks(60.0),
+                ..sized(Display::Grid, 20.0)
+            },
+        );
+        element(&mut dom, Some(grid), sized(Display::Block, 10.0));
+        let sibling = element(&mut dom, Some(owner), sized(Display::Block, 1.0));
+        let input = elidex_layout_block::LayoutInput {
+            fragmentainer: fragmented.then_some(&frag),
+            ..contribution_input(&fonts, &frag)
+        };
+        assert!(dispatch_layout_child(&mut dom, owner, &input)
+            .end
+            .is_complete());
+        assert_eq!(
+            dom.world()
+                .get::<&elidex_plugin::LayoutBox>(grid)
+                .unwrap()
+                .content
+                .size
+                .height,
+            20.0
+        );
+        assert_eq!(
+            dom.world()
+                .get::<&elidex_plugin::LayoutBox>(sibling)
+                .unwrap()
+                .content
+                .origin
+                .y,
+            20.0
+        );
+    }
+}
+
+#[test]
+fn aligned_grid_item_uses_room_at_its_margin_box_entry() {
+    use elidex_plugin::{AlignContent, AlignSelf, BreakValue};
+    let fonts = FontDatabase::new();
+    for track_aligned in [true, false] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                grid_template_rows: tracks(if track_aligned { 60.0 } else { 100.0 }),
+                align_content: if track_aligned {
+                    AlignContent::FlexEnd
+                } else {
+                    AlignContent::FlexStart
+                },
+                ..sized(Display::Grid, if track_aligned { 210.0 } else { 100.0 })
+            },
+        );
+        let child = element(
+            &mut dom,
+            Some(grid),
+            ComputedStyle {
+                align_self: if track_aligned {
+                    AlignSelf::FlexStart
+                } else {
+                    AlignSelf::FlexEnd
+                },
+                ..sized(Display::Block, if track_aligned { 100.0 } else { 40.0 })
+            },
+        );
+        element(&mut dom, Some(child), sized(Display::Block, 10.0));
+        if !track_aligned {
+            element(
+                &mut dom,
+                Some(child),
+                ComputedStyle {
+                    break_before: BreakValue::Page,
+                    ..sized(Display::Block, 10.0)
+                },
+            );
+        }
+        let room = if track_aligned { 180.0 } else { 90.0 };
+        let frag = page(room);
+        let outcome = dispatch_layout_child(&mut dom, grid, &contribution_input(&fonts, &frag));
+        assert!(outcome.end.token().is_some());
+        assert!(!outcome.contribution.is_finished(grid, child));
+        let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
+        assert_eq!(lb.content.origin.y, room - 30.0);
+        assert_eq!(lb.content.size.height, 30.0);
+        assert!(outcome.layout_box.content.size.height >= room);
+        drop(lb);
+        let resumed = elidex_layout_block::LayoutInput {
+            break_token: outcome.end.token(),
+            ..contribution_input(&fonts, &frag)
+        };
+        let next = dispatch_layout_child(&mut dom, grid, &resumed);
+        assert!(next.contribution.is_finished(grid, child));
+        let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
+        assert_eq!(lb.content.origin.y, 0.0);
+    }
+}
+
+#[test]
+fn auto_vertical_grid_has_no_specified_size_obligation() {
+    let mut dom = EcsDom::new();
+    let grid = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            display: Display::Grid,
+            writing_mode: elidex_plugin::WritingMode::VerticalRl,
+            ..Default::default()
+        },
+    );
+    let fonts = FontDatabase::new();
+    let frag = page(40.0);
+    let input = elidex_layout_block::LayoutInput {
+        containing: CssSize::definite(300.0, 300.0),
+        ..contribution_input(&fonts, &frag)
+    };
+    assert!(dispatch_layout_child(&mut dom, grid, &input)
+        .end
+        .is_complete());
+}
+
+#[test]
+fn row_subgrid_clamps_item_to_inherited_tracks_in_both_flows() {
+    use elidex_plugin::{GridLine, GridTrackList};
+    let fonts = FontDatabase::new();
+    let frag = page(100.0);
+    for fragmented in [false, true] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_rows: GridTrackList::Subgrid { line_names: vec![] },
+                ..Default::default()
+            },
+        );
+        let child = element(
+            &mut dom,
+            Some(grid),
+            ComputedStyle {
+                grid_row_start: GridLine::Line(2),
+                grid_row_end: GridLine::Line(3),
+                ..sized(Display::Block, 10.0)
+            },
+        );
+        let inherited = elidex_layout_block::SubgridContext {
+            row_sizes: Some(vec![30.0]),
+            col_sizes: None,
+            col_line_names: vec![],
+            row_line_names: vec![],
+            col_gap: None,
+            row_gap: None,
+        };
+        let input = elidex_layout_block::LayoutInput {
+            subgrid: Some(&inherited),
+            fragmentainer: fragmented.then_some(&frag),
+            ..contribution_input(&fonts, &frag)
+        };
+        let outcome = dispatch_layout_child(&mut dom, grid, &input);
+        assert!(outcome.end.is_complete());
+        assert!(outcome.contribution.is_finished(grid, child));
+        assert_eq!(
+            dom.world()
+                .get::<&elidex_plugin::LayoutBox>(child)
+                .unwrap()
+                .content
+                .origin
+                .y,
+            0.0
+        );
+    }
+}
+
+#[test]
+fn cloned_edges_cannot_repeat_the_same_page_forever() {
+    let fonts = FontDatabase::new();
+    for display in [Display::Block, Display::Grid] {
+        let mut dom = EcsDom::new();
+        let mut style = sized(display, 100.0);
+        style.box_decoration_break = elidex_plugin::BoxDecorationBreak::Cloned;
+        style.padding.top = Dimension::Length(20.0);
+        style.padding.bottom = Dimension::Length(20.0);
+        let root = element(&mut dom, None, style);
+        let frag = page(40.0);
+        let fragments = layout_fragmented(&mut dom, root, &contribution_input(&fonts, &frag), frag);
+        assert_eq!(fragments.len(), 5);
+        assert!(fragments.last().unwrap().end.is_complete());
+        for fragment in fragments {
+            assert_eq!(fragment.layout_box.content.size.height, 20.0);
+            assert_eq!(fragment.layout_box.padding.bottom, 0.0);
+        }
+        let zero = page(0.0);
+        let stalled = layout_fragmented(&mut dom, root, &contribution_input(&fonts, &zero), zero);
+        assert_eq!(stalled.len(), 1);
+        assert!(matches!(
+            stalled[0].end,
+            elidex_layout_block::FragmentEnd::Incomplete
+        ));
+    }
+}

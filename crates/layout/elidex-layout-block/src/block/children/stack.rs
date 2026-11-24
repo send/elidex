@@ -430,6 +430,9 @@ fn stack_fragment(
             LayoutInput {
                 offset: elidex_plugin::Point::new(input.offset.x, cursor_block),
                 float_ctx: Some(float_ctx),
+                placement: input
+                    .placement
+                    .at_offset(cursor_block - cursor_block_origin),
                 break_token: child_bt,
                 fragmentainer: room.as_ref(),
                 ..*input
@@ -438,6 +441,9 @@ fn stack_fragment(
             LayoutInput {
                 offset: elidex_plugin::Point::new(cursor_block, input.offset.y),
                 float_ctx: Some(float_ctx),
+                placement: input
+                    .placement
+                    .at_offset(cursor_block - cursor_block_origin),
                 break_token: child_bt,
                 fragmentainer: room.as_ref(),
                 ..*input

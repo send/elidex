@@ -98,6 +98,14 @@ fn area_bounds(
     }
 }
 
+/// Clamp a placed item inside a subgridded axis (CSS Grid 2 §9).
+pub(super) fn clamp_inherited_axis(start: &mut usize, span: &mut usize, tracks: Option<usize>) {
+    if let Some(count) = tracks.filter(|&n| n > 0) {
+        *start = (*start).min(count - 1);
+        *span = (*span).min(count - *start);
+    }
+}
+
 /// Resolve a `GridLine` value to a 0-based track index.
 ///
 /// `explicit_count` is the number of explicit tracks on that axis.

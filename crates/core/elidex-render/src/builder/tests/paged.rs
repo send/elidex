@@ -416,3 +416,42 @@ fn precomputed_blank_page_paints_only_its_number() {
         assert!(commands.next().is_none());
     }
 }
+
+#[test]
+fn consumed_inline_text_paints_only_on_its_source_page() {
+    use elidex_plugin::{ComputedStyle, CssColor, Dimension, Display};
+    let fonts = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, block) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(210.0),
+            background_color: CssColor::RED,
+            font_family: vec!["Elidex Test Digits".into()],
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox::default(),
+    );
+    let text = dom.create_text_ownerless_fixture("1");
+    assert!(dom.append_child(block, text));
+    let ctx = elidex_style::page::fixture(240., 180., 50., "");
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+    assert_eq!(printed.pages.len(), 3);
+    for (i, page) in printed.pages.iter().enumerate() {
+        let count: usize = page
+            .iter()
+            .filter_map(|item| {
+                if let DisplayItem::Text { glyphs, .. } = item {
+                    Some(glyphs.len())
+                } else {
+                    None
+                }
+            })
+            .sum();
+        assert_eq!(count, usize::from(i == 0));
+        assert!(page
+            .iter()
+            .any(|item| matches!(item,DisplayItem::SolidRect {color,..} if *color==CssColor::RED)));
+    }
+}

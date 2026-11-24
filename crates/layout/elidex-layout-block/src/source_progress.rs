@@ -210,6 +210,115 @@ impl ItemCoverage {
         self.ranges.get(i).is_some_and(|r| r.contains(&position))
     }
 }
+/// Test forward progress before starting another column or page at fixed geometry.
+pub fn fragment_advanced(
+    dom: &elidex_ecs::EcsDom,
+    old: Option<&crate::BreakToken>,
+    next: &crate::BreakToken,
+    contribution: &SourceProgress,
+    segment: Option<&[Entity]>,
+) -> bool {
+    let empty = SourceProgress::default();
+    let previous = match old.and_then(|token| token.mode_data.as_ref()) {
+        Some(crate::BreakTokenData::Block { coverage, .. }) => coverage,
+        _ => &empty,
+    };
+    contribution.advances(previous) || specified_size_advanced(dom, old, next, segment)
+}
+
+/// Follow the same nested interruption through both column boundaries.
+fn specified_size_advanced(
+    dom: &elidex_ecs::EcsDom,
+    old: Option<&crate::BreakToken>,
+    new: &crate::BreakToken,
+    segment: Option<&[Entity]>,
+) -> bool {
+    use crate::{BlockContinuation, BreakTokenData};
+    if old.is_some_and(|old| old.entity != new.entity) {
+        return false;
+    }
+    let children = || {
+        segment.map_or_else(
+            || std::borrow::Cow::Owned(crate::composed_children_flat(dom, new.entity)),
+            std::borrow::Cow::Borrowed,
+        )
+    };
+    let before = old.and_then(|token| token.mode_data.as_ref());
+    let previous_fraction = old
+        .and_then(|token| token.specified_size_fraction)
+        .unwrap_or(0.0);
+    let advanced = new
+        .specified_size_fraction
+        .is_some_and(|after| after > previous_fraction);
+    match new.mode_data.as_ref() {
+        Some(BreakTokenData::Block {
+            continuation: BlockContinuation::InterruptedChild(child),
+            child_index: entered_index,
+            ..
+        }) => {
+            let previous = match before {
+                Some(BreakTokenData::Block {
+                    continuation: BlockContinuation::InterruptedChild(child),
+                    ..
+                }) => Some(child.as_ref()),
+                Some(BreakTokenData::Block {
+                    child_index,
+                    continuation: BlockContinuation::ChildBoundary,
+                    ..
+                }) if child_index == entered_index
+                    && children().get(*child_index) == Some(&child.entity) =>
+                {
+                    None
+                }
+                None => None,
+                _ => return false,
+            };
+            specified_size_advanced(dom, previous, child, None)
+        }
+        Some(BreakTokenData::Block {
+            child_index,
+            continuation: BlockContinuation::ChildBoundary,
+            ..
+        }) => {
+            advanced
+                && *child_index == children().len()
+                && (before.is_none()
+                    || matches!(before, Some(BreakTokenData::Block {child_index: prior, continuation: BlockContinuation::ChildBoundary, ..}) if prior == child_index))
+        }
+        Some(BreakTokenData::Grid {
+            row_index,
+            rows_exhausted,
+            child_break_tokens,
+        }) => {
+            let (same_end, children) = match before {
+                Some(BreakTokenData::Grid {
+                    row_index: prior,
+                    rows_exhausted,
+                    child_break_tokens,
+                }) => (
+                    prior == row_index && *rows_exhausted && child_break_tokens.is_empty(),
+                    child_break_tokens.as_slice(),
+                ),
+                None => (true, &[][..]),
+                _ => return false,
+            };
+            if *rows_exhausted && child_break_tokens.is_empty() {
+                return same_end && advanced;
+            }
+            let by_id: std::collections::HashMap<_, _> = children
+                .iter()
+                .map(|(id, token)| (*id, token.as_ref()))
+                .collect();
+            child_break_tokens.iter().any(|(entity, next)| {
+                let previous = by_id.get(entity).copied();
+                (before.is_none() || previous.is_some())
+                    && specified_size_advanced(dom, previous, next, None)
+            })
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

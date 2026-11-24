@@ -14,6 +14,7 @@ pub(crate) mod measure;
 mod pack;
 
 mod collect;
+pub(crate) use collect::first_eligible_child;
 mod reconcile;
 mod styled_run;
 mod whitespace;

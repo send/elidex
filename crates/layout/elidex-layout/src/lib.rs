@@ -17,6 +17,6 @@ pub use elidex_layout_block::{
 };
 pub use hit_test::{hit_test, hit_test_with_scroll, HitTestQuery, HitTestResult};
 pub use layout::{
-    dispatch_layout_child, layout_fragmented, layout_fragmented_with_tokens, layout_paged,
-    layout_tree, PageFragment, MAX_FRAGMENTS,
+    dispatch_layout_child, layout_fragmented, layout_fragmented_with_tokens, layout_page_fragment,
+    layout_paged, layout_tree, PageFragment, MAX_FRAGMENTS,
 };

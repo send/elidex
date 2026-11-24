@@ -7,6 +7,7 @@ use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 mod basic;
 mod flex_assignment;
 mod fragmentation;
+mod grid_multicol_contributions;
 mod provenance;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

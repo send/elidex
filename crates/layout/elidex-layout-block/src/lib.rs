@@ -349,8 +349,21 @@ impl UsedAssignment {
 pub enum FragmentPlacement {
     /// Use the output medium's ordinary continuation policy.
     Normal,
+    /// Retry at a fresh page after ordinary edge reservation prevented any progress.
+    FreshPageFallback,
     /// Finish progressing column batches locally, including when printing.
     Whole,
+}
+
+impl FragmentPlacement {
+    #[must_use]
+    pub fn at_offset(self, offset: f32) -> Self {
+        if self == Self::FreshPageFallback && offset > 0.0 {
+            Self::Normal
+        } else {
+            self
+        }
+    }
 }
 
 /// Contextual parameters for a single child layout invocation.
@@ -455,6 +468,42 @@ impl<'a> LayoutInput<'a> {
             placement: env.placement,
             is_probe: true,
         }
+    }
+}
+
+impl LayoutInput<'_> {
+    /// CSS Break 3 §4.4: when a fresh page cannot advance, truncate cloned
+    /// block-end decoration first, then block-start if it still consumes all room.
+    pub fn truncate_cloned_edges(
+        &self,
+        style: &elidex_plugin::ComputedStyle,
+        padding: &mut EdgeSizes,
+        border: &mut EdgeSizes,
+        margin: &mut EdgeSizes,
+    ) {
+        if self.placement != FragmentPlacement::FreshPageFallback
+            || style.box_decoration_break != elidex_plugin::BoxDecorationBreak::Cloned
+        {
+            return;
+        }
+        let Some(room) = self.fragmentainer else {
+            return;
+        };
+        let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+        let mut edges = [&mut *padding, &mut *border, &mut *margin]
+            .map(|edges| elidex_plugin::LogicalEdges::from_physical(*edges, wm));
+        let start: f32 = edges.iter().map(|edge| edge.block_start).sum();
+        let end: f32 = edges.iter().map(|edge| edge.block_end).sum();
+        if start + end < room.available_block_size {
+            return;
+        }
+        for edge in &mut edges {
+            edge.block_end = 0.0;
+            if start >= room.available_block_size {
+                edge.block_start = 0.0;
+            }
+        }
+        [*padding, *border, *margin] = edges.map(|edge| edge.to_physical(wm));
     }
 }
 

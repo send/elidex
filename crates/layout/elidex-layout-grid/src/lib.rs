@@ -120,9 +120,10 @@ pub fn layout_grid(
     // Percentage margins/padding resolve against the containing block's inline size
     // (CSS Box Model §4/§5), not the physical width.
     let containing_inline = input.containing_inline_size;
-    let (padding, border, margin) =
+    let (mut padding, mut border, margin) =
         elidex_layout_block::resolve_box_model(&style, containing_inline);
-    let margin = input.assigned.margins(margin);
+    let mut margin = input.assigned.margins(margin);
+    input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
     let margin_top = margin.top;
     let margin_bottom = margin.bottom;
     let margin_left = margin.left;
@@ -245,8 +246,18 @@ pub fn layout_grid(
     let row_section = row_track_list.expand_with_names(block_available.unwrap_or(0.0), gap_row);
     let expanded_cols = &col_section.tracks;
     let expanded_rows = &row_section.tracks;
-    let explicit_cols = expanded_cols.len();
-    let explicit_rows = expanded_rows.len();
+    let inherited_cols = input
+        .subgrid
+        .filter(|_| col_track_list.is_subgrid())
+        .and_then(|parent| parent.col_sizes.as_deref())
+        .map(<[_]>::len);
+    let inherited_rows = input
+        .subgrid
+        .filter(|_| row_track_list.is_subgrid())
+        .and_then(|parent| parent.row_sizes.as_deref())
+        .map(<[_]>::len);
+    let explicit_cols = inherited_cols.unwrap_or(expanded_cols.len());
+    let explicit_rows = inherited_rows.unwrap_or(expanded_rows.len());
 
     // --- 4b. Build line name maps ---
     let col_name_map =
@@ -272,6 +283,12 @@ pub fn layout_grid(
         &col_name_map,
         &row_name_map,
     );
+
+    // CSS Grid 2 §9: clamp both ends of each placement to the inherited tracks.
+    for item in &mut items {
+        placement::clamp_inherited_axis(&mut item.col_start, &mut item.col_span, inherited_cols);
+        placement::clamp_inherited_axis(&mut item.row_start, &mut item.row_span, inherited_rows);
+    }
 
     // --- Determine actual grid dimensions (may exceed explicit) ---
     let actual_cols = items
@@ -484,11 +501,15 @@ pub fn layout_grid(
                 row_index,
                 child_break_tokens,
                 ..
-            }) => (*row_index, child_break_tokens.clone()),
-            _ => (0, Vec::new()),
+            }) => (*row_index, child_break_tokens.as_slice()),
+            _ => (0, &[][..]),
         },
-        None => (0, Vec::new()),
+        None => (0, &[][..]),
     };
+    let incoming: std::collections::HashMap<_, _> = resume_child_bts
+        .iter()
+        .map(|(id, token)| (*id, token.as_ref()))
+        .collect();
     let content_room = input.fragmentainer.map(|room| {
         let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
         let logical = |edges| elidex_plugin::LogicalEdges::from_physical(edges, wm);
@@ -511,8 +532,7 @@ pub fn layout_grid(
     let end_row = row_break.map_or(row_tracks.len(), |(row, _)| row);
     if input.fragmentainer.is_some() {
         items.retain(|item| {
-            (resume_row..end_row).contains(&item.row_start)
-                || resume_child_bts.iter().any(|(id, _)| *id == item.entity)
+            (resume_row..end_row).contains(&item.row_start) || incoming.contains_key(&item.entity)
         });
     }
 
@@ -560,7 +580,7 @@ pub fn layout_grid(
         contribution: elidex_layout_block::source_progress::SourceProgress::default(),
         room: content_room.as_ref(),
         resume_row,
-        incoming: &resume_child_bts,
+        incoming: &incoming,
         outgoing: Vec::new(),
         block_extent: 0.0,
         incomplete: false,
@@ -578,25 +598,41 @@ pub fn layout_grid(
         );
         let content = row_extent.max(fragment.block_extent);
         let interrupted = row_break.is_some() || !fragment.outgoing.is_empty();
-        let size = elidex_layout_block::FragmentSize::resolve(
-            block_available,
-            input.break_token.and_then(|t| t.specified_size_fraction),
-            content,
-            room.available_block_size,
-            interrupted,
-        );
-        final_block = size.extent;
-        if interrupted || size.remaining {
-            result_break_token = Some(BreakToken {
-                specified_size_fraction: size.fraction,
-                entity,
-                consumed_block_size: content,
-                mode_data: Some(BreakTokenData::Grid {
-                    row_index: end_row,
-                    rows_exhausted: row_break.is_none(),
-                    child_break_tokens: fragment.outgoing,
-                }),
-            });
+        let target = if is_horizontal_wm || input.assigned.content.width.is_some() {
+            block_available
+        } else {
+            match style.width {
+                elidex_plugin::Dimension::Length(_) => block_available,
+                elidex_plugin::Dimension::Percentage(_) if input.containing_width_definite => {
+                    block_available
+                }
+                _ => None,
+            }
+        };
+        if input.break_token.is_some()
+            || interrupted
+            || target.is_some_and(|size| size > room.available_block_size)
+        {
+            let size = elidex_layout_block::FragmentSize::resolve(
+                target,
+                input.break_token.and_then(|t| t.specified_size_fraction),
+                content,
+                room.available_block_size,
+                interrupted,
+            );
+            final_block = size.extent;
+            if interrupted || size.remaining {
+                result_break_token = Some(BreakToken {
+                    specified_size_fraction: size.fraction,
+                    entity,
+                    consumed_block_size: content,
+                    mode_data: Some(BreakTokenData::Grid {
+                        row_index: end_row,
+                        rows_exhausted: row_break.is_none(),
+                        child_break_tokens: fragment.outgoing,
+                    }),
+                });
+            }
         }
     }
     let (final_content_width, final_content_height) = if is_horizontal_wm {
@@ -710,7 +746,7 @@ pub fn layout_grid(
 /// of row tracks is checked against the available block size. Between rows,
 /// break opportunities are evaluated (forced breaks, avoid constraints).
 ///
-/// Returns `(break_token, propagated_break_before, propagated_break_after)`.
+/// Returns the selected row boundary and consumed extent, plus the propagated breaks.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn select_grid_rows(
     dom: &EcsDom,

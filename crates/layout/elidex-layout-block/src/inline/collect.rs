@@ -31,7 +31,7 @@ fn is_atomic_inline(display: Display) -> bool {
 /// a block precedes any such child (the pre-block run is empty). Mirroring render's
 /// predicate verbatim (NOT a stricter "skip display:none/non-text" filter) is what
 /// keeps the persist key and `run[0]` in agreement.
-fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
+pub(crate) fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
     for &child in children {
         // Borrowed read (no `ComputedStyle` clone like `try_get_style`) — this scan
         // only reads `position`/`display`, in a per-child loop on the inline-collect path.

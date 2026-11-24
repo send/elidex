@@ -197,16 +197,17 @@ pub fn layout_block_inner(
     // --- Resolve padding and border (protect against NaN/infinity/negative) ---
     // CSS Box Model Level 3 §5.3: padding/margin percentages refer to the
     // containing block's **inline size** (containing_inline_size).
-    let padding = crate::resolve_padding(&style, containing_inline);
-    let border = sanitize_border(&style);
+    let mut padding = crate::resolve_padding(&style, containing_inline);
+    let mut border = sanitize_border(&style);
+    // --- Resolve margins (all four sides, then map to inline/block) ---
+    let mut margin = input
+        .assigned
+        .margins(crate::resolve_margins(&style, containing_inline));
+    input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
     let i_pb = crate::inline_pb(&wm, &padding, &border);
     let l_padding = LogicalEdges::from_physical(padding, wm);
     let l_border = LogicalEdges::from_physical(border, wm);
 
-    // --- Resolve margins (all four sides, then map to inline/block) ---
-    let margin = input
-        .assigned
-        .margins(crate::resolve_margins(&style, containing_inline));
     let EdgeSizes {
         top: margin_top,
         right: margin_right_raw,
@@ -465,6 +466,27 @@ pub fn layout_block_inner(
     });
     let content_block = if geometry_only {
         children::validate_route(dom, entity, &children, input.break_token);
+        if !input.is_probe {
+            // Paint batches direct inline siblings into runs between block children.
+            // Publish an empty slice for each consumed run in this generation.
+            let keys: Vec<_> = children
+                .split(|&id| {
+                    dom.world()
+                        .get::<&elidex_plugin::ComputedStyle>(id)
+                        .is_ok_and(|s| {
+                            s.position == elidex_plugin::Position::Static
+                                && is_block_level(s.display)
+                        })
+                })
+                .filter_map(|run| crate::inline::first_eligible_child(dom, run))
+                .collect();
+            for key in keys {
+                let _ = dom.world_mut().insert_one(
+                    key,
+                    elidex_ecs::InlineFlow::single(input.layout_generation, Vec::new()),
+                );
+            }
+        }
         0.0
     } else if let Some(intr) = intrinsic {
         if let Some(size) = assigned_block {

@@ -94,78 +94,6 @@ fn interrupted_child(token: Option<&BreakToken>) -> Option<Entity> {
     }
 }
 
-/// Follow the same nested interruption through both column boundaries.
-fn specified_size_advanced(dom: &EcsDom, old: Option<&BreakToken>, new: &BreakToken) -> bool {
-    use elidex_layout_block::BlockContinuation;
-    if old.is_some_and(|old| old.entity != new.entity) {
-        return false;
-    }
-    let before = old.and_then(|token| token.mode_data.as_ref());
-    let previous_fraction = old
-        .and_then(|token| token.specified_size_fraction)
-        .unwrap_or(0.0);
-    let advanced = new
-        .specified_size_fraction
-        .is_some_and(|after| after > previous_fraction);
-    match new.mode_data.as_ref() {
-        Some(BreakTokenData::Block {
-            continuation: BlockContinuation::InterruptedChild(child),
-            ..
-        }) => {
-            let previous = match before {
-                Some(BreakTokenData::Block {
-                    continuation: BlockContinuation::InterruptedChild(child),
-                    ..
-                }) => Some(child.as_ref()),
-                None => None,
-                _ => return false,
-            };
-            specified_size_advanced(dom, previous, child)
-        }
-        Some(BreakTokenData::Block {
-            child_index,
-            continuation: BlockContinuation::ChildBoundary,
-            ..
-        }) => {
-            advanced
-                && *child_index
-                    == elidex_layout_block::composed_children_flat(dom, new.entity).len()
-                && (before.is_none()
-                    || matches!(before, Some(BreakTokenData::Block {child_index: prior, continuation: BlockContinuation::ChildBoundary, ..}) if prior == child_index))
-        }
-        Some(BreakTokenData::Grid {
-            row_index,
-            rows_exhausted,
-            child_break_tokens,
-        }) => {
-            let (same_end, children) = match before {
-                Some(BreakTokenData::Grid {
-                    row_index: prior,
-                    rows_exhausted,
-                    child_break_tokens,
-                }) => (
-                    prior == row_index && *rows_exhausted && child_break_tokens.is_empty(),
-                    child_break_tokens.as_slice(),
-                ),
-                None => (true, &[][..]),
-                _ => return false,
-            };
-            if *rows_exhausted && child_break_tokens.is_empty() {
-                return same_end && advanced;
-            }
-            child_break_tokens.iter().any(|(entity, next)| {
-                let previous = children
-                    .iter()
-                    .find(|(id, _)| id == entity)
-                    .map(|(_, token)| token.as_ref());
-                (before.is_none() || previous.is_some())
-                    && specified_size_advanced(dom, previous, next)
-            })
-        }
-        _ => false,
-    }
-}
-
 /// Maximum number of binary search iterations for balanced fill.
 const MAX_BALANCE_ITERATIONS: u32 = 10;
 
@@ -300,16 +228,13 @@ pub fn fill_columns_sequential(
         }) if *child_index == children.len() && !token.specified_size_fraction.is_some_and(|fraction| fraction < 1.0))
         });
         if let Some(next) = &carry {
-            let empty = elidex_layout_block::source_progress::SourceProgress::default();
-            let previous = match carry_break_token
-                .as_ref()
-                .and_then(|token| token.mode_data.as_ref())
-            {
-                Some(BreakTokenData::Block { coverage, .. }) => coverage,
-                _ => &empty,
-            };
-            stalled = !result.contribution.advances(previous)
-                && !specified_size_advanced(dom, carry_break_token.as_ref(), next);
+            stalled = !elidex_layout_block::source_progress::fragment_advanced(
+                dom,
+                carry_break_token.as_ref(),
+                next,
+                &result.contribution,
+                Some(children),
+            );
         }
         fragments.push(ColumnFragment {
             contribution: result.contribution,
