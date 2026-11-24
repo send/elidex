@@ -133,6 +133,7 @@ fn fragment_row_flex(
             {
                 if is_forced_break(first_style.break_before, frag_type) {
                     let bt = BreakToken {
+                        specified_size_fraction: None,
                         entity,
                         consumed_block_size: consumed,
                         mode_data: Some(BreakTokenData::Flex {
@@ -155,6 +156,7 @@ fn fragment_row_flex(
                 {
                     if is_forced_break(last_style.break_after, frag_type) {
                         let bt = BreakToken {
+                            specified_size_fraction: None,
                             entity,
                             consumed_block_size: consumed,
                             mode_data: Some(BreakTokenData::Flex {
@@ -203,6 +205,7 @@ fn fragment_row_flex(
                 let break_line = candidates[best_idx].child_index;
                 let consumed_at_break = candidates[best_idx].cursor_block;
                 let bt = BreakToken {
+                    specified_size_fraction: None,
                     entity,
                     consumed_block_size: consumed_at_break,
                     mode_data: Some(BreakTokenData::Flex {
@@ -291,6 +294,7 @@ fn fragment_column_flex(
                 if let Some(st) = elidex_layout_block::try_get_style(dom, item.entity) {
                     if is_forced_break(st.break_before, frag_type) {
                         let bt = BreakToken {
+                            specified_size_fraction: None,
                             entity,
                             consumed_block_size: consumed,
                             mode_data: Some(BreakTokenData::Flex {
@@ -311,6 +315,7 @@ fn fragment_column_flex(
                 {
                     if is_forced_break(prev_st.break_after, frag_type) {
                         let bt = BreakToken {
+                            specified_size_fraction: None,
                             entity,
                             consumed_block_size: consumed,
                             mode_data: Some(BreakTokenData::Flex {
@@ -355,6 +360,7 @@ fn fragment_column_flex(
                     let break_item = candidates[best_idx].child_index;
                     let consumed_at_break = candidates[best_idx].cursor_block;
                     let bt = BreakToken {
+                        specified_size_fraction: None,
                         entity,
                         consumed_block_size: consumed_at_break,
                         mode_data: Some(BreakTokenData::Flex {

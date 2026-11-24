@@ -123,6 +123,14 @@ pub(crate) struct GridPlacement<'a> {
 // position_items
 // ---------------------------------------------------------------------------
 
+pub(super) struct ItemFragmentation<'a> {
+    pub room: &'a elidex_layout_block::FragmentainerContext,
+    pub resume_row: usize,
+    pub incoming: &'a [(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)],
+    pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
+    pub block_extent: f32,
+}
+
 /// Position each item within its grid area and perform final layout.
 ///
 /// Returns the grid container's first baseline (CSS Grid §4.2).
@@ -132,6 +140,7 @@ pub(crate) fn position_items(
     items: &[GridItem],
     placement: &GridPlacement<'_>,
     env: &LayoutEnv<'_>,
+    mut fragments: Option<&mut ItemFragmentation<'_>>,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
@@ -398,6 +407,26 @@ pub(crate) fn position_items(
         } else {
             area_height
         };
+        let row_offset = fragments.as_ref().map_or(0.0, |entry| {
+            if item.row_start <= entry.resume_row {
+                0.0
+            } else {
+                row_positions[item.row_start] - row_positions[entry.resume_row]
+            }
+        });
+        let room = fragments
+            .as_ref()
+            .map(|entry| elidex_layout_block::FragmentainerContext {
+                available_block_size: (entry.room.available_block_size - row_offset).max(0.0),
+                ..*entry.room
+            });
+        let incoming_token = fragments.as_ref().and_then(|entry| {
+            entry
+                .incoming
+                .iter()
+                .find(|(id, _)| *id == item.entity)
+                .map(|(_, token)| token.as_ref())
+        });
         let final_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
@@ -410,13 +439,27 @@ pub(crate) fn position_items(
             depth: env.depth + 1,
             float_ctx: None,
             viewport: None,
-            fragmentainer: None,
-            break_token: None,
+            fragmentainer: room.as_ref(),
+            break_token: incoming_token,
             subgrid: child_subgrid_ctx.as_ref(),
             layout_generation: env.layout_generation,
             is_probe: env.is_probe,
         };
-        let final_lb = (env.layout_child)(dom, item.entity, &final_input).layout_box;
+        let outcome = (env.layout_child)(dom, item.entity, &final_input);
+        let final_lb = outcome.layout_box;
+        if let Some(entry) = fragments.as_deref_mut() {
+            let margin_box = final_lb.margin_box();
+            let extent = if is_horizontal_wm {
+                margin_box.size.height
+            } else {
+                margin_box.size.width
+            };
+            entry.block_extent = entry.block_extent.max(row_offset + extent);
+            if let Some(token) = outcome.break_token {
+                entry.outgoing.push((item.entity, Box::new(token)));
+            }
+            continue;
+        }
 
         // Ensure the content height matches the grid-resolved value.
         if (item_content_h - final_lb.content.size.height).abs() > LAYOUT_SIZE_EPSILON {

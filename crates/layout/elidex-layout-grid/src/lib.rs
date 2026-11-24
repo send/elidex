@@ -488,11 +488,19 @@ pub fn layout_grid(
         },
         None => (0, Vec::new()),
     };
-    let _ = &resume_child_bts; // consumed by fragmentainer (multicol/paged media) for clip/offset
-    debug_assert!(
-        resume_row == 0 || input.break_token.is_some(),
-        "resume_row > 0 without break token"
-    );
+    let (row_break, propagated_break_before, propagated_break_after) =
+        if let Some(&frag) = input.fragmentainer {
+            select_grid_rows(dom, &items, &row_tracks, gap_row, frag, resume_row)
+        } else {
+            (None, None, None)
+        };
+    let end_row = row_break.map_or(row_tracks.len(), |(row, _)| row);
+    if input.fragmentainer.is_some() {
+        items.retain(|item| {
+            (resume_row..end_row).contains(&item.row_start)
+                || resume_child_bts.iter().any(|(id, _)| *id == item.entity)
+        });
+    }
 
     // --- 12. Position items + final layout ---
     // Build SubgridContext for child subgrids that need parent track info.
@@ -531,35 +539,51 @@ pub fn layout_grid(
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
     };
-    let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
-
-    // --- 12b. Fragmentation (CSS Grid L1 §10) ---
-    let (result_break_token, propagated_break_before, propagated_break_after) =
-        if let Some(&frag) = input.fragmentainer {
-            compute_grid_fragmentation(dom, entity, &items, &row_tracks, gap_row, frag, resume_row)
-        } else {
-            (None, None, None)
-        };
-
-    // --- 13. Container dimensions ---
-    // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
-    // In horizontal: width = inline, height = block.
-    // In vertical: width = block, height = inline.
-    let total_col_size = track::total_track_size(&col_tracks, gap_col);
+    let mut fragmentation = input.fragmentainer.map(|room| position::ItemFragmentation {
+        room,
+        resume_row,
+        incoming: &resume_child_bts,
+        outgoing: Vec::new(),
+        block_extent: 0.0,
+    });
+    let grid_baseline =
+        position::position_items(dom, &items, &placement, &grid_env, fragmentation.as_mut());
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
-    let (final_content_width, mut final_content_height) = if is_horizontal_wm {
-        (content_width, block_available.unwrap_or(total_row_size))
-    } else {
-        // Vertical: width = block-size (row tracks), height = inline-size
-        let block_size = block_available.unwrap_or(total_row_size);
-        let _ = total_col_size; // inline tracks used for container_inline_size
-        (block_size, container_inline_size)
-    };
-
-    // If fragmentation produced a break, clamp content height to consumed size.
-    if let Some(ref bt) = result_break_token {
-        final_content_height = final_content_height.min(bt.consumed_block_size);
+    let mut final_block = block_available.unwrap_or(total_row_size);
+    let mut result_break_token = None;
+    if let Some(fragment) = fragmentation {
+        let selected_rows = &row_tracks[resume_row.min(end_row)..end_row];
+        let row_extent = row_break.map_or_else(
+            || track::total_track_size(selected_rows, gap_row),
+            |(_, extent)| extent,
+        );
+        let content = row_extent.max(fragment.block_extent);
+        let interrupted = row_break.is_some() || !fragment.outgoing.is_empty();
+        let size = elidex_layout_block::FragmentSize::resolve(
+            block_available,
+            input.break_token.and_then(|t| t.specified_size_fraction),
+            content,
+            fragment.room.available_block_size,
+            interrupted,
+        );
+        final_block = size.extent;
+        if interrupted || size.remaining {
+            result_break_token = Some(BreakToken {
+                specified_size_fraction: size.fraction,
+                entity,
+                consumed_block_size: content,
+                mode_data: Some(BreakTokenData::Grid {
+                    row_index: end_row,
+                    child_break_tokens: fragment.outgoing,
+                }),
+            });
+        }
     }
+    let (final_content_width, final_content_height) = if is_horizontal_wm {
+        (content_width, final_block)
+    } else {
+        (final_block, container_inline_size)
+    };
 
     // --- 14. LayoutBox ---
     // Grid container baseline (CSS Grid §4.2).
@@ -661,16 +685,15 @@ pub fn layout_grid(
 ///
 /// Returns `(break_token, propagated_break_before, propagated_break_after)`.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn compute_grid_fragmentation(
+fn select_grid_rows(
     dom: &EcsDom,
-    entity: Entity,
     items: &[GridItem],
     row_tracks: &[track::ResolvedTrack],
     gap_row: f32,
     frag: elidex_layout_block::FragmentainerContext,
     resume_row: usize,
 ) -> (
-    Option<BreakToken>,
+    Option<(usize, f32)>,
     Option<elidex_plugin::BreakValue>,
     Option<elidex_plugin::BreakValue>,
 ) {
@@ -712,22 +735,9 @@ fn compute_grid_fragmentation(
     // Accumulate consumed block size from row tracks.
     let mut consumed: f32 = 0.0;
 
-    // Account for rows before resume_row (already consumed in prior fragment).
-    for (row_idx, track) in row_tracks.iter().enumerate().take(resume_row.min(num_rows)) {
-        consumed += track.size;
-        if row_idx + 1 < num_rows {
-            consumed += gap_row;
-        }
-    }
-
     let mut candidates: Vec<BreakCandidate> = Vec::new();
 
-    for (row_idx, track) in row_tracks
-        .iter()
-        .enumerate()
-        .skip(resume_row)
-        .take(num_rows - resume_row)
-    {
+    for (row_idx, track) in row_tracks.iter().enumerate().skip(resume_row) {
         let row_size = track.size;
 
         // Check forced break-before on items starting at this row (not first row).
@@ -741,17 +751,11 @@ fn compute_grid_fragmentation(
                             .is_some_and(|st| is_forced_break(st.break_before, frag_type))
                     });
             if has_forced_before {
-                let child_break_tokens =
-                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
-                let bt = BreakToken {
-                    entity,
-                    consumed_block_size: consumed,
-                    mode_data: Some(BreakTokenData::Grid {
-                        row_index: row_idx,
-                        child_break_tokens,
-                    }),
-                };
-                return (Some(bt), propagated_before, propagated_after);
+                return (
+                    Some((row_idx, consumed)),
+                    propagated_before,
+                    propagated_after,
+                );
             }
         }
 
@@ -766,17 +770,11 @@ fn compute_grid_fragmentation(
                         .is_some_and(|st| is_forced_break(st.break_after, frag_type))
                 });
             if has_forced_after {
-                let child_break_tokens =
-                    collect_spanning_item_breaks(items, row_tracks, gap_row, row_idx);
-                let bt = BreakToken {
-                    entity,
-                    consumed_block_size: consumed,
-                    mode_data: Some(BreakTokenData::Grid {
-                        row_index: row_idx,
-                        child_break_tokens,
-                    }),
-                };
-                return (Some(bt), propagated_before, propagated_after);
+                return (
+                    Some((row_idx, consumed)),
+                    propagated_before,
+                    propagated_after,
+                );
             }
         }
 
@@ -800,17 +798,11 @@ fn compute_grid_fragmentation(
             if let Some(best_idx) = find_best_break(&candidates, available) {
                 let break_row = candidates[best_idx].child_index;
                 let consumed_at_break = candidates[best_idx].cursor_block;
-                let child_break_tokens =
-                    collect_spanning_item_breaks(items, row_tracks, gap_row, break_row);
-                let bt = BreakToken {
-                    entity,
-                    consumed_block_size: consumed_at_break,
-                    mode_data: Some(BreakTokenData::Grid {
-                        row_index: break_row,
-                        child_break_tokens,
-                    }),
-                };
-                return (Some(bt), propagated_before, propagated_after);
+                return (
+                    Some((break_row, consumed_at_break)),
+                    propagated_before,
+                    propagated_after,
+                );
             }
         }
 
@@ -822,55 +814,6 @@ fn compute_grid_fragmentation(
 
     // All rows fit — no break needed.
     (None, propagated_before, propagated_after)
-}
-
-/// Collect break tokens for grid items that span across a row break boundary.
-///
-/// An item spans across `break_row` if `item.row_start < break_row` and
-/// `item.row_start + item.row_span > break_row`. For each such item, the
-/// consumed block size is the sum of row track sizes and gaps from the item's
-/// start row up to (but not including) `break_row`.
-#[must_use]
-fn collect_spanning_item_breaks(
-    items: &[GridItem],
-    row_tracks: &[track::ResolvedTrack],
-    gap_row: f32,
-    break_row: usize,
-) -> Vec<(Entity, Box<BreakToken>)> {
-    let mut result = Vec::new();
-    let num_rows = row_tracks.len();
-
-    for item in items {
-        let item_end = item.row_start + item.row_span;
-        // Item must start before break_row and end after break_row to span the boundary.
-        if item.row_start >= break_row || item_end <= break_row {
-            continue;
-        }
-
-        // Compute consumed block size: sum of tracks from item.row_start to break_row - 1,
-        // plus inter-row gaps between those tracks.
-        let mut consumed: f32 = 0.0;
-        for (row_idx, track) in row_tracks
-            .iter()
-            .enumerate()
-            .skip(item.row_start)
-            .take(break_row.min(num_rows).saturating_sub(item.row_start))
-        {
-            consumed += track.size;
-            if row_idx + 1 < break_row && row_idx + 1 < num_rows {
-                consumed += gap_row;
-            }
-        }
-
-        let item_bt = BreakToken {
-            entity: item.entity,
-            consumed_block_size: consumed,
-            mode_data: None,
-        };
-        result.push((item.entity, Box::new(item_bt)));
-    }
-
-    result
 }
 
 /// Check whether breaking between rows at `row_idx` violates an avoid constraint.

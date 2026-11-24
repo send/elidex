@@ -109,6 +109,7 @@ pub(crate) fn compute_table_fragmentation(
             {
                 if is_forced_break(row_style.break_before, frag_type) {
                     let bt = BreakToken {
+                        specified_size_fraction: None,
                         entity,
                         consumed_block_size: consumed,
                         mode_data: Some(BreakTokenData::Table {
@@ -129,6 +130,7 @@ pub(crate) fn compute_table_fragmentation(
             {
                 if is_forced_break(prev_style.break_after, frag_type) {
                     let bt = BreakToken {
+                        specified_size_fraction: None,
                         entity,
                         consumed_block_size: consumed,
                         mode_data: Some(BreakTokenData::Table {
@@ -163,6 +165,7 @@ pub(crate) fn compute_table_fragmentation(
                 let break_row = candidates[best_idx].child_index;
                 let consumed_at_break = candidates[best_idx].cursor_block;
                 let bt = BreakToken {
+                    specified_size_fraction: None,
                     entity,
                     consumed_block_size: consumed_at_break,
                     mode_data: Some(BreakTokenData::Table {

@@ -453,7 +453,16 @@ pub fn layout_block_inner(
         }
     });
 
-    let content_block = if let Some(intr) = intrinsic {
+    let geometry_only = input.break_token.is_some_and(|token| {
+        token.entity == entity
+            && token.specified_size_fraction.is_some()
+            && matches!(&token.mode_data, Some(crate::BreakTokenData::Block {
+            child_index, continuation: crate::BlockContinuation::ChildBoundary, ..
+        }) if *child_index == children.len())
+    });
+    let content_block = if geometry_only {
+        0.0
+    } else if let Some(intr) = intrinsic {
         if let Some(size) = assigned_block {
             size
         } else if is_horizontal {
@@ -654,6 +663,53 @@ pub fn layout_block_inner(
         )
     });
 
+    let fragment_size = child_fragmentainer
+        .filter(|_| intrinsic.is_none())
+        .map(|frag| {
+            let target = assigned_block
+                .or(child_containing_block)
+                .map(|_| block_size);
+            let split = child_break_token.is_some() || inline_progress.is_some();
+            let entry_margin = if is_first_fragment
+                || style.box_decoration_break == elidex_plugin::BoxDecorationBreak::Cloned
+            {
+                margin_block_start
+            } else {
+                0.0
+            };
+            let trailing_margin =
+                if style.box_decoration_break == elidex_plugin::BoxDecorationBreak::Cloned {
+                    margin_block_end
+                } else {
+                    0.0
+                };
+            crate::FragmentSize::resolve(
+                target,
+                input
+                    .break_token
+                    .and_then(|token| token.specified_size_fraction),
+                content_block,
+                frag.available_block_size - entry_margin - trailing_margin,
+                split,
+            )
+        });
+    let block_size = fragment_size.map_or(block_size, |size| size.extent);
+    let size_fraction = fragment_size.and_then(|size| size.fraction);
+    if inline_progress.is_none()
+        && child_break_token.is_none()
+        && fragment_size.is_some_and(|size| size.remaining)
+    {
+        child_break_token = Some(crate::BreakToken {
+            entity,
+            specified_size_fraction: size_fraction,
+            consumed_block_size: content_block,
+            mode_data: Some(crate::BreakTokenData::Block {
+                child_index: children.len(),
+                continuation: crate::BlockContinuation::ChildBoundary,
+            }),
+        });
+    }
+
     // --- Build physical LayoutBox ---
     // Convert inline/block sizes and positions to physical (x, y, width, height).
     let (phys_width, phys_height) = if is_horizontal {
@@ -732,6 +788,7 @@ pub fn layout_block_inner(
         return crate::LayoutOutcome {
             layout_box: lb,
             break_token: Some(crate::BreakToken {
+                specified_size_fraction: size_fraction,
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
                 mode_data: Some(crate::BreakTokenData::Block {
@@ -746,6 +803,7 @@ pub fn layout_block_inner(
 
     // The stack token already belongs to this block. Include its leading decoration.
     if let Some(mut child_bt) = child_break_token {
+        child_bt.specified_size_fraction = size_fraction;
         child_bt.consumed_block_size += block_start_pb;
         return crate::LayoutOutcome {
             layout_box: lb,

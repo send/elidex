@@ -242,3 +242,59 @@ fn monolithic_first_child_overflows_without_break() {
     let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
     assert!((lb.content.size.height - 200.0).abs() < 0.01);
 }
+
+#[test]
+fn specified_block_size_counts_filled_fragment_room_through_replay() {
+    let fonts = FontDatabase::new();
+    for (rooms, heights, suffix_height) in [
+        (vec![95.0, 120.0], vec![95.0, 115.0], 16.0),
+        (vec![95.0, 160.0], vec![95.0, 130.0], 130.0),
+        (
+            vec![95.0, 60.0, 30.0, 30.0],
+            vec![95.0, 60.0, 30.0, 25.0],
+            16.0,
+        ),
+    ] {
+        let (mut dom, owner) = make_dom_with_block_div(ComputedStyle {
+            height: Dimension::Length(210.0),
+            ..block_style()
+        });
+        make_block_child_with_break(&mut dom, owner, 16.0, BreakValue::Auto, BreakValue::Page);
+        make_block_child(&mut dom, owner, suffix_height);
+        let mut saved = Vec::new();
+        for replay in [false, true] {
+            let mut carry = None;
+            let mut total = 0.0;
+            for (index, (&room, &expected)) in rooms.iter().zip(&heights).enumerate() {
+                let frag = FragmentainerContext {
+                    available_block_size: room,
+                    fragmentation_type: FragmentationType::Page,
+                };
+                if !replay {
+                    saved.push(carry.clone());
+                }
+                let input = LayoutInput {
+                    break_token: saved[index].as_ref(),
+                    fragmentainer: Some(&frag),
+                    ..base_input(&fonts)
+                };
+                let outcome = crate::layout_block_only(&mut dom, owner, &input);
+                assert_eq!(outcome.layout_box.content.size.height, expected);
+                total += expected;
+                carry = outcome.break_token;
+                if index + 1 == rooms.len() {
+                    assert!(carry.is_none());
+                } else {
+                    let token = carry.as_ref().unwrap();
+                    assert!(
+                        (token.specified_size_fraction.unwrap() - f64::from(total) / 210.0).abs()
+                            < 1e-10
+                    );
+                    assert!(
+                        matches!(&token.mode_data, Some(BreakTokenData::Block { child_index, .. }) if *child_index == if index == 0 { 1 } else { 2 })
+                    );
+                }
+            }
+        }
+    }
+}

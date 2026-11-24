@@ -83,8 +83,52 @@ pub struct BreakToken {
     pub entity: Entity,
     /// How much block-axis size was consumed before the break.
     pub consumed_block_size: f32,
+    /// Cumulative share of this box's own definite content-box target.
+    pub specified_size_fraction: Option<f64>,
     /// Layout-mode-specific data for resumption.
     pub mode_data: Option<BreakTokenData>,
+}
+
+/// Used content-box size for one fragment (CSS Break 3 §§5.1, 5.3).
+#[derive(Clone, Copy, Debug)]
+pub struct FragmentSize {
+    pub extent: f32,
+    pub fraction: Option<f64>,
+    pub remaining: bool,
+}
+
+impl FragmentSize {
+    #[must_use]
+    pub fn resolve(
+        target: Option<f32>,
+        incoming: Option<f64>,
+        content: f32,
+        room: f32,
+        interrupted: bool,
+    ) -> Self {
+        let covered = incoming.unwrap_or_default();
+        let remaining = target.map_or(0.0, |size| f64::from(size) * (1.0 - covered));
+        let room = f64::from(room.max(0.0));
+        let content = f64::from(content.max(0.0));
+        let extent = if interrupted || remaining > room {
+            content.max(room)
+        } else {
+            content.max(remaining)
+        };
+        let fraction = target.map(|size| {
+            if size > 0.0 {
+                (covered + extent / f64::from(size)).min(1.0)
+            } else {
+                1.0
+            }
+        });
+        #[allow(clippy::cast_possible_truncation)]
+        Self {
+            extent: extent as f32,
+            fraction,
+            remaining: extent < remaining,
+        }
+    }
 }
 
 /// How block layout resumes at its recorded child index.
@@ -542,6 +586,7 @@ mod tests {
     #[test]
     fn break_token_nested() {
         let inner = BreakToken {
+            specified_size_fraction: None,
             entity: Entity::DANGLING,
             consumed_block_size: 50.0,
             mode_data: Some(BreakTokenData::Block {
@@ -550,6 +595,7 @@ mod tests {
             }),
         };
         let outer = BreakToken {
+            specified_size_fraction: None,
             entity: Entity::DANGLING,
             consumed_block_size: 100.0,
             mode_data: Some(BreakTokenData::Flex {
