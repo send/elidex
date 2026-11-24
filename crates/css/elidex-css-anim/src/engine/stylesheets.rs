@@ -1,6 +1,6 @@
 //! The parsed stylesheet Arc is issued by the owner's version-stamped ECS cache.
 //! Keep one capture per live version and select the last rule in document order.
-use super::{AnimationEngine, IndexedRule, RegisteredRule};
+use super::{AnimationEngine, IndexedRule};
 use elidex_css::Stylesheet;
 use std::{
     collections::HashMap,
@@ -52,10 +52,6 @@ impl AnimationEngine {
         {
             return;
         }
-        // Remove only entries backed by the former stylesheet set. Separately
-        // registered rules remain owned by the engine.
-        self.keyframes
-            .retain(|_, rule| matches!(rule, RegisteredRule::Standalone(_)));
         let mut previous: HashMap<_, _> = self
             .sheets
             .drain(..)
@@ -72,12 +68,12 @@ impl AnimationEngine {
     }
 
     fn install_captures(&mut self, captures: Vec<SheetCapture>) {
+        self.stylesheet_rules.clear();
         for capture in &captures {
             for indexed in &capture.rules {
-                self.keyframes.insert(
-                    indexed.rule.name.clone(),
-                    RegisteredRule::Stylesheet(Arc::clone(indexed)),
-                );
+                self.standalone.remove(&indexed.rule.name);
+                self.stylesheet_rules
+                    .insert(indexed.rule.name.clone(), Arc::clone(indexed));
             }
         }
         self.sheets = captures;

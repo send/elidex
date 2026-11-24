@@ -26,21 +26,6 @@ mod stylesheets;
 use keyframe_index::IndexedRule;
 use std::sync::Arc;
 
-#[derive(Debug)]
-enum RegisteredRule {
-    Standalone(IndexedRule),
-    Stylesheet(Arc<IndexedRule>),
-}
-
-impl RegisteredRule {
-    fn indexed(&self) -> &IndexedRule {
-        match self {
-            Self::Standalone(rule) => rule,
-            Self::Stylesheet(rule) => rule,
-        }
-    }
-}
-
 /// Inputs captured for one target before this frame's animation publication.
 pub struct KeyframeTarget<'a> {
     /// Computed values supplying implicit boundary keyframes.
@@ -69,7 +54,8 @@ pub struct AnimationEngine {
     /// Running animation instances per entity.
     animations: HashMap<EntityId, Vec<AnimationInstance>>,
     /// Registered `@keyframes` rules by name.
-    keyframes: HashMap<String, RegisteredRule>,
+    standalone: HashMap<String, IndexedRule>,
+    stylesheet_rules: HashMap<String, Arc<IndexedRule>>,
     sheets: Vec<stylesheets::SheetCapture>,
     /// Cached result of `has_running()`. `None` means invalidated (needs recomputation).
     has_running_cache: Option<bool>,
@@ -83,7 +69,8 @@ impl AnimationEngine {
             timeline: DocumentTimeline::new(),
             transitions: HashMap::new(),
             animations: HashMap::new(),
-            keyframes: HashMap::new(),
+            standalone: HashMap::new(),
+            stylesheet_rules: HashMap::new(),
             sheets: Vec::new(),
             has_running_cache: None,
         }
@@ -106,16 +93,20 @@ impl AnimationEngine {
         rule: KeyframesRule,
         registry: Option<&elidex_plugin::CssPropertyRegistry>,
     ) {
-        self.keyframes.insert(
-            rule.name.clone(),
-            RegisteredRule::Standalone(IndexedRule::new(rule, registry)),
-        );
+        self.standalone
+            .insert(rule.name.clone(), IndexedRule::new(rule, registry));
     }
 
     /// Look up a `@keyframes` rule by name.
     #[must_use]
     pub fn get_keyframes(&self, name: &str) -> Option<&KeyframesRule> {
-        self.keyframes.get(name).map(|entry| &entry.indexed().rule)
+        self.indexed_rule(name).map(|entry| &entry.rule)
+    }
+
+    fn indexed_rule(&self, name: &str) -> Option<&IndexedRule> {
+        self.standalone
+            .get(name)
+            .or_else(|| self.stylesheet_rules.get(name).map(Arc::as_ref))
     }
 
     /// Add a transition for an entity.
@@ -481,9 +472,8 @@ impl AnimationEngine {
     ) -> Vec<(String, elidex_plugin::CssValue)> {
         #[allow(clippy::cast_possible_truncation)]
         let progress = progress.clamp(0.0, 1.0) as f32;
-        self.keyframes.get(name).map_or_else(Vec::new, |rule| {
-            rule.indexed().sample(progress, anim_timing, target)
-        })
+        self.indexed_rule(name)
+            .map_or_else(Vec::new, |rule| rule.sample(progress, anim_timing, target))
     }
 
     /// Remove all animations and transitions for an entity.
@@ -519,9 +509,8 @@ impl AnimationEngine {
             .values()
             .flat_map(|anims| anims.iter().map(AnimationInstance::name))
             .collect();
-        self.keyframes.retain(|name, rule| {
-            matches!(rule, RegisteredRule::Stylesheet(_)) || referenced.contains(name.as_str())
-        });
+        self.standalone
+            .retain(|name, _| referenced.contains(name.as_str()));
     }
 
     /// Cancel all running animations for an entity, emitting `animationcancel` events.

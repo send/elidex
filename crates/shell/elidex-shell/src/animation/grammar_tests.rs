@@ -6,7 +6,15 @@ fn sample(keyframes: &str, progress: f64) -> ComputedStyle {
 }
 
 fn sample_with_grow(keyframes: &str, progress: f64, grow: f32) -> ComputedStyle {
-    let css = format!("@keyframes test {{ {keyframes} }} div {{ flex-grow:{grow}; margin-left:80px; animation-name:test; animation-duration:1s; animation-timing-function:linear }}");
+    sample_on(
+        keyframes,
+        progress,
+        &format!("flex-grow:{grow}; margin-left:80px"),
+    )
+}
+
+fn sample_on(keyframes: &str, progress: f64, underlying: &str) -> ComputedStyle {
+    let css = format!("@keyframes test {{ {keyframes} }} div {{ {underlying}; animation-name:test; animation-duration:1s; animation-timing-function:linear }}");
     let mut result = build_pipeline_interactive("<div></div>", &css);
     let target = result.dom.query_by_tag("div")[0];
     let _events = result.animation_engine.tick(progress);
@@ -289,4 +297,53 @@ fn inherited_flex_keyframe_uses_the_parents_computed_factors() {
     let span = result.dom.query_by_tag("span")[0];
     let style = result.dom.world().get::<&ComputedStyle>(span).unwrap();
     assert_eq!((style.flex_grow, style.flex_shrink), (4., 2.));
+}
+
+#[test]
+fn initial_border_endpoints_use_target_style_and_color() {
+    let style = sample_on(
+        "from {border-top-width:initial} to {border-top-width:9px}",
+        0.5,
+        "border-top-style:solid",
+    );
+    assert_eq!(style.border_top.width, 6.);
+    for border in ["none", "hidden", "solid"] {
+        let style = sample_on("from {border-top-width:initial;border-top-color:initial} to {border-top-width:initial;border-top-color:initial}", 0.5, &format!("border-top-style:{border};border-top-width:12px;color:red;border-top-color:blue"));
+        assert_eq!(
+            style.border_top.width,
+            if border == "solid" { 3. } else { 0. }
+        );
+        assert_eq!(style.border_top.color, style.color);
+    }
+}
+
+#[test]
+fn discrete_computed_endpoints_replace_nondefault_underlying_values() {
+    for end in ["2", "initial"] {
+        let frames = format!(
+            "from {{z-index:initial;line-height:initial}} to {{z-index:{end};line-height:2}}"
+        );
+        let style = sample_on(&frames, 0.25, "position:relative;z-index:7;line-height:4");
+        assert_eq!(style.z_index, None);
+        assert_eq!(style.line_height, elidex_plugin::LineHeight::Normal);
+        let later = sample_on(&frames, 0.75, "position:relative;z-index:7;line-height:4");
+        assert_eq!(later.z_index, end.parse().ok());
+        assert_eq!(later.line_height, elidex_plugin::LineHeight::Number(2.));
+    }
+}
+
+#[test]
+fn perspective_property_resolves_physical_and_viewport_literals() {
+    for (unit, reference) in [("1in", "96px"), ("10lvw", "10vw")] {
+        let frames = |v| format!("from {{perspective:96px}} to {{perspective:{v}}}");
+        let style = sample(&frames(unit), 0.5);
+        assert!(style.has_perspective);
+        assert_eq!(
+            style.perspective,
+            sample(&frames(reference), 0.5).perspective
+        );
+        if unit == "1in" {
+            assert_eq!(style.perspective, Some(96.));
+        }
+    }
 }

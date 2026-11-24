@@ -373,8 +373,12 @@ pub(crate) fn parse_perspective_property(
     if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Keyword("none".to_string()));
     }
-    // Positive length only
-    parse_non_negative_length(input)
+    match elidex_plugin::css_resolve::strict::parse_literal_length_or_percentage(input) {
+        Ok(value @ CssValue::Length(n, _)) if n >= 0.0 => Ok(value),
+        _ => Err(ParseError::simple(
+            "expected non-negative perspective length",
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------

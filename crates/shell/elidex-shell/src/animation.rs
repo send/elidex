@@ -438,6 +438,8 @@ fn defaulted_endpoint(
     keyword: &elidex_plugin::CssValue,
     parent: &ComputedStyle,
     initial: &ComputedStyle,
+    target: &ComputedStyle,
+    ctx: &elidex_plugin::ResolveContext,
     registry: &elidex_plugin::CssPropertyRegistry,
 ) -> elidex_plugin::CssValue {
     use elidex_plugin::CssValue;
@@ -446,11 +448,11 @@ fn defaulted_endpoint(
             && registry
                 .resolve(name)
                 .is_some_and(|handler| handler.is_inherited(name)));
-    elidex_style::get_computed_with_registry(
-        name,
-        if inherits { parent } else { initial },
-        registry,
-    )
+    if inherits {
+        elidex_style::get_computed_with_registry(name, parent, registry)
+    } else {
+        elidex_style::get_computed_initial(name, target, initial, registry, ctx)
+    }
 }
 
 /// Apply animated values from active transitions and animations to `ComputedStyle`.
@@ -494,22 +496,17 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
         // Collect animated values from keyframe animations.
         // CSS Animations L1 5: read underlying computed values before applying
         // animation, so before-only keyframe properties interpolate correctly.
-        let underlying_values: Option<HashMap<String, elidex_plugin::CssValue>> = result
-            .dom
-            .world()
-            .get::<&ComputedStyle>(entity)
-            .ok()
-            .map(|style| {
-                let mut map = HashMap::new();
-                for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
-                    let v =
-                        elidex_style::get_computed_with_registry(prop, &style, &result.registry);
-                    if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
-                        map.insert((*prop).to_string(), v);
-                    }
+        let target = result.dom.world().get::<&ComputedStyle>(entity).ok();
+        let underlying_values = target.as_deref().map(|style| {
+            let mut map = HashMap::new();
+            for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+                let v = elidex_style::get_computed_with_registry(prop, style, &result.registry);
+                if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
+                    map.insert((*prop).to_string(), v);
                 }
-                map
-            });
+            }
+            map
+        });
 
         let parent_style = inheritance_parent(&result.dom, entity)
             .and_then(|e| result.dom.world().get::<&ComputedStyle>(e).ok());
@@ -546,6 +543,8 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
                                 keyword,
                                 parent_style,
                                 &initial_style,
+                                target.as_deref().unwrap_or(&initial_style),
+                                &ctx,
                                 &result.registry,
                             )
                         },

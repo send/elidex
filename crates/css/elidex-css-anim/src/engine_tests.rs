@@ -569,3 +569,26 @@ fn stylesheet_order_selects_existing_captures() {
     engine.sync_stylesheets(&[]);
     assert!(engine.get_keyframes("same").is_none());
 }
+
+#[test]
+fn pruning_standalone_override_reveals_original_sheet_capture() {
+    let sheet = Arc::new(elidex_css::parse_stylesheet(
+        "@keyframes same {to {order:1}}",
+        elidex_css::Origin::Author,
+    ));
+    let sheets = std::slice::from_ref(&sheet);
+    let mut engine = AnimationEngine::new();
+    engine.sync_stylesheets(sheets);
+    let captured = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    engine.register_keyframes(crate::parse::parse_keyframes("same", "to {order:2}"));
+    assert_ne!(
+        captured,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.prune_unused_keyframes();
+    engine.sync_stylesheets(sheets);
+    assert_eq!(
+        captured,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+}
