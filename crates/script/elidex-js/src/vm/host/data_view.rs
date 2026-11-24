@@ -389,9 +389,9 @@ fn ensure_in_range(n: f64, dv_len: u32, size: u32, method: &str) -> Result<u32, 
     Ok(offset)
 }
 
-/// Decode `little_endian_arg` (optional 3rd arg for multi-byte
-/// methods) as a boolean.  `undefined` → `false` (big-endian per
-/// §25.3.4 default).  ToBoolean semantics.
+/// Multi-byte getters take littleEndian second and setters take it third
+/// (e.g. §25.3.4.11 and §25.3.4.22). Both default to big-endian.
+/// GetViewValue step 4 and SetViewValue step 6 apply ToBoolean.
 fn decode_little_endian(ctx: &NativeContext<'_>, arg: Option<JsValue>) -> bool {
     match arg {
         Some(v) if !matches!(v, JsValue::Undefined) => ctx.to_boolean(v),
