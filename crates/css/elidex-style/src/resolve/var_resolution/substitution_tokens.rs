@@ -41,3 +41,45 @@ fn repeated_references_charge_each_occurrence() {
         assert_eq!(result.is_some(), size == 32_767);
     }
 }
+
+#[test]
+fn only_selected_fallback_counts_toward_output_budget() {
+    let huge = "x".repeat(65_537);
+    let inherited = HashMap::from([
+        (
+            "--ok".into(),
+            ComputedCustom::Value(ComponentValues::capture("2px").unwrap()),
+        ),
+        (
+            "--name".into(),
+            ComputedCustom::Value(ComponentValues::capture("--ok").unwrap()),
+        ),
+    ]);
+    for (first, expected) in [
+        ("--ok", Some("2px")),
+        ("...var(--name)", Some("2px")),
+        ("--missing", None),
+    ] {
+        let value = ComponentValues::capture(&format!("var({first},{huge})")).unwrap();
+        let actual = Environment::new(&inherited, HashMap::new()).ordinary(&value);
+        assert_eq!(actual.as_ref().map(ComponentValues::source), expected);
+    }
+}
+
+#[test]
+fn shortening_eof_string_repair_uses_final_byte_length() {
+    let inherited = HashMap::from([(
+        "--x".into(),
+        ComputedCustom::Value(ComponentValues::capture(r#""\000061"#).unwrap()),
+    )]);
+    for size in [65_536, 65_537] {
+        let suffix = "x".repeat(size - 4);
+        let value = ComponentValues::capture(&format!("var(--x),{suffix}")).unwrap();
+        let actual = Environment::new(&inherited, HashMap::new()).ordinary(&value);
+        if size == 65_536 {
+            assert_eq!(actual.unwrap().source(), format!(r#""a",{suffix}"#));
+        } else {
+            assert!(actual.is_none());
+        }
+    }
+}

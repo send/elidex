@@ -211,19 +211,11 @@ impl<'a> Environment<'a> {
         let mut invalid = false;
         while i < range.end {
             let call = if early_only {
-                if i + 3 < range.end
-                    && items[i..i + 3].iter().all(|t| t.kind == Kind::Delim('.'))
-                    && is_var(&items[i + 3].kind)
-                {
-                    i + 3
-                } else {
-                    i = if is_var(&items[i].kind) {
-                        items[i].end
-                    } else {
-                        i + 1
-                    };
-                    continue;
-                }
+                let Some(call) = next_spread(seq, i..range.end) else {
+                    break;
+                };
+                i = call - 3;
+                call
             } else if is_var(&items[i].kind) {
                 i
             } else {
@@ -231,7 +223,12 @@ impl<'a> Environment<'a> {
                 continue;
             };
             if !invalid {
-                writer.append(seq, start..i).ok_or(Failure::Invalid)?;
+                invalid = if early_only {
+                    writer.append_arguments(seq, start..i)
+                } else {
+                    writer.append(seq, start..i)
+                }
+                .is_none();
             }
             match self.call(seq, call, nesting + 1) {
                 Ok(value) if !invalid => {
@@ -245,7 +242,7 @@ impl<'a> Environment<'a> {
                         }
                         return Ok(value);
                     }
-                    writer.replacement(&value).ok_or(Failure::Invalid)?;
+                    invalid = writer.replacement(&value).is_none();
                 }
                 Ok(_) => {}
                 Err(Failure::Invalid) => invalid = true,
@@ -257,24 +254,27 @@ impl<'a> Environment<'a> {
         if invalid {
             return Err(Failure::Invalid);
         }
-        writer
-            .append(seq, start..range.end)
-            .ok_or(Failure::Invalid)?;
+        if early_only {
+            writer.append_arguments(seq, start..range.end)
+        } else {
+            writer.append(seq, start..range.end)
+        }
+        .ok_or(Failure::Invalid)?;
         writer.finish().ok_or(Failure::Invalid)
     }
 
     fn call(&mut self, seq: &Sequence, index: usize, nesting: usize) -> Result<Sequence, Failure> {
         let call = &seq.items()[index];
-        let args = self.expand(
-            seq,
-            index + 1..call.end - usize::from(call.closed),
-            true,
-            nesting,
-        )?;
-        let (name_range, fallback) = args
-            .variable_arguments(0..args.items().len())
-            .ok_or(Failure::Invalid)?;
-        let name = match self.expand(&args, name_range, false, nesting) {
+        let range = index + 1..call.end - usize::from(call.closed);
+        let early;
+        let (args, range) = if next_spread(seq, range.clone()).is_some() {
+            early = self.expand(seq, range, true, nesting)?;
+            (&early, 0..early.items().len())
+        } else {
+            (seq, range)
+        };
+        let (name_range, fallback) = args.variable_arguments(range).ok_or(Failure::Invalid)?;
+        let name = match self.expand(args, name_range, false, nesting) {
             Ok(name) => Some(name),
             Err(Failure::Invalid) => None,
             Err(Failure::Depth) => return Err(Failure::Depth),
@@ -289,8 +289,28 @@ impl<'a> Environment<'a> {
             }
         }
         let fallback = fallback.ok_or(Failure::Invalid)?;
-        self.expand(&args, fallback, false, nesting)
+        self.expand(args, fallback, false, nesting)
     }
+}
+
+/// CSS Values 5 Appendix A: descend in preorder except into another var().
+fn next_spread(seq: &Sequence, range: Range<usize>) -> Option<usize> {
+    let items = seq.items();
+    let mut i = range.start;
+    while i < range.end {
+        if i + 3 < range.end
+            && items[i..i + 3].iter().all(|t| t.kind == Kind::Delim('.'))
+            && is_var(&items[i + 3].kind)
+        {
+            return Some(i + 3);
+        }
+        i = if is_var(&items[i].kind) {
+            items[i].end
+        } else {
+            i + 1
+        };
+    }
+    None
 }
 
 fn is_var(kind: &Kind) -> bool {
@@ -311,6 +331,25 @@ fn sole_ident(seq: &Sequence) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn budget_failure_visits_sibling_dependencies_in_both_root_orders() {
+        let big = "x".repeat(Writer::MAX_BYTES + 1);
+        for body in ["var(--big) var(--b)".to_owned(), format!("{big} var(--b)")] {
+            let locals = HashMap::from([
+                ("--big".into(), Sequence::capture(&big).unwrap()),
+                ("--a".into(), Sequence::capture(&body).unwrap()),
+                ("--b".into(), Sequence::capture("var(--a,2px)").unwrap()),
+            ]);
+            let inherited = HashMap::new();
+            for first in ["--a", "--b"] {
+                let mut env = Environment::new(&inherited, locals.clone());
+                assert_eq!(env.root(first), ComputedCustom::Invalid);
+                let width = Sequence::capture("var(--b,7px)").unwrap();
+                assert_eq!(env.ordinary(&width).unwrap().source(), "7px");
+            }
+        }
+    }
 
     #[test]
     fn publishes_a_cycle_only_when_all_participants_have_unwound() {

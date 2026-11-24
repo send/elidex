@@ -10,6 +10,7 @@ struct Piece {
     spelling: Spelling,
     intended: Spelling,
     kind: ComponentKind,
+    charged: Option<usize>,
     separator: bool,
     join: bool,
 }
@@ -37,6 +38,20 @@ impl SubstitutionWriter {
     }
 
     pub fn append(&mut self, seq: &ComponentValues, range: Range<usize>) -> Option<()> {
+        self.append_range(seq, range, true)
+    }
+
+    /// Unselected authored arguments are grammar input, not substitution output.
+    pub fn append_arguments(&mut self, seq: &ComponentValues, range: Range<usize>) -> Option<()> {
+        self.append_range(seq, range, false)
+    }
+
+    fn append_range(
+        &mut self,
+        seq: &ComponentValues,
+        range: Range<usize>,
+        charge: bool,
+    ) -> Option<()> {
         if !range.is_empty() && !self.implicit_closers.is_empty() {
             let closers = std::mem::take(&mut self.implicit_closers);
             for close in closers {
@@ -55,14 +70,34 @@ impl SubstitutionWriter {
             return Some(());
         }
         let items = seq.items();
-        let len = items[range.end - 1].span.end - items[range.start].span.start;
-        if len > MAX_BYTES - self.bytes {
+        let last = range.end - 1;
+        let fixed = items[last].span.start - items[range.start].span.start;
+        if charge && fixed > MAX_BYTES - self.bytes {
             return None;
         }
-        self.bytes += len;
+        let last_spelling = seq.spelling(last);
+        let tail = if charge {
+            minimum_boundary_bytes(&items[last].kind, last_spelling.as_str())?
+        } else {
+            0
+        };
+        if charge {
+            let len = fixed.checked_add(tail)?;
+            if len > MAX_BYTES - self.bytes {
+                return None;
+            }
+            self.bytes += len;
+        }
         for index in range {
             let spelling = seq.spelling(index);
             self.pieces.push(Piece {
+                charged: charge.then(|| {
+                    if index == last {
+                        tail
+                    } else {
+                        spelling.as_str().len()
+                    }
+                }),
                 intended: spelling.clone(),
                 spelling,
                 kind: items[index].kind.clone(),
@@ -114,10 +149,6 @@ impl SubstitutionWriter {
                     } else {
                         let prev = &mut self.pieces[i - 1];
                         let repaired = repair(prev.source())?;
-                        self.bytes = self.bytes - prev.source().len() + repaired.len();
-                        if self.bytes > MAX_BYTES {
-                            return None;
-                        }
                         prev.spelling = Spelling::owned(repaired);
                         if mandatory || !equivalent(&self.pieces[start..end], join, "") {
                             if !equivalent(&self.pieces[start..end], join, "/**/") {
@@ -135,6 +166,16 @@ impl SubstitutionWriter {
                 }
             }
         }
+        // Fixed spellings were charged before append. Settle a repairable
+        // boundary only after its actual spelling (including EOF) is known.
+        for piece in &self.pieces {
+            if let Some(prepaid) = piece.charged {
+                self.bytes = (self.bytes - prepaid).checked_add(piece.source().len())?;
+                if self.bytes > MAX_BYTES {
+                    return None;
+                }
+            }
+        }
         ComponentValues::from_splices(self.pieces.into_iter().flat_map(|piece| {
             let separator = piece
                 .separator
@@ -143,6 +184,32 @@ impl SubstitutionWriter {
                 .into_iter()
                 .chain(std::iter::once((piece.kind, piece.spelling)))
         }))
+    }
+}
+
+/// CSSOM serialization can shorten an EOF string, URL or incomplete escape.
+/// A closed token or ordinary fixed span is charged at its full authored length.
+fn minimum_boundary_bytes(kind: &ComponentKind, source: &str) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let terminator = match kind {
+        ComponentKind::String => Some(bytes[0]),
+        ComponentKind::Url => Some(b')'),
+        _ => None,
+    };
+    let escaped_tail =
+        |prefix: &[u8]| prefix.iter().rev().take_while(|&&b| b == b'\\').count() % 2 == 1;
+    let can_repair = match terminator {
+        Some(end) => {
+            bytes.len() == 1
+                || bytes.last() != Some(&end)
+                || escaped_tail(&bytes[..bytes.len() - 1])
+        }
+        None => escaped_tail(bytes),
+    };
+    if can_repair {
+        Some(source.len().min(repair(source)?.len()))
+    } else {
+        Some(source.len())
     }
 }
 

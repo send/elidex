@@ -206,6 +206,8 @@ mod tests {
             ("initial", "var(--x)", None, "7px"),
             ("<", "f(var(--x)!--)", Some("f(</**/!--)"), "auto"),
             ("<!--", "f(var(--x))", Some("f(<!--)"), "auto"),
+            (r"\61", "var(--x) b", Some(r"\61/**/ b"), "auto"),
+            ("a/*x*", "var(--x), serif", Some("a/*x**/, serif"), "auto"),
             (r"\61 ", "var(--x) b", Some(r"\61  b"), "auto"),
             ("\"a", "var(--x), serif", Some("\"a\", serif"), "auto"),
             ("a/*b*/", "var(--x)*", Some("a/*b*/*"), "auto"),
