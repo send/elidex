@@ -64,13 +64,9 @@ fn build_anim_style_from_winners(
     }
 }
 
-/// Whether an entity should be skipped during tree walking.
-///
-/// Returns `true` for pseudo-element entities (already styled). `<template>`
-/// content needs no skip here: it is inert by construction, living in a
-/// *detached* `TemplateContents` fragment (HTML §4.12.3) no light-tree walk
-/// reaches; the `<template>` element itself is styled normally but has no
-/// light children.
+/// Returns whether the entity is a generated pseudo-element. The style walk
+/// skips these already-styled entities, and shadow stylesheet collection
+/// excludes their generated text from the authored CSS.
 fn is_generated_pseudo(dom: &EcsDom, entity: Entity) -> bool {
     dom.world().get::<&PseudoElementMarker>(entity).is_ok()
 }
