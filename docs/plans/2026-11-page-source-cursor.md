@@ -12,6 +12,32 @@ Carry source coordinates through collection, whitespace processing, transformati
 
 Give the Block token three explicit alternatives. A **local run continuation** carries run identity and consumed intervals on the owning block or mixed stack. Both mid-run and trailing-run flushes produce this alternative. An **interrupted child** identifies the current child and carries its nested token. A **child boundary** identifies the next child for ordinary sibling resumption. Match these alternatives in stack and Multicol. Route local runs directly to the formatter, nested tokens to the identified child, and child boundaries to the next child. Only an interrupted child selects the spanning-child snapshot/shift path. Preserve whole-column persistence for a complete run. The counting and paint layout passes each start from the same immutable input progress and geometry; capture their results before per-entity output is overwritten.
 
+### Block coverage prerequisite for Flex and Grid (PM 1113)
+
+Land the independently reviewed amendment to this plan, then the Block producer and its Multicol reader in one implementation PR, then 3b.2f, then 3b.2g. Keep the independent Flex row-boundary fix on the 3b.2f branch. Before the prerequisite lands, PM checks overlapping Block edits with L2. The nested formatter owns the decision about which source it consumed.
+
+**Commit and resume.** Within one immutable input, committed `SourceProgress` is authoritative for consumption. Commit the selected candidate's prefix of admitted children, including the terminal boundary of every completed empty child. For an interrupted child retain the precise nested state and its partial coverage under the child's owner and source identities. A local run contributes its actual committed source ranges, including ranges across text nodes. Retain prior committed coverage across pages and share its immutable history across replay. Export the selected fragment's contribution from the stack even on a final fragment, where there is no outgoing token. Speculative measurements and discarded candidates publish no contribution. An unfinished item identity and nested routing token alone cannot prove F6: after p, coverage must include p and exclude q, and after q the complement must be empty.
+
+The Block producer sets `child_index` from its selected boundary as a routing aid. At a clean boundary it identifies the first remaining eligible child (or the end); at an interruption it identifies the unfinished child named by the nested token; for a local run it identifies the first child of the owning run, possibly already partly consumed. Check the route against the selected coverage and typed identity. A disagreement is an invalid continuation: reject it before layout or publication and surface the invariant failure, including in release builds. Never silently prefer a conflicting ordinal or restart from empty. In an overflow retreat, the checked route, coverage and consumed extent all come from the winning candidate. Geometry changes preserve the source order and input snapshot.
+
+**Producer and reader inventory.** On base 98460f4a run the following search across the repository, including tests; classify each hit as construction, routing, inspection or fixture. Repeat at the implementation head and account for every new site. As a positive control the search must find both the direct inline constructor and the stack helper definition, and all eight stack calls below. Inspect imports and aliases of the enum and helper as well as these qualified names.
+
+```sh
+rg -n 'BreakTokenData::Block|make_block_break_token|BlockContinuation::(ChildBoundary|InterruptedChild|LocalRun)' crates
+```
+
+| Site on the base | Coverage obligation |
+|---|---|
+| Block stack, `children/stack.rs` 235, 329, 415–416, 425, 459 | Five clean boundaries: forced before, deferral of a monolithic child, retreat to a selected candidate, overflow accepted after the current child, forced after. Test exact included and excluded siblings for each. |
+| Same stack, 378 | Interrupted child: retain earlier completed siblings, the child's identity, its real nested continuation and only its committed content. |
+| Same stack, 206 and 503; direct inline `block/mod.rs` 737 | Mid-run and trailing-run flushes and direct inline interruption share the same source coordinates. Carry completed earlier siblings alongside the local-run state. |
+| `block/children/mod.rs::make_block_break_token` | Shared stack constructor; verify all three alternatives carry coverage and the chosen extent. |
+| `stack.rs` and `block/mod.rs` entry matches | Route clean, interrupted and local-run inputs from the recorded boundary. |
+| Multicol `fill.rs` 169–205, particularly 177–178 | The Block-shaped expression at 177 is a match on the stack's output. The stack constructs that token. Replace the two outer-ordinal reads used to assign column members with the actual per-fragment contribution from the stack. |
+| Render `builder/paged.rs::collect_continuation_entities` | Preserve nested interrupted-child traversal for counter suppression; completed siblings do not become continuing entities. |
+
+**Multicol membership.** Enumerate contributed direct children in source order. A finished child is a member only in the column that committed it. A genuinely interrupted child can contribute to several columns. Distinguish the current column's contribution from cumulative coverage, including in the final column. Retain the typed interruption for spanning-box snapshots and the existing once-per-column shift of each physical box; membership alone does not identify a spanning snapshot. A direct local run carries source progress and retains its existing whole-column persistence. Keep balancing probes isolated from the definitive fill. Remove the ordinal membership slices in the same PR.
+
 ### Sibling audit at d1bff8b6
 
 | Consumer | Observation | Disposition |
@@ -27,6 +53,14 @@ Give the Block token three explicit alternatives. A **local run continuation** c
 | Source boundary × geometry | Committed line → next-width formatter | Use four equal-width words A–D, simple LTR, deterministic metrics, one line per page and widows/orphans of one. Size the narrow line for one word and the wide line for two including the space. Narrow→wide→wide must emit [A], [B C], [D]; wide→narrow→narrow must emit [A B], [C], [D]. On every page the first word begins at inline offset zero from the content origin. Check the expected groups and first-word positions separately on the count and paint layout passes. Retain a constant-width control. |
 | Source boundary × run kind | Collector and packer → direct and mixed block consumers | Repeat with multiple text nodes, a nested inline, an atomic item, a transformed character, collapsed whitespace and an empty decorated inline. Verify source coverage and atomic identity across an inline run followed by a block and a trailing inline run. Use L2’s existing semantics as inputs. |
 | Geometry × replay | Count pass → per-page layout pass | With the same start cursor and width, compare each pass against the expected consumed interval set, emitted group and positions, then compare the two outputs. Check termination and total pages against emitted fragments. An updated snapshot must begin at the initial cursor. |
+
+For the PM 1113 prerequisite, exercise these crossings through real Block and Multicol layout:
+
+| Crossing | Observable result |
+|---|---|
+| Selected boundary × coverage | Force a break between sibling boxes p and q. Assert p terminal, q untouched; resume twice at changed width, emit only q, and finish. Include a completed empty sibling and an overflow/avoid retreat where a tentatively measured sibling remains uncovered. |
+| Routing × identity | Independently corrupt a clean-boundary ordinal and an interrupted-child identity while preserving coverage. Both inputs must be rejected before publishing a box. Verify normal mixed local-run resumption where the run's first child has partial coverage. |
+| Membership × nested progress | In sequential and balanced Multicol place a completed sibling before an interrupted child, then a following sibling. Check ordered per-column membership, partial and terminal coverage, snapshots and offsets through the final tokenless column. Replay from saved inputs and compare actual emissions independently. Include clean-boundary, raw-text local-run and balanced-probe controls. |
 
 ## §3. Spec coverage map
 
