@@ -277,12 +277,7 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
     );
 
     let font_db = FontDatabase::new();
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 400.0,
-        page_height: 600.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
-        page_rules: Vec::new(),
-    };
+    let page_ctx = elidex_style::page::fixture(400.0, 600.0, 10.0, "");
     let _ = layout_paged(&mut dom, &page_ctx, &font_db);
 
     assert!(
@@ -332,12 +327,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
 
     let font_db = FontDatabase::new();
     // Margins exceed the page box ⇒ content_width/height <= 0 ⇒ the early return.
-    let degenerate = elidex_plugin::PagedMediaContext {
-        page_width: 10.0,
-        page_height: 10.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(20.0),
-        page_rules: Vec::new(),
-    };
+    let degenerate = elidex_style::page::fixture(10.0, 10.0, 20.0, "");
     let pages = layout_paged(&mut dom, &degenerate, &font_db);
 
     assert!(pages.is_empty(), "degenerate page box lays nothing out");
@@ -351,12 +341,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // added the invalidate to this arm alone would pass.
     let mut empty_dom = EcsDom::new();
     empty_dom.screen_layout_pass(|_| {});
-    let sane = elidex_plugin::PagedMediaContext {
-        page_width: 400.0,
-        page_height: 600.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
-        page_rules: Vec::new(),
-    };
+    let sane = elidex_style::page::fixture(400.0, 600.0, 10.0, "");
     let pages = layout_paged(&mut empty_dom, &sane, &font_db);
 
     assert!(pages.is_empty(), "no layout roots ⇒ nothing laid out");

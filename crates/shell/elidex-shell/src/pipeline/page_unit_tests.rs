@@ -1,5 +1,5 @@
 use crate::{build_pipeline_interactive, pipeline::build_paged_pipeline};
-use elidex_plugin::{CssColor, EdgeSizes, PagedMediaContext, Point, Rect};
+use elidex_plugin::{CssColor, EdgeSizes, PageGeometry, Point, Rect};
 use elidex_render::{DisplayItem, PagedDisplayList};
 
 #[derive(Debug, PartialEq)]
@@ -47,29 +47,25 @@ fn printed_box(properties: &str) -> BoxPaint {
     .expect("an installed test font");
     let css = format!("html {{font-size:16px}} @page {{font-size:20px; @top-left {{content:'X';font-family:'{family}';background-color:red; border-style:solid; {properties} }} }}");
     let mut result = build_pipeline_interactive("<main></main>", &css);
-    let context = PagedMediaContext {
-        page_width: 600.,
-        page_height: 400.,
-        page_margins: EdgeSizes::uniform(100.),
-        page_rules: result
+    let device = PageGeometry {
+        sheet: elidex_plugin::Size::new(600., 400.),
+        margins: EdgeSizes::uniform(100.),
+    };
+    let authored = || {
+        result
             .stylesheets
             .iter()
-            .flat_map(|s| s.page_rules.iter().cloned())
-            .collect(),
+            .flat_map(|s| &s.page_rules)
+            .flat_map(|rule| &rule.boxes)
+            .flat_map(|(_, decls)| decls.iter().map(|d| (d.property.clone(), d.value.clone())))
+            .collect::<Vec<_>>()
     };
-    let original = context.page_rules[0]
-        .margins
-        .top_left
-        .as_ref()
-        .unwrap()
-        .properties
-        .clone();
-    let interleaved = build_paged_pipeline(
+    let original = authored();
+    let (interleaved, context) = build_paged_pipeline(
         &mut result.dom,
         &result.stylesheets,
         &result.font_db,
-        &context,
-        &result.registry,
+        device,
         result.engine_mode,
     );
     let fragments = elidex_layout::layout_paged(&mut result.dom, &context, &result.font_db);
@@ -79,15 +75,7 @@ fn printed_box(properties: &str) -> BoxPaint {
         &fragments,
         &context,
     );
-    assert_eq!(
-        context.page_rules[0]
-            .margins
-            .top_left
-            .as_ref()
-            .unwrap()
-            .properties,
-        original
-    );
+    assert_eq!(authored(), original);
     let painted = paint(&interleaved);
     assert_eq!(paint(&precomputed), painted);
     painted
@@ -145,5 +133,111 @@ fn zero_margin_font_preserves_background_and_borders_without_text() {
         let zero = sample(size);
         assert!(zero.text.is_empty());
         assert_eq!(zero.rectangles, positive.rectangles);
+    }
+}
+
+#[test]
+fn first_page_area_drives_document_units_while_print_media_keeps_the_device_sheet() {
+    use elidex_plugin::{ComputedStyle, CssValue, LengthUnit, Size};
+    let css="html{font-size:2vw;--base:calc(1em + 1rem + 10lvw)} main{color:black;background-color:white}
+        @media print and (min-width:900px){main{color:red}}
+        @media print and (min-width:1001px){main{background-color:red}}
+        @page{font-size:1.5em;margin:0;margin-left:1vw;@top-left{content:'1';padding-left:1rem;padding-right:10vw}}
+        @page :first{size:var(--base)}";
+    let mut result = build_pipeline_interactive("<main></main>", css);
+    let device = PageGeometry {
+        sheet: Size::new(1000., 1000.),
+        margins: EdgeSizes::uniform(100.),
+    };
+    for (extra, sheet, area, font) in [
+        ("", 120., 112., 2.24),
+        (
+            "@page :first {--base:calc(1em + 1rem + 10lvw + 100px)}",
+            220.,
+            212.,
+            4.24,
+        ),
+    ] {
+        let overrides = elidex_css::parse_stylesheet(extra, elidex_css::Origin::Author);
+        let mut sheets = result.stylesheets.clone();
+        sheets.push(overrides);
+        let (_, pages) = build_paged_pipeline(
+            &mut result.dom,
+            &sheets,
+            &result.font_db,
+            device,
+            result.engine_mode,
+        );
+        let first = pages.select(1, false);
+        assert_eq!(first.geometry.sheet.width, sheet);
+        assert_eq!(first.geometry.margins.left, 8.);
+        assert_eq!(first.geometry.area().size.width, area);
+        let html = result.dom.query_by_tag("html")[0];
+        let main = result.dom.query_by_tag("main")[0];
+        let root = result.dom.world().get::<&ComputedStyle>(html).unwrap();
+        assert!((root.font_size - font).abs() < 0.001);
+        let child = result.dom.world().get::<&ComputedStyle>(main).unwrap();
+        assert_eq!(child.color, CssColor::RED);
+        assert_eq!(child.background_color, CssColor::WHITE);
+        for (prop, expected) in [("padding-left", font), ("padding-right", area * 0.1)] {
+            let d = first.boxes[0]
+                .1
+                .properties
+                .iter()
+                .find(|d| d.property == prop)
+                .unwrap();
+            let CssValue::Length(px, LengthUnit::Px) = d.value else {
+                panic!("{d:?}")
+            };
+            assert!((px - expected).abs() < 0.001);
+        }
+        let decls = &sheets
+            .iter()
+            .flat_map(|s| &s.page_rules)
+            .find(|r| !r.boxes.is_empty())
+            .unwrap()
+            .boxes[0]
+            .1;
+        for (prop, value) in [
+            ("padding-left", CssValue::Length(1., LengthUnit::Rem)),
+            ("padding-right", CssValue::Length(10., LengthUnit::Vw)),
+        ] {
+            assert_eq!(
+                decls.iter().find(|d| d.property == prop).unwrap().value,
+                value
+            );
+        }
+    }
+}
+
+#[test]
+fn descendant_viewport_units_follow_each_new_first_page() {
+    use elidex_plugin::{ComputedStyle, Size};
+    let mut result = build_pipeline_interactive(
+        "<main></main>",
+        "main{font-size:10vw;color:black} @media print and (min-width:700px){main{color:red}}",
+    );
+    let device = PageGeometry {
+        sheet: Size::new(800., 900.),
+        margins: EdgeSizes::default(),
+    };
+    for (width, font) in [(200, 18.), (300, 28.)] {
+        let mut sheets = result.stylesheets.clone();
+        sheets.push(elidex_css::parse_stylesheet(
+            &format!("@page {{size:600px}} @page :first {{size:{width}px; margin:0 10px}}"),
+            elidex_css::Origin::Author,
+        ));
+        let (_, pages) = build_paged_pipeline(
+            &mut result.dom,
+            &sheets,
+            &result.font_db,
+            device,
+            result.engine_mode,
+        );
+        assert_eq!(pages.select(2, false).geometry.sheet.width, 600.);
+        let main = result.dom.query_by_tag("main")[0];
+        let published = result.dom.world().get::<&ComputedStyle>(main).unwrap();
+        assert_eq!(published.color, CssColor::RED);
+        assert_eq!(published.font_size, font);
     }
 }

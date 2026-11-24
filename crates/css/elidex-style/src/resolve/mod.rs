@@ -18,11 +18,10 @@ use elidex_plugin::{
 
 pub(crate) use helpers::PropertyMap;
 
-pub(crate) use var_resolution::resolve_candidates;
+pub(crate) use var_resolution::{resolve_candidates, resolve_in_context};
 
-use font::{
-    resolve_background_color, resolve_color, resolve_font_and_text_properties, resolve_font_size,
-};
+pub(crate) use font::resolve_font_size;
+use font::{resolve_background_color, resolve_color, resolve_font_and_text_properties};
 
 use box_model::{
     resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,

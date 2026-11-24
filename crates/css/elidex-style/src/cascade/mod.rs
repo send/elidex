@@ -135,6 +135,29 @@ fn push_block<'a>(
     }
 }
 
+pub(crate) fn push_page_block<'a>(
+    entries: &mut Vec<CascadeEntry<'a>>,
+    declarations: &'a [Declaration],
+    sheet: &'a Stylesheet,
+    sheet_index: u32,
+    rule_order: u32,
+    specificity: Specificity,
+) {
+    push_block(
+        entries,
+        declarations,
+        sheet.grammar_registry.as_deref(),
+        &CascadeSource {
+            origin: sheet.origin,
+            is_outer_context: true,
+            is_inline: false,
+            specificity,
+            stylesheet_index: sheet_index,
+            source_order: rule_order,
+        },
+    );
+}
+
 impl CascadeEntry<'_> {
     pub(crate) fn wins(self, other: Self) -> bool {
         if self.block == other.block {

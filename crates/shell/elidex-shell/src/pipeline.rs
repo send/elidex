@@ -402,24 +402,26 @@ pub(super) fn build_paged_pipeline(
     dom: &mut EcsDom,
     stylesheets: &[Stylesheet],
     font_db: &elidex_text::FontDatabase,
-    page_ctx: &elidex_plugin::PagedMediaContext,
-    registry: &elidex_plugin::CssPropertyRegistry,
+    device: elidex_plugin::PageGeometry,
     engine_mode: EngineMode,
-) -> elidex_render::PagedDisplayList {
-    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
-    let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
-    // Paged/print output → `Medium::Print` so `@media print` rules apply and
-    // `@media screen` rules do not (mediaqueries-5 §2.3 / CSS Conditional §2).
-    resolve_with_mode(
-        dom,
-        &stylesheet_refs,
-        registry,
-        viewport,
-        Medium::Print,
-        engine_mode,
-    );
-
-    elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
+) -> (
+    elidex_render::PagedDisplayList,
+    elidex_plugin::PreparedPages,
+) {
+    let sheets: Vec<_> = stylesheets.iter().collect();
+    let pages = if engine_mode.style_compat_policy().presentational_compat() {
+        elidex_style::page::prepare_print_style(
+            dom,
+            &sheets,
+            &[crate::legacy_ua_stylesheet()],
+            &crate::get_presentational_hints,
+            device,
+        )
+    } else {
+        elidex_style::page::prepare_print_style(dom, &sheets, &[], &crate::no_hints, device)
+    };
+    let display = elidex_render::build_paged_display_lists_interleaved(dom, font_db, &pages);
+    (display, pages)
 }
 
 /// Dispatch lifecycle events on the document per the HTML spec.

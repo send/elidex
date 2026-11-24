@@ -8,11 +8,11 @@ use cssparser::{
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
 };
 
-use elidex_plugin::{CssPropertyRegistry, PageRule};
+use elidex_plugin::CssPropertyRegistry;
 
 use crate::declaration::{parse_property_value, Declaration, Origin};
 use crate::media::{parse_media_query_list, MediaQueryList};
-use crate::page::parse_page_rules;
+use crate::page::{self, PageAlternative, PageRule};
 use crate::selector::{parse_selector_list, Selector};
 
 /// Maximum `@media` (conditional group rule) block-nesting depth before a
@@ -240,7 +240,7 @@ enum AtRuleKind {
     /// `@keyframes <name>` — name is the keyframes identifier.
     Keyframes(String),
     /// `@page <selectors>` — prelude text for page pseudo-classes.
-    Page(String),
+    Page(Vec<PageAlternative>),
     /// `@media <media-query-list>` — the parsed condition (CSS Conditional
     /// Rules §5). The block's inner rules are flattened into [`Stylesheet::rules`]
     /// each tagged with this condition appended to the ancestor chain.
@@ -291,11 +291,7 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
             Ok(AtRuleKind::Keyframes(keyframes_name))
         } else if name.eq_ignore_ascii_case("page") {
             // CSS Paged Media L3 §4: @page <page-selector-list>? { ... }
-            // Consume the rest of the prelude as raw text for selector parsing.
-            let start_pos = input.position();
-            while input.next_including_whitespace_and_comments().is_ok() {}
-            let prelude_text = input.slice_from(start_pos).trim().to_string();
-            Ok(AtRuleKind::Page(prelude_text))
+            page::alternatives(input).map(AtRuleKind::Page)
         } else if name.eq_ignore_ascii_case("media") {
             // CSS Conditional Rules §5: @media <media-query-list> { <rule-list> }.
             // Parse the prelude (raw text) via the engine-independent SSoT
@@ -351,16 +347,11 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
                     self.keyframes_raw.push((name, body));
                 }
             }
-            AtRuleKind::Page(prelude_text) => {
-                let start_pos = input.position();
-                while input.next_including_whitespace_and_comments().is_ok() {}
-                // Same as `@keyframes`: `@page` is side-channeled without a media
-                // condition, so a `@page` nested inside `@media` is dropped rather
-                // than fed to paged layout unconditionally (`#11-css-media-conditional-side-rules`).
+            AtRuleKind::Page(alternatives) => {
+                // Conditional side rules remain scoped to #11-css-media-conditional-side-rules.
                 if self.media_stack.is_empty() {
-                    let body = input.slice_from(start_pos).to_string();
-                    let rules = parse_page_rules(&prelude_text, &body);
-                    self.page_rules.extend(rules);
+                    self.page_rules
+                        .push(page::parse_body(input, alternatives, self.registry));
                 }
             }
         }
@@ -440,8 +431,8 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
     }
 }
 
-struct DeclarationListParser<'a> {
-    registry: Option<&'a CssPropertyRegistry>,
+pub(crate) struct DeclarationListParser<'a> {
+    pub(crate) registry: Option<&'a CssPropertyRegistry>,
 }
 
 impl<'i> DeclarationParser<'i> for DeclarationListParser<'_> {

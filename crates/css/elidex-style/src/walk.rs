@@ -167,34 +167,17 @@ fn resolve_and_attach_style(
     // don't see generated content children.
     remove_pseudo_entities(dom, entity);
 
-    // Collect inline style declarations.
-    let inline_decls = get_inline_declarations(entity, dom);
-
-    // Generate presentational hints for this entity.
-    let extra_decls = hint_generator(entity, dom);
-
-    // Cascade: collect matching declarations and determine winners.
-    let winners = collect_and_cascade(
-        entity,
+    let (mut style, anim_style) = compute_element_style(
         dom,
+        entity,
         stylesheets,
-        &inline_decls,
-        &extra_decls,
-        shadow_cascade,
+        parent_style,
+        ctx,
         media_env,
+        hint_generator,
+        shadow_cascade,
     );
-
-    // Build resolve context with parent's font-size.
     let element_ctx = ctx.with_em_base(parent_style.font_size);
-
-    // Resolve values → ComputedStyle.
-    let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
-    let custom = std::mem::take(&mut resolved.custom);
-    let winners = resolved.ordinary();
-    let mut style = build_computed_style(&winners, parent_style, &element_ctx);
-
-    style.custom_properties = custom;
-
     // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
     crate::counter::apply_implicit_list_counters_from_dom(dom, entity, &mut style);
 
@@ -203,7 +186,7 @@ fn resolve_and_attach_style(
 
     // Attach AnimStyle if any animation/transition properties are set,
     // or remove stale AnimStyle so transition detection stops running.
-    if let Some(anim_style) = build_anim_style_from_winners(&winners) {
+    if let Some(anim_style) = anim_style {
         let _ = dom.world_mut().insert_one(entity, anim_style);
     } else {
         let _ = dom
@@ -234,6 +217,74 @@ fn resolve_and_attach_style(
     }
 
     style
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_element_style(
+    dom: &EcsDom,
+    entity: Entity,
+    stylesheets: &[&Stylesheet],
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    media_env: &MediaEnvironment,
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    shadow_cascade: &ShadowCascade<'_>,
+) -> (ComputedStyle, Option<AnimStyle>) {
+    // Collect inline style declarations.
+    let inline_decls = get_inline_declarations(entity, dom);
+
+    // Generate presentational hints for this entity.
+    let extra_decls = hint_generator(entity, dom);
+
+    // Cascade: collect matching declarations and determine winners.
+    let winners = collect_and_cascade(
+        entity,
+        dom,
+        stylesheets,
+        &inline_decls,
+        &extra_decls,
+        shadow_cascade,
+        media_env,
+    );
+
+    // Build resolve context with parent's font-size.
+    let element_ctx = ctx.with_em_base(parent_style.font_size);
+
+    // Resolve values → ComputedStyle.
+    let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
+    let custom = std::mem::take(&mut resolved.custom);
+    let winners = resolved.ordinary();
+    let mut style = build_computed_style(&winners, parent_style, &element_ctx);
+
+    style.custom_properties = custom;
+
+    (style, build_anim_style_from_winners(&winners))
+}
+
+pub(crate) fn preliminary_root(
+    dom: &mut EcsDom,
+    sheets: &[&Stylesheet],
+    ctx: &ResolveContext,
+    media: &MediaEnvironment,
+    hints: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+) -> ComputedStyle {
+    let parent = ComputedStyle::default();
+    let Some(root) = dom.document_root().and_then(|r| dom.first_element_child(r)) else {
+        return parent;
+    };
+    set_link_state(dom, root);
+    remove_pseudo_entities(dom, root);
+    let shadow_root = dom
+        .world()
+        .get::<&ShadowHost>(root)
+        .ok()
+        .map(|host| host.shadow_root);
+    let sheet = shadow_root
+        .map(|r| parse_stylesheet(&collect_shadow_styles(dom, r, &mut 0), Origin::Author));
+    let shadow = sheet
+        .as_ref()
+        .map_or(ShadowCascade::Outer, ShadowCascade::Host);
+    compute_element_style(dom, root, sheets, &parent, ctx, media, hints, &shadow).0
 }
 
 /// Pre-order tree walk: resolve styles for `entity` then recurse into children.
