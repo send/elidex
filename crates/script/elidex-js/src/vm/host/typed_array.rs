@@ -186,13 +186,12 @@ pub(super) fn native_typed_array_get_length(
 ///    and range (§23.2.5.1.3).
 /// 4. `(TypedArray)` → fresh buffer of `src.length * dst.bpe` bytes,
 ///    element-copy with type conversion (§23.2.5.1.2).
-/// 5. `(iterable)` where `@@iterator` resolves → consume iterator,
-///    allocate buffer, write each element (§23.2.5.1.4).  Any
-///    throw during body is closed with `IteratorClose` per
-///    §7.4.11 (but a throw from `iter_next` itself is NOT
-///    closed — §7.4.9 / §7.4.10 IteratorStep / IteratorStepValue
-///    set `[[Done]] = true` on `.next()` throw, PR5b R13 lesson).
-/// 6. Otherwise → TypeError.
+/// 5. Objects with a callable iterator method are collected with IteratorToList
+///    (§23.2.5.1.4 step 2.a). The iterator is exhausted before allocation
+///    and element conversion in steps 4–6.
+/// 6. Other objects with a nullish `@@iterator` use the array-like path
+///    (§23.2.5.1.4 steps 3–6). Other non-callable methods throw TypeError
+///    in GetMethod (§7.3.10 step 3).
 ///
 /// The pre-allocated receiver carries `new.target.prototype` via
 /// `do_new`; we promote its `kind` in-place rather than reassigning
