@@ -907,7 +907,18 @@ fn first_child_dispatch_uses_published_display_through_contents() {
             assert_eq!(style.color, elidex_plugin::CssColor::RED);
         }
         // Enter the real dispatcher before any parent collection or placement override.
+        FIRST_FORMATTER.set(None);
         let first = dispatch_layout_child(&mut dom, item, &input);
+        assert_eq!(
+            FIRST_FORMATTER.take(),
+            Some(DispatchObservation {
+                entity: item,
+                formatter: std::any::type_name_of_val(&elidex_layout_flex::layout_flex),
+                incoming_width: 200.,
+                effective_width: width,
+                shrink_to_fit: display == Display::InlineFlex,
+            })
+        );
         assert!(
             approx_eq(first.layout_box.content.size.width, width),
             "first dispatch: {inner}, {:?}",

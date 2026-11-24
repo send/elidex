@@ -8,6 +8,19 @@ mod basic;
 mod fragmentation;
 mod provenance;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct DispatchObservation {
+    pub(super) entity: Entity,
+    pub(super) formatter: &'static str,
+    pub(super) incoming_width: f32,
+    pub(super) effective_width: f32,
+    pub(super) shrink_to_fit: bool,
+}
+
+thread_local! {
+    pub(super) static FIRST_FORMATTER: std::cell::Cell<Option<DispatchObservation>> = const { std::cell::Cell::new(None) };
+}
+
 fn get_layout(dom: &EcsDom, entity: Entity) -> LayoutBox {
     dom.world()
         .get::<&LayoutBox>(entity)

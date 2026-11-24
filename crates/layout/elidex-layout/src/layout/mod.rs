@@ -100,7 +100,18 @@ pub fn dispatch_layout_child(
         }
         .into(),
         Display::Flex | Display::InlineFlex => {
-            elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)
+            let formatter = elidex_layout_flex::layout_flex;
+            #[cfg(test)]
+            if input.depth == 0 {
+                tests::FIRST_FORMATTER.set(Some(tests::DispatchObservation {
+                    entity,
+                    formatter: std::any::type_name_of_val(&formatter),
+                    incoming_width: input.containing.width,
+                    effective_width: effective_input.containing.width,
+                    shrink_to_fit: !std::ptr::eq(input, effective_input),
+                }));
+            }
+            formatter(dom, entity, effective_input, dispatch_layout_child)
         }
         Display::Grid | Display::InlineGrid => {
             elidex_layout_grid::layout_grid(dom, entity, effective_input, dispatch_layout_child)
