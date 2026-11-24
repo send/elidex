@@ -8,8 +8,7 @@ use crate::inherit::{get_initial_value, is_inherited};
 
 // Re-export core resolve functions from elidex-plugin.
 pub(crate) use elidex_plugin::css_resolve::{
-    resolve_calc_expr, resolve_dimension, resolve_i32, resolve_length, resolve_non_negative_f32,
-    resolve_to_px,
+    resolve_calc_expr, resolve_dimension, resolve_i32, resolve_length, resolve_to_px,
 };
 
 /// Cascade winner map: property name → winning CSS value.

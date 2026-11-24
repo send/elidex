@@ -503,3 +503,15 @@ fn has_running_cache_invalidated() {
     engine.remove_entity(2);
     assert!(!engine.has_running());
 }
+
+#[test]
+fn duplicate_offset_overrides_expanded_member_and_sets_interval_timing() {
+    let rule = crate::parse::parse_keyframes("test", "from {flex:0 0 auto} 50% {flex:2 4 auto} 50% {flex-grow:6; animation-timing-function:steps(1,end)} to {flex:10 8 auto}");
+    let mut engine = AnimationEngine::new();
+    engine.register_keyframes(rule);
+    for (p, grow, shrink) in [(0.25, 3., 2.), (0.75, 6., 4.)] {
+        let values = engine.keyframe_values("test", p, Some(&TimingFunction::Linear), None);
+        assert!(values.contains(&("flex-grow".into(), CssValue::Number(grow))));
+        assert!(values.contains(&("flex-shrink".into(), CssValue::Number(shrink))));
+    }
+}

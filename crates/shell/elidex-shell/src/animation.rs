@@ -24,8 +24,12 @@ pub(crate) fn register_keyframes_from_stylesheets<'a>(
 ) {
     for ss in stylesheets {
         for (name, body) in &ss.keyframes_raw {
-            let rule = elidex_css_anim::parse::parse_keyframes(name, body);
-            engine.register_keyframes(rule);
+            let rule = elidex_css_anim::parse::parse_keyframes_with_registry(
+                name,
+                body,
+                ss.grammar_registry.as_deref(),
+            );
+            engine.register_keyframes_with_registry(rule, ss.grammar_registry.as_deref());
         }
     }
 }
@@ -458,6 +462,19 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
     // the same property (CSS Animations L1 4.1). Duplicates are safe (last write wins).
     let entity_ids: Vec<u64> = result.animation_engine.active_entity_ids().collect();
 
+    let root = result.dom.first_element_child(result.document);
+    let font_size = |dom: &elidex_ecs::EcsDom, entity| {
+        dom.world()
+            .get::<&ComputedStyle>(entity)
+            .ok()
+            .map(|style| style.font_size)
+    };
+    let initial_font = elidex_plugin::ResolveContext::default().root_font_size;
+    let root_font_size = root
+        .and_then(|e| font_size(&result.dom, e))
+        .unwrap_or(initial_font);
+
+    let mut samples = Vec::new();
     for entity_bits in entity_ids {
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
@@ -488,26 +505,53 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
                 map
             });
 
+        let parent_font = result
+            .dom
+            .get_parent(entity)
+            .and_then(|e| font_size(&result.dom, e))
+            .unwrap_or(initial_font);
+        let ctx = elidex_plugin::ResolveContext {
+            em_base: font_size(&result.dom, entity).unwrap_or(parent_font),
+            root_font_size,
+            viewport: result.viewport,
+        };
+        let font_ctx = elidex_plugin::ResolveContext {
+            em_base: parent_font,
+            root_font_size: if Some(entity) == root {
+                initial_font
+            } else {
+                root_font_size
+            },
+            ..ctx
+        };
         let animations = result.animation_engine.active_animations(entity_bits);
         for anim in animations {
             if let Some(progress) = anim.progress() {
-                let kf_values = result.animation_engine.keyframe_values(
+                let kf_values = result.animation_engine.keyframe_values_for_target(
                     anim.name(),
                     f64::from(progress),
                     Some(anim.timing_function()),
                     underlying_values.as_ref(),
+                    &ctx,
+                    &font_ctx,
                 );
                 animated_values.extend(kf_values);
             }
         }
 
-        // Apply to ComputedStyle.
         if !animated_values.is_empty() {
-            if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
-                for (property, value) in &animated_values {
-                    apply_animated_value(&mut style, property, value);
-                }
+            samples.push((entity, animated_values));
+        }
+    }
+    // All reference fonts and underlying endpoints come from this frame's cascade.
+    for (entity, animated_values) in samples {
+        if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
+            for (property, value) in &animated_values {
+                apply_animated_value(&mut style, property, value);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod grammar_tests;

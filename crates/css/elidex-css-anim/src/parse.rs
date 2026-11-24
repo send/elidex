@@ -345,6 +345,16 @@ const MAX_KEYFRAMES_INPUT_BYTES: usize = 65_536;
 
 #[must_use]
 pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
+    parse_keyframes_with_registry(name, block_text, None)
+}
+
+/// Capture keyframe declarations in the stylesheet's admitting grammar (CSS Animations 1 §3).
+#[must_use]
+pub fn parse_keyframes_with_registry(
+    name: &str,
+    block_text: &str,
+    registry: Option<&elidex_plugin::CssPropertyRegistry>,
+) -> KeyframesRule {
     if block_text.len() > MAX_KEYFRAMES_INPUT_BYTES {
         return KeyframesRule {
             name: name.to_string(),
@@ -354,7 +364,7 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     let mut keyframes = Vec::new();
     let mut pi = cssparser::ParserInput::new(block_text);
     let mut input = cssparser::Parser::new(&mut pi);
-    let mut reader = KeyframeReader;
+    let mut reader = KeyframeReader { registry };
     for (offsets, (declarations, timing_function)) in
         cssparser::StyleSheetParser::new(&mut input, &mut reader)
             .take(MAX_KEYFRAMES)
@@ -394,17 +404,15 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         if (later.offset - earlier.offset).abs() < 1e-6 {
             // Merge later's declarations into earlier (earlier is kept by dedup_by).
             // Later declarations win for same property names.
-            for decl in later.declarations.drain(..) {
-                if let Some(existing) = earlier
-                    .declarations
-                    .iter_mut()
-                    .find(|d| d.property == decl.property)
-                {
-                    *existing = decl;
-                } else {
-                    earlier.declarations.push(decl);
-                }
-            }
+            let replaced: std::collections::HashSet<_> = later
+                .declarations
+                .iter()
+                .map(|new| new.property.as_str())
+                .collect();
+            earlier
+                .declarations
+                .retain(|old| !replaced.contains(old.property.as_str()));
+            earlier.declarations.append(&mut later.declarations);
             // Later keyframe's timing function wins if present.
             if later.timing_function.is_some() {
                 earlier.timing_function = later.timing_function.take();
@@ -445,15 +453,17 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
 type FrameDeclarations = (Vec<PropertyDeclaration>, Option<IntervalTiming>);
 type FrameBlock = (Vec<f32>, FrameDeclarations);
 
-struct KeyframeReader;
+struct KeyframeReader<'a> {
+    registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
+}
 
-impl cssparser::AtRuleParser<'_> for KeyframeReader {
+impl cssparser::AtRuleParser<'_> for KeyframeReader<'_> {
     type Prelude = ();
     type AtRule = FrameBlock;
     type Error = ();
 }
 
-impl<'i> cssparser::QualifiedRuleParser<'i> for KeyframeReader {
+impl<'i> cssparser::QualifiedRuleParser<'i> for KeyframeReader<'_> {
     type Prelude = Vec<f32>;
     type QualifiedRule = FrameBlock;
     type Error = ();
@@ -503,8 +513,8 @@ impl<'i> cssparser::QualifiedRuleParser<'i> for KeyframeReader {
             .take(MAX_DECLARATIONS_PER_BLOCK)
             .flatten()
         {
-            let parsed_value = elidex_css::parse_raw_token_value(source);
             if property.eq_ignore_ascii_case("animation-timing-function") {
+                let parsed_value = elidex_css::parse_raw_token_value(source);
                 if let CssValue::Pending(pending) = parsed_value {
                     timing = Some(IntervalTiming::Pending(pending));
                     continue;
@@ -516,11 +526,14 @@ impl<'i> cssparser::QualifiedRuleParser<'i> for KeyframeReader {
                         timing = Some(IntervalTiming::Resolved(parsed));
                     }
                 }
-            } else {
-                let value = parsed_value;
-                if !matches!(&value, CssValue::RawTokens(raw) if raw.is_empty()) {
-                    declarations.push(PropertyDeclaration::new(property, value));
-                }
+            } else if let Some(parsed) =
+                elidex_css::parse_value_for_property(&property, source, self.registry)
+            {
+                declarations.extend(
+                    parsed
+                        .into_iter()
+                        .map(|d| PropertyDeclaration::new(d.property, d.value)),
+                );
             }
         }
         Ok((offsets, (declarations, timing)))

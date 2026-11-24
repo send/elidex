@@ -650,11 +650,55 @@ pub enum LengthUnit {
     Vmin,
     /// Larger of `vw` and `vh` (`vmax`).
     Vmax,
+    In,
+    Cm,
+    Mm,
+    Q,
+    Pt,
+    Pc,
+    Lvw,
+    Lvh,
+    Lvmin,
+    Lvmax,
     /// Flexible fraction (`fr`) for CSS Grid.
     Fr,
 }
 
 impl LengthUnit {
+    /// Length units with a reference available to the strict CSS grammar.
+    pub const SUPPORTED: &[Self] = &[
+        Self::Px,
+        Self::Em,
+        Self::Rem,
+        Self::Vw,
+        Self::Vh,
+        Self::Vmin,
+        Self::Vmax,
+        Self::In,
+        Self::Cm,
+        Self::Mm,
+        Self::Q,
+        Self::Pt,
+        Self::Pc,
+        Self::Lvw,
+        Self::Lvh,
+        Self::Lvmin,
+        Self::Lvmax,
+    ];
+    /// CSS Values 4 §6.2 fixed conversion to canonical CSS pixels.
+    #[must_use]
+    pub fn physical_px_ratio(self) -> Option<f64> {
+        match self {
+            Self::In => Some(96.0),
+            Self::Cm => Some(96.0 / 2.54),
+            Self::Mm => Some(96.0 / 25.4),
+            Self::Q => Some(96.0 / 101.6),
+            Self::Pt => Some(96.0 / 72.0),
+            Self::Pc => Some(16.0),
+            _ => None,
+        }
+    }
+
     /// The canonical CSS unit suffix (`px`, `em`, …).
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -666,6 +710,16 @@ impl LengthUnit {
             Self::Vh => "vh",
             Self::Vmin => "vmin",
             Self::Vmax => "vmax",
+            Self::In => "in",
+            Self::Cm => "cm",
+            Self::Mm => "mm",
+            Self::Q => "q",
+            Self::Pt => "pt",
+            Self::Pc => "pc",
+            Self::Lvw => "lvw",
+            Self::Lvh => "lvh",
+            Self::Lvmin => "lvmin",
+            Self::Lvmax => "lvmax",
             Self::Fr => "fr",
         }
     }

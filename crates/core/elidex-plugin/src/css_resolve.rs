@@ -4,7 +4,55 @@
 //! to absolute pixel values. Used by CSS property handlers during style
 //! resolution.
 
-use crate::{CalcExpr, CssColor, CssValue, Dimension, LengthUnit, ParseError, ResolveContext};
+pub mod strict;
+pub use strict::{parse_flex_basis, parse_flex_factor};
+
+use crate::{
+    CalcExpr, CssColor, CssValue, Dimension, LengthUnit, ParseError, ResolveContext,
+    TransformFunction,
+};
+
+/// Resolve relative length units (em, rem, vw, etc.) inside a `TransformFunction`.
+///
+/// Translate arguments may contain `CssValue::Length` with relative units that
+/// must be resolved to px during style resolution. Other functions (rotate, scale,
+/// skew, matrix) use angles or numbers and need no resolution.
+#[must_use]
+pub fn resolve_transform_func(func: &TransformFunction, ctx: &ResolveContext) -> TransformFunction {
+    match func {
+        TransformFunction::Translate(x, y) => {
+            TransformFunction::Translate(resolve_css_length(x, ctx), resolve_css_length(y, ctx))
+        }
+        TransformFunction::TranslateX(x) => {
+            TransformFunction::TranslateX(resolve_css_length(x, ctx))
+        }
+        TransformFunction::TranslateY(y) => {
+            TransformFunction::TranslateY(resolve_css_length(y, ctx))
+        }
+        TransformFunction::TranslateZ(z) => {
+            TransformFunction::TranslateZ(resolve_css_length(z, ctx))
+        }
+        TransformFunction::Translate3d(x, y, z) => TransformFunction::Translate3d(
+            resolve_css_length(x, ctx),
+            resolve_css_length(y, ctx),
+            resolve_css_length(z, ctx),
+        ),
+        // All other functions use angles, numbers, or raw matrices — no resolution needed.
+        other => other.clone(),
+    }
+}
+
+/// Resolve a `CssValue::Length` with relative units to px.
+/// Percentages and already-px values pass through unchanged.
+fn resolve_css_length(val: &CssValue, ctx: &ResolveContext) -> CssValue {
+    match val {
+        CssValue::Length(v, unit) => {
+            CssValue::Length(resolve_length(*v, *unit, ctx), LengthUnit::Px)
+        }
+        // Percentages stay as-is (resolved against element's box at render time).
+        other => other.clone(),
+    }
+}
 
 /// Resolve a CSS length value to pixels.
 ///
@@ -14,12 +62,19 @@ pub fn resolve_length(value: f32, unit: LengthUnit, ctx: &ResolveContext) -> f32
     let result = match unit {
         LengthUnit::Em => value * ctx.em_base,
         LengthUnit::Rem => value * ctx.root_font_size,
-        LengthUnit::Vw => value * ctx.viewport.width / 100.0,
-        LengthUnit::Vh => value * ctx.viewport.height / 100.0,
-        LengthUnit::Vmin => value * ctx.viewport.width.min(ctx.viewport.height) / 100.0,
-        LengthUnit::Vmax => value * ctx.viewport.width.max(ctx.viewport.height) / 100.0,
-        // Px, Fr, and unknown units pass through unchanged.
-        _ => value,
+        LengthUnit::Vw | LengthUnit::Lvw => value * ctx.viewport.width / 100.0,
+        LengthUnit::Vh | LengthUnit::Lvh => value * ctx.viewport.height / 100.0,
+        LengthUnit::Vmin | LengthUnit::Lvmin => {
+            value * ctx.viewport.width.min(ctx.viewport.height) / 100.0
+        }
+        LengthUnit::Vmax | LengthUnit::Lvmax => {
+            value * ctx.viewport.width.max(ctx.viewport.height) / 100.0
+        }
+        // CSS Values 4 §6.2 fixed ratios. Canonical px and grid fractions pass through.
+        #[allow(clippy::cast_possible_truncation)]
+        _ => unit
+            .physical_px_ratio()
+            .map_or(value, |ratio| (f64::from(value) * ratio) as f32),
     };
     if result.is_finite() {
         result
@@ -75,6 +130,20 @@ pub fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveCon
     } else {
         0.0
     }
+}
+
+/// CSS Values 4 §§9.1, 10.12: apply the property range to the final scalar.
+#[must_use]
+pub fn resolve_flex_factor(value: &CssValue, ctx: &ResolveContext) -> Option<f32> {
+    let n = match value {
+        CssValue::Number(n) => *n,
+        CssValue::Calc(expr) => match resolve_calc_typed(expr, 0.0, ctx) {
+            CalcResolved::Scalar(n) => n,
+            CalcResolved::Length(_) => return None,
+        },
+        _ => return None,
+    };
+    Some(if n.is_finite() { n.max(0.0) } else { 0.0 })
 }
 
 /// Resolve a [`CssValue::Number`] to a non-negative `f32`.

@@ -510,6 +510,19 @@ fn css_escape_leading_digit() {
 fn css_supports_known_property() {
     let out = run("CSS.supports('color', 'red') ? 'yes' : 'no';");
     assert_eq!(out, "yes");
+    for value in ["1in", "var(--x)"] {
+        assert_eq!(
+            run(&format!(
+                "CSS.supports('width', '{value}') ? 'true' : 'false'"
+            )),
+            "true"
+        );
+    }
+    for unit in "ex rex cap rcap ch rch ic ric lh rlh vi vb lvi lvb svw svh svi svb svmin svmax dvw dvh dvi dvb dvmin dvmax".split_whitespace() {
+        for value in [format!("1{unit}"), format!("calc(1{unit})")] {
+            assert_eq!(run(&format!("CSS.supports('width', '{value}') ? 'true' : 'false'")), "false", "{value}");
+        }
+    }
 }
 
 #[test]

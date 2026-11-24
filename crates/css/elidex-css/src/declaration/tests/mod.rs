@@ -1,6 +1,7 @@
 use super::*;
 use elidex_plugin::{CssColor, LengthUnit};
 
+mod flex_grammar;
 mod grid_table;
 mod shorthand;
 mod substitution_tokens;

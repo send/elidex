@@ -543,11 +543,15 @@ fn builtin_parser(name: &str) -> Option<BuiltinParser> {
         },
 
         // --- Flex number properties ---
-        "flex-grow" | "flex-shrink" => |name, input| flex::parse_non_negative_number(input, name),
+        "flex-grow" | "flex-shrink" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_factor)
+        },
         "order" => |name, input| flex::parse_integer_property(input, name),
 
         // --- Flex basis ---
-        "flex-basis" => |_, input| flex::parse_flex_basis(input),
+        "flex-basis" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_basis)
+        },
 
         // --- Flex shorthands ---
         "flex" => |_, input| flex::parse_flex_shorthand(input),

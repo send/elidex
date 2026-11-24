@@ -151,6 +151,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, JsValue::Bool(true));
+        let mut check = |value: &str, expected: bool| {
+            let result = CssSupports
+                .invoke(
+                    this,
+                    &[
+                        JsValue::String("width".into()),
+                        JsValue::String(value.into()),
+                    ],
+                    &mut session,
+                    &mut dom,
+                )
+                .unwrap();
+            assert_eq!(result, JsValue::Bool(expected), "{value}");
+        };
+        check("1in", true);
+        check("var(--x)", true);
+        for unit in "ex rex cap rcap ch rch ic ric lh rlh vi vb lvi lvb svw svh svi svb svmin svmax dvw dvh dvi dvb dvmin dvmax".split_whitespace() {
+            check(&format!("1{unit}"), false);
+            check(&format!("calc(1{unit})"), false);
+        }
     }
 
     #[test]

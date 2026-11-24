@@ -969,3 +969,6 @@ pub fn build_pipeline_from_url(
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }
+
+#[cfg(test)]
+mod page_unit_tests;

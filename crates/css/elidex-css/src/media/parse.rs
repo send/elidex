@@ -567,23 +567,14 @@ fn calc_has_length(expr: &CalcExpr) -> bool {
 /// [`RangeValue::Converted`] — the cssparser `f32` source + factor make that px
 /// inexact, so it (unlike a direct px) compares with tolerance.
 fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
-    if let Ok(u) = crate::values::parse_length_unit(unit) {
-        return Some(RangeValue::Length { value, unit: u });
-    }
-    let lower = unit.to_ascii_lowercase();
-    let px = match lower.as_str() {
-        "in" => value * 96.0,
-        "cm" => value * (96.0 / 2.54),
-        "mm" => value * (96.0 / 25.4),
-        "q" => value * (96.0 / 25.4 / 4.0),
-        "pt" => value * (96.0 / 72.0),
-        "pc" => value * 16.0,
-        _ => return None,
-    };
-    Some(RangeValue::Converted {
-        px,
-        value,
-        unit: lower.into_boxed_str(),
+    let unit = elidex_plugin::css_resolve::strict::parse_length_unit(unit).ok()?;
+    Some(match unit.physical_px_ratio() {
+        Some(ratio) => RangeValue::Converted {
+            px: value * ratio,
+            value,
+            unit: unit.as_str().into(),
+        },
+        None => RangeValue::Length { value, unit },
     })
 }
 
