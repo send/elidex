@@ -346,7 +346,7 @@ fn native_function_name_descriptor() {
 
 #[test]
 fn string_call_with_object_this_returns_primitive() {
-    // §21.1.1.1: `String.call(obj, "x")` → `this = obj`, but NewTarget is
+    // §22.1.1.1 step 3: `String.call(obj, "x")` → `this = obj`, but NewTarget is
     // undefined, so return primitive "x".  Previously regressed: was returning
     // a wrapper.
     assert_eq!(eval_string("typeof String.call({}, 'x');"), "string");
@@ -355,7 +355,7 @@ fn string_call_with_object_this_returns_primitive() {
 
 #[test]
 fn string_call_with_symbol_returns_descriptive_string() {
-    // §21.1.1.1 step 2: `String(Symbol("foo"))` → "Symbol(foo)" (no throw).
+    // §22.1.1.1 step 2.1: `String(Symbol("foo"))` → "Symbol(foo)" (no throw).
     assert_eq!(eval_string("String(Symbol('foo'));"), "Symbol(foo)");
     assert_eq!(eval_string("String(Symbol());"), "Symbol()");
 }
@@ -382,7 +382,7 @@ fn new_string_no_args_is_empty() {
 
 #[test]
 fn new_string_length_is_non_writable() {
-    // §21.1.5.1: `length` is non-writable — assignment throws and the
+    // §22.1.4.1: `length` is non-writable — assignment throws and the
     // stored length is unchanged.
     super::assert_throws_preserves_number(
         "var w = new String('abc');",
@@ -394,7 +394,7 @@ fn new_string_length_is_non_writable() {
 
 #[test]
 fn new_string_length_descriptor() {
-    // §21.1.5.1: {writable: false, enumerable: false, configurable: false}.
+    // §22.1.4.1: {writable: false, enumerable: false, configurable: false}.
     assert_eq!(
         eval_string(
             "var d = Object.getOwnPropertyDescriptor(new String('ab'), 'length');

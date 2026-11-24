@@ -733,10 +733,10 @@ pub(crate) fn native_string_value_of(
 // §21.1.3.25 String.prototype.toString shares the valueOf implementation —
 // registered twice in globals.rs with different `name` attributes.
 
-// -- String constructor (§21.1.1) -------------------------------------------
+// -- String constructor (§22.1.1) -------------------------------------------
 
-/// `String(value)` as a function call returns a primitive string (§21.1.1.1
-/// step 1 when NewTarget is undefined).  `new String(value)` promotes the
+/// `String(value)` as a function call returns a primitive string (§22.1.1.1,
+/// steps 2–3).  `new String(value)` promotes the
 /// pre-allocated Ordinary instance (passed as `this` by `do_new`) to a
 /// StringWrapper in-place, avoiding a second allocation.  For symbol input
 /// on the call path, `SymbolDescriptiveString` semantics apply.
@@ -750,7 +750,7 @@ pub(crate) fn native_string_constructor(
     } else if ctx.is_construct() {
         ctx.to_string_val(args[0])?
     } else {
-        // §21.1.1.1 step 2: `String(Symbol(...))` returns descriptive string,
+        // §22.1.1.1 step 2.1: `String(Symbol(...))` returns descriptive string,
         // not a TypeError.  Handle specially; all other values via ToString.
         if let JsValue::Symbol(sid) = args[0] {
             return Ok(JsValue::String(symbol_to_descriptive_string(ctx, sid)));
