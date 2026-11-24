@@ -175,7 +175,7 @@ pub(super) fn native_number_to_fixed(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §21.1.3.3 step 4: ToIntegerOrInfinity then range-check.
+    // ECMA-262 §21.1.3.3 steps 2–5 convert and validate the fraction digit count.
     let digits = {
         let arg = args.first().copied().unwrap_or(JsValue::Number(0.0));
         let d = super::coerce::to_number(ctx.vm, arg)?;
@@ -196,7 +196,7 @@ pub(super) fn native_number_to_fixed(
             raw as usize
         }
     };
-    // Non-finite values return their toString representation (§21.1.3.3 step 5-6).
+    // Non-finite values return their toString representation (§21.1.3.3 step 6).
     let s = if n.is_nan() {
         "NaN".to_string()
     } else if n.is_infinite() {
@@ -206,7 +206,7 @@ pub(super) fn native_number_to_fixed(
             "-Infinity".to_string()
         }
     } else if n == 0.0 {
-        // §21.1.3.3 step 7: -0 formats as "0.000..."
+        // §21.1.3.3 steps 7–9 give either zero an empty sign.
         format!("{:.digits$}", 0.0_f64)
     } else {
         format!("{n:.digits$}")

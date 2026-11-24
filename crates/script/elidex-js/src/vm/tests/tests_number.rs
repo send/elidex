@@ -126,7 +126,7 @@ fn number_nan_constant() {
 
 #[test]
 fn number_to_fixed_negative_zero() {
-    // §20.1.3.3 step 7: -0 formats without minus sign
+    // ECMA-262 §21.1.3.3 steps 7–9 leave the sign empty for negative zero.
     assert_eq!(eval_string("(-0).toFixed(2);"), "0.00");
 }
 
