@@ -49,7 +49,7 @@ pub(crate) fn generate_pseudo_entity(
         &winners,
         parent_style,
         ctx,
-        StyleSubject::Generated,
+        StyleSubject::Element,
         effective_parent,
     );
 

@@ -134,3 +134,57 @@ fn contents_slots_pass_effective_display_and_keep_slot_inheritance() {
     }
     assert!(dom.world().get::<&ComputedStyle>(suppressed).is_err());
 }
+
+#[test]
+fn shadow_and_assigned_html_use_the_document_rem_basis() {
+    let (mut dom, _, _, body) = build_simple_dom();
+    let host = child(&mut dom, body, "section");
+    let assigned_html = child(&mut dom, host, "html");
+    let assigned_leaf = child(&mut dom, assigned_html, "span");
+    let root = setup_shadow_with_style(
+        &mut dom,
+        host,
+        "html {font-size:40px} span {font-size:1rem;width:1rem}",
+    );
+    child(&mut dom, root, "slot");
+    let shadow_html = child(&mut dom, root, "html");
+    let shadow_leaf = child(&mut dom, shadow_html, "span");
+    resolve(
+        &mut dom,
+        "html {font-size:16px} section > html {font-size:32px} span {font-size:1rem;width:1rem}",
+    );
+    for (html, size, leaf) in [
+        (shadow_html, 40., shadow_leaf),
+        (assigned_html, 32., assigned_leaf),
+    ] {
+        assert_eq!(get_style(&dom, html).font_size, size);
+        let style = get_style(&dom, leaf);
+        assert_eq!(style.font_size, 16.);
+        assert_eq!(style.width, Dimension::Length(16.));
+    }
+}
+
+#[test]
+fn assigned_style_elements_publish_display_on_the_first_walk() {
+    let (mut dom, _, _, body) = build_simple_dom();
+    let outer = child(&mut dom, body, "section");
+    let outer_root = setup_shadow_with_style(&mut dom, outer, "");
+    let nested = child(&mut dom, outer_root, "article");
+    let inner_root = setup_shadow_with_style(
+        &mut dom,
+        nested,
+        "div {display:flex} slot {display:contents}",
+    );
+    let flex = child(&mut dom, inner_root, "div");
+    for name in ["", "named"] {
+        let slot = child(&mut dom, flex, "slot");
+        dom.set_attribute(slot, "name", name);
+        let style = child(&mut dom, nested, "style");
+        dom.set_attribute(style, "slot", name);
+        dom.set_attribute(style, "style", "display:inline-flex");
+    }
+    resolve(&mut dom, "");
+    for style in dom.children(nested) {
+        assert_eq!(get_style(&dom, style).display, Display::Flex);
+    }
+}

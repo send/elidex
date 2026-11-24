@@ -64,24 +64,6 @@ fn build_anim_style_from_winners(
     }
 }
 
-/// Build a child `ResolveContext` from a resolved entity style.
-///
-/// Updates `em_base` from the entity's font-size and `root_font_size`
-/// if the entity is the `<html>` root element.
-fn child_context(
-    dom: &EcsDom,
-    entity: Entity,
-    style: &ComputedStyle,
-    ctx: &ResolveContext,
-) -> ResolveContext {
-    let root_fs = if dom.has_tag(entity, "html") {
-        style.font_size
-    } else {
-        ctx.root_font_size
-    };
-    ctx.with_em_and_root(style.font_size, root_fs)
-}
-
 /// Whether an entity should be skipped during tree walking.
 ///
 /// Returns `true` for pseudo-element entities (already styled). `<template>`
@@ -336,10 +318,7 @@ fn walk_node(
     parent: &ComputedStyle,
     state: &mut WalkState<'_>,
 ) {
-    if state.depth > MAX_WALK_DEPTH
-        || should_skip_child(dom, entity)
-        || (shadow.is_some() && dom.has_tag(entity, "style"))
-    {
+    if state.depth > MAX_WALK_DEPTH || should_skip_child(dom, entity) {
         return;
     }
     let own_sheet = host_stylesheet(dom, entity, state.total_shadow_css);
@@ -359,7 +338,13 @@ fn walk_node(
     if dom.is_element(entity) {
         state.effective_parent = child_display(style.display, saved_display);
     }
-    state.ctx = child_context(dom, entity, &style, &saved_ctx);
+    // CSS Values §6.1.1: rem is relative to the document element.
+    let root_font_size = if Some(entity) == state.document_element {
+        style.font_size
+    } else {
+        saved_ctx.root_font_size
+    };
+    state.ctx = saved_ctx.with_em_and_root(style.font_size, root_font_size);
     state.depth += 1;
     if let Some(sheet) = own_sheet {
         distribute_slots(dom, entity);

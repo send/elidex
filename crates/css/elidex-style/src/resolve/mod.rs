@@ -120,7 +120,6 @@ pub(crate) enum StyleSubject {
     Element,
     DocumentElement,
     UnusualHtml,
-    Generated,
 }
 
 pub(crate) fn build_style_for_subject(
@@ -142,9 +141,6 @@ pub(crate) fn build_style_for_subject(
     resolve_background_color(&mut style, winners, parent_style);
 
     // Phase 5: Display, positioning, overflow.
-    if subject == StyleSubject::Generated {
-        style.display = Display::Inline;
-    }
     resolve_display(&mut style, winners, parent_style);
     resolve_position(&mut style, winners, parent_style);
     resolve_position_offsets(&mut style, winners, parent_style, &elem_ctx);
@@ -193,7 +189,7 @@ fn adjust_display(
         style.display = match subject {
             StyleSubject::DocumentElement => Display::Block,
             StyleSubject::UnusualHtml => Display::None,
-            _ => Display::Contents,
+            StyleSubject::Element => Display::Contents,
         };
     }
     // CSS 2 §9.7; CSS Flexbox §4 and Grid §6.1.
