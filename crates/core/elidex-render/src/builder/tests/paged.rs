@@ -644,3 +644,85 @@ fn resolve_margin_box_style_defaults() {
     assert!((style.padding.top).abs() < f32::EPSILON);
     assert!((style.border_widths.top).abs() < f32::EPSILON);
 }
+
+#[test]
+fn continued_block_paints_each_child_and_page_counter_once() {
+    use elidex_plugin::{
+        ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Dimension, Display,
+        ListStyleType, MarginBoxContent, PageMargins, PageRule, PropertyDeclaration,
+    };
+
+    let font_db = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, block) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            counter_increment: vec![("page".into(), 10)],
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox::default(),
+    );
+    // Each indivisible child fills the 60px page area. Their parent continues.
+    for color in [CssColor::RED, CssColor::BLUE] {
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+        assert!(dom.append_child(block, child));
+        dom.world_mut()
+            .insert_one(
+                child,
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Dimension::Length(60.),
+                    overflow_y: elidex_plugin::Overflow::Hidden,
+                    background_color: color,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let mut ctx = make_page_ctx(220., 160.);
+    ctx.page_rules.push(PageRule {
+        margins: PageMargins {
+            top_left: Some(MarginBoxContent {
+                content: ContentValue::Items(vec![ContentItem::Counter {
+                    name: "page".into(),
+                    style: ListStyleType::Decimal,
+                }]),
+                properties: vec![PropertyDeclaration::new(
+                    "font-family",
+                    CssValue::String("Elidex Test Digits".into()),
+                )],
+            }),
+            ..Default::default()
+        },
+        selectors: vec![],
+        size: None,
+        properties: vec![],
+    });
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &font_db, &ctx);
+    assert_eq!(printed.pages.len(), 2);
+    let box_rect = Rect::new(50., 50., 120., 60.);
+    // The fixture maps digit n to glyph n + 1 with a half-em advance.
+    let eleven = [(2, 62.), (2, 70.)];
+    let two = [(3, 66.)];
+    for (page, (body_color, digits)) in printed.pages.iter().zip([
+        (CssColor::RED, eleven.as_slice()),
+        (CssColor::BLUE, two.as_slice()),
+    ]) {
+        let commands: Vec<_> = page.iter().collect();
+        let [DisplayItem::SolidRect { rect, color }, DisplayItem::PushClip { rect: clip, radii }, DisplayItem::PopClip, DisplayItem::Text {
+            glyphs, font_size, ..
+        }] = commands.as_slice()
+        else {
+            panic!("expected one clipped body followed by the page counter");
+        };
+        assert_eq!((*rect, *color), (box_rect, body_color));
+        assert_eq!((*clip, *radii), (box_rect, [0.; 4]));
+        assert_eq!(*font_size, 16.);
+        assert_eq!(glyphs.len(), digits.len());
+        for (glyph, &(id, x)) in glyphs.iter().zip(digits) {
+            assert_eq!(glyph.glyph_id, id);
+            assert_eq!(glyph.position, elidex_plugin::Point::new(x, 33.));
+        }
+    }
+}

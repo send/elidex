@@ -39,6 +39,15 @@ impl FontDatabase {
         Self { db }
     }
 
+    /// Construct an isolated database containing only the supplied fixture font.
+    #[cfg(feature = "fixtures")]
+    #[must_use]
+    pub fn from_fixture(data: &[u8]) -> Self {
+        let mut db = fontdb::Database::new();
+        db.load_font_data(data.to_vec());
+        Self { db }
+    }
+
     /// Returns `true` if the database contains at least one font face.
     #[must_use]
     pub fn has_fonts(&self) -> bool {
