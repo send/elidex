@@ -48,7 +48,7 @@ pub struct CollectedStylesheet {
 /// the DOM-as-truth replacement for the shell's stylesheet shadow-sync
 /// (S5-6 §4.2): a document-order, connectedness-filtered tree walk from
 /// `document` enumerating every stylesheet owner (`<style>` + loaded
-/// `<link rel="stylesheet">` — the same CSSOM §6.8 owner set as
+/// `<link rel="stylesheet">` — the same owner set this engine walks for
 /// `document.styleSheets`), re-parsing via the caller-supplied `parse_fn`
 /// ONLY the owners whose `sheet_version` diverged from their
 /// [`CollectedStylesheet`] stamp.

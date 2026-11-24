@@ -194,8 +194,8 @@ fn native_intersection_observer_constructor(
     }
 
     let init = parse_intersection_observer_init(ctx, args.get(1).copied())?;
-    // W3C Intersection Observer §2.2 ctor step — `SyntaxError` if
-    // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
+    // Intersection Observer §3.2.1 step 3 throws SyntaxError when
+    // the root margin fails to parse. The
     // crate-side `register` returns `RootMarginParseError` (engine-
     // independent); the host wraps it in an interface-scoped
     // SyntaxError matching the Chrome / Firefox shape.
@@ -274,15 +274,10 @@ fn native_intersection_observer_disconnect(
     Ok(JsValue::Undefined)
 }
 
-/// `IntersectionObserver.takeRecords()` (W3C Intersection Observer
-/// §3.3) — returns the queued entries and clears the queue.  This VM
-/// does not buffer entries between frames (per-frame delivery in
-/// [`super::super::Vm::deliver_intersection_observations`] consumes
-/// every observation directly), so the queue is always empty and this
-/// returns a fresh empty array.  Spec-compliant: the algorithm is
-/// "let queue be a copy of this's queued entries", "clear this's
-/// queued entries", "return queue" — both reads of an empty queue are
-/// well-defined.
+/// Intersection Observer §2.2 defines `takeRecords()` to copy the queued entries,
+/// clear the queue, and return the copy. This VM delivers observations directly
+/// in [`super::super::Vm::deliver_intersection_observations`], so this method
+/// always returns an empty array.
 fn native_intersection_observer_take_records(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -317,12 +312,8 @@ fn parse_intersection_observer_init(
 ) -> Result<IntersectionObserverInit, VmError> {
     let mut init = IntersectionObserverInit::default();
     let value = match arg {
-        // No init → spec default applies.  `threshold = [0]`
-        // (§2.4: "If options.threshold is not present, set it to [0]")
-        // is canonicalised crate-side in
-        // `IntersectionObserverRegistry::register`, so leaving the
-        // default empty `Vec` here is intentional — registration is
-        // the single canonicalisation point.
+        // The dictionary defaults threshold to zero (§2.4). Registration
+        // fills the empty list with zero (§3.2.1 step 8).
         None | Some(JsValue::Undefined | JsValue::Null) => return Ok(init),
         Some(v) => v,
     };
@@ -362,10 +353,8 @@ fn parse_intersection_observer_init(
 
     let raw_threshold = ctx.get_property_value(opts_id, PropertyKey::String(wk_threshold))?;
     init.threshold = parse_threshold(ctx, raw_threshold)?;
-    // Spec §2.2: thresholds must be sorted ascending + deduplicated +
-    // each in [0,1].  Sort+dedup here; range validation per-value
-    // happens in `parse_threshold`.  Empty-list canonicalisation to
-    // `[0]` lives in `IntersectionObserverRegistry::register`.
+    // Intersection Observer §3.2.1 steps 6–9 range-check and sort the values.
+    // This VM additionally removes duplicate thresholds.
     init.threshold
         .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     init.threshold.dedup();
@@ -382,17 +371,11 @@ fn parse_threshold(ctx: &mut NativeContext<'_>, raw: JsValue) -> Result<Vec<f64>
     if matches!(raw, JsValue::Undefined) {
         return Ok(Vec::new());
     }
-    // WebIDL §3.10.25 union resolution for `(double or sequence<double>)`:
-    // probe `@@iterator` only on **Objects**.  Primitives — including
-    // `String`, which has an `@@iterator` of its own (code-point
-    // iteration) — must coerce directly to the `double` branch.
-    // Without the `JsValue::Object` gate, `threshold: '0.5'` would
-    // iterate `'.'` / `'5'` / `'0'` as code points and ToNumber-NaN
-    // the first one into a RangeError.  `null` falls through to the
-    // primitive coercion path as `0` per ES `ToNumber`.
+    // For the threshold union, Web IDL §3.2.25 checks objects for an iterator.
+    // A primitive string such as "0.5" converts directly to double.
     if matches!(raw, JsValue::Object(_)) {
         if let Some(iter @ JsValue::Object(_)) = ctx.vm.resolve_iterator(raw)? {
-            // Sequence branch — drain via the shared WebIDL §3.10.16
+            // Sequence branch — drain via the shared Web IDL §3.2.21
             // helper so `Array.prototype[@@iterator]` overrides and
             // other iterables are honoured uniformly.  Cap is a
             // safety bound on pathological iterators; real consumers
@@ -561,7 +544,7 @@ fn intersection_entry_to_js(
             f64::from(rb.size.width),
             f64::from(rb.size.height),
         ),
-        // Cross-origin implicit root reports null per §3.4 — that path
+        // Section 2.3 defines null rootBounds for a cross-origin-domain target. That path
         // is deferred (`#11-intersection-observer-cross-origin-rootbounds`),
         // so same-origin always produces `Some` from the crate side.
         None => JsValue::Null,

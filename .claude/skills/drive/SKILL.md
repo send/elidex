@@ -27,6 +27,7 @@ lane 固有の事実 (lane 名、持つ PR / branch / memo、最初の成果物�
 | edge-dense の規則 (umbrella + per-PR plan、実装前 plan-review) | repo `CLAUDE.md`「Edge-dense work」 |
 | PM の merge 検証の checklist、比例性の閾値、着地後の台帳の更新 | `/pm` §4 / §2 行 7 / §5 |
 | 台帳・PORTFOLIO・MEMORY Active state の書き方 | `~/.claude/agents/pmo.md` (書くのは pmo、渡すのは PM) |
+| Codex CLI で driver を務める時の道具の差分 (Codex の driver は本 skill と併せて読む) | `.claude/skills/drive/codex.md` |
 | repo に依らない判断・確認・検証・測定・止まり方・引き継ぎの一般則 (lens block と `lens-attest.sh`、根拠の段、規則の読みの先例、relay の本文、承認前の全文読み、claim の確かめ、0 件の control、時刻の変換、測定の作法、PID での停止、`止まる理由`、引き継ぎの繰り越し照合) | `~/.claude/CLAUDE.md`「判断と確認」「検証の作法」「並行セッション」「止まり方と引き継ぎ」(PM 736 で `/pm` §12 と `/drive` §8 / §10 から移した) |
 
 ## 0. 置き場所 (固定値)
@@ -112,6 +113,8 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
   PM が理由を問うたら答え、loop 継続の判定が出るまで次の round を撃たない。
 - loop の終わり方は round を始める前に PM と合意し、lane SSoT に書く (§9 の「終わり方と今のカウント」)。
   「次に出たら user へ」を既定の終わり方にしない。
+- **範囲を広げる指摘** (PM 959 (4)): advisory な下見や gate の指摘が PR に crate・利用者の群・不変条件の軸を足すものなら、
+  その場で直さず PM への範囲の問いにする (§2)。
 - **自分で wake できない mode** (Claude Desktop の prompting mode 等) なら、その旨を lane SSoT に書き、
   single-pass の verdict の poll を PM に頼む (PM 361)。
 
@@ -139,6 +142,7 @@ merge の後、PM に 1 通で送る:
 - 比例性の回数 (§5)
 - slot の文案は PM が前提を確かめてから登録する (`/pm` §8)。lane が出す文案の前提は claim であって確認済みではない
 - slot の文面 (BEGIN/END) に行番号を書かない。cite は「file + symbol」で書き、sha は台帳の出典欄にある merge commit の 1 つだけにする (squash merge の後に辿れない sha と、基準の混ざった行番号を生まないため) (PM 648)
+- lane が書く slot の文案には `**Re-eval-date**: YYYY-MM-DD` を付ける (PM 489)。overdue scan の読み方は `$PMD/tools/overdue_scan.py` の docstring が正
 - 件数は計測の出力として、コマンド・head・件数の 3 つで書き、固定の数字で書かない。母集団は性質で定義し、件数は「その head での測定値」とする (PM 659/662)
 
 台帳・MEMORY Active state は書かない (PM が pmo に渡す)。自分の lane SSoT だけを更新する。
@@ -151,6 +155,7 @@ merge の後、PM に 1 通で送る:
   `feedback_mise-probes-isolate-state-dir.md` (PM 151 / 230) / `feedback_cap-delegate-experiment-parallelism.md` /
   `feedback_kill-by-pid-not-pattern.md` / `feedback_disk-budget-for-measurement-clones.md`。
 - **disk の下限**: PM が新しい測定 batch を止めたら (`/pm` §2 行 3) 新しい batch を始めない。
+- **local の `mise run` は machine 全体で同時に 1 本** (暫定: CI/tools の機構が着地するまで、PM 968): `mise run` (`ci` も単独の task も) の前に `pgrep -fl '^(/[^ ]*/)?mise run '` を打つ。何かが走っていれば空くまで待ち、他の session の run を kill しない (PM 912 / 968)。30 分待っても空かなければ PM に伝える。
 
 ## 9. Handoff (lane SSoT の冒頭 block)
 

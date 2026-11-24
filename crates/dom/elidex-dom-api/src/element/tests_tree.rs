@@ -545,9 +545,7 @@ fn remove_attribute_invalid_name_is_noop() {
 }
 
 // ---------------------------------------------------------------------------
-// B1.2b-3 — pre-insertion-validity fold. The core Node insert methods now run
-// the canonical WHATWG DOM §4.2.3 ensure-pre-insertion-validity (steps 1/4/5/6)
-// that the empty-`apply_*`-list signal did NOT encode (silently accepted before).
+// Core Node insertion methods enforce DOM §4.2.3 pre-insert validity.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -628,15 +626,8 @@ fn append_child_second_element_into_document_throws_hierarchy() {
 
 #[test]
 fn append_child_existing_document_element_throws_hierarchy() {
-    // §4.2.3 ensure pre-insert validity step 9.1 (Element branch) has NO self-exclusion: it tests
-    // "parent has an element child" counting ALL element children INCLUDING the node
-    // being inserted, and runs BEFORE the pre-insert self-reference adjustment
-    // (pre-insert step 3). So `document.appendChild(document.documentElement)` throws
-    // HierarchyRequestError — the existing documentElement is still an element child
-    // of the document when validity runs. (Only the *replace* algorithm excludes
-    // `child`: "an element child that is not child"; pre-insert does not — the spec
-    // states the replace statements "differ from the pre-insert algorithm".) Codex
-    // B1.2b-3 R1 caught the plan's wrong "step-6 self-exclusion" framing.
+    // DOM §4.2.3 pre-insert passes an empty exclusion list. Step 9.1 of
+    // the validity check counts the existing documentElement and rejects the append.
     let (mut dom, _div, _span, mut session) = setup();
     let doc = dom.create_document_node();
     let root = dom.create_element_ownerless_fixture("html", Attributes::default());

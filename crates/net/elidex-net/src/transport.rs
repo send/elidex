@@ -200,7 +200,7 @@ impl HttpTransport {
                 body,
                 url: request.url.clone(),
                 version,
-                // WHATWG Fetch §3.1.4 — a request's URL list is
+                // WHATWG Fetch §2.2.5 — a request's URL list is
                 // always at least one URL (the request URL).  The
                 // redirect loop overrides this with the full chain;
                 // for direct (non-redirected) sends the single-hop

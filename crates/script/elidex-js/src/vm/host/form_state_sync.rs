@@ -55,9 +55,8 @@ use super::super::value::{JsValue, NativeContext, VmError};
 pub(super) type RequireReceiver =
     fn(&mut NativeContext<'_>, JsValue, &str) -> Result<Option<Entity>, VmError>;
 
-/// Boolean-presence content-attribute setter (HTML §2.5.2 boolean
-/// attribute rule — `true` ⇒ presence ⇒ empty string; `false` ⇒
-/// absence).
+/// Reflected boolean setter (HTML §2.6.1). True sets the content attribute
+/// to the empty string and false removes it.
 ///
 /// `attr` is the lowercase content-attribute name written through to
 /// `EcsDom::set_attribute` (e.g. `"readonly"` even for the IDL alias

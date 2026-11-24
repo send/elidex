@@ -439,10 +439,11 @@ fn sanitize_color_forces_opaque() {
 
 #[test]
 fn color_idl_value_set_round_trips_valid_color() {
-    // B2 (interop-faithful): `input.value = "#ff0000"` keeps `#ff0000` — the
-    // value-mode IDL setter sanitizes the live value, NOT the (absent) `value`
-    // content attribute.  A valid color round-trips; an invalid one snaps to
-    // opaque black.
+    // `input.value = "#ff0000"` keeps `#ff0000`: the IDL setter sets the dirty
+    // value flag before it sanitizes (HTML §4.10.5.4 `dom-input-value`), so
+    // *update a color well control color* step 2.2 reads the live value, not
+    // the (absent) `value` content attribute.  A valid color round-trips; an
+    // invalid one snaps to opaque black.
     let mut s = raw_state(FormControlKind::Color, "");
     s.set_value("#ff0000".to_string());
     assert_eq!(s.value(), "#ff0000");

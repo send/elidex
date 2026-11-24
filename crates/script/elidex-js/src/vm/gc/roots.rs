@@ -16,7 +16,7 @@ use super::super::value::StringId;
 use super::super::value::{JsValue, Object, ObjectId};
 #[cfg(feature = "engine")]
 use super::super::wrapper_intern::{MarkAgent, WrapperOwner, WrapperSubkey};
-use super::{mark_object, mark_upvalue, mark_value};
+use super::{mark_frame, mark_object, mark_value};
 
 /// Snapshot of all GC root sets, borrowed immutably from `VmInner`.
 pub(super) struct GcRoots<'a> {
@@ -80,12 +80,11 @@ pub(super) struct GcRoots<'a> {
     /// between scheduling and firing.
     pub(super) timer_queue:
         &'a std::collections::BinaryHeap<super::super::natives_timer::TimerEntry>,
-    /// Currently-firing timer entry (popped out of `timer_queue`).  Same
-    /// invariant as `current_microtask`: the callback/args must survive
-    /// any GC triggered by the running callback.
+    /// Currently-firing timer entry (popped out of `timer_queue`); its
+    /// lifetime is stated in `VmInner::drain_timers`.
     pub(super) current_timer: Option<&'a super::super::natives_timer::TimerEntry>,
     /// Navigation state — `NavigationState.current_state: JsValue` holds the
-    /// value last passed to `history.pushState` / `replaceState` (`history.state`).
+    /// value currently exposed by `history.state`.
     /// Without tracing it here, that object could be collected while still
     /// reachable via a `history.state` read.  Engine-only — `VmInner::navigation`
     /// is gated behind `feature = "engine"`.
@@ -276,42 +275,7 @@ pub(super) fn mark_roots(
 
     // (b) Call frame roots
     for frame in roots.frames {
-        mark_value(frame.this_value, obj_marks, work);
-        for &uv_id in frame.upvalue_ids.iter() {
-            mark_upvalue(uv_id, roots.upvalues, uv_marks, obj_marks, work);
-        }
-        for &uv_id in &frame.local_upvalue_ids {
-            mark_upvalue(uv_id, roots.upvalues, uv_marks, obj_marks, work);
-        }
-        if let Some(ref args) = frame.actual_args {
-            for &val in args {
-                mark_value(val, obj_marks, work);
-            }
-        }
-        if let Some(id) = frame.new_instance {
-            mark_object(id, obj_marks, work);
-        }
-        if let super::super::value::CallMode::Construct { new_target } = frame.mode {
-            mark_object(new_target, obj_marks, work);
-        }
-        if let Some(id) = frame.home_class {
-            mark_object(id, obj_marks, work);
-        }
-        if let Some(gen_id) = frame.generator {
-            mark_object(gen_id, obj_marks, work);
-        }
-        // Pending abrupt completion value (Return/Throw) — held across a
-        // finally body execution, only alive for that window but an
-        // independent root during it.
-        match frame.pending_completion.as_deref() {
-            Some(
-                super::super::value::FrameCompletion::Return(v)
-                | super::super::value::FrameCompletion::Throw(v),
-            ) => {
-                mark_value(*v, obj_marks, work);
-            }
-            Some(super::super::value::FrameCompletion::Normal(_)) | None => {}
-        }
+        mark_frame(frame, roots.upvalues, uv_marks, obj_marks, work);
     }
 
     // (c) Global variables
@@ -471,13 +435,8 @@ pub(super) fn mark_roots(
         mark_timer_entry(entry, obj_marks, work);
     }
 
-    // (i) Navigation state — `history.state`, the `JsValue` last handed to
-    // `history.pushState(state, ...)` / `replaceState`.  It is not reachable
-    // from any other root (not the stack, not a function upvalue; `current_state`
-    // lives on `VmInner` directly).  Without marking, the object can be collected
-    // between the `pushState` call and a later `history.state` read.  (The shell
-    // owns the session-history stack — the VM holds only the current entry's
-    // state, S1c.)
+    // (i) Keep the value exposed by `history.state` alive between reads.
+    // The VM owns the current value and the shell owns the session-history stack.
     #[cfg(feature = "engine")]
     mark_value(roots.navigation.current_state, obj_marks, work);
 

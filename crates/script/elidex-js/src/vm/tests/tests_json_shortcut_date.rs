@@ -2,12 +2,12 @@
 //!
 //! Worker / ServiceWorker `postMessage` and `history.state` stand in for
 //! StructuredSerialize with a JSON shortcut
-//! (`natives_json::stringify_for_structured_shortcut`). A `Date` is [Serializable],
-//! so real structured clone round-trips it — but `JSON.stringify` flattens it
-//! through `toJSON` (ECMA-262 §21.4.4.37) into an ISO String, which would hand the
-//! peer (or a history traversal) a **String** where structured clone gives a Date.
-//! Every *other* shortcut gap fails loudly (a `BigInt`, a cycle, the depth cap all
-//! throw), so only a Date needed an explicit arm.
+//! (`natives_json::stringify_for_structured_shortcut`). HTML §2.7.4 step 12
+//! records a Date's internal time value and §2.7.7 step 11 reconstructs it.
+//! Ordinary JSON serialization can instead call `Date.prototype.toJSON`
+//! (ECMA-262 §21.4.4.37), turning a finite Date into a string.
+//! This guard addresses Date specifically. JSON can still silently drop an
+//! ordinary object's properties, including an own property valued `undefined`.
 //!
 //! What these tests pin is *where* that arm lives: **inside** the JSON walk, on the
 //! value `SerializeJSONProperty` observes and before the `toJSON` hook. Codex R5
@@ -111,12 +111,10 @@ fn worker_post_message_rejects_a_date_returned_by_an_accessor() {
     });
 }
 
-/// Codex R5: a user exception raised *during* serialization must still propagate
-/// unchanged (the documented contract on `serialize_message`) even when the payload
-/// also holds a Date. A pre-scan ran before any user code, so it answered
-/// `DataCloneError` and the user's `TypeError` never surfaced. In-walk, JSON's own
-/// order applies: the top-level `toJSON` — or an earlier enumerable getter — fires
-/// first, so the user's exception wins.
+/// This fixture checks the interim JSON encoder's traversal order. A throwing
+/// `toJSON` or earlier getter propagates before the Date guard is reached.
+/// HTML propagates a throwing ordinary-property getter but rejects a callable
+/// own method as data without invoking it.
 #[test]
 fn worker_post_message_propagates_a_user_throw_ahead_of_the_date_check() {
     with_main_vm(|vm| {

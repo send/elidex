@@ -1,11 +1,12 @@
-//! Change-on-blur user provenance (HTML §6.6.4 focus update steps step 2.1
-//! (`<input>` / `<textarea>` qualifier: see `elidex_form`'s `focus_snapshot`),
-//! §4.10.5.5 Common event behaviors): `change` fires at a blurred text control
-//! only for a value the **user** changed since focus, and `input` fires for a
-//! user action only when it changed the value.
+//! Change-on-blur user provenance (HTML §6.6.4 focus update steps step 2.1,
+//! §4.10.5.5 Common event behaviors): whether `change` fires at a blur is
+//! `elidex_form::take_change_on_blur`'s verdict, and `input` fires for a user
+//! action only when it changed the value.
 //!
-//! Plan: `docs/plans/2026-11-change-on-blur-user-provenance.md` §6 (cells
-//! C1–C29, model H of §4.3). User input is driven through `handle_key` /
+//! Plans: `docs/plans/2026-11-change-on-blur-user-provenance.md` §6 (cells
+//! C1–C29), `docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md` §5 (cells
+//! DC-n, PB-n) and the re-derivation
+//! `docs/plans/2026-11-change-on-blur-spec-rederivation.md` (§6.1). User input is driven through `handle_key` /
 //! `handle_ime`, UA focus moves through `content::focus::set_focus` /
 //! `blur_current`, script steps through `eval_script`. Events are observed by
 //! listeners that append to a log mirrored into `<body data-log>`, read back
@@ -303,12 +304,12 @@ fn c19(tag: &str) {
 }
 
 #[test]
-fn c19_second_focus_rebaselines_before_user_edit_input() {
+fn c19_second_focus_reseeds_first_focus_value_before_user_edit_input() {
     c19("input");
 }
 
 #[test]
-fn c19_second_focus_rebaselines_before_user_edit_textarea() {
+fn c19_second_focus_reseeds_first_focus_value_before_user_edit_textarea() {
     c19("textarea");
 }
 
@@ -320,8 +321,7 @@ fn cursor(state: &ContentState, id: &str) -> usize {
 }
 
 /// A script `value = "ab"` before focus leaves the caret at the end (the
-/// setter's cursor move), so ArrowLeft has somewhere to go — the setup of the
-/// Chromium-measured N1 / M5 cases. (A collapsed VM `setSelectionRange(1, 1)`
+/// setter's cursor move), so ArrowLeft has somewhere to go. (A collapsed VM `setSelectionRange(1, 1)`
 /// does not move elidex's caret, `cursor_pos`, so it cannot set this up:
 /// `#11-text-control-set-selection-range-caret`.)
 fn focus_with_caret_at_end(state: &mut ContentState) {
@@ -460,7 +460,7 @@ fn c29_cut_marks_and_fires_input() {
     );
 }
 
-// ---- Commit (3): the mark decides, and the first mark re-baselines --------
+// ---- The mark decides; the judgement compares with the first-focus value and the value before the first user edit ----
 
 /// C1 (M0) / C14: a script write to a UA-focused control, then a UA blur; no `change`.
 fn c1(tag: &str) {
@@ -504,8 +504,10 @@ fn c3_blur_current_no_change_for_script_written_value() {
     );
 }
 
-/// C6 (M4): script `x`; user Backspace (value back to `""`); blur → `change`.
-fn c6(tag: &str) {
+/// DC-1 (was C6): script `x`; user Backspace (value back to the first-focus
+/// value `""`); blur → no `change` (HTML §6.6.4 focus update steps step 2.1:
+/// the value equals what it was when the control was first focused).
+fn dc1(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
     script_set_value(&mut s, "x");
@@ -513,17 +515,21 @@ fn c6(tag: &str) {
     assert_eq!(value(&s, "b"), "");
     clear_log(&mut s);
     ua_focus(&mut s, "c");
-    assert!(has_change(&s), "M4: change ({})", event_log(&s.pipeline));
+    assert!(
+        !has_change(&s),
+        "the value equals the first-focus value ({})",
+        event_log(&s.pipeline)
+    );
 }
 
 #[test]
-fn c6_ua_blur_after_script_write_then_user_revert_input() {
-    c6("input");
+fn dc1_script_write_then_user_revert_to_first_focus_value_input() {
+    dc1("input");
 }
 
 #[test]
-fn c6_ua_blur_after_script_write_then_user_revert_textarea() {
-    c6("textarea");
+fn dc1_script_write_then_user_revert_to_first_focus_value_textarea() {
+    dc1("textarea");
 }
 
 /// C9 (M5): ArrowLeft, then a script write, then a UA blur; no `change`.
@@ -558,7 +564,8 @@ fn c16_stale_mark_does_not_survive_refocus() {
     assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
 }
 
-/// C20 (M9, W1 / W2): the user returns to the script-written value; no second `change`.
+/// C20 (M9, W1 / W2; DC-2): D-3, class (b) — the user returns to the script-written
+/// value; no second `change`.
 fn c20(tag: &str) {
     let (mut s, _b) = setup(&pair(tag, "", ""));
     ua_focus(&mut s, "b");
@@ -590,9 +597,9 @@ fn c20_user_returns_to_script_written_value_textarea() {
     c20("textarea");
 }
 
-/// The W3–W8 pattern: UA focus; `writer` changes the value to `expected`;
+/// D-3, class (b) — a script write, then a net-zero user edit: UA focus; `writer` changes the value to `expected`;
 /// user `z`, Backspace (back to `expected`); UA blur → no `change`.
-fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &str) {
+fn writer_then_net_zero_user_edit(body: &str, before_focus: &str, writer: &str, expected: &str) {
     let (mut s, _b) = setup(body);
     if !before_focus.is_empty() {
         eval(&mut s.pipeline, before_focus);
@@ -612,10 +619,11 @@ fn writer_rebaselines(body: &str, before_focus: &str, writer: &str, expected: &s
     );
 }
 
-/// C21 (W3).
+/// C21 (W3; DC-3): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c21_textarea_default_value_write_rebaselines() {
-    writer_rebaselines(
+fn c21_textarea_default_value_write_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<textarea id=b>p</textarea><input id=c>",
         "",
         "document.getElementById('b').defaultValue = 'q';",
@@ -623,10 +631,11 @@ fn c21_textarea_default_value_write_rebaselines() {
     );
 }
 
-/// C22 (W4).
+/// C22 (W4; DC-4): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c22_value_attribute_write_rebaselines() {
-    writer_rebaselines(
+fn c22_value_attribute_write_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\"p\"><input id=c>",
         "",
         "document.getElementById('b').setAttribute('value', 'q');",
@@ -634,10 +643,11 @@ fn c22_value_attribute_write_rebaselines() {
     );
 }
 
-/// C23 (W5).
+/// C23 (W5; DC-5): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c23_type_change_sanitize_rebaselines() {
-    writer_rebaselines(
+fn c23_type_change_sanitize_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\" a\"><input id=c>",
         "",
         "document.getElementById('b').type = 'url';",
@@ -645,10 +655,11 @@ fn c23_type_change_sanitize_rebaselines() {
     );
 }
 
-/// C24 (W6; the accepted Chromium divergence, plan §6 / PM 307). `[contrast]`
+/// C24 (W6; DC-9): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c24_email_multiple_toggle_rebaselines() {
-    writer_rebaselines(
+fn c24_email_multiple_toggle_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b type=email value=\"a@b, c@d\"><input id=c>",
         "",
         "document.getElementById('b').setAttribute('multiple', '');",
@@ -656,10 +667,11 @@ fn c24_email_multiple_toggle_rebaselines() {
     );
 }
 
-/// C25 (W7).
+/// C25 (W7; DC-6): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c25_set_range_text_rebaselines() {
-    writer_rebaselines(
+fn c25_set_range_text_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<input id=b value=\"p\"><input id=c>",
         "",
         "document.getElementById('b').setRangeText('q', 0, 0);",
@@ -667,13 +679,220 @@ fn c25_set_range_text_rebaselines() {
     );
 }
 
-/// C26 (W8).
+/// C26 (W8; DC-7): D-3, class (b) — the net-zero user edit after a script
+/// write fires no `change`.
 #[test]
-fn c26_form_reset_rebaselines() {
-    writer_rebaselines(
+fn c26_form_reset_net_zero_user_edit() {
+    writer_then_net_zero_user_edit(
         "<form id=f><input id=b value=\"d\"></form><input id=c>",
         "document.getElementById('b').value = 'x';",
         "document.getElementById('f').reset();",
         "d",
     );
+}
+
+// ---- The first-focus value is the reference (DF-1) -----------------------
+// (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`, B-4 / B-5)
+
+/// DC-1v: the same as DC-1, focus established by VM `focus()` (slot req 3):
+/// script `x`; user Backspace; blur → no `change`.
+#[test]
+fn dc1v_vm_focus_then_script_write_then_user_revert() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    eval(&mut s.pipeline, "document.getElementById('b').focus();");
+    script_set_value(&mut s, "x");
+    user_key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(
+        !has_change(&s),
+        "the value equals the first-focus value ({})",
+        event_log(&s.pipeline)
+    );
+}
+
+/// DC-8: script `x`; user types `a` (`"xa"`) then deletes twice (`""`); blur →
+/// no `change` (the value is back to the first-focus value).
+fn dc8(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "", ""));
+    ua_focus(&mut s, "b");
+    script_set_value(&mut s, "x");
+    user_key(&mut s, "a");
+    assert_eq!(value(&s, "b"), "xa");
+    user_key(&mut s, "Backspace");
+    user_key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(
+        !has_change(&s),
+        "the value equals the first-focus value ({})",
+        event_log(&s.pipeline)
+    );
+}
+
+#[test]
+fn dc8_script_write_user_type_then_delete_to_first_focus_value_input() {
+    dc8("input");
+}
+
+#[test]
+fn dc8_script_write_user_type_then_delete_to_first_focus_value_textarea() {
+    dc8("textarea");
+}
+
+/// A `focus` listener on `#b` that sets `b.value = 'x'`.
+fn focus_listener_writes_x(state: &mut ContentState) {
+    eval(
+        &mut state.pipeline,
+        "const fb = document.getElementById('b'); \
+         fb.addEventListener('focus', () => { fb.value = 'x'; });",
+    );
+}
+
+/// DC-10: a `focus` listener writes `x`; the user deletes it (`""`); blur → no
+/// `change`. The first-focus value is taken at the designation (step 4.1),
+/// before the listener runs (R-1), so `""` equals it.
+#[test]
+fn dc10_focus_listener_write_then_user_revert() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    focus_listener_writes_x(&mut s);
+    ua_focus(&mut s, "b");
+    assert_eq!(value(&s, "b"), "x", "the focus listener ran");
+    user_key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(
+        !has_change(&s),
+        "the value equals the first-focus value ({})",
+        event_log(&s.pipeline)
+    );
+}
+
+/// DC-10n: a `focus` listener writes `x`; the user does nothing; blur → no
+/// `change` (a non-user write alone never fires one, §4.10.5.5).
+#[test]
+fn dc10n_focus_listener_write_without_user_edit_no_change() {
+    let (mut s, _b) = setup(&pair("input", "", ""));
+    focus_listener_writes_x(&mut s);
+    ua_focus(&mut s, "b");
+    assert_eq!(value(&s, "b"), "x", "the focus listener ran");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_event(&s, "blur"), "{}", event_log(&s.pipeline));
+    assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
+}
+
+/// DC-17: script `x`; user types `a`, deletes it (`"x"`, net zero); script `y`;
+/// blur → `change` (`"y"` differs from the first-focus value `""` and from the
+/// value just before the first user edit, `"x"`).
+fn dc17(tag: &str) {
+    let (mut s, _b) = setup(&pair(tag, "", ""));
+    ua_focus(&mut s, "b");
+    script_set_value(&mut s, "x");
+    user_key(&mut s, "a");
+    user_key(&mut s, "Backspace");
+    assert_eq!(value(&s, "b"), "x");
+    script_set_value(&mut s, "y");
+    clear_log(&mut s);
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
+}
+
+#[test]
+fn dc17_script_user_net_zero_script_input() {
+    dc17("input");
+}
+
+#[test]
+fn dc17_script_user_net_zero_script_textarea() {
+    dc17("textarea");
+}
+
+// ---- The population is the element; the kind is read at focus loss -------
+// (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`, DF-2)
+
+/// A script `#b.type = t`.
+fn script_set_type(state: &mut ContentState, t: &str) {
+    eval(
+        &mut state.pipeline,
+        &format!("document.getElementById('b').type = '{t}';"),
+    );
+}
+
+/// DC-14: a control focused as a checkbox, then flipped to text, then user-edited,
+/// fires `input` then `change` at blur (step 2.1's conjuncts hold at focus
+/// loss; `"a"` differs from the first-focus value `""`).
+#[test]
+fn dc14_checkbox_focused_then_text_then_user_edit() {
+    let (mut s, _b) = setup("<input id=b type=checkbox><input id=c>");
+    ua_focus(&mut s, "b");
+    script_set_type(&mut s, "text");
+    assert_eq!(value(&s, "b"), "");
+    clear_log(&mut s);
+    user_key(&mut s, "a");
+    ua_focus(&mut s, "c");
+    assert_eq!(
+        event_log(&s.pipeline),
+        "input:insertText,change,blur,focusout"
+    );
+}
+
+/// The DC-15/16/18/19 flow: a pair `#b` (text) / `#c`; focus `#b`; the user
+/// types `key`; script sets `type` to each of `types` in turn; the log is
+/// cleared. Returns the state (and the browser, which must outlive it) for the
+/// call site to assert values and blur.
+fn edit_then_retype(key: &str, types: &[&str]) -> (ContentState, Browser) {
+    let (mut s, b) = setup(&pair("input", "", ""));
+    ua_focus(&mut s, "b");
+    user_key(&mut s, key);
+    for t in types {
+        script_set_type(&mut s, t);
+    }
+    clear_log(&mut s);
+    (s, b)
+}
+
+/// DC-15: text → Number after a user edit: `change` applies to Number, the
+/// user changed the value while focused, `"1"` differs from `""`.
+#[test]
+fn dc15_text_to_number_after_user_edit() {
+    let (mut s, _b) = edit_then_retype("1", &["number"]);
+    assert_eq!(value(&s, "b"), "1");
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
+}
+
+/// DC-16 (control): text → Checkbox after a user edit: the Checkbox state
+/// defines an input activation behavior, so no `change` at blur.
+#[test]
+fn dc16_text_to_checkbox_after_user_edit_no_change() {
+    let (mut s, _b) = edit_then_retype("a", &["checkbox"]);
+    ua_focus(&mut s, "c");
+    assert!(!has_change(&s), "no change ({})", event_log(&s.pipeline));
+}
+
+/// DC-18: a round trip text → checkbox → text after a user edit: the value
+/// stays `"a"` and the kind at focus loss is Text, so `change` fires.
+#[test]
+fn dc18_round_trip_through_checkbox() {
+    let (mut s, _b) = edit_then_retype("a", &["checkbox", "text"]);
+    assert_eq!(value(&s, "b"), "a");
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
+}
+
+/// DC-19: a round trip text → color → text after a user edit: the sanitization
+/// writes `"#000000"`, which differs from the value just before the first user
+/// edit (`""`, the re-derivation's D-3), so `change` fires.
+#[test]
+fn dc19_round_trip_through_color() {
+    let (mut s, _b) = edit_then_retype("a", &["color"]);
+    assert_eq!(value(&s, "b"), "#000000");
+    script_set_type(&mut s, "text");
+    assert_eq!(value(&s, "b"), "#000000");
+    ua_focus(&mut s, "c");
+    assert!(has_change(&s), "change ({})", event_log(&s.pipeline));
 }

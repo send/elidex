@@ -23,15 +23,7 @@ impl MutationDispatcher for FormControlOnlyTestDispatcher {
 /// pre-attached, and the form-control reconciler installed.
 fn setup(tag: &str, attrs: &[(&str, &str)]) -> (EcsDom, Entity) {
     let mut dom = EcsDom::new();
-    let mut attr_map = Attributes::default();
-    for (k, v) in attrs {
-        attr_map.set(k.to_string(), v.to_string());
-    }
-    let entity = dom.create_element_ownerless_fixture(tag, attr_map);
-    assert!(
-        create_form_control_state(&mut dom, entity),
-        "create_form_control_state must succeed for tag {tag}"
-    );
+    let entity = crate::test_support::attached_element(&mut dom, tag, attrs);
     let displaced = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
         FormControlReconciler,
     )));
@@ -77,7 +69,7 @@ fn e3_set_form_attribute_reflects_form_owner() {
 #[test]
 fn e4_required_boolean_presence_and_removal() {
     let (mut dom, e) = setup("input", &[]);
-    // Empty-string presence per HTML §2.5.2 boolean-attribute rule.
+    // A present boolean attribute represents true (HTML §2.3.2).
     assert!(dom.set_attribute(e, "required", "").did_set);
     with_fcs(&dom, e, |s| assert!(s.required));
     // Removal resets to default (false).
@@ -208,45 +200,175 @@ fn e2b_type_change_checkable_to_text_clears_checked_via_sanitize() {
     });
 }
 
-#[test]
-fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
-    // Codex S2 F7: a focused text control whose `type` flips to a non-text
-    // kind (text → checkbox) must drop the focus-time change-on-blur
-    // snapshot at the `set_attribute` chokepoint, else a later blur consumes
-    // the stale text baseline and fires a spurious `change`.
-    // `record_focus_snapshot` only re-evaluates at focus time, so the
-    // reconciler's type arm clears it mid-focus.
+/// A focused `<input>` (seeded) carrying the value `value`, then a user edit
+/// appending `a` at the end: the mark is `value`, the value `value + "a"`.
+fn seeded_and_user_edited(value: &str) -> (EcsDom, Entity) {
     use crate::record_focus_snapshot;
+    use crate::test_support::user_append;
+    let (mut dom, e) = setup("input", &[("value", value)]);
+    record_focus_snapshot(&mut dom, e);
+    let end = value.len();
+    dom.world_mut()
+        .get::<&mut FormControlState>(e)
+        .unwrap()
+        .set_cursor(end);
+    user_append(&mut dom, e, "a");
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), format!("{value}a")));
+    (dom, e)
+}
+
+// Plan IDs in the change-on-blur tests below: B-n / QB-n / O-B1 / PB-n / DC-n
+// name the baseline plan (`docs/plans/2026-11-focus-fixup-change-on-blur-baseline.md`);
+// R-n / D-n / PE-n name the re-derivation
+// (`docs/plans/2026-11-change-on-blur-spec-rederivation.md`).
+
+#[test]
+fn e2c_type_flip_to_non_text_while_focused_keeps_focus_snapshot() {
+    // DC-16u (baseline plan B-7; re-derivation R-2): a `type` change writes nothing to the
+    // change-on-blur component, so a marked snapshot survives a flip text →
+    // checkbox with its mark; the value differs from both the first-focus value and
+    // the mark, so the kind at focus loss is the only reason for `false` (a Checkbox defines an input
+    // activation behavior).
+    use crate::test_support::{snap, user_append, Snap};
+    use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
         state.set_value("typed".to_string());
     }
     record_focus_snapshot(&mut dom, e);
+    let end = "typed".len();
+    dom.world_mut()
+        .get::<&mut FormControlState>(e)
+        .unwrap()
+        .set_cursor(end);
+    user_append(&mut dom, e, "a");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        }
+    );
     assert!(dom.set_attribute(e, "type", "checkbox").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
-    assert!(
-        crate::test_support::snap(&dom, e) == crate::test_support::Snap::Absent,
-        "type flip to a non-text kind must clear the stale focus snapshot"
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: "typed".to_string(),
+            user_change_from: "typed".to_string()
+        },
+        "a `type` flip writes nothing to the focus snapshot"
     );
+    with_fcs(&dom, e, |s| assert_ne!(s.value(), "typed"));
+    assert!(!take_change_on_blur(&mut dom, e), "Checkbox at focus loss");
+}
+
+#[test]
+fn dc14u_seed_on_checkbox_survives_flip_to_text() {
+    // Baseline plan DC-14u: the seed is written on an `<input type=checkbox>` (the
+    // population is the element); a flip to text writes nothing; a user edit
+    // then marks it, and the take (kind Text at focus loss) fires.
+    use crate::test_support::user_append;
+    use crate::{record_focus_snapshot, take_change_on_blur};
+    let (mut dom, e) = setup("input", &[("type", "checkbox")]);
+    record_focus_snapshot(&mut dom, e);
+    assert!(dom.set_attribute(e, "type", "text").did_set);
+    user_append(&mut dom, e, "a");
+    assert!(take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_after_flip_to_hidden() {
+    // Baseline plan PB-5: `<input value="x">`, user edit → "xa" (mark "x"); `type=hidden`:
+    // step 1 writes the content attribute "xa", Hidden defines no
+    // sanitization, so V stays "xa", differing from both the first-focus value and the mark; only the kind (baseline plan QB-1) makes the
+    // verdict `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "hidden").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), "xa"));
+    assert!(!take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_after_flip_to_file() {
+    // Baseline plan PB-6: as PB-5; `type=file`: step 3 (filename mode) sets V to "", File
+    // defines no sanitization; V "" differs from both the first-focus value and the mark "x"; only the re-derivation's R-2 makes the
+    // verdict `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "file").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), ""));
+    assert!(!take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn take_false_at_color() {
+    // Baseline plan PB-7: as PB-5; `type=color`: value mode → value mode, steps 1–3 do
+    // nothing; step 6 sanitizes "xa" to "#000000", differing from both the first-focus value and the mark "x"; still Color
+    // at focus loss, so the re-derivation's R-2 makes the
+    // verdict `false`.
+    use crate::take_change_on_blur;
+    let (mut dom, e) = seeded_and_user_edited("x");
+    assert!(dom.set_attribute(e, "type", "color").did_set);
+    with_fcs(&dom, e, |s| assert_eq!(s.value(), "#000000"));
+    assert!(!take_change_on_blur(&mut dom, e));
+}
+
+#[test]
+fn button_kind_input_is_seeded_and_judged_false() {
+    // PB-8 (baseline plan; was `no_snapshot_for_non_text_control`): an
+    // `<input>` that is a button at focus loss is judged `false` by its kind.
+    // Production never routes a user edit to a Button-kind control, so the
+    // state arises by edit-then-flip: seed and mark while a text kind, then a
+    // real `type=button` flip; the value differs from both the first-focus value and the mark, so the kind is
+    // the only reason for `false`.
+    use crate::test_support::{snap, user_append, Snap};
+    use crate::{record_focus_snapshot, take_change_on_blur};
+    let (mut dom, e) = setup("input", &[("type", "text")]);
+    record_focus_snapshot(&mut dom, e);
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Unmarked {
+            first_focus: String::new()
+        },
+        "seeded"
+    );
+    user_append(&mut dom, e, "x");
+    assert_eq!(
+        snap(&dom, e),
+        Snap::Marked {
+            first_focus: String::new(),
+            user_change_from: String::new()
+        },
+        "marked"
+    );
+    assert!(dom.set_attribute(e, "type", "button").did_set);
+    with_fcs(&dom, e, |s| {
+        assert_eq!(s.kind, FormControlKind::Button);
+        assert_ne!(s.value(), "");
+    });
+    assert!(!take_change_on_blur(&mut dom, e));
 }
 
 #[test]
 fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
-    // The complement of e2c: flipping between two text kinds (text → search)
-    // keeps the control a text control, so the user-edit mark must survive —
-    // only a non-text destination clears the snapshot. The edit comes first:
-    // an unmarked snapshot is indistinguishable from a re-seeded one, so only
-    // a marked one shows that the flip neither clears nor re-seeds it.
-    use crate::{apply_user_edit, record_focus_snapshot, take_change_on_blur};
+    // The complement of e2c: a `type` change never writes the change-on-blur
+    // component, so the user-edit mark survives a text → search flip and the
+    // kind at focus loss (Search: `change` applies) lets the verdict fire. The
+    // edit comes first: an unmarked snapshot is indistinguishable from a
+    // re-seeded one, so only a marked one shows that the flip neither clears
+    // nor re-seeds it.
+    use crate::test_support::user_append;
+    use crate::{record_focus_snapshot, take_change_on_blur};
     let (mut dom, e) = setup("input", &[("type", "text")]);
     {
         let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
         state.set_value("typed".to_string());
     }
     record_focus_snapshot(&mut dom, e);
-    let edit = apply_user_edit(&mut dom, e, |f| f.insert_at_cursor("!")).unwrap();
-    assert!(edit.changed);
+    user_append(&mut dom, e, "!");
     assert!(dom.set_attribute(e, "type", "search").did_set);
     with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
     assert!(
@@ -567,7 +689,7 @@ fn range_reclamps_on_min_max_step_change() {
 
 #[test]
 fn dirty_range_recorrects_on_value_attr_step_base_change() {
-    // §4.10.5.1.13 + §4.10.5.3.7: with no `min`, the `value` content
+    // §4.10.5.1.13 + §4.10.5.3.8: with no `min`, the `value` content
     // attribute is the Range step base.  Changing it shifts the grid, so
     // a dirty live value that was on the old grid must be re-corrected.
     let (mut dom, e) = setup(

@@ -258,13 +258,13 @@ impl VmInner {
 /// (the same primitive that blocks `el.click()` — slot
 /// `#11-vm-host-synthetic-dom-event-dispatch`). The same deferral covers the
 /// OLD focused area's unfocusing steps when this `focus()` moves focus off a
-/// previously-focused element: its `focusout` / `blur` and — for a user-edited
-/// text control — the §4.10.5.5 change-on-blur event are NOT fired here (the
+/// previously-focused element: its `focusout` / `blur` and the change-on-blur
+/// event (whose verdict is `take_change_on_blur`'s) are NOT fired here (the
 /// shell UA reconciler `content::focus::set_focus` dispatches those, but only
 /// on its own input paths). The old element's `FocusValueSnapshot` is
 /// deliberately left intact (not consumed) rather than discarded, so that once
-/// the slot lands the deferred dispatch can still read its user-edit baseline
-/// and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
+/// the slot lands the deferred dispatch can still read its first-focus value
+/// and mark and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
 /// is accepted and ignored (spec polish).
 fn native_html_element_focus(
     ctx: &mut NativeContext<'_>,
@@ -283,10 +283,10 @@ fn native_html_element_focus(
     // Already this document's focused element ⇒ no-op (WHATWG HTML §6.6: focusing
     // the current focused area does nothing). Crucially this must return BEFORE
     // re-seeding the change-on-blur snapshot below: a redundant `focus()` after
-    // the user has edited the control would otherwise refresh the snapshot
-    // baseline to the edited value, suppressing the later §4.10.5.5 `change`
-    // event. Mirrors the shell `set_focus` reconciler's `old == Some(entity)`
-    // early return.
+    // the user has edited the control would otherwise replace the first-focus
+    // value and drop the mark, suppressing the later §4.10.5.5 `change` event.
+    // This is the VM's copy of focusing steps step 5 (`focusing_steps`), until
+    // A2c routes VM `focus()` through it (LR-B4).
     if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
         return Ok(JsValue::Undefined);
     }
@@ -303,11 +303,12 @@ fn native_html_element_focus(
         && elidex_dom_api::focus::is_in_document(dom, entity, doc)
     {
         elidex_dom_api::focus::set_focus_bit(dom, Some(entity));
-        // Seed the change-on-blur snapshot for text controls, just like the
-        // shell `set_focus` reconciler — so a script `input.focus()` followed
-        // by user editing + a user blur still fires the HTML §4.10.5.5 `change`
-        // event (the snapshot follows the canonical FOCUS bit, not only the UA
-        // path).
+        // Seed the value at first focus (the one seed rule,
+        // `elidex_form::record_focus_snapshot`) at the designation, as the
+        // canonical transition does at focus update steps step 4.1 — so a
+        // script `input.focus()` followed by user editing + a user blur still
+        // fires the HTML §4.10.5.5 `change` event (the component follows the
+        // canonical FOCUS bit, not only the UA path).
         elidex_form::record_focus_snapshot(dom, entity);
     }
     Ok(JsValue::Undefined)

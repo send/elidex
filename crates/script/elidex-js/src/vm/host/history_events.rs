@@ -193,9 +193,7 @@ impl VmInner {
 /// the history object state* step, WHATWG HTML §7.4.6.2 step 6.3 → its step 2
 /// `StructuredDeserialize`).
 ///
-/// - `None` = the entry carries **no** state — a **fragment navigation** (§7.4.2.3.3
-///   step 11.1 "Set history's state to null"), a plain-navigation entry, or any
-///   entry a boa-`None` pushState produced ⇒ `history.state = null`.
+/// - `None` means there are no restorable state bytes, so `history.state` is null.
 /// - `Some(bytes)` = a **traversal** to a pushState'd entry: the restored state,
 ///   `StructuredDeserialize(bytes)` (a decode failure → `null` per the restore
 ///   step's "If this throws an exception, catch it and let state be null").

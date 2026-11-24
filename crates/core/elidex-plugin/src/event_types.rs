@@ -85,7 +85,7 @@ pub struct AnimationEventInit {
     pub pseudo_element: String,
 }
 
-/// Initialization data for input events (HTML §4.10.5.5).
+/// Input event initialization data (UI Events §3.4.1.2, `InputEventInit`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InputEventInit {
     /// The type of input (e.g. "insertText", "deleteContentBackward").
@@ -96,7 +96,8 @@ pub struct InputEventInit {
     pub is_composing: bool,
 }
 
-/// Initialization data for clipboard events (HTML §6.4.6).
+/// Text payload for clipboard events. The Clipboard API’s `ClipboardEventInit`
+/// dictionary (`#dictdef-clipboardeventinit`) carries a nullable `DataTransfer`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClipboardEventInit {
     /// The clipboard data type (e.g. "text/plain").
@@ -105,7 +106,7 @@ pub struct ClipboardEventInit {
     pub data: String,
 }
 
-/// Initialization data for composition events (HTML §6.5).
+/// Composition event data (UI Events, `#dictdef-compositioneventinit`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompositionEventInit {
     /// The composition data (text being composed).
@@ -169,9 +170,9 @@ pub enum EventPayload {
     CloseEvent(CloseEventInit),
     /// `HashChange` event data (WHATWG HTML §7.7.4).
     HashChange(HashChangeEventInit),
-    /// Page transition event data (WHATWG HTML §7.8.2.4).
+    /// Page transition event data (WHATWG HTML §7.2.7.6).
     PageTransition(PageTransitionEventInit),
-    /// Storage event data (WHATWG HTML §11.2.1).
+    /// Storage event data (WHATWG HTML §12.2.4).
     Storage {
         /// The key that changed (`None` for `clear()`).
         key: Option<String>,
@@ -196,7 +197,7 @@ pub struct HashChangeEventInit {
     pub new_url: String,
 }
 
-/// Initialization data for pagehide/pageshow events (WHATWG HTML §7.8.2.4).
+/// Initialization data for pagehide/pageshow events (WHATWG HTML §7.2.7.6).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PageTransitionEventInit {
     /// Whether the page was restored from `BFCache`.

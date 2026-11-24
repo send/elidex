@@ -106,7 +106,7 @@ fn ensure_validity_doctype_under_document_ok() {
     assert!(result.is_ok());
 }
 
-// ---- ensure_pre_insertion_validity: step 6 Document constraints ----
+// ---- ensure_pre_insertion_validity: Document constraints (DOM §4.2.3 steps 6–11) ----
 
 #[test]
 fn ensure_validity_document_rejects_second_element() {
@@ -215,15 +215,13 @@ fn ensure_validity_document_fragment_rejects_text_child() {
 }
 
 // ---- Ensure pre-insert validity steps 9.1 / 11: NO self-exclusion in pre-insert (childrenToExclude = « ») (Codex R1) ----
-// Pre-insert counts ALL element/doctype children INCLUDING the node being inserted
-// (validity runs before the pre-insert self-reference adjustment), so re-appending an
-// existing Document child throws. Only the *replace* algorithm excludes `child`.
+// Re-appending the document element or doctype fails because pre-insert passes
+// an empty exclusion list to the validity check.
 
 #[test]
 fn ensure_validity_document_rejects_existing_element_reappend() {
-    // `document.appendChild(document.documentElement)`: the documentElement is still an
-    // element child of the document when validity runs → step 6 Element "parent has an
-    // element child" → HierarchyRequestError (no self-exclusion).
+    // `document.appendChild(document.documentElement)`: step 9.1 rejects the existing root
+    // because pre-insert passes an empty exclusion list.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let html = dom.create_element_ownerless_fixture("html", Attributes::default());
@@ -239,7 +237,7 @@ fn ensure_validity_document_rejects_existing_element_reappend() {
 #[test]
 fn ensure_validity_document_rejects_existing_doctype_reappend() {
     // Doctype sibling of the above: re-appending the document's existing doctype throws
-    // step 6 DocumentType "parent has a doctype child" (no self-exclusion).
+    // at step 11 because the doctype is outside the empty exclusion list.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let doctype = dom.create_document_type(
@@ -298,12 +296,8 @@ fn replace_validity_child_not_found() {
 
 #[test]
 fn replace_validity_document_element_swap_ok() {
-    // `document.replaceChild(newHtml, documentElement)`: step 6 Element counts element
-    // children "that is not child" (the `exclude` slice carries the replaced
-    // documentElement), so swapping the single element child for a new element is
-    // VALID. This is the replace-vs-pre-insert asymmetry — the same Document that
-    // rejects `appendChild(documentElement)` (no self-exclusion) accepts the replace
-    // (child-exclusion). Guards against the `c != node` removal regressing replace.
+    // Replace excludes the old documentElement. With no other element child,
+    // the new element passes the existing-element check in step 9.1.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
     let old_html = dom.create_element_ownerless_fixture("html", Attributes::default());
@@ -311,4 +305,48 @@ fn replace_validity_document_element_swap_ok() {
     let new_html = dom.create_element_ownerless_fixture("html", Attributes::default());
     let result = ensure_replace_validity(doc, new_html, old_html, &dom);
     assert!(result.is_ok());
+}
+
+// ---- NodeKind-only contract ----
+
+#[test]
+fn ensure_validity_parent_with_tag_but_no_node_kind_rejected() {
+    // `validate_parent_kind` reads `NodeKind` only: an entity with a
+    // `TagType` but no `NodeKind` is not an Element.
+    let mut dom = EcsDom::new();
+    let parent = dom
+        .world_mut()
+        .spawn((elidex_ecs::TagType("div".to_string()),));
+    let child = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let err = ensure_pre_insertion_validity(parent, child, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+fn spawn_cdata(dom: &mut EcsDom) -> elidex_ecs::Entity {
+    dom.world_mut().spawn((
+        elidex_ecs::NodeKind::CdataSection,
+        elidex_ecs::TextContent("x".to_string()),
+    ))
+}
+
+#[test]
+fn ensure_validity_document_rejects_cdata_as_text_node() {
+    // DOM: a CDATASection is a Text node (only the *exclusive* Text node
+    // excludes it), so it cannot be inserted under a Document.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let cdata = spawn_cdata(&mut dom);
+    let err = ensure_pre_insertion_validity(doc, cdata, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
+}
+
+#[test]
+fn ensure_validity_document_rejects_fragment_with_cdata_child() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let frag = dom.create_document_fragment_ownerless_fixture();
+    let cdata = spawn_cdata(&mut dom);
+    assert!(dom.append_child(frag, cdata));
+    let err = ensure_pre_insertion_validity(doc, frag, None, &dom).unwrap_err();
+    assert_eq!(err.kind, DomApiErrorKind::HierarchyRequestError);
 }

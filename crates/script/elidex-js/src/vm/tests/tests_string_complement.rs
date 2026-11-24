@@ -316,15 +316,14 @@ fn new_string_constructor_property() {
 
 #[test]
 fn string_proto_to_string_and_value_of_have_distinct_names() {
-    // ECMA-262 §22.1.3.29: toString and valueOf share implementation, but `.name`
-    // must reflect the registered method name (§20.2.4.2).
+    // ECMA-262 §18 gives each built-in method its property name.
     assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
     assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
 }
 
 #[test]
 fn native_function_name_property() {
-    // §20.2.4.2: built-in functions have a `.name` data property.
+    // ECMA-262 §18 specifies the names of these built-in methods.
     assert_eq!(eval_string("Object.keys.name;"), "keys");
     assert_eq!(eval_string("Array.isArray.name;"), "isArray");
     assert_eq!(eval_string("String.fromCharCode.name;"), "fromCharCode");
@@ -346,7 +345,7 @@ fn native_function_name_descriptor() {
 
 #[test]
 fn string_call_with_object_this_returns_primitive() {
-    // §21.1.1.1: `String.call(obj, "x")` → `this = obj`, but NewTarget is
+    // §22.1.1.1 step 3: `String.call(obj, "x")` → `this = obj`, but NewTarget is
     // undefined, so return primitive "x".  Previously regressed: was returning
     // a wrapper.
     assert_eq!(eval_string("typeof String.call({}, 'x');"), "string");
@@ -355,7 +354,7 @@ fn string_call_with_object_this_returns_primitive() {
 
 #[test]
 fn string_call_with_symbol_returns_descriptive_string() {
-    // §21.1.1.1 step 2: `String(Symbol("foo"))` → "Symbol(foo)" (no throw).
+    // §22.1.1.1 step 2.1: `String(Symbol("foo"))` → "Symbol(foo)" (no throw).
     assert_eq!(eval_string("String(Symbol('foo'));"), "Symbol(foo)");
     assert_eq!(eval_string("String(Symbol());"), "Symbol()");
 }
@@ -382,7 +381,7 @@ fn new_string_no_args_is_empty() {
 
 #[test]
 fn new_string_length_is_non_writable() {
-    // §21.1.5.1: `length` is non-writable — assignment throws and the
+    // §22.1.4.1: `length` is non-writable — assignment throws and the
     // stored length is unchanged.
     super::assert_throws_preserves_number(
         "var w = new String('abc');",
@@ -394,7 +393,7 @@ fn new_string_length_is_non_writable() {
 
 #[test]
 fn new_string_length_descriptor() {
-    // §21.1.5.1: {writable: false, enumerable: false, configurable: false}.
+    // §22.1.4.1: {writable: false, enumerable: false, configurable: false}.
     assert_eq!(
         eval_string(
             "var d = Object.getOwnPropertyDescriptor(new String('ab'), 'length');
@@ -491,7 +490,7 @@ fn bind_length_zero_for_non_number_property() {
 
 #[test]
 fn number_to_string_radix_hex() {
-    // §20.1.3.6: `(255).toString(16)` → "ff".  Regression: previously
+    // §21.1.3.6: `(255).toString(16)` → "ff".  Regression: previously
     // radix was ignored entirely.
     assert_eq!(eval_string("(255).toString(16);"), "ff");
     assert_eq!(eval_string("(10).toString(2);"), "1010");
@@ -506,7 +505,7 @@ fn number_to_string_radix_out_of_range() {
 
 #[test]
 fn number_to_string_radix_fractional_truncates() {
-    // §20.1.3.6 step 5-8: ToIntegerOrInfinity first, then range check.
+    // §21.1.3.6 step 3 calls SnapToInteger (§7.1.6) with truncation before the range check.
     // `36.1` truncates to `36`, which is in [2, 36] → accepted.
     assert_eq!(eval_string("(35).toString(36.1);"), "z");
     assert_eq!(eval_string("(255).toString(16.9);"), "ff");
@@ -520,7 +519,7 @@ fn number_to_string_radix_default_is_decimal() {
 
 #[test]
 fn string_split_honors_limit() {
-    // §21.1.3.19 step 6: limit truncates the result.
+    // §22.1.3.23 steps 7 and 15.3 return early when the substring limit is reached.
     assert_eq!(eval_string("'a,b,c,d'.split(',', 2).join('|');"), "a|b");
     assert_eq!(eval_string("'a,b,c'.split(',', 0).join('|');"), "");
 }
@@ -533,7 +532,7 @@ fn string_split_limit_coerces_via_to_number() {
 
 #[test]
 fn string_split_limit_non_finite_is_zero() {
-    // §7.1.7 ToUint32: NaN / ±Infinity → 0.  `split(sep, Infinity)` must
+    // §7.1.9 ToUint32: NaN / ±Infinity → 0.  `split(sep, Infinity)` must
     // not throw; it yields an empty array (limit = 0).
     assert_eq!(eval_number("'a,b,c'.split(',', Infinity).length;"), 0.0);
     assert_eq!(eval_number("'a,b,c'.split(',', NaN).length;"), 0.0);
@@ -724,7 +723,7 @@ fn error_to_string_includes_name_and_message() {
 
 #[test]
 fn array_to_locale_string_invokes_per_element() {
-    // §23.1.3.32: each element's own toLocaleString must be called.
+    // Each object supplies its own toLocaleString method in this fixture.
     assert_eq!(
         eval_string(
             "var a = {toLocaleString: function() { return 'A'; }};
@@ -737,10 +736,9 @@ fn array_to_locale_string_invokes_per_element() {
 
 #[test]
 fn array_to_locale_string_honors_primitive_prototype_override() {
-    // §23.1.3.32 step 7.c calls `Invoke(element, "toLocaleString")`.
-    // Invoke = `? Call(? GetV(V, P), V)`, and GetV boxes primitives via
-    // ToObject for property lookup — so prototype overrides on
-    // Number/String/Boolean must be observed for primitive elements.
+    // JoinIndexedProperties invokes the element method (ECMA-262 §23.1.3.18.1).
+    // GetV looks up the method on the number’s prototype and preserves the
+    // primitive receiver for the call.
     assert_eq!(
         eval_string(
             "Number.prototype.toLocaleString = function() { return 'N:' + this; };

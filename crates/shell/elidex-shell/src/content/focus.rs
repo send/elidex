@@ -1,5 +1,5 @@
 //! Focus management: focusability checks, focus/blur event dispatch,
-//! and change-on-blur for text controls.
+//! and the change-on-blur dispatch of `take_change_on_blur`'s verdict.
 //!
 //! Focus *state* is the canonical `ElementState::FOCUS` ECS component — read
 //! via [`elidex_dom_api::focus::current_focus`] (with its connectedness
@@ -130,8 +130,8 @@ impl FocusEventSink for ShellFocusSink<'_> {
     }
 
     fn commit_change_on_blur(&mut self, old: Entity) {
-        // §6.6.4 step 2.1 — fire `change` if the value was user-edited since
-        // focus, consuming the snapshot (a no-op sink — the VM, PR-A2c — leaves it
+        // §6.6.4 step 2.1 — whether `change` fires is `elidex_form::take_change_on_blur`'s
+        // verdict (it consumes the snapshot); this only dispatches (a no-op sink — the VM, PR-A2c — leaves it
         // intact). `change` fires while `old` is still the designated focused
         // area (its FOCUS bit still set; elidex clears it after `change`, a
         // deviation from the spec's steps 2.2-2.4 text),
@@ -140,10 +140,10 @@ impl FocusEventSink for ShellFocusSink<'_> {
     }
 
     fn seed_focus_snapshot(&mut self, new: Entity) {
-        // After §6.6.4 focus update steps step 4.4 — seed the change-on-blur snapshot
-        // (unmarked; the baseline is the value before the first user value change,
-        // plan D-1) (the canonical transition owns the seed timing; the `elidex-form` call lives
-        // here because the engine-independent crate has no form dependency).
+        // Seed the value at first focus (unmarked) at the designation, step 4.1,
+        // before the `focus` / `focusin` listeners (re-derivation R-1). The canonical
+        // transition owns the instant; the `elidex-form` call lives here because
+        // the engine-independent crate has no form dependency.
         record_focus_snapshot(&mut self.pipeline.dom, new);
     }
 
@@ -185,8 +185,8 @@ fn dispatch_focus_event_with_related(
     pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" on text-control blur (HTML §6.6.4 focus update steps
-/// step 2.1; the `<input>` / `<textarea>` qualifier is at `elidex_form`'s
+/// Dispatch "change" at the blur of an element `elidex_form::record_focus_snapshot`
+/// seeded (HTML §6.6.4 focus update steps step 2.1, see `elidex_form`'s
 /// `focus_snapshot` module doc). The verdict is `elidex_form::take_change_on_blur`'s, which
 /// consumes the `FocusValueSnapshot`; this sink only dispatches.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {

@@ -210,24 +210,20 @@ fn coerce_element_or_text(ctx: &NativeContext<'_>, value: JsValue) -> Result<Ent
                 .to_string(),
         )
     })?;
-    // Use is_element_entity for the kind probe — `entity_from_this`
-    // only confirmed HostObject wrapping; we still need a Node-kind
-    // check.  Reuse the inferred-kind helper so payload-only entities
-    // are classified correctly (matches `require_receiver` policy).
+    // `entity_from_this` only confirmed HostObject wrapping; we still
+    // need a Node-kind check, read from the entity's `NodeKind` (an
+    // entity without one is not a Node).
     let host = ctx.vm.host_data.as_deref().expect(
         "coerce_element_or_text invoked after entity_from_this returned Some, \
          which requires host_data to be bound",
     );
-    let kind = host
-        .dom_shared()
-        .node_kind_inferred(entity)
-        .ok_or_else(|| {
-            VmError::type_error(
-                "Failed to execute 'assign' on 'HTMLSlotElement': \
+    let kind = host.dom_shared().node_kind(entity).ok_or_else(|| {
+        VmError::type_error(
+            "Failed to execute 'assign' on 'HTMLSlotElement': \
              argument is not of type (Element or Text)"
-                    .to_string(),
-            )
-        })?;
+                .to_string(),
+        )
+    })?;
     if !matches!(kind, NodeKind::Element | NodeKind::Text) {
         return Err(VmError::type_error(
             "Failed to execute 'assign' on 'HTMLSlotElement': \
@@ -347,10 +343,7 @@ fn slot_assigned_elements(
     // Filter to Element entities BEFORE wrapper allocation to avoid
     // allocating wrappers for nodes that won't be returned.
     let dom = ctx.host().dom();
-    let elements: Vec<Entity> = raw
-        .into_iter()
-        .filter(|&e| matches!(dom.node_kind_inferred(e), Some(NodeKind::Element)))
-        .collect();
+    let elements: Vec<Entity> = raw.into_iter().filter(|&e| dom.is_element(e)).collect();
     Ok(wrap_entities_as_array(ctx.vm, &elements))
 }
 

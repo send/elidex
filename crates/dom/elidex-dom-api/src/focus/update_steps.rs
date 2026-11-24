@@ -74,24 +74,25 @@ pub trait FocusEventSink {
     /// The bound (active) document.
     fn document(&self) -> Entity;
 
-    /// §6.6.4 focus-update step 2.1 — fire `change` if a focused text control's
-    /// value was user-edited since focus. **Owns the change-on-blur snapshot
-    /// consume**: the sink calls `elidex_form::take_change_on_blur` (the one
-    /// place the verdict is computed) and dispatches `change` iff it returns
-    /// `true`; a no-op impl (VM, until its dispatch primitive lands) leaves the
-    /// snapshot intact so the later dispatch can still observe it.
+    /// §6.6.4 focus-update step 2.1 — fire `change` per the verdict
+    /// of `elidex_form::take_change_on_blur`. **Owns the change-on-blur snapshot consume**: the sink
+    /// calls `elidex_form::take_change_on_blur` (the one place the verdict is
+    /// computed) and dispatches `change` iff it returns `true`; a no-op impl
+    /// (VM, until its dispatch primitive lands) leaves the snapshot intact so
+    /// the later dispatch can still observe it.
     fn commit_change_on_blur(&mut self, old: Entity);
 
-    /// Seed the engine-bound change-on-blur baseline for the element gaining
-    /// focus. There is no spec step for this — it is elidex's device for §6.6.4
-    /// focus-update step 2.1's "the user has changed the element's value ...
-    /// such that it is different to what it was when the control was first
-    /// focused". The canonical transition calls it **after** the `focus`/`focusin`
-    /// listeners (step 4.4): the seed is unmarked; the baseline is the value
-    /// before the first user value change (plan D-1). (Seed timing does not decide whether a
-    /// non-user write fires `change`; only the user-edit mark does.) Runs on
-    /// **every** engine (the snapshot is `elidex-form` state, not event dispatch),
-    /// so the canonical transition owns the seed *timing* while the form-layer call
+    /// Seed the engine-bound change-on-blur state — the value at first focus,
+    /// unmarked — for the element gaining focus. There is no spec step for
+    /// this: it is elidex's device for §6.6.4 focus-update step 2.1's "the user
+    /// has changed the element's value ... such that it is different to what it
+    /// was when the control was first focused". "First focused" is the
+    /// designation of the control as the focused area (re-derivation R-1, `docs/plans/2026-11-change-on-blur-spec-rederivation.md`), so
+    /// the canonical transition calls it immediately after step 4.1 designates
+    /// `new` and **before** step 4.4 fires `focus` / `focusin`: a value a
+    /// listener writes is a non-user write after the first-focus value. Runs on
+    /// **every** engine (the state is `elidex-form`, not event dispatch), so the
+    /// canonical transition owns the seed *instant* while the form-layer call
     /// lives behind the sink.
     fn seed_focus_snapshot(&mut self, new: Entity);
 
@@ -145,7 +146,7 @@ pub fn focusing_steps(
     let old = current_focus(sink.dom(), doc);
     // Step 5 — already the focused area: nothing to do. (Also preserves the
     // change-on-blur reseed suppression — a re-`focus()` after a user edit must
-    // not refresh the snapshot baseline, returning here before step 4's seed.)
+    // not re-seed the first-focus value, returning here before step 4's seed.)
     if old == Some(target) {
         return;
     }
@@ -301,15 +302,18 @@ fn focus_update_steps(sink: &mut dyn FocusEventSink, old: Option<Entity>, new: O
         // true", is unmodelled (elidex has no Navigation API; permanent no-op until
         // that surface lands).
         set_focus_bit(sink.dom(), Some(new));
+        // Seed the first-focus value at the designation, before any listener
+        // runs (re-derivation R-1): "first focused" is step 4.1's designation, so a `focus` /
+        // `focusin` listener's value write is after it. Nothing runs between
+        // the designation and the seed, so no "still focused" guard is needed;
+        // a listener that moves focus on finds `new` already seeded. A listener that
+        // moves focus through a writer that does not re-enter the transition (VM
+        // `focus()`) leaves `new`'s component in place, unreachable until its
+        // next designation re-seeds it (B-9 of the plan). A user
+        // edit is marked only by the user-edit funnel, so a listener's write
+        // alone fires no `change` (I-B5).
+        sink.seed_focus_snapshot(new);
         sink.fire_focus_event(new, FocusEventKind::Focus, old); // steps 4.2-4.4
-                                                                // Seed the change-on-blur baseline AFTER the `focus`/`focusin` listeners:
-                                                                // the seed is unmarked; the baseline is the value before the first user
-                                                                // value change (plan D-1).
-                                                                // Guard: a `focusin` listener may have reentrantly moved focus on, so only
-                                                                // seed if `new` is still the focused element (reentrant-wins).
-        if current_focus(sink.dom(), doc) == Some(new) {
-            sink.seed_focus_snapshot(new);
-        }
     }
 }
 
@@ -328,9 +332,9 @@ mod tests {
         changes: Vec<Entity>,
         seeds: Vec<Entity>,
         /// `seeds.len()` captured when the `Focus` event fires — pins that the
-        /// change-on-blur seed runs AFTER the focus/focusin dispatch (Codex R2:
-        /// a focus-handler `value` write must be in the baseline, so `seeds` is
-        /// still empty at focus-event time).
+        /// change-on-blur seed runs at the designation, BEFORE the focus/focusin
+        /// dispatch (re-derivation R-1: the first-focus value is the value at step 4.1, so
+        /// `seeds` already holds the gaining element at focus-event time).
         seeds_len_at_focus: Option<usize>,
         /// `current_focus` captured when the `change` event fires — pins that the
         /// old control is STILL the designated focused area during `change` (Codex
@@ -347,6 +351,9 @@ mod tests {
         /// `focus()` from a `blur`/`change` listener (exercises the reentrant-wins
         /// gate without re-entering the public API).
         reentrant_on_blur: Option<Entity>,
+        /// On the first `focus` event, set focus to this entity — simulating a
+        /// `focus` / `focusin` listener that calls `focus()` on another element.
+        reentrant_on_focus: Option<Entity>,
         /// On `change`, clear the FOCUS bit (no reentrant target) — simulating a
         /// `change` handler that removes / bit-level-`blur()`s the old control
         /// (Codex R5: a bare clear must not cancel the pending focus move).
@@ -360,6 +367,7 @@ mod tests {
                 document,
                 rec: Recorded::default(),
                 reentrant_on_blur: None,
+                reentrant_on_focus: None,
                 clear_on_change: false,
             }
         }
@@ -396,6 +404,9 @@ mod tests {
             self.rec.events.push((target, kind, related));
             if kind == FocusEventKind::Focus {
                 self.rec.seeds_len_at_focus = Some(self.rec.seeds.len());
+                if let Some(reentrant) = self.reentrant_on_focus.take() {
+                    set_focus_bit(self.dom, Some(reentrant));
+                }
             }
             if kind == FocusEventKind::Blur {
                 if let Some(reentrant) = self.reentrant_on_blur.take() {
@@ -438,9 +449,9 @@ mod tests {
         assert_eq!(rec.seeds, vec![b], "the gaining element seeds the snapshot");
         assert_eq!(
             rec.seeds_len_at_focus,
-            Some(0),
-            "the change-on-blur snapshot is seeded AFTER the focus event (Codex R2: \
-             a focus-handler value write must be in the baseline, not a user edit)"
+            Some(1),
+            "the first-focus value is seeded at the designation, BEFORE the focus \
+             event (re-derivation R-1, QB-4: a focus-handler value write is after it)"
         );
         assert_eq!(
             rec.focus_at_change,
@@ -464,7 +475,7 @@ mod tests {
         };
 
         // Step 5 early-out: no events, and crucially NO reseed (a re-focus after a
-        // user edit must not refresh the change-on-blur baseline).
+        // user edit must not re-seed the first-focus value).
         assert!(rec.events.is_empty());
         assert!(rec.seeds.is_empty());
         assert!(rec.changes.is_empty());
@@ -552,6 +563,28 @@ mod tests {
         assert_eq!(current_focus(&dom, doc), Some(c));
         assert_eq!(rec.events, vec![(a, FocusEventKind::Blur, Some(b))]);
         assert!(rec.seeds.is_empty(), "the outer transition seeds nothing");
+    }
+
+    #[test]
+    fn focusin_reentrant_focus_finds_new_seeded() {
+        // DC-10r (re-derivation R-1): the seed belongs to the designation (step 4.1), so a
+        // `focus` / `focusin` listener that moves focus on to `c` finds `b`
+        // already seeded; the seed is not skipped by a "still focused" guard.
+        let mut dom = EcsDom::new();
+        let (doc, a, b) = doc_with_two(&mut dom);
+        let c = focusable_div(&mut dom);
+        let _ = dom.append_child(doc, c);
+        set_focus_bit(&mut dom, Some(a));
+
+        let rec = {
+            let mut sink = TestSink::new(&mut dom, doc);
+            sink.reentrant_on_focus = Some(c);
+            focusing_steps(&mut sink, b, None, FocusTrigger::Other);
+            sink.rec
+        };
+
+        assert_eq!(rec.seeds, vec![b], "b was seeded at its designation");
+        assert_eq!(current_focus(&dom, doc), Some(c), "the reentrant focus won");
     }
 
     #[test]

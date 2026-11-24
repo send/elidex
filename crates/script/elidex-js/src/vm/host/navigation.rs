@@ -123,19 +123,9 @@ pub(crate) struct NavigationState {
     /// current entry).  Not exposed to script — internal to the synchronous
     /// length update.
     pub(crate) current_index: usize,
-    /// `history.state` — the serialized state of the current session-history
-    /// entry.  Set synchronously by `pushState`/`replaceState` (HTML §7.4.4).  A
-    /// traversal (`back`/`forward`/`go`) leaves it **untouched**: the traversal
-    /// is async (the shell loads the target entry), so a same-turn read still
-    /// sees the current entry's state, and a no-op traversal (`back` at the first
-    /// entry, `go(0)`) keeps it unchanged.  The target entry's state restoration
-    /// on commit needs the shell back-channel (slot
-    /// `#11-history-state-traversal-popstate-fidelity`).
-    ///
-    /// Held as a bare [`JsValue`] — `StructuredSerializeForStorage` (§7.2.5
-    /// step 4) is part of the same deferred slot.  GC-rooted via the
-    /// `gc::roots` visit so a `pushState`'d object is not collected before a
-    /// later `history.state` read.
+    /// Value exposed by `history.state`, rooted by the VM's GC. The URL and
+    /// history update steps (HTML §7.4.4) restore the value from the new entry
+    /// synchronously. A queued traversal keeps the current value until commit.
     pub(crate) current_state: JsValue,
     /// A pending navigation from `location.assign`/`href=`/`replace`/`reload`
     /// (WHATWG HTML §7.4.2.2), drained once per script turn by the shell's

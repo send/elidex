@@ -15,6 +15,7 @@ The elidex pre-push gate is five stages run in a fixed order. The trap is reachi
 - **Committed input.** Stage 4 is handed a resolved `$BASE...HEAD` range (below) and `/elidex-review` reads that range and nothing else, so an uncommitted working tree is invisible to both — and invisibly so: the gate runs green over an empty or stale diff. **Commit the branch's work before Stage 4**, whether or not a stage produced edits.
 - **Fix → re-verify.** If *any* stage produces code edits (a `/simplify` rewrite, a `/code-review` fix, an accepted review finding, etc.) → re-run Stage 1 (fmt) then Stage 2 (ci), then **commit** per the rule above. Stage 1 is needed because Stage 3 (`/simplify`) is the pipeline's only auto-apply stage and its output may not be formatted; `cargo fmt --check` in Stage 2 ci will reject it otherwise. Later stages and the eventual push must see green, formatted, committed code. (This covers Stages 3/4/5 — no per-stage repeat below.)
 - This skill stops **before** `git push` / `gh pr create`. Pushing is a separate authorized action — confirm per the usual remote/shared-state rules.
+- **Codex driver**: Stages 3–5 go through the independent Codex session gate — `.claude/skills/drive/codex.md`.
 
 ## Stages (fixed order)
 
@@ -27,6 +28,8 @@ cargo fmt --all
 ```sh
 mise run ci   # check + check-default + lint + test-all + doc + deny + trip-wires + tools-test + ci-sweep cleanup (no-op without cargo-sweep) — CLAUDE.md "Push 前"
 ```
+Machine-wide, only one local `mise run` at a time: see `/drive` §8 (interim rule, PM 968).
+
 All jobs must be green. (`test-all` includes doc-tests; cargo tasks are `--all-features`-gated except `check-default` (the default-features check), so feature-gated code is covered.)
 
 Fallback: if `mise run ci` reports a spurious `target/`-missing failure (the `ci-sweep` cleanup task can race the build and wipe `target/` mid-compile), re-run the verification jobs serially — this sidesteps the race by omitting `ci-sweep`:

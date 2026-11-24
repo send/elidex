@@ -270,8 +270,9 @@ fn to_alpha(value: i32, base: u8) -> String {
 /// Explicit `counter-reset` / `counter-increment` suppresses the implicit behavior.
 /// Count `<li>` children of an element for reversed counter initialization.
 ///
-/// Per HTML §4.4.8, a `<ol reversed>` without `start` has its counter set to
-/// the number of owned `<li>` children.
+/// HTML §4.4.5 uses the number of owned `li` elements for a reversed list
+/// when `start` is absent or HTML integer parsing fails. This helper counts
+/// direct `li` children.
 #[must_use]
 pub fn count_li_children(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> usize {
     let mut count = 0;
@@ -294,7 +295,7 @@ pub fn count_li_children(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -
 /// a reversed counter (CSS Lists 3 §4.1 `reversed()`) with implicit decrement of -1.
 ///
 /// `li_count` is the number of `<li>` children, used for reversed counter
-/// initial value when no `start` attribute is present (HTML §4.4.8).
+/// initial value when no `start` attribute is present (see [`count_li_children`]).
 pub fn apply_implicit_list_counters(
     style: &mut ComputedStyle,
     tag: &str,
@@ -307,8 +308,6 @@ pub fn apply_implicit_list_counters(
             if !already_has {
                 let is_reversed = attrs.contains("reversed");
                 if is_reversed {
-                    // Reversed counter: initial value = start attribute, or
-                    // number of <li> children (HTML §4.4.8).
                     // Reversed counter: start_value + 1 so first <li> decrements
                     // to start_value. Without start attr, default = li_count.
                     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]

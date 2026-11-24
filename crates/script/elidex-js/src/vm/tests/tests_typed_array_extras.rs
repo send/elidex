@@ -1,5 +1,5 @@
 //! Cross-interface TypedArray tests
-//! (ECMA-262 §23.2.3 / §23.2.5 + WHATWG HTML §2.9 + Fetch §5).
+//! (ECMA-262 §23.2.3 / §23.2.5 + WHATWG HTML §2.7.11 + Fetch §5).
 //!
 //! Covers the cross-interface surface that doesn't belong with
 //! the per-instance constructor or method tests: C6
@@ -231,8 +231,7 @@ fn structured_clone_two_views_share_cloned_buffer() {
 #[test]
 fn structured_clone_data_view() {
     let mut vm = Vm::new();
-    // DataView clone preserves offset/length + shares a cloned buffer
-    // with any TypedArray sibling view (spec §2.9).
+    // Read the stored integer through the cloned DataView.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -444,11 +443,8 @@ fn set_negative_offset_throws_range_error() {
 
 #[test]
 fn structured_clone_preserves_wrapper_and_regexp_identity() {
-    // WHATWG HTML §2.7.4 StructuredSerialize memory-map: every Object in the
-    // input graph must share a single clone even if referenced
-    // multiple times.  Wrapper kinds (Number / String / Boolean /
-    // BigInt) and RegExp were missing their `memo.insert(src, new)`
-    // step — repeated references cloned to distinct Objects.
+    // HTML §2.7.4 and §2.7.7 reuse the clone of a previously visited object.
+    // This fixture exercises repeated references to a boxed string and a RegExp.
     let mut vm = Vm::new();
     assert!(eval_bool(
         &mut vm,
@@ -469,9 +465,7 @@ fn structured_clone_preserves_wrapper_and_regexp_identity() {
 #[test]
 fn structured_clone_preserves_typed_array_identity() {
     let mut vm = Vm::new();
-    // Same TypedArray referenced twice in the source graph → single
-    // cloned TypedArray observed at both sites (§2.9 memory map +
-    // graph identity).
+    // Both references to this typed array must resolve to the same cloned view.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([1, 2, 3]); \
@@ -730,7 +724,7 @@ fn structured_clone_nested_views_preserve_sharing_and_isolation() {
     let mut vm = Vm::new();
     // Clone a plain Object containing two views that share one
     // backing buffer, then mutate the original.  Clone must:
-    //   (a) preserve shared-buffer identity (spec §2.9 memory map),
+    //   (a) preserve the shared buffer across the cloned views,
     //   (b) be isolated from subsequent mutation of the source.
     assert!(eval_bool(
         &mut vm,

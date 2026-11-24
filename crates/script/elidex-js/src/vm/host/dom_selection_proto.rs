@@ -44,8 +44,7 @@
 //!
 //! Both are `Option<...>` (not maps) because the M4-12 VM is
 //! single-Window single-Document.  Multi-document promotion is
-//! tracked at `#11-mutation-hook-multiplexer` (D-15 ShadowRoot /
-//! iframe entry).
+//! not implemented (D-15 ShadowRoot / iframe entry).
 //!
 //! ## GC interaction
 //!
@@ -54,7 +53,9 @@
 //! cached `Range` wrapper at
 //! `range_instances[active_range_id.bits()]` so the LiveRangeRegistry
 //! entry survives across sweeps even when the user has dropped their
-//! JS Range reference.  If no Range wrapper has been materialised
+//! JS Range reference — but only while this wrapper is itself marked:
+//! the Selection is not a GC root (slot
+//! `#11-selection-range-unregistered-by-gc`).  If no Range wrapper has been materialised
 //! yet (Selection set internally via `collapse(node, 0)` and
 //! `getRangeAt(0)` never called), the trace fan-out is a no-op —
 //! `getRangeAt(0)` builds a wrapper from the still-registered
@@ -311,10 +312,6 @@ pub(super) fn map_selection_error(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,
             "The node provided is a DocumentType",
         ),
-        SelectionError::WrongDocument => (
-            ctx.vm.well_known.dom_exc_wrong_document_error,
-            "The node provided is from a different document",
-        ),
         SelectionError::IndexSize => (
             ctx.vm.well_known.dom_exc_index_size_error,
             "The offset is larger than the node's length",
@@ -492,7 +489,9 @@ fn native_selection_get_anchor_node(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "anchorNode")?;
-    let anchor = read_selection(ctx, "anchorNode", |s, reg, dom, _doc| s.anchor(reg, dom))?;
+    let anchor = read_selection(ctx, "anchorNode", |s, reg, dom, doc| {
+        s.anchor_in_document_tree(reg, dom, doc)
+    })?;
     Ok(match anchor {
         Some((entity, _)) => JsValue::Object(ctx.vm.create_element_wrapper(entity)),
         None => JsValue::Null,
@@ -505,7 +504,9 @@ fn native_selection_get_anchor_offset(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "anchorOffset")?;
-    let off = read_selection(ctx, "anchorOffset", |s, reg, dom, _doc| s.anchor(reg, dom))?;
+    let off = read_selection(ctx, "anchorOffset", |s, reg, dom, doc| {
+        s.anchor_in_document_tree(reg, dom, doc)
+    })?;
     let n = off.map_or(0, |(_, o)| o);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(n as f64))
@@ -517,7 +518,9 @@ fn native_selection_get_focus_node(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "focusNode")?;
-    let focus = read_selection(ctx, "focusNode", |s, reg, dom, _doc| s.focus(reg, dom))?;
+    let focus = read_selection(ctx, "focusNode", |s, reg, dom, doc| {
+        s.focus_in_document_tree(reg, dom, doc)
+    })?;
     Ok(match focus {
         Some((entity, _)) => JsValue::Object(ctx.vm.create_element_wrapper(entity)),
         None => JsValue::Null,
@@ -530,7 +533,9 @@ fn native_selection_get_focus_offset(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "focusOffset")?;
-    let off = read_selection(ctx, "focusOffset", |s, reg, dom, _doc| s.focus(reg, dom))?;
+    let off = read_selection(ctx, "focusOffset", |s, reg, dom, doc| {
+        s.focus_in_document_tree(reg, dom, doc)
+    })?;
     let n = off.map_or(0, |(_, o)| o);
     #[allow(clippy::cast_precision_loss)]
     Ok(JsValue::Number(n as f64))
@@ -554,7 +559,9 @@ fn native_selection_get_range_count(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "rangeCount")?;
-    let n = read_selection(ctx, "rangeCount", |s, _reg, _dom, _doc| s.range_count())?;
+    let n = read_selection(ctx, "rangeCount", |s, reg, dom, doc| {
+        s.range_count(reg, dom, doc)
+    })?;
     Ok(JsValue::Number(f64::from(n)))
 }
 
@@ -564,7 +571,9 @@ fn native_selection_get_type(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "type")?;
-    let t = read_selection(ctx, "type", |s, reg, dom, _doc| s.selection_type(reg, dom))?;
+    let t = read_selection(ctx, "type", |s, reg, dom, doc| {
+        s.selection_type(reg, dom, doc)
+    })?;
     // Map directly to pre-interned SIDs to avoid per-call intern.
     let sid = match t {
         SelectionType::None => ctx.vm.well_known.selection_type_none,
@@ -586,6 +595,7 @@ fn native_selection_get_direction(
     let sid = match d {
         SelectionDirection::Forward => ctx.vm.well_known.selection_dir_forward,
         SelectionDirection::Backward => ctx.vm.well_known.selection_dir_backward,
+        // Spec value is "none"; slot `#11-selection-api-algorithm-conformance`.
         SelectionDirection::Directionless => ctx.vm.well_known.selection_dir_directionless,
     };
     Ok(JsValue::String(sid))
@@ -604,24 +614,10 @@ fn native_selection_get_range_at(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "getRangeAt")?;
     let index = arg_offset_required(ctx, args.first().copied(), "getRangeAt")?;
-    // Selection API §3.2 step 1: throw IndexSizeError if index >= rangeCount.
-    let range_id = read_selection(ctx, "getRangeAt", |s, _reg, _dom, _doc| {
-        s.current_range_id()
+    let range_id = read_selection(ctx, "getRangeAt", |s, reg, dom, doc| {
+        s.range_at(index, reg, dom, doc)
     })?;
-    let Some(rid) = range_id else {
-        return Err(map_selection_error(
-            ctx,
-            SelectionError::OutOfRange,
-            "getRangeAt",
-        ));
-    };
-    if index > 0 {
-        return Err(map_selection_error(
-            ctx,
-            SelectionError::OutOfRange,
-            "getRangeAt",
-        ));
-    }
+    let rid = range_id.map_err(|e| map_selection_error(ctx, e, "getRangeAt"))?;
     let wrapper = wrap_range_id(ctx, rid);
     Ok(JsValue::Object(wrapper))
 }
@@ -654,18 +650,17 @@ fn native_selection_to_string(
 }
 
 // ---------------------------------------------------------------------------
-// selectionchange dispatch (HTML §8.1.7.1 "selection task source")
+// selectionchange dispatch (Selection API §6.2.2)
 // ---------------------------------------------------------------------------
 
 /// Dispatch a coalesced `selectionchange` event at the bound Document
-/// per Selection API §3.4 / HTML §8.1.7.1 ("selection task source") if
-/// the per-document dirty bit is set.  Resets the bit on success.
+/// when its dirty bit is set. Selection API §6.2.1 queues a user interaction
+/// task. This VM checks the flag during its pending-task drain and clears it
+/// before firing the event (§6.2.2).
 ///
-/// Called from `VmInner::drain_tasks` after the regular pending-task
-/// loop drains; one event per drain regardless of how many discrete
-/// Selection mutations queued up.  Reentrancy gate matches the
-/// surrounding drain — the helper short-circuits when no bit is set
-/// or when the host is unbound.
+/// Each time the pending task queue empties, `VmInner::drain_tasks` checks
+/// the flag. This helper fires at most one event for changes accumulated
+/// since the previous check.
 ///
 /// Returns `true` when an event was actually fired (telemetry /
 /// tests).

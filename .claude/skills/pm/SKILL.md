@@ -46,7 +46,7 @@ PM の仕事は **決める / user に上げる / merge を検証する / 記録
 | backup | `$PMD/backup/` (global 変更) / pmo は scratchpad に取ってパスを報告 |
 | usage-pace | `~/.claude/hooks/usage-pace.py status` / `~/.claude/state/usage-pace.log` |
 
-driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない。
+driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) だけ。PM も pmo もそこは書かない (Codex driver の lane は SSoT が lane dir にあり、`$MEM` 側の pointer は pmo が書く — §9)。
 
 ## 1. 起動 (`/pm`、compaction 後、restart 後)
 
@@ -63,7 +63,7 @@ driver が持つのは自分の lane SSoT (`$MEM/project_*.md` の冒頭 block) 
    「PM の未完了」一覧を突き合わせる。1 つ前の一覧の各項目が、最新の一覧に (a) 繰り越し、または 1 つ前の
    block より後ろの行に (b) 済 + 証拠 (sha / DONE file / PM 番号)、(c) 撤回 + PM 番号、のどれかで現れることを
    確かめる。どれでもない項目は落ちている — 一覧に戻す。本 skill 自身は landing するまで必ずこの一覧に載る。
-4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す。
+4. `ListAgents` で lane → session 名 → ref を確かめ、handoff の lane map と食い違えば直す (Codex driver の lane は `ListAgents` に出ない — `/drive` の `codex.md` の nonce の往復で確かめる)。
    `/restart` 後は ref 同じ・名前が変わる、fresh session は両方変わる (旧名宛は届かない)。
    PM 自身が新しい session なら、MEMORY Active state 冒頭の PM 名の更新を pmo に渡し、全 lane に通知。
 5. **pmo**: `ListAgents` に `pmo` がいて応答すればそれを使う。いなければ `subagent_type: pmo` で 1 体
@@ -105,11 +105,15 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 | 7 | 比例性 | 1 PR の `@codex review` > 10 → lane に理由を聞く。> 20 または同一 PR の 2 回目の plan delta → loop 継続を PM が lens で裁く (user list に当たる時だけ user) |
 | 8 | **pmo 定期チェック** | pmo に定期チェック (中身と control は `~/.claude/agents/pmo.md` と道具の docstring) を依頼し、結果と control を表に写す。control が外れた・「未作成」と返った件数は使わない (件数不明として skip の上限に当てる) |
 | 9 | **overdue triage** (常設) | 行 8 の overdue scan が 1 件以上なら、その pass で triage を始める: reviewer に行ごとの提案 (延長 + 理由 / 着手 / close) を出させ → PM が決め → pmo が適用。budget で延期する時は件数と延期日を §10.2 に載せる (延期できる回数は上の skip の上限)。前 pass より件数が増えた、または件数が不明なら延期しない |
-| 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの |
+| 10 | 未 landing の PM 成果物 | landing リスト、PM が約束した報告。§10.2 の一覧と同じもの。期日が今日の項目を確かめる (§10.2、PM 532) |
 
 - review の段: `/pre-push` Stage 4 の表が正 (PM 373 が PM 360 を訂正)。表から外れる段を使う時だけ、lane が理由を
   添えて **先に** PM に言う。
 - pass も loop: 冒頭に「前 pass から変わったもの / 待ちの一覧」を 1 行。待ち以外が残れば同じ turn で続ける。
+- Codex driver の gate 依頼 (`/drive` の `codex.md` §1、PM 994): PM が新しい Codex session (Orca の worker-start、spec は PM が書く) を起こし、依頼の head を `git worktree add --detach` した session 自身の worktree で `/pre-push` Stage 3–5 (plan memo なら `/elidex-plan-review`) を回させ、結果と `/simplify` の patch を lane dir の `gate-<sha>.md` に書かせる (PM 873 (7) / 912)。`/simplify` が patch を出した時と、Stage 4 で fix が出た時は、session はそこで止まる。driver が当てた後の新しい head の依頼では残りの段 (patch の後は Stage 4–5、Stage 4 の fix の後は Stage 5) だけを回す (`/pre-push` の段の順序と「Fix → re-verify」、PM 924 / 935)。gate file を書いた後、session は自分が作った detached worktree を、path が自分のものだと確かめてから `git worktree remove <その path>` で消す (他は触らない、PM 934)。`/simplify` の patch で worktree が dirty な時は、`git -C <その path> diff` が gate file に保存されていることを確かめてから `--force` を付ける。
+- Claude の budget で plan-review の gate が翌日に延びる時 (PM 948): PM は別の Codex session (読み取り専用の指示、新しい terminal) を起こし、`/elidex-plan-review` と同じ 5 軸で memo を下見させる。下見は advisory で gate に数えない。lane はその指摘を待ち時間のうちに直し、拘束力のある review は直した後の head に、独立 Codex session (PM 994) で回す。gate の規則は変えない。
+  下見や gate の指摘の扱いのうち、範囲を広げるもの (PM 959 (4)) は全 lane に効き、`/drive` §5 が正 (PM 948 の下見は Codex driver の lane だけ)。
+- Codex driver の lane は行 6 の lane として扱い、読んだ verdict を Orca で driver に渡す (PM 912 / 913)。
 
 ## 3. 役割の境界
 
@@ -167,6 +171,8 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
   commit しない。lane は最終文言と前後の diff を PM に送り、PM の commit の上に自分の PR を積む。
 - global 変更 (`~/.claude/**`): 適用前に「global で全プロジェクトに効く」と明示 → `$PMD/backup/` に
   backup → diff を user に見せる → 適用 → dotfiles session に報告。skill を変えた後の検証は新しい agent で。
+  `~/.claude/**` を書く主体 (PM・pmo・coder など、どの agent でも) は、別の path に書き → diff を見せ → 置き換える (その場で書き換えない、PM 527 / 973)。
+  global の hook を変える brief は、参照元の検索に hook を使う repo 側も入れる (`git grep -n '<hook 名>'` を各 repo で、hook を読む parity test を拾うため、PM 530)。
 
 ### 3.5 委譲 — 誰が書くか
 
@@ -200,6 +206,8 @@ gh pr checks <N> -R send/elidex
 - [ ] review 3 channel を `/external-review` Step 1 で読む (reviewThreads は改ページして `totalCount` == 取得数)。
       skill の手順内の読み取りには `# converge-manual-ok`。未解決 thread は 0 か、各々に返信と理由
 - [ ] Codex の評価対象 commit == current head、かつ dry。silent 👍 は verdict でない
+- [ ] Codex driver が書いた PR: 独立 Codex session の gate file (`/drive` の `codex.md` §1) の head が merge する head の祖先で、その後の commit は gate file の disposition にある fix か main の merge だけ (Skip-OK の PR は push の go の依頼にある skip の理由で代える、PM 927 / 934)
+- [ ] gate の後に main の merge commit があれば `git show --remerge-diff <merge>` を読む。空 (clean) なら gate はやり直さない。空でない (conflict を解いた) なら、gate をやり直すかを PM が決める (PM 934)
 - [ ] **その PR の plan の landing 条件を読み直す** (PM 425 → 437): 対象は PR body、PR が実装する plan memo、
       その umbrella plan。memo は PR head の版を読む (`git fetch -q origin pull/<N>/head` の後
       `git show <headRefOid>:<path>`)。条件の語は日英両方の regex で引く:
@@ -221,7 +229,8 @@ gh pr checks <N> -R send/elidex
 merge のコマンド、head が動いていた時) は `/drive` §6。
 
 - driver の PR は driver が merge する (PM 110)。Dependabot の PR も CI/tools lane が実行する (PM 240)。
-- PM が起こした PR だけ、同じ確認の後に PM が同じコマンドで merge する。
+- Codex driver の PR (PM 996 / 1003、打ち方は `/drive` の `codex.md` の merge 行): L1 (plan memo の PR) は、同じ確認の後の `merge at head <sha>` を受けて driver が `~/.codex/bin/pr-merge` で merge する。CS の comment-only PR は CS が `codex.md` §3 の checklist で自分で merge する。
+- PM が起こした PR も、同じ確認の後に PM が同じコマンドで merge する。
 
 ## 5. 着地 (merge commit の報告を受けたら)
 
@@ -247,6 +256,8 @@ merge のコマンド、head が動いていた時) は `/drive` §6。
 - yellow の日: 新しい fan-out をしない。lane の agent は 1 体ずつ。skill 既定の fan-out (plan-review / review の 5 軸) も
   1 軸ずつ回す (PM 504 — 走行中の agent は止めない (PM 321) ので、軸の境目を止まれる点にする)。
   `model` を既定より下げない (hook `agent-model-floor.py` が deny)。
+- Codex driver の lane の独立 Codex session の gate (PM 994) は Codex 側の消費で、Claude の cap に数えない。relay の Claude 側の token は数える (PM 912)。
+- Claude の budget で止まるのは Claude 側の単位 (Claude lane の driver、helper の gate、plan-review、PM、pmo) だけ。本節の止まる規則 (lane は止まる・新しい作業は翌日を含む) は Claude 側の単位にだけ効き、Codex lane だけが gate の要らない作業を続ける (PM 945)。
 - cap 到達: 新しい作業は翌日。削る lane の選択は範囲の取捨なので user。`enforce` mode は user の OK でのみ。
 - 5 本目の session は勧めない。空いた lane に parked lane を渡す。
 
@@ -322,7 +333,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
       定義にしない。ブラウザ名は `[evidence]` / `[contrast]` / `[history]` 等のタグ付きでだけ現れる
       (PM 421/424 [history] — PM が書いた slot が既存ブラウザ寄りの framing だった。PM 440 の
       `#11-implicit-submission-commits-change` は欠陥がブラウザの振る舞いでしか定義されていなかった)
-- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正 (PM 648 / 659・662)
+- [ ] **slot / 決定の文面の書き方** (file + symbol、件数は計測の出力): `/drive` §7 が正
 - [ ] **lane が出した slot の文案**: PM が前提を確かめてから登録する。文案の前提を lane の報告のまま採らない
       (PM 583 — `#11-no-engine-eventtarget-stubs-nonconforming` は前提が偽だった。由来は PM が確かめずに登録したこと)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
@@ -349,6 +360,8 @@ merge の分担、PR body の ratchet の行、landing report、handoff、止ま
 
 brief と `/drive` が食い違ったら `/drive` が正 — 食い違いは brief の誤りとして直す。
 
+Codex driver の lane では、brief に「repo `CLAUDE.md` → `/drive` → `/drive` の `codex.md` の順に読む」と書く。起動は sandbox の flag を渡せる形で、`orca terminal create --worktree path:<lane root> --command "<codex のフルパス> -s workspace-write --add-dir <lane dir> -C <lane root>"` の後に `orca orchestration worker-start --terminal <handle> --keep-open --spec …` (`worker-start --agent codex` は flag を渡せないので使わない、PM 935)。lane SSoT の置き場は `codex.md` で、`$MEM` の lane の file の冒頭に、それを指す pointer の 1 行を pmo に書かせる (PM 912)。
+
 起動は `orca worktree create --agent claude` / `orca agent launch` (`orca-cli` skill)、Desktop の lane は user が貼る。
 
 ## 10. Handoff
@@ -373,7 +386,7 @@ lane が自分の lane SSoT 冒頭に書く (項目は `/drive` §9)。PM は書
 
 1. **PM の未完了** (§1 step 3 で照合される一覧): 未適用の landing リスト、未 landing の PM 成果物、
    約束した報告、延期した triage (件数と延期日)、§2 で `skipped` になった行 (連続 skip の回数)、
-   pmo に渡せていない「未記録の決定」(§7)、索引の「索引 → 正典」の行 (§7.3)
+   pmo に渡せていない「未記録の決定」(§7)、索引の「索引 → 正典」の行 (§7.3)。**各項目に期日か待ちの条件を必ず書く** (期日の無い項目が積もるため、PM 532)
 2. PM の session 名、pmo の有無、budget の状態 (次の判断番号は書かない — §7.4)
 3. main の状態 (先頭、今日の着地、赤)
 4. lane → session 名 [ref] → Orca terminal handle、lane ごとの待ちと依存

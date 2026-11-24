@@ -343,8 +343,7 @@ fn array_to_locale_string() {
 
 #[test]
 fn array_to_locale_string_forwards_reserved_args() {
-    // §23.1.3.32 step 6: per-element `Invoke(elem, "toLocaleString",
-    // « locales, options »)` must forward the reserved args.
+    // The override receives both the locale and the options object (ECMA-402 §20.5.1).
     assert_eq!(
         eval_string(
             "Number.prototype.toLocaleString = function(loc, opt) { \
@@ -358,9 +357,7 @@ fn array_to_locale_string_forwards_reserved_args() {
 
 #[test]
 fn array_to_locale_string_passes_exactly_two_args_to_override() {
-    // §23.1.3.32 step 6: per-element `Invoke` always passes
-    // exactly « locales, options ».  Extra caller args must not
-    // reach the override; missing args are undefined-padded.
+    // The override sees exactly two arguments even when the caller supplies more or fewer.
     assert_eq!(
         eval_string(
             "Number.prototype.toLocaleString = function() { return String(arguments.length); }; \

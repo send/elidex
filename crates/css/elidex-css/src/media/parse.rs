@@ -1,7 +1,6 @@
 //! Media Queries Level 4 parser — mediaqueries-4 §3 Syntax.
 //!
-//! **Total + recovering** per §3.2 Error Handling: never errors or panics
-//! (CSSOM `matchMedia` does not throw). The error model is two-way:
+//! MQ4 §3.2 defines recovery for malformed queries and unknown features.
 //!
 //!   * **recognized feature vs general-enclosed** — inside a `( … )`, any
 //!     content that is not a recognized `<media-feature>` (known `<mf-name>` +
@@ -180,18 +179,12 @@ fn parse_media_in_parens<'i>(
     input: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
-    // §3.2 total contract: never a stack-overflow panic. Over the depth cap,
-    // this `<media-in-parens>` parse fails; the enclosing block then resolves to
-    // `<general-enclosed>` (Kleene unknown) — the bounded recursion is the DoS
-    // guard. Check before descending another level.
+    // Enforce the parser's nesting limit before descending another level.
     if depth >= MAX_MEDIA_NESTING_DEPTH {
         return Err(input.new_custom_error(()));
     }
     input.skip_whitespace();
-    // A function token (`name(...)`) can only be <general-enclosed>. Capture its
-    // raw text (the whole `name( … )`, its own delimiters included) for
-    // serialization — `slice_from` spans the function token through the closing
-    // `)` consumed by `parse_nested_block`.
+    // Preserve the function's source through its closing delimiter or EOF.
     let fn_start = input.position();
     if input.try_parse(expect_function_token).is_ok() {
         input.parse_nested_block(drain_block)?;
@@ -233,9 +226,7 @@ fn parse_parens_content<'i>(
     inner: &mut Parser<'i, '_>,
     depth: u32,
 ) -> Result<MediaCondition, ParseError<'i, ()>> {
-    // Capture the raw inner text up front for the <general-enclosed> fallback;
-    // the caller already consumed the surrounding `( )`, so it is re-wrapped
-    // below. (`trim` drops the leading whitespace this spans before skipping.)
+    // Save the start of the nested input for the parenthesized fallback below.
     let content_start = inner.position();
     inner.skip_whitespace();
     // 1. nested `( <media-condition> )`.
@@ -251,9 +242,8 @@ fn parse_parens_content<'i>(
     if let Some(feature) = parse_media_feature(inner) {
         return Ok(MediaCondition::Feature(feature));
     }
-    // Unknown name / invalid value / trailing junk / malformed range — all
-    // still match `( <any-value> )` → Kleene unknown (§3.1/§3.2). Preserve the
-    // raw text (re-wrapped in its parens) so `.media` serializes it back.
+    // An unrecognized feature evaluates to unknown (MQ4 §3). Store its trimmed
+    // inner text between parentheses, including when the input ended at EOF.
     while inner.next().is_ok() {}
     Ok(MediaCondition::GeneralEnclosed(
         format!("({})", inner.slice_from(content_start).trim()).into(),
@@ -427,10 +417,8 @@ fn parse_value_first(input: &mut Parser<'_, '_>) -> Result<MediaFeature, ()> {
 
 /// A raw `<mf-value>` token before coercion to a feature's value type.
 enum RawMfValue {
-    /// A `<number>` token. `is_int` records whether the source was an integer
-    /// token (cssparser `Token::Number { int_value: Some(_) }`) — `color` is an
-    /// `<integer>` (MQ4 §6.1), so `8.0` (a `<number>` token) must be rejected
-    /// even though it has no fractional part.
+    /// A number token. `is_int` records whether its spelling matches the
+    /// literal integer grammar (CSS Values 4 §5.2).
     Number {
         value: f64,
         is_int: bool,
@@ -545,10 +533,8 @@ fn coerce_raw(raw: RawMfValue, rf: RangeFeature) -> Option<RangeValue> {
             _ => None,
         },
         RangeFeature::Color => match raw {
-            // §6.1 + §2.4.3: `color` is an `<integer>` — an integer *token*, so
-            // `8.0` (a `<number>` token, `is_int == false`) is invalid even with
-            // a zero fraction. Negative integers parse (`false in the negative
-            // range`) and must reach `compare`.
+            // MQ4 §6.1 takes an integer and accepts negative operands for
+            // comparison under §2.4.3.
             RawMfValue::Number {
                 value,
                 is_int: true,

@@ -38,7 +38,8 @@ impl SecurityOrigin {
     /// - `http`/`https` → `Tuple { scheme, host, port }` (default ports: 80/443)
     /// - `blob` → the origin of its path-serialized inner URL when that is
     ///   http/https/file, else `Opaque` (URL Standard "origin of a URL", blob
-    ///   steps; no blob URL store, so the blob-URL-entry origin branch is N/A)
+    ///   steps; no blob URL store (defer slot `#11-worker-blob-script`), so the
+    ///   blob-URL-entry origin branch is N/A)
     /// - `file` → `Opaque` (URL Standard §4.7 "Origin" leaves file: origins
     ///   implementation-defined; elidex uses a new opaque origin)
     /// - `data` → `Opaque` (URL Standard §4.7 "Origin": data: URLs get a new opaque origin)
@@ -59,7 +60,8 @@ impl SecurityOrigin {
             // of a URL" <https://url.spec.whatwg.org/#concept-url-origin>, blob
             // steps): parse the path-serialized URL and return its origin when
             // the inner scheme is http/https/file, otherwise a new opaque
-            // origin. We have no blob URL store, so the blob-URL-entry
+            // origin. We have no blob URL store (defer slot
+            // `#11-worker-blob-script`), so the blob-URL-entry
             // environment-origin branch (step 1) is not applicable. Example:
             // `blob:https://example.com/uuid` → `("https", "example.com")`.
             // Without this, the migrated settings-origin readers (postMessage

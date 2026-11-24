@@ -57,11 +57,8 @@ impl DomApiHandler for AppendChild {
             .identity_map()
             .get(JsObjectRef::from_raw(child_ref))
             .ok_or_else(|| not_found_error("child not found"))?;
-        // §4.2.3 "pre-insert" step 1: ensure pre-insertion validity of child into
-        // this before null (append). Runs the canonical §4.2.3 ensure-pre-insertion-
-        // validity steps 1/4/5/6 (parent-kind / node-type / Text-doctype / Document
-        // element-child constraints) that the `apply_*` empty-list signal does not
-        // encode — the same validator the ChildNode/ParentNode mixins call.
+        // DOM §4.2.3 pre-insert step 1 checks validity before appending with
+        // a null reference child. ChildNode and ParentNode share this validator.
         ensure_pre_insertion_validity(this, child_entity, None, dom)?;
         // Apply through the EcsDom chokepoint AND build the §4.3.2 childList record
         // list in one step. A move yields two records (source-parent removal +
@@ -434,12 +431,8 @@ impl DomApiHandler for InsertAdjacentText {
             AdjacentSite::Into { parent, before } => {
                 let owner = dom.node_document_for_new_nodes(this);
                 let text_node = dom.create_text_with_owner(data, owner);
-                // §4.2.3 ensure-pre-insertion-validity on the resolved site. The Text
-                // is already allocated (it is the validator's `node`), so on a
-                // validity failure (the live case: step 5 — a Text adjacent to a
-                // document-child at beforebegin/afterend resolves parent = Document)
-                // destroy the unreferenced Text before propagating, so the error path
-                // leaks no orphan (mirrors the empty-list cleanup below + #399).
+                // DOM §4.2.3 pre-insert validity step 6 rejects a Text child of a
+                // Document. Reclaim the newly allocated node if validation fails.
                 if let Err(e) = ensure_pre_insertion_validity(parent, text_node, before, dom) {
                     let _ = dom.destroy_entity(text_node);
                     return Err(e);

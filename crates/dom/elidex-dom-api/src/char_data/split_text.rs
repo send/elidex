@@ -47,7 +47,7 @@ use elidex_script_session::{
 pub enum SplitTextError {
     /// Receiver entity is not a Text / CDATASection node (failed
     /// `NodeKind::Text | NodeKind::CdataSection` brand check via
-    /// `node_kind_inferred`).
+    /// `node_kind`).
     NotTextNode,
     /// Receiver was branded as Text by `NodeKind` but is missing the
     /// `TextContent` payload — internal invariant breach.
@@ -107,11 +107,9 @@ pub fn split_text_at_offset(
     offset_utf16: usize,
     dom: &mut EcsDom,
 ) -> Result<(Entity, Vec<MutationRecord>), SplitTextError> {
-    // Step 1: brand check (`node_kind_inferred` accepts legacy entities
-    // tagged Text via TextContent without a NodeKind component —
-    // matches the routing in HostData::prototype_kind_for).
+    // Step 1: brand check via `node_kind`.
     if !matches!(
-        dom.node_kind_inferred(entity),
+        dom.node_kind(entity),
         Some(NodeKind::Text | NodeKind::CdataSection)
     ) {
         return Err(SplitTextError::NotTextNode);

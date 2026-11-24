@@ -301,9 +301,23 @@ fn native_range_constructor(
 /// WHATWG §4.4 + the local registry-cleared semantics on
 /// `Vm::unbind()`.  Shared with sibling [`super::range_proto_mutation`].
 pub(super) fn detached_range_error(ctx: &NativeContext<'_>, method: &'static str) -> VmError {
-    VmError::dom_exception(
+    detached_range_error_on(ctx, "Range", method)
+}
+
+/// [`detached_range_error`] for a method of another `interface` that takes a
+/// detached Range argument (e.g. `Selection.addRange`). The one home of the
+/// detached-Range detail; the "Failed to execute" format is the shared
+/// [`super::dom_exception::invalid_state_error`] factory.
+pub(super) fn detached_range_error_on(
+    ctx: &NativeContext<'_>,
+    interface: &'static str,
+    method: &'static str,
+) -> VmError {
+    super::dom_exception::invalid_state_error(
         ctx.vm.well_known.dom_exc_invalid_state_error,
-        format!("Failed to execute '{method}' on 'Range': the Range has been detached"),
+        interface,
+        method,
+        "the Range has been detached",
     )
 }
 
@@ -790,14 +804,12 @@ fn reject_doctype(
     node: Entity,
     method: &'static str,
 ) -> Result<(), VmError> {
-    use elidex_ecs::{DocTypeData, NodeKind};
     // Copilot R11: ctx.host().dom() panics post-unbind.  Gate first.
     if ctx.host_if_bound().is_none() {
         return Err(detached_range_error(ctx, method));
     }
     let dom = ctx.host().dom();
-    let is_doctype = matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
-        || dom.world().get::<&DocTypeData>(node).is_ok();
+    let is_doctype = dom.is_document_type(node);
     if is_doctype {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,

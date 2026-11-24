@@ -296,7 +296,7 @@ mod engine_feature {
         /// `(callback, instance)` binding per `IntersectionObserver` ID.
         /// Same contract as [`Self::resize_observer_bindings`].
         pub(crate) intersection_observer_bindings: HashMap<u64, ObserverBinding>,
-        /// Origin-scoped `localStorage` backend (WHATWG HTML §11.2).
+        /// Origin-scoped `localStorage` backend (WHATWG HTML §12.2.3).
         /// Wrapped in `Arc` so multiple `HostData` instances (e.g. one
         /// per browsing-context VM) can share a single per-process
         /// manager + on-disk JSON tree.  `None` until the embedder
@@ -318,10 +318,9 @@ mod engine_feature {
         /// headless / unit-test VMs still work (per-VM, lost on
         /// `Vm::unbind`).
         cache_backend: Option<Arc<CacheBackend>>,
-        /// Per-VM `sessionStorage` backing (WHATWG HTML §11.2). In
-        /// memory only; cleared on `Vm::unbind` (the spec models
-        /// sessionStorage as scoped to a browsing context, so the
-        /// existing bind/unbind cycle expresses that boundary).
+        /// Per-VM sessionStorage backing (HTML §12.2.2). Unbind clears it
+        /// after each engine batch, including between turns in the same
+        /// document. Tracked by `#11-session-storage-cleared-per-turn`.
         #[cfg(feature = "compat-webapi")]
         pub(crate) session_storage: SessionStorageState,
         /// Stable per-`HostData` opaque-origin sentinel — used for
@@ -430,12 +429,8 @@ mod engine_feature {
         /// unreachable; the next `getSelection()` call materialises a
         /// fresh wrapper backed by the same `selection_state`.
         pub(crate) selection_instance: Option<ObjectId>,
-        /// "Selection task source" dirty flag per HTML §8.1.7.1.  Set
-        /// on any user-script Selection / Range mutation; the
-        /// pending-task drain checks the flag at eval boundary and
-        /// fires a coalesced `selectionchange` at the document per
-        /// Selection API §3.4 (one event per microtask checkpoint
-        /// regardless of how many discrete mutations happened).
+        /// Coalesces document selection changes until the pending-task drain
+        /// calls `dispatch_selectionchange_if_pending` (Selection API §6.2.1).
         pub(crate) selectionchange_pending: bool,
         // -------------------------------------------------------------
         // D-12 #11-net-ws-sse: WebSocket / EventSource side-tables

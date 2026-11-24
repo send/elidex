@@ -106,10 +106,19 @@ impl EcsDom {
     /// §4.4: the node document is set upon creation), so the node lands in its
     /// final archetype directly. `owner` passes the liveness check of
     /// [`Self::validate_owner_document`] first.
-    pub(super) fn spawn_node(&mut self, bundle: impl DynamicBundle, owner: NewNodeOwner) -> Entity {
+    ///
+    /// `kind` is added here, so every node made through this creator carries
+    /// a [`NodeKind`] by construction.
+    pub(super) fn spawn_node(
+        &mut self,
+        kind: NodeKind,
+        bundle: impl DynamicBundle,
+        owner: NewNodeOwner,
+    ) -> Entity {
         let owner = self.validate_owner_document(owner.0);
         let mut builder = EntityBuilder::new();
         builder.add_bundle(bundle);
+        builder.add(kind);
         if let Some(doc) = owner {
             builder.add(AssociatedDocument(doc));
         }

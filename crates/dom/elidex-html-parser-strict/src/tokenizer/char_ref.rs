@@ -1,10 +1,10 @@
-//! Character-reference tokenizer states (WHATWG HTML §13.2.5.72–80) and
+//! Character-reference tokenizer states (WHATWG HTML §13.2.5.77–84) and
 //! the named-entity table (§13.5 "Named character references").
 //!
 //! The entity table is generated at build time by `build.rs` from the
 //! vendored `assets/entities.json` (WHATWG spec snapshot) into a
 //! `phf::Map`. The named-reference state does a longest-match probe over
-//! that exact-key map (§13.2.5.73, descending-length prefix probe).
+//! that exact-key map (§13.2.5.78, descending-length prefix probe).
 
 use super::states::{is_noncharacter, State, Tokenizer};
 use crate::StrictParseError;
@@ -22,7 +22,7 @@ mod entities {
 }
 
 impl Tokenizer {
-    /// §13.2.5.72 Character reference state.
+    /// §13.2.5.77 Character reference state.
     pub(super) fn character_reference_state(&mut self) -> Result<(), StrictParseError> {
         self.clear_temp_buffer();
         self.push_temp_buffer('&');
@@ -42,7 +42,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.73 Named character reference state.
+    /// §13.2.5.78 Named character reference state.
     ///
     /// "Consume the maximum number of characters possible, where the
     /// consumed characters are one of the identifiers in the first column
@@ -81,7 +81,7 @@ impl Tokenizer {
         }
 
         let Some((k, value, ends_semicolon)) = matched else {
-            // No identifier matched (§13.2.5.73 → ambiguous ampersand).
+            // No identifier matched (§13.2.5.78 → ambiguous ampersand).
             self.flush_code_points_as_char_ref();
             self.switch_to(State::AmbiguousAmpersand);
             return Ok(());
@@ -93,7 +93,7 @@ impl Tokenizer {
         }
         self.advance(k);
 
-        // §13.2.5.73 historical attribute case: `&amp` (no semicolon)
+        // §13.2.5.78 historical attribute case: `&amp` (no semicolon)
         // followed by `=` or an alphanumeric inside an attribute value is
         // flushed literally, not decoded.
         if self.in_attribute_return_state() && !ends_semicolon {
@@ -118,7 +118,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.74 Ambiguous ampersand state.
+    /// §13.2.5.79 Ambiguous ampersand state.
     pub(super) fn ambiguous_ampersand_state(&mut self) -> Result<(), StrictParseError> {
         match self.consume() {
             Some(c) if c.is_ascii_alphanumeric() => {
@@ -134,7 +134,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.75 Numeric character reference state.
+    /// §13.2.5.80 Numeric character reference state.
     pub(super) fn numeric_character_reference_state(&mut self) -> Result<(), StrictParseError> {
         self.set_char_ref_code(0);
         match self.consume() {
@@ -147,7 +147,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.76 Hexadecimal character reference start state.
+    /// §13.2.5.81 Hexadecimal character reference start state.
     pub(super) fn hexadecimal_character_reference_start_state(
         &mut self,
     ) -> Result<(), StrictParseError> {
@@ -160,7 +160,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.77 Decimal character reference start state.
+    /// Local substate for the decimal digit check in HTML §13.2.5.80.
     pub(super) fn decimal_character_reference_start_state(
         &mut self,
     ) -> Result<(), StrictParseError> {
@@ -171,7 +171,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.78 Hexadecimal character reference state.
+    /// §13.2.5.82 Hexadecimal character reference state.
     pub(super) fn hexadecimal_character_reference_state(&mut self) -> Result<(), StrictParseError> {
         match self.consume() {
             Some(c) if c.is_ascii_digit() => {
@@ -189,7 +189,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.79 Decimal character reference state.
+    /// §13.2.5.83 Decimal character reference state.
     pub(super) fn decimal_character_reference_state(&mut self) -> Result<(), StrictParseError> {
         match self.consume() {
             Some(c) if c.is_ascii_digit() => {
@@ -201,7 +201,7 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.80 Numeric character reference end state.
+    /// §13.2.5.84 Numeric character reference end state.
     ///
     /// Validates the accumulated code point. Every spec parse-error branch
     /// (null / out-of-range / surrogate / noncharacter / control) is a
@@ -232,7 +232,7 @@ impl Tokenizer {
     }
 }
 
-/// A code point that triggers the §13.2.5.80 control-character-reference
+/// A code point that triggers the §13.2.5.84 control-character-reference
 /// parse error: U+000D plus any C0/C1 control that is not ASCII
 /// whitespace (tab / LF / FF / space).
 fn is_control_reference(code: u32) -> bool {

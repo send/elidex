@@ -21,7 +21,7 @@
 //!
 //! Species-sensitive instance methods + accumulator HOFs +
 //! `flatMap` land in [`super::typed_array_hof`] (SP8b / SP8c-A /
-//! SP8c-B); the no-Intl `toLocaleString` lands in
+//! SP8c-B); `toLocaleString` lives in
 //! [`super::typed_array_methods`] alongside `join` (SP8c-B).
 
 #![cfg(feature = "engine")]

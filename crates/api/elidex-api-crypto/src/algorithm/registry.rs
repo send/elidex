@@ -14,8 +14,8 @@ use super::Operation;
 /// (§18.4.4 step 5 `desiredType`), plus the bits `normalize` needs to
 /// build the result. This is the registry-membership oracle: a `Some`
 /// means the pair is in `supportedAlgorithms[op]` (step 5 found a key),
-/// a `None` means step 5 returns `NotSupportedError` before any
-/// params-dictionary member is read.
+/// a `None` means step 5 returns `NotSupportedError` before the
+/// step-6 dictionary conversion.
 ///
 /// Both [`crate::normalize`] and [`is_supported`] route through
 /// [`resolve_registry`] so the two cannot drift: there is one place that
@@ -284,13 +284,10 @@ pub enum AlgorithmParams {
     RsaOaepParams,
 }
 
-/// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
-/// return which params-dictionary members the VM should read; `None` ⇒ the
-/// pair is unregistered, so the spec returns `NotSupportedError` at step 5
-/// *before* any getter fires.  The VM marshalling layer routes through this
-/// (rather than re-deriving the dictionary shape from the name string), so
-/// the registry stays the single source of truth and an unregistered name
-/// never triggers a user-defined member getter.
+/// Selects the parameter dictionary for an operation and algorithm name.
+/// For an object input, Web Crypto §18.4.4 step 2 has already read `name`.
+/// An unregistered pair fails at step 5, before step 6 reads the selected
+/// dictionary’s members.
 pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
     resolve_registry(op, name).map(|d| match d {
         DesiredType::Digest(_)

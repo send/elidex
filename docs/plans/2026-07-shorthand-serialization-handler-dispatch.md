@@ -153,7 +153,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
 - **PR 0 (this)**: foundational relocation + trait slot (behavior-preserving).
 - **PR 1**: MulticolHandler — `column-rule` / `columns` (ordered omit-initial, own
   initials).
-- **PR 2 (2026-11 staging erratum, PM 928/929)**: [Flex declared-value serialization](2026-11-shorthand-flex-omit-initial.md) covers `flex-flow` and all supported `flex` triples, including numeric factors and keyword cases. The Flex shorthand parser and shared declaration-order correction each land in a separately planned and reviewed prerequisite PR. The parser is independent. The declaration-order program first lands token-preserving substitution and then activates the typed block, coordinator and handler-trait migration together, with parity tests for existing Box, Table and Multicol readers. PR 2 owns Flex selection and shared public number/calculation formatting, with both getter paths tested before and after reparsing rounded results.
+- **PR 2 (Flex)**: the [Flex omit-initial program](2026-11-flex-omit-initial-program.md) owns the prerequisites, typed handler migration, public formatting, and final Flex family PR (PM 959). The coordinator example above describes the foundational implementation through D’s activation, when the coordinator starts reading typed blocks. The string trait example applies until H replaces its signature and removes D’s formatting bridge.
 - **PR 3**: TextHandler — `text-decoration`.
 - **PR 4**: BoxHandler — `border` (nested 4-side + omit-initial).
 - **PR 5+**: layered/grid (BackgroundHandler `background`; `font`; GridHandler
@@ -167,7 +167,7 @@ unchanged; getComputedStyle / getPropertyValue output byte-identical.
   the same umbrella until the `list-style` longhand mapping is completed (a separate
   sub-task); flagged here so it is not orphaned.
 
-Each per-family PR is small (one handler's `serialize_shorthand` arm + tests),
+After its prerequisites land, each family increment adds its handler arm and tests,
 uses that handler's `initial_value` (no duplication), spec-cited per module.
 
 ## §3. Spec coverage map

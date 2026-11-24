@@ -18,10 +18,9 @@
 //!   `reject_pending_fetches_with_error` shape.
 //!
 //! Test infra notes: shares the [`build_min_doc`] / `UnbindOnDrop`
-//! / `with_realtime_vm` pattern with `tests_websocket.rs` and
-//! `tests_event_source.rs`; deduplication is deferred until a
-//! third sibling lands (current 2-site precedent doesn't warrant
-//! hoisting).
+//! / `with_realtime_vm` pattern with `tests_websocket/mod.rs` and
+//! `tests_event_source.rs`; the copies are
+//! `#11-vm-test-bound-vm-helper-unification`'s to merge.
 
 #![cfg(feature = "engine")]
 

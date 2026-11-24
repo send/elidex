@@ -341,7 +341,7 @@ fn symbol_iterator_identity_to_values() {
 #[test]
 fn to_string_identity_to_array_prototype() {
     let mut vm = Vm::new();
-    // Spec §23.2.3.31: the initial value of
+    // ECMA-262 §23.2.3.34: the initial value of
     // `%TypedArray%.prototype.toString` is the same built-in
     // function object as `Array.prototype.toString`.
     assert!(eval_bool(
@@ -671,7 +671,7 @@ fn join_custom_separator() {
 }
 
 // ---------------------------------------------------------------------------
-// toLocaleString (SP8c-B — no-Intl, mirrors Array.prototype.toLocaleString)
+// TypedArray.prototype.toLocaleString
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -715,8 +715,7 @@ fn to_locale_string_bigint_array_strips_n_suffix() {
 #[test]
 fn to_locale_string_locale_args_ignored() {
     let mut vm = Vm::new();
-    // No Intl support — locale + options arguments are accepted
-    // but ignored, so the result matches the no-arg form.
+    // The default number formatter ignores the forwarded locale and options.
     assert_eq!(
         eval_string(
             &mut vm,
@@ -729,11 +728,7 @@ fn to_locale_string_locale_args_ignored() {
 #[test]
 fn to_locale_string_observes_number_prototype_override() {
     let mut vm = Vm::new();
-    // §23.2.3.31 Invoke(elem, "toLocaleString") → finds the
-    // user override on Number.prototype because the call's GetV
-    // boxes the primitive for property lookup.  The override
-    // sees `this === <primitive>` (after non-strict boxing) and
-    // can read `.valueOf()`.
+    // The element method lookup finds the override on Number.prototype.
     assert_eq!(
         eval_string(
             &mut vm,
@@ -768,11 +763,7 @@ fn to_locale_string_propagates_throw_from_per_element_method() {
 #[test]
 fn to_locale_string_forwards_reserved_args() {
     let mut vm = Vm::new();
-    // §23.2.3.31 step 7: per-element `Invoke(elem, "toLocaleString",
-    // « locales, options »)` must forward the reserved args to user
-    // overrides.  Capture the args via an override that joins them
-    // (no Intl in elidex, so the built-in shim ignores them — but
-    // overrides MUST observe them).
+    // The Number override receives the supplied locale and options (ECMA-402 §20.6.1).
     assert_eq!(
         eval_string(
             &mut vm,
@@ -788,11 +779,7 @@ fn to_locale_string_forwards_reserved_args() {
 #[test]
 fn to_locale_string_passes_exactly_two_args_to_override() {
     let mut vm = Vm::new();
-    // §23.2.3.31 step 7: `Invoke(elem, "toLocaleString",
-    // « locales, options »)` always materialises a 2-element
-    // arg list.  Extra caller args (3rd+) MUST NOT reach the
-    // override; missing args (0 / 1) MUST be undefined-padded
-    // so `arguments.length === 2` always holds.
+    // The override sees two arguments regardless of the caller’s argument count.
     assert_eq!(
         eval_string(
             &mut vm,

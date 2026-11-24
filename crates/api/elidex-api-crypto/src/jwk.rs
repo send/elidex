@@ -408,7 +408,7 @@ pub fn import_oct_hmac(
     }
 
     // use, if present, must be "sig" for a signing/verifying key — but
-    // only when usages is non-empty (WebCrypto §31.6.4 step 7).  With
+    // only when usages is non-empty (WebCrypto §31.6.4, JWK branch of step 5, substep 7).  With
     // empty usages the later generic empty-secret-usages SyntaxError
     // (§14.3.9) is the correct rejection, so this DataError must not
     // pre-empt it.
@@ -567,7 +567,7 @@ fn bit_len(byte_len: usize) -> Result<u32, AlgorithmError> {
 }
 
 /// `key_ops` must be a valid JWK key-operations array containing every
-/// requested usage (WebCrypto §31.6.4 step 8).
+/// requested usage (WebCrypto §31.6.4, JWK branch of step 5, substep 8).
 ///
 /// Validity is per JWK [RFC 7517 §4.3]: entries are arbitrary strings
 /// ("Other values MAY be used"), but duplicate values MUST NOT be present.
@@ -586,7 +586,6 @@ pub(crate) fn validate_key_ops(
             return Err(data("JWK 'key_ops' member contains a duplicate entry"));
         }
     }
-    // §31.6.4 step 8: key_ops must contain all requested usages.
     for usage in usages {
         if !key_ops.iter().any(|op| op == usage.as_str()) {
             return Err(data(

@@ -440,9 +440,9 @@ pub struct ImageData {
 }
 
 /// External CSS loaded for a `<link rel="stylesheet">` element
-/// (HTML §4.6.7 — a `<link>` whose resource is successfully fetched and
+/// (HTML §4.6.8.23 — a `<link>` whose resource is successfully fetched and
 /// parsable has an *associated CSS style sheet*; that association is what
-/// `document.styleSheets` enumerates, CSSOM §6.8).
+/// includes the sheet in `document.styleSheets`, CSSOM §§6.2 and 6.2.3).
 ///
 /// Attached by the resource loader after a successful fetch. The element
 /// is the source of truth for its loaded sheet: the CSSOM stylesheet
@@ -712,7 +712,7 @@ pub struct AttrEntityCache {
     pub entries: std::collections::HashMap<String, Entity>,
 }
 
-/// Loading attribute for `<iframe>` and `<img>` elements (WHATWG HTML §4.8.5).
+/// Lazy loading attribute states used by `<iframe>` and `<img>` (HTML §2.5.7).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LoadingAttribute {
     /// Load immediately (default).
