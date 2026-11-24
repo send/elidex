@@ -364,12 +364,10 @@ pub(crate) fn native_typed_array_set(
         element_kind: dst_ek,
         ..
     } = parts;
-    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(offset)`; step 8
-    // uses the result in a `targetOffset + len > ArrayLength`
-    // comparison which always fails for `±Infinity` / values beyond
-    // `u32::MAX`.  Reject those up-front rather than saturating —
-    // otherwise an empty `src` combined with a `u32::MAX`-sized
-    // destination would silently accept an unrepresentable offset.
+    // ECMA-262 §23.2.3.26 steps 4–5 convert the offset and reject negatives.
+    // Known VM P4 defect: +Infinity and offsets above u32::MAX throw here,
+    // before source validation or an array-like source's length getter.
+    // §§23.2.3.26.1 steps 3–6 and 23.2.3.26.2 steps 5–14 check them later.
     let target_offset: u32 = match args.get(1).copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0,
         other => {

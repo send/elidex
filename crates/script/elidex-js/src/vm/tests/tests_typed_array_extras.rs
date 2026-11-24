@@ -404,11 +404,9 @@ fn last_index_of_too_negative_from_index_returns_minus_one() {
 #[test]
 fn set_non_finite_offset_throws_range_error() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(Infinity) = +Infinity`,
-    // which step 8 always rejects via the `targetOffset + len >
-    // ArrayLength` guard.  Clamping to u32::MAX silently accepted
-    // the unrepresentable value for empty sources on u32::MAX-sized
-    // destinations; reject non-finite offsets up-front instead.
+    // ECMA-262 §23.2.3.26.1 steps 5–6 reject +Infinity and a source range
+    // exceeding the target. These arrays have ordinary length properties,
+    // so the cases do not exercise the VM P4 offset-check ordering defect.
     assert!(eval_bool(
         &mut vm,
         "var ok = false; \
@@ -426,9 +424,8 @@ fn set_non_finite_offset_throws_range_error() {
 #[test]
 fn set_negative_offset_throws_range_error() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(offset)` RangeErrors
-    // on any negative result.  Must not silently wrap via `length +
-    // offset` (old `relative_index_u32` behavior).
+    // ECMA-262 §23.2.3.26 steps 4–5 convert the offset with
+    // ToIntegerOrInfinity and throw RangeError if the result is negative.
     assert!(eval_bool(
         &mut vm,
         "var ok = false; \
