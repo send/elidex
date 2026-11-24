@@ -175,18 +175,21 @@ pub fn layout_grid(
     let containing_inline = input.containing_inline_size;
     let (padding, border, margin) =
         elidex_layout_block::resolve_box_model(&style, containing_inline);
+    let margin = input.assigned.margins(margin);
     let margin_top = margin.top;
     let margin_bottom = margin.bottom;
     let margin_left = margin.left;
     let margin_right = margin.right;
 
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width = elidex_layout_block::resolve_content_width(
-        &style,
-        containing_width,
-        h_pb,
-        margin_left + margin_right,
-    );
+    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+        elidex_layout_block::resolve_content_width(
+            &style,
+            containing_width,
+            h_pb,
+            margin_left + margin_right,
+        )
+    });
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
     let content_origin = Point::new(content_x, content_y);
@@ -197,7 +200,11 @@ pub fn layout_grid(
     let is_horizontal_wm = style.writing_mode.is_horizontal();
     let (container_inline_size, block_available) = if is_horizontal_wm {
         // Horizontal: inline = width, block = height
-        let avail_h = resolve_explicit_height(&style, containing_height);
+        let avail_h = input
+            .assigned
+            .content
+            .height
+            .or_else(|| resolve_explicit_height(&style, containing_height));
         (content_width, avail_h)
     } else {
         // Vertical: inline = height (physical Y), block = width (physical X)
@@ -221,7 +228,10 @@ pub fn layout_grid(
             h
         };
         // Block available = content_width (physical width = block direction).
-        (inline_h, Some(content_width))
+        (
+            input.assigned.content.height.unwrap_or(inline_h),
+            Some(content_width),
+        )
     };
 
     let mut gap_col =
@@ -241,10 +251,13 @@ pub fn layout_grid(
             dom,
             entity,
             &EmptyContainerParams {
-                style: &style,
                 content_origin,
                 content_width,
-                containing_height,
+                resolved_height: input
+                    .assigned
+                    .content
+                    .height
+                    .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,
                 border,
                 margin,

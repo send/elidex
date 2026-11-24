@@ -34,6 +34,7 @@ fn mixed_block_inline_anonymous_box() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
         offset: Point::ZERO,
@@ -96,6 +97,7 @@ fn block_only_children_no_anonymous_boxes() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
         offset: Point::ZERO,
@@ -157,6 +159,7 @@ fn display_none_skipped_in_block_context() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
         offset: Point::ZERO,

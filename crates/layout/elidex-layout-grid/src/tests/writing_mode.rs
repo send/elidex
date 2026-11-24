@@ -112,6 +112,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     // For vertical-rl, containing_inline_size = 400 (the physical height).
     let containing_inline_size = 400.0;
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 400.0),
         containing_inline_size,
         offset: Point::ZERO,
@@ -273,6 +274,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
 
     let font_db = elidex_text::FontDatabase::new();
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 600.0,
         offset: Point::ZERO,
@@ -327,6 +329,7 @@ fn vertical_lr_padding_percent_resolves_against_inline_size() {
     let font_db = elidex_text::FontDatabase::new();
     let containing_inline_size = 600.0;
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size,
         offset: Point::ZERO,

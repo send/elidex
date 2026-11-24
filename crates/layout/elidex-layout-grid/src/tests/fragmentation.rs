@@ -21,6 +21,7 @@ fn do_layout_grid_fragmented(
     break_token: Option<elidex_layout_block::BreakToken>,
 ) -> LayoutOutcome {
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
             height: containing_height,

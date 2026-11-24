@@ -6,8 +6,8 @@ use elidex_layout_block::{
     clamp_min_max, resolve_explicit_height, sanitize, total_gap, LayoutInput,
 };
 use elidex_plugin::{
-    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, Direction, FlexWrap, LayoutBox,
-    Point, Rect,
+    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, Direction, EdgeSizes, FlexWrap,
+    Point, Size,
 };
 
 use super::align::{apply_justify_safety, compute_justify_offsets};
@@ -218,6 +218,13 @@ pub(crate) fn layout_items_cross(
             ctx.resolved_height.unwrap_or(0.0)
         };
         let child_input = LayoutInput {
+            assigned: elidex_layout_block::UsedAssignment {
+                content: Size {
+                    width: ctx.horizontal.then_some(item.final_main),
+                    height: (!ctx.horizontal).then_some(item.final_main),
+                },
+                ..Default::default()
+            },
             containing: CssSize {
                 width: child_containing,
                 height: ctx.resolved_height,
@@ -399,20 +406,15 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32, line_max_baseline: f32) 
     }
 }
 
-/// Re-layout a flex item at its final position and overwrite its `LayoutBox`
-/// with flex-resolved dimensions.
-///
-/// This overwrites the item's `ComputedStyle` width/height to the flex-resolved
-/// values (NOT restored — re-layout requires re-resolving styles first), then
-/// runs layout via `layout_child` to position descendants, and finally patches
-/// the `LayoutBox` with the correct flex content size.
+/// Dispatch the definitive item from its margin-box origin (Flexbox §9.8).
 fn relayout_item_at_position(
     dom: &mut EcsDom,
     item: &FlexItem,
     ctx: &FlexContext,
     margin_box_pos: Point,
+    margin: EdgeSizes<Option<f32>>,
     env: &LayoutEnv<'_>,
-) {
+) -> elidex_layout_block::LayoutOutcome {
     let item_content_width = if ctx.horizontal {
         item.final_main
     } else {
@@ -423,32 +425,6 @@ fn relayout_item_at_position(
     } else {
         item.final_main
     };
-
-    // Overwrite the item's width/height to flex-resolved values.
-    // Also zero out auto margins — flex handles them via position offsets;
-    // block layout must not apply its own margin-auto centering on top.
-    {
-        let mut style = elidex_layout_block::get_style(dom, item.entity);
-        if ctx.horizontal {
-            style.width = Dimension::Length(item.final_main);
-            style.height = Dimension::Length(item_content_height);
-        } else {
-            style.width = Dimension::Length(item_content_width);
-            style.height = Dimension::Length(item.final_main);
-        }
-        // Zero any auto margins: flex handles them via position offsets.
-        for m in [
-            &mut style.margin_top,
-            &mut style.margin_right,
-            &mut style.margin_bottom,
-            &mut style.margin_left,
-        ] {
-            if *m == Dimension::Auto {
-                *m = Dimension::Length(0.0);
-            }
-        }
-        let _ = dom.world_mut().insert_one(item.entity, style);
-    }
 
     // CSS Flexbox 1 §9.8 (item 3): stretched items have a definite cross size
     // for their children's percentage-height resolution. Pass the resolved cross
@@ -476,6 +452,13 @@ fn relayout_item_at_position(
         child_containing_height.unwrap_or(0.0)
     };
     let child_input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment {
+            content: Size {
+                width: Some(item_content_width),
+                height: Some(item_content_height),
+            },
+            margin,
+        },
         containing: CssSize {
             width: child_containing_width,
             height: child_containing_height,
@@ -492,25 +475,7 @@ fn relayout_item_at_position(
         layout_generation: env.layout_generation,
         is_probe: env.is_probe,
     };
-    let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
-
-    // Overwrite the item's LayoutBox with flex-resolved dimensions.
-    // child_lb.content.origin.x/y already include margin + border + padding
-    // offsets from the margin-box position, so use them directly.
-    let lb = LayoutBox {
-        content: Rect::new(
-            child_lb.content.origin.x,
-            child_lb.content.origin.y,
-            item_content_width,
-            item_content_height,
-        ),
-        padding: child_lb.padding,
-        border: child_lb.border,
-        margin: child_lb.margin,
-        first_baseline: child_lb.first_baseline,
-        layout_generation: env.layout_generation,
-    };
-    dom.set_layout_box(item.entity, lb);
+    (env.layout_child)(dom, item.entity, &child_input)
 }
 
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
@@ -602,44 +567,57 @@ pub(crate) fn position_items(
             }
 
             // Flex §8.1: cross-axis auto margins.
-            let (cross_auto_offset, skip_align) = {
-                let both = item.margin_cross_start_auto && item.margin_cross_end_auto;
-                let start_only = item.margin_cross_start_auto && !item.margin_cross_end_auto;
-                let end_only = !item.margin_cross_start_auto && item.margin_cross_end_auto;
-                let item_outer_cross = item.final_cross + item.margin_cross;
-                let cross_free = (line_cross - item_outer_cross).max(0.0);
-                if both {
-                    (cross_free / 2.0, true)
-                } else if end_only {
-                    (0.0, true) // start-aligned (absorb into end margin)
-                } else if start_only {
-                    (cross_free, true) // end-aligned (absorb into start margin)
+            let has_cross_auto = item.margin_cross_start_auto || item.margin_cross_end_auto;
+            let residual = line_cross - item.final_cross - item.margin_cross;
+            let cross_start = if item.margin_cross_start_auto && residual > 0.0 {
+                if item.margin_cross_end_auto {
+                    residual / 2.0
                 } else {
-                    (0.0, false)
+                    residual
                 }
+            } else {
+                0.0
             };
-
-            let align_offset = if skip_align {
-                cross_auto_offset
+            let cross_end = if has_cross_auto {
+                residual - cross_start
+            } else {
+                0.0
+            };
+            let align_offset = if has_cross_auto {
+                0.0
             } else {
                 cross_align_offset(item, line_cross, line_bl)
             };
 
-            // Margin-box position: layout adds margins internally.
-            // Auto main margin shifts the item's start position.
-            let (margin_box_x, margin_box_y) = if ctx.horizontal {
-                (
-                    ctx.content_origin.x + main_cursor + auto_margin_main_start,
-                    ctx.content_origin.y + cross_offset + align_offset,
+            let (main_low, main_high) = if reversed_main {
+                (auto_margin_main_end, auto_margin_main_start)
+            } else {
+                (auto_margin_main_start, auto_margin_main_end)
+            };
+            let (left, right, top, bottom) = if ctx.horizontal {
+                (main_low, main_high, cross_start, cross_end)
+            } else {
+                (cross_start, cross_end, main_low, main_high)
+            };
+            let margin = EdgeSizes {
+                left: Some(item.margin.left + left),
+                right: Some(item.margin.right + right),
+                top: Some(item.margin.top + top),
+                bottom: Some(item.margin.bottom + bottom),
+            };
+            let cross = cross_offset + align_offset;
+            let pos = if ctx.horizontal {
+                Point::new(
+                    ctx.content_origin.x + main_cursor,
+                    ctx.content_origin.y + cross,
                 )
             } else {
-                (
-                    ctx.content_origin.x + cross_offset + align_offset,
-                    ctx.content_origin.y + main_cursor + auto_margin_main_start,
+                Point::new(
+                    ctx.content_origin.x + cross,
+                    ctx.content_origin.y + main_cursor,
                 )
             };
-
-            relayout_item_at_position(dom, item, ctx, Point::new(margin_box_x, margin_box_y), env);
+            relayout_item_at_position(dom, item, ctx, pos, margin, env);
 
             if reversed_main {
                 main_cursor -= gap;

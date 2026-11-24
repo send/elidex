@@ -1,7 +1,6 @@
 //! Box model helpers, item collection, and automatic minimum size computation.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::block::resolve_margin;
 use elidex_layout_block::{
     adjust_min_max_for_border_box, clamp_min_max, effective_align, horizontal_pb, resolve_min_max,
     sanitize, sanitize_border, vertical_pb, LayoutInput,
@@ -27,23 +26,6 @@ pub(crate) fn compute_pb(
     }
 }
 
-/// Returns `(margin_main, margin_cross)`.
-pub(crate) fn compute_margins(
-    style: &ComputedStyle,
-    horizontal: bool,
-    containing_width: f32,
-) -> (f32, f32) {
-    let ml = resolve_margin(style.margin_left, containing_width);
-    let mr = resolve_margin(style.margin_right, containing_width);
-    let mt = resolve_margin(style.margin_top, containing_width);
-    let mb = resolve_margin(style.margin_bottom, containing_width);
-    if horizontal {
-        (ml + mr, mt + mb)
-    } else {
-        (mt + mb, ml + mr)
-    }
-}
-
 /// Collect flex items from children, resolving styles and computing metrics.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn collect_flex_items(
@@ -54,7 +36,7 @@ pub(crate) fn collect_flex_items(
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
+        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue;
         };
         if child_style.display == Display::None {
@@ -63,13 +45,6 @@ pub(crate) fn collect_flex_items(
         // Absolutely positioned flex children are removed from flex layout.
         if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
             continue;
-        }
-
-        // Flex §4.2: blockify flex items.
-        let blockified = child_style.display.blockify();
-        if blockified != child_style.display {
-            child_style.display = blockified;
-            let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
         let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.inline_containing);
@@ -118,14 +93,13 @@ pub(crate) fn collect_flex_items(
             )
         };
 
-        let (margin_main, margin_cross) =
-            compute_margins(&child_style, ctx.horizontal, ctx.inline_containing);
-
-        // Cross-start margin for baseline offset computation.
-        let margin_cross_start = if ctx.horizontal {
-            resolve_margin(child_style.margin_top, ctx.inline_containing)
+        let margin = elidex_layout_block::resolve_margins(&child_style, ctx.inline_containing);
+        let horizontal_margin = margin.left + margin.right;
+        let vertical_margin = margin.top + margin.bottom;
+        let (margin_main, margin_cross, margin_cross_start) = if ctx.horizontal {
+            (horizontal_margin, vertical_margin, margin.top)
         } else {
-            resolve_margin(child_style.margin_left, ctx.inline_containing)
+            (vertical_margin, horizontal_margin, margin.left)
         };
 
         // Flex §4.4: visibility:collapse detection.
@@ -209,6 +183,7 @@ pub(crate) fn collect_flex_items(
             hypo_main,
             grow: child_style.flex_grow,
             shrink: child_style.flex_shrink,
+            margin,
             margin_main,
             margin_cross,
             pb_main,

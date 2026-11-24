@@ -5,9 +5,8 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_layout_block::{
-    block::resolve_margin, horizontal_pb, resolve_explicit_height, sanitize, sanitize_border,
-    vertical_pb, BreakTokenData, ChildLayoutFn, EmptyContainerParams, LayoutInput,
-    MAX_LAYOUT_DEPTH,
+    horizontal_pb, resolve_explicit_height, sanitize, sanitize_border, vertical_pb, BreakTokenData,
+    ChildLayoutFn, EmptyContainerParams, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
     AlignContent, AlignItems, AlignmentSafety, BoxSizing, ComputedStyle, CssSize, Dimension,
@@ -144,6 +143,8 @@ pub(crate) struct FlexItem {
     pub(crate) hypo_main: f32,
     pub(crate) grow: f32,
     pub(crate) shrink: f32,
+    /// Physical edges before auto margin distribution.
+    pub(crate) margin: EdgeSizes,
     /// Total margin on the main axis (start + end).
     pub(crate) margin_main: f32,
     /// Total margin on the cross axis (start + end).
@@ -263,23 +264,32 @@ pub fn layout_flex(
     let inline_containing = input.containing_inline_size;
     let padding = elidex_layout_block::resolve_padding(&style, inline_containing);
     let border = sanitize_border(&style);
-    let margin_top = resolve_margin(style.margin_top, inline_containing);
-    let margin_bottom = resolve_margin(style.margin_bottom, inline_containing);
-    let margin_left = resolve_margin(style.margin_left, inline_containing);
-    let margin_right = resolve_margin(style.margin_right, inline_containing);
-    let h_pb = horizontal_pb(&padding, &border);
-    let content_width = elidex_layout_block::resolve_content_width(
+    let margin = input.assigned.margins(elidex_layout_block::resolve_margins(
         &style,
-        containing_width,
-        h_pb,
-        margin_left + margin_right,
-    );
+        inline_containing,
+    ));
+    let EdgeSizes {
+        top: margin_top,
+        right: margin_right,
+        bottom: _,
+        left: margin_left,
+    } = margin;
+
+    let h_pb = horizontal_pb(&padding, &border);
+    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+        elidex_layout_block::resolve_content_width(
+            &style,
+            containing_width,
+            h_pb,
+            margin_left + margin_right,
+        )
+    });
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
-    let margin = EdgeSizes::new(margin_top, margin_right, margin_bottom, margin_left);
     let horizontal = is_main_horizontal(style.flex_direction, style.writing_mode);
-    let container_main =
-        resolve_container_main(&style, horizontal, content_width, containing_height);
+    let container_main = input.assigned.axes(horizontal).0.unwrap_or_else(|| {
+        resolve_container_main(&style, horizontal, content_width, containing_height)
+    });
 
     // --- Early return for empty containers ---
     let children = elidex_layout_block::composed_children_flat(dom, entity);
@@ -288,10 +298,13 @@ pub fn layout_flex(
             dom,
             entity,
             &EmptyContainerParams {
-                style: &style,
                 content_origin: Point::new(content_x, content_y),
                 content_width,
-                containing_height,
+                resolved_height: input
+                    .assigned
+                    .content
+                    .height
+                    .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,
                 border,
                 margin,
@@ -314,7 +327,11 @@ pub fn layout_flex(
     };
 
     // Container's own definite height for children's percentage height resolution.
-    let resolved_height = resolve_explicit_height(&style, containing_height);
+    let resolved_height = input
+        .assigned
+        .content
+        .height
+        .or_else(|| resolve_explicit_height(&style, containing_height));
 
     let ctx = FlexContext {
         content_origin: Point::new(content_x, content_y),
@@ -397,11 +414,18 @@ pub fn layout_flex(
     baseline::read_item_baselines(dom, &mut items, &ctx);
 
     let line_baselines = baseline::compute_line_baselines(&items, &line_ranges, horizontal);
-    let (line_cross_sizes, total_line_cross) =
+    let (mut line_cross_sizes, total_line_cross) =
         algo::compute_line_cross_sizes(&items, &line_ranges, &line_baselines);
 
-    let container_cross =
-        algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross);
+    let container_cross = input.assigned.axes(horizontal).1.unwrap_or_else(|| {
+        algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross)
+    });
+    // CSS Flexbox §9.4 step 8: a single line takes the definite container cross size.
+    if ctx.wrap == FlexWrap::Nowrap && line_cross_sizes.len() == 1 {
+        line_cross_sizes[0] = container_cross;
+    }
+    #[cfg(test)]
+    tests::LINE_SIZES.with_borrow_mut(|sizes| sizes.clone_from(&line_cross_sizes));
     let align_content = align::apply_align_content_safety(
         ctx.align_content,
         container_cross,
@@ -451,8 +475,9 @@ pub fn layout_flex(
         };
 
     // --- Container LayoutBox ---
-    let content_height =
-        algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross);
+    let content_height = input.assigned.content.height.unwrap_or_else(|| {
+        algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross)
+    });
 
     // Flex container baseline (CSS Flexbox §9.4): first line's max baseline.
     let wrap_reverse = matches!(ctx.wrap, FlexWrap::WrapReverse);

@@ -286,6 +286,7 @@ pub(super) fn layout_float(
 
     // Layout the float's contents at a temporary position.
     let temp_input = LayoutInput {
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize {
             width: if is_horizontal {
                 shrink_inline.max(0.0)

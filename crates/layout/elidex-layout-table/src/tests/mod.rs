@@ -57,6 +57,7 @@ fn do_layout_table(
     layout_child: elidex_layout_block::ChildLayoutFn,
 ) -> LayoutBox {
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
             height: containing_height,

@@ -16,11 +16,11 @@ pub struct Rect {
 
 /// A 2D size (width and height).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Size {
+pub struct Size<T = f32> {
     /// Width in pixels.
-    pub width: f32,
+    pub width: T,
     /// Height in pixels.
-    pub height: f32,
+    pub height: T,
 }
 
 /// A CSS containing block size: width is always definite, height may be

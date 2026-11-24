@@ -44,6 +44,7 @@ pub(super) fn layout_atomic_items(
         } = item
         {
             let input = crate::LayoutInput {
+                assigned: crate::UsedAssignment::default(),
                 containing: elidex_plugin::CssSize::width_only(containing_inline_size),
                 containing_inline_size,
                 offset: content_origin,

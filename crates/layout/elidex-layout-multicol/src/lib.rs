@@ -55,32 +55,36 @@ pub fn layout_multicol(
     let font_db = input.font_db;
     let depth = input.depth;
 
+    let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal);
+
     // --- Resolve box model ---
     let containing_inline = input.containing_inline_size;
     let padding = resolve_padding(&style, containing_inline);
     let border = sanitize_border(&style);
     let i_pb = elidex_layout_block::inline_pb(&wm, &padding, &border);
 
-    let margin_top =
-        elidex_layout_block::block::resolve_margin(style.margin_top, containing_inline);
-    let margin_bottom =
-        elidex_layout_block::block::resolve_margin(style.margin_bottom, containing_inline);
-    let margin_left =
-        elidex_layout_block::block::resolve_margin(style.margin_left, containing_inline);
-    let margin_right =
-        elidex_layout_block::block::resolve_margin(style.margin_right, containing_inline);
+    let margin = input.assigned.margins(elidex_layout_block::resolve_margins(
+        &style,
+        containing_inline,
+    ));
+    let EdgeSizes {
+        top: margin_top,
+        right: margin_right,
+        bottom: margin_bottom,
+        left: margin_left,
+    } = margin;
 
     let (margin_inline_start, margin_inline_end) = if is_horizontal {
         (margin_left, margin_right)
     } else {
         (margin_top, margin_bottom)
     };
-    let (margin_block_start, margin_block_end) = if is_horizontal {
-        (margin_top, margin_bottom)
+    let margin_block_start = if is_horizontal {
+        margin_top
     } else if wm.is_block_reversed() {
-        (margin_right, margin_left)
+        margin_right
     } else {
-        (margin_left, margin_right)
+        margin_left
     };
 
     let available_inline = if is_horizontal {
@@ -122,6 +126,8 @@ pub fn layout_multicol(
         content_inline = clamp_min_max(content_inline, min_i, max_i);
     }
 
+    let content_inline = assigned_inline.unwrap_or(content_inline);
+
     // --- Content position ---
     let content_origin = if is_horizontal {
         Point::new(
@@ -152,8 +158,8 @@ pub fn layout_multicol(
     } else {
         Some(input.containing.width)
     };
-    let definite_height =
-        resolve_definite_block_size(&style, containing_block, &padding, &border, wm);
+    let definite_height = assigned_block
+        .or_else(|| resolve_definite_block_size(&style, containing_block, &padding, &border, wm));
 
     // Resolve max-block-size for balanced fill upper bound.
     let max_block_dim = if is_horizontal {
@@ -240,6 +246,7 @@ pub fn layout_multicol(
                     (content_origin.x + block_cursor, content_origin.y)
                 };
                 let spanner_input = LayoutInput {
+                    assigned: elidex_layout_block::UsedAssignment::default(),
                     containing: CssSize {
                         width: if is_horizontal {
                             content_inline
@@ -287,34 +294,14 @@ pub fn layout_multicol(
         style.min_width
     };
     let min_block = elidex_layout_block::resolve_min_max(min_block_dim, containing_for_minmax, 0.0);
-    let final_block = clamp_min_max(content_block, min_block, max_block_size);
+    let final_block =
+        assigned_block.unwrap_or_else(|| clamp_min_max(content_block, min_block, max_block_size));
 
     // --- Build LayoutBox ---
     let (phys_width, phys_height) = if is_horizontal {
         (content_inline, final_block)
     } else {
         (final_block, content_inline)
-    };
-
-    let margin = if is_horizontal {
-        EdgeSizes::new(
-            margin_block_start,
-            margin_inline_end,
-            margin_block_end,
-            margin_inline_start,
-        )
-    } else {
-        let (phys_left, phys_right) = if wm.is_block_reversed() {
-            (margin_block_end, margin_block_start)
-        } else {
-            (margin_block_start, margin_block_end)
-        };
-        EdgeSizes::new(
-            margin_inline_start,
-            phys_right,
-            margin_inline_end,
-            phys_left,
-        )
     };
 
     let lb = LayoutBox {

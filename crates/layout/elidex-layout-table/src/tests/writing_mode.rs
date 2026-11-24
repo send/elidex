@@ -296,6 +296,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let font_db = FontDatabase::new();
     let containing_inline_size = 500.0;
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 500.0),
         containing_inline_size,
         offset: Point::ZERO,

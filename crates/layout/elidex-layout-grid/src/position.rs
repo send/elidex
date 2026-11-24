@@ -399,6 +399,7 @@ pub(crate) fn position_items(
             area_height
         };
         let final_input = LayoutInput {
+            assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(area_width, item_content_h),
             containing_inline_size: final_inline_size,
             offset: Point::new(margin_box_x, margin_box_y),

@@ -4,6 +4,9 @@ use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, EdgeSizes};
 
 use crate::{horizontal_pb, resolve_dimension_value, sanitize, vertical_pb};
 
+#[cfg(test)]
+thread_local! { pub(super) static SOLVE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 /// Resolve width for a replaced element (e.g. `<img>`).
 ///
 /// CSS 2.1 §10.3.2: replaced elements with `width: auto` use intrinsic width.
@@ -11,12 +14,24 @@ use crate::{horizontal_pb, resolve_dimension_value, sanitize, vertical_pb};
 pub(super) fn resolve_replaced_width(
     style: &ComputedStyle,
     containing_width: f32,
-    iw: f32,
-    ih: f32,
+    intrinsic: elidex_plugin::Size,
+    assigned: elidex_plugin::Size<Option<f32>>,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
+    #[cfg(test)]
+    SOLVE_COUNT.set(SOLVE_COUNT.get() + 1);
+    let elidex_plugin::Size {
+        width: iw,
+        height: ih,
+    } = intrinsic;
+    if let Some(width) = assigned.width {
+        return width;
+    }
     if style.width == Dimension::Auto {
+        if let Some(height) = assigned.height.filter(|_| ih > 0.0) {
+            return height * iw / ih;
+        }
         match style.height {
             Dimension::Length(h) if h.is_finite() && ih > 0.0 => {
                 // height specified, width auto: compute from aspect ratio.
@@ -46,14 +61,20 @@ pub(super) fn resolve_replaced_width(
 pub(super) fn resolve_replaced_height(
     style: &ComputedStyle,
     used_width: f32,
-    iw: f32,
-    ih: f32,
+    intrinsic: elidex_plugin::Size,
+    assigned: elidex_plugin::Size<Option<f32>>,
     padding: &EdgeSizes,
     border: &EdgeSizes,
 ) -> f32 {
+    #[cfg(test)]
+    SOLVE_COUNT.set(SOLVE_COUNT.get() + 1);
+    let elidex_plugin::Size {
+        width: iw,
+        height: ih,
+    } = intrinsic;
     match style.height {
         Dimension::Auto => {
-            if !matches!(style.width, Dimension::Auto) && iw > 0.0 {
+            if (assigned.width.is_some() || style.width != Dimension::Auto) && iw > 0.0 {
                 // width specified, height auto: compute from aspect ratio.
                 (used_width * ih / iw).max(0.0)
             } else {

@@ -119,13 +119,22 @@ pub fn resolve_box_model(
 ) -> (EdgeSizes, EdgeSizes, EdgeSizes) {
     let padding = resolve_padding(style, containing_inline_size);
     let border = sanitize_border(style);
-    let margin = EdgeSizes::new(
+    (
+        padding,
+        border,
+        resolve_margins(style, containing_inline_size),
+    )
+}
+
+/// Resolve the physical margin edges against the containing inline size.
+#[must_use]
+pub fn resolve_margins(style: &ComputedStyle, containing_inline_size: f32) -> EdgeSizes {
+    EdgeSizes::new(
         crate::block::resolve_margin(style.margin_top, containing_inline_size),
         crate::block::resolve_margin(style.margin_right, containing_inline_size),
         crate::block::resolve_margin(style.margin_bottom, containing_inline_size),
         crate::block::resolve_margin(style.margin_left, containing_inline_size),
-    );
-    (padding, border, margin)
+    )
 }
 
 /// Sum of horizontal (left + right) padding and border.

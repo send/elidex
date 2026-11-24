@@ -455,6 +455,7 @@ fn build_column_input<'a>(
 ) -> LayoutInput<'a> {
     let is_horizontal = wm.is_horizontal();
     LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: if is_horizontal {
                 geom.width

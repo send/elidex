@@ -5,6 +5,7 @@ use elidex_ecs::Attributes;
 use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 
 mod basic;
+mod flex_assignment;
 mod fragmentation;
 mod provenance;
 
@@ -18,6 +19,8 @@ pub(super) struct DispatchObservation {
 }
 
 thread_local! {
+    pub(super) static TRACK_CHILD: std::cell::Cell<Option<Entity>> = const { std::cell::Cell::new(None) };
+    pub(super) static TRACK_WIDTH: std::cell::Cell<Option<f32>> = const { std::cell::Cell::new(None) };
     pub(super) static FIRST_FORMATTER: std::cell::Cell<Option<DispatchObservation>> = const { std::cell::Cell::new(None) };
 }
 

@@ -88,6 +88,7 @@ fn make_block_child_with_break(
 /// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
 fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
     crate::LayoutInput {
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
         offset: elidex_plugin::Point::ZERO,

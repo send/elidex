@@ -53,7 +53,8 @@ pub fn dispatch_layout_child(
     let effective_input = if matches!(
         style.display,
         Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
-    ) && style.width == elidex_plugin::Dimension::Auto
+    ) && input.assigned.content.width.is_none()
+        && style.width == elidex_plugin::Dimension::Auto
     {
         let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
         let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
@@ -86,6 +87,10 @@ pub fn dispatch_layout_child(
         anonymous_table::ensure_table_wrappers(dom, entity);
     }
 
+    #[cfg(test)]
+    if !input.is_probe && tests::TRACK_CHILD.get() == Some(entity) {
+        tests::TRACK_WIDTH.set(Some(input.containing.width));
+    }
     let outcome = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
@@ -221,6 +226,7 @@ pub fn layout_paged(
     };
 
     let input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
         offset: area.origin,
@@ -390,6 +396,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         .ok();
 
     let root_input = LayoutInput {
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(viewport.width, viewport.height),
         containing_inline_size: viewport.width,
         offset: elidex_plugin::Point::ZERO,
