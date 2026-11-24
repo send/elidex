@@ -115,6 +115,15 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
 /// `source_order` values across all rules.
 #[must_use]
 pub fn parse_single_rule(css: &str) -> Option<CssRule> {
+    parse_single_rule_with_registry(css, None)
+}
+
+/// Parse an inserted rule using its owning stylesheet's declaration grammar.
+#[must_use]
+pub fn parse_single_rule_with_registry(
+    css: &str,
+    registry: Option<&CssPropertyRegistry>,
+) -> Option<CssRule> {
     let trimmed = css.trim();
     if trimmed.is_empty() {
         return None;
@@ -140,7 +149,7 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
             next_rule_id: &mut next_rule_id,
             keyframes_raw: &mut keyframes_raw,
             page_rules: &mut page_rules,
-            registry: None,
+            registry,
         };
         let mut iter = StyleSheetParser::new(&mut input, &mut rule_parser);
         let first = iter.next();

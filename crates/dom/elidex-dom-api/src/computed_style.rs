@@ -195,6 +195,77 @@ mod tests {
     }
 
     #[test]
+    fn computed_custom_copy_through_public_cssom_and_style_resolution() {
+        use crate::style::{StyleGetPropertyValue, StyleSetProperty};
+        use elidex_plugin::component_values::{ComponentValues, ComputedCustom};
+        use elidex_plugin::Size;
+        for (authored, pending, expected, width) in [
+            ("2", "var(--x)px", Some("2/**/px"), "auto"),
+            ("2px", "var(--x)", Some("2px"), "2px"),
+            ("", "var(--x)", Some(""), "auto"),
+            ("initial", "var(--x)", None, "7px"),
+            ("<", "f(var(--x)!--)", Some("f(</**/!--)"), "auto"),
+            ("<!--", "f(var(--x))", Some("f(<!--)"), "auto"),
+            (r"\61 ", "var(--x) b", Some(r"\61  b"), "auto"),
+            ("\"a", "var(--x), serif", Some("\"a\", serif"), "auto"),
+            ("a/*b*/", "var(--x)*", Some("a/*b*/*"), "auto"),
+        ] {
+            let mut dom = EcsDom::new();
+            let root = dom.create_document_root();
+            let parent = dom.create_element_ownerless_fixture("html", Attributes::default());
+            let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+            let target = dom.create_element_ownerless_fixture("div", Attributes::default());
+            assert!(dom.append_child(root, parent));
+            assert!(dom.append_child(parent, child));
+            assert!(dom.append_child(parent, target));
+            dom.set_attribute(parent, "style", &format!("--x:{authored}"));
+            dom.set_attribute(child, "style", &format!("--m:{pending}"));
+            dom.set_attribute(target, "style", "--copy:old; width:var(--copy,7px)");
+            let viewport = Size::new(800., 600.);
+            elidex_style::resolve_styles(&mut dom, &[], viewport);
+            let mut session = SessionCore::new();
+            let property = [JsValue::String("--m".into())];
+            assert_eq!(
+                StyleGetPropertyValue
+                    .invoke(child, &property, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(pending.into())
+            );
+            let value = GetComputedStyle
+                .invoke(child, &property, &mut session, &mut dom)
+                .unwrap();
+            let readback = match expected {
+                Some("") => " ",
+                Some(css) => css,
+                None => "",
+            };
+            assert_eq!(value, JsValue::String(readback.into()), "{pending}");
+            StyleSetProperty
+                .invoke(
+                    target,
+                    &[JsValue::String("--copy".into()), value],
+                    &mut session,
+                    &mut dom,
+                )
+                .unwrap();
+            elidex_style::resolve_styles(&mut dom, &[], viewport);
+            let computed = dom.world().get::<&ComputedStyle>(target).unwrap();
+            let copy =
+                expected.map(|css| ComputedCustom::Value(ComponentValues::capture(css).unwrap()));
+            assert_eq!(
+                computed.custom_properties.get("--copy"),
+                copy.as_ref(),
+                "{pending}"
+            );
+            assert_eq!(
+                serialize_resolved_value("width", &computed),
+                width,
+                "{pending}"
+            );
+        }
+    }
+
+    #[test]
     fn no_computed_style_errors() {
         let mut dom = EcsDom::new();
         let elem = dom.create_element_ownerless_fixture("div", Attributes::default());

@@ -50,7 +50,10 @@
 //! ([`elidex_css::serialize_stylesheet`]) still **preserves** the `@media`
 //! wrappers, so an `insertRule`/`deleteRule` mutation does not drop them.
 
-use elidex_css::{parse_single_rule, parse_stylesheet, serialize_stylesheet, Origin, Stylesheet};
+use elidex_css::{
+    parse_single_rule_with_registry, parse_stylesheet_with_registry, serialize_stylesheet, Origin,
+    Stylesheet,
+};
 use elidex_ecs::{EcsDom, Entity, LinkStylesheet};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
@@ -101,12 +104,18 @@ pub(crate) fn with_owner_source<R>(
     }
 }
 
-/// Parse `owner`'s stylesheet source with the bare `elidex_css` parser
+/// Parse `owner`'s stylesheet source with the standard property registry
 /// (`Origin::Author`) — the CSSOM session-cache path
 /// ([`sync_and_get_state`]). The cascade re-collection uses
 /// [`with_owner_source`] directly with an injected compat parser instead.
 pub(crate) fn parse_owner_source(owner: Entity, dom: &EcsDom) -> Stylesheet {
-    with_owner_source(owner, dom, |css| parse_stylesheet(css, Origin::Author))
+    with_owner_source(owner, dom, |css| {
+        parse_stylesheet_with_registry(
+            css,
+            Origin::Author,
+            Some(elidex_style::default_css_property_registry()),
+        )
+    })
 }
 
 /// Sync the cached `Stylesheet` against the current owner source and
@@ -231,7 +240,7 @@ fn with_rule<R>(
     session: &mut SessionCore,
     dom: &EcsDom,
     default: R,
-    project: impl FnOnce(&elidex_css::CssRule) -> R,
+    project: impl FnOnce(&elidex_css::CssRule, Option<&elidex_plugin::CssPropertyRegistry>) -> R,
 ) -> R {
     let Some(rule_id) = rule_id_arg(args) else {
         return default;
@@ -242,7 +251,9 @@ fn with_rule<R>(
         .rules
         .iter()
         .find(|r| r.rule_id == rule_id)
-        .map_or(default, project)
+        .map_or(default, |r| {
+            project(r, state.parsed.grammar_registry.as_deref())
+        })
 }
 
 fn syntax_error(message: impl Into<String>) -> DomApiError {
@@ -408,11 +419,13 @@ impl DomApiHandler for InsertRule {
                 "Failed to execute 'insertRule' on 'CSSStyleSheet': index {index} is larger than rule count {visible}"
             )));
         }
-        let mut new_rule = parse_single_rule(&rule_text).ok_or_else(|| {
-            syntax_error(
+        let mut new_rule =
+            parse_single_rule_with_registry(&rule_text, state.parsed.grammar_registry.as_deref())
+                .ok_or_else(|| {
+                syntax_error(
                 "Failed to execute 'insertRule' on 'CSSStyleSheet': the rule could not be parsed",
             )
-        })?;
+            })?;
         new_rule.rule_id = state.parsed.next_rule_id;
         state.parsed.next_rule_id = state.parsed.next_rule_id.saturating_add(1);
         let actual = cssom_insert_position(&state.parsed.rules, index);
@@ -545,7 +558,7 @@ impl DomApiHandler for RuleCssText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let text = with_rule(this, args, session, dom, String::new(), |r| {
+        let text = with_rule(this, args, session, dom, String::new(), |r, _| {
             r.source_text.clone()
         });
         Ok(JsValue::String(text))
@@ -572,7 +585,7 @@ impl DomApiHandler for RuleSelectorText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let text = with_rule(this, args, session, dom, String::new(), |r| {
+        let text = with_rule(this, args, session, dom, String::new(), |r, _| {
             r.selector_text.clone()
         });
         Ok(JsValue::String(text))
@@ -598,7 +611,7 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
     ) -> Result<JsValue, DomApiError> {
         let property = require_string_arg(args, 1)?;
         let normalized = crate::util::normalize_property_name(&property);
-        let value = with_rule(this, args, session, dom, String::new(), |r| {
+        let value = with_rule(this, args, session, dom, String::new(), |r, registry| {
             // Last declaration wins (mirrors the cascade). A shorthand
             // reconstructs from its longhands via the same canonical
             // `elidex_style::serialize_shorthand_value` the inline path
@@ -612,7 +625,7 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
                     .map(|d| (d.value.to_css_string(), d.important))
             };
             elidex_style::serialize_shorthand_value(
-                elidex_style::default_css_property_registry(),
+                registry.unwrap_or_else(|| elidex_style::default_css_property_registry()),
                 &normalized,
                 |lh| last(lh),
             )
@@ -643,7 +656,7 @@ impl DomApiHandler for RuleStyleGetPropertyPriority {
     ) -> Result<JsValue, DomApiError> {
         let property = require_string_arg(args, 1)?;
         let normalized = crate::util::normalize_property_name(&property);
-        let important = with_rule(this, args, session, dom, false, |r| {
+        let important = with_rule(this, args, session, dom, false, |r, registry| {
             // §6.6.1 getPropertyPriority step 1.2: a shorthand reads
             // "important" iff every mapped longhand does (the parser
             // stores rules longhand-expanded, so the shorthand key
@@ -655,8 +668,10 @@ impl DomApiHandler for RuleStyleGetPropertyPriority {
                     .find(|d| d.property == name)
                     .is_some_and(|d| d.important)
             };
-            let longhands = elidex_css::shorthand_longhands(&normalized);
-            if longhands.is_empty() {
+            let longhands = elidex_css::shorthand_family(&normalized, registry)
+                .map(|family| family.members)
+                .unwrap_or_default();
+            if longhands.is_empty() || r.declarations.iter().any(|d| d.property == normalized) {
                 last_is_important(&normalized)
             } else {
                 longhands.iter().all(|lh| last_is_important(lh))
@@ -685,7 +700,7 @@ impl DomApiHandler for RuleStyleLength {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         #[allow(clippy::cast_precision_loss)]
-        let len = with_rule(this, args, session, dom, 0.0, |r| {
+        let len = with_rule(this, args, session, dom, 0.0, |r, _| {
             unique_properties_last_wins(&r.declarations).len() as f64
         });
         Ok(JsValue::Number(len))
@@ -714,7 +729,7 @@ impl DomApiHandler for RuleStyleItem {
             _ => 0.0,
         };
         let idx = crate::util::webidl_unsigned_long(idx_f);
-        let name = with_rule(this, args, session, dom, String::new(), |r| {
+        let name = with_rule(this, args, session, dom, String::new(), |r, _| {
             unique_properties_last_wins(&r.declarations)
                 .get(idx)
                 .map_or_else(String::new, |d| d.property.clone())
@@ -741,7 +756,7 @@ impl DomApiHandler for RuleStyleCssText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let text = with_rule(this, args, session, dom, String::new(), |r| {
+        let text = with_rule(this, args, session, dom, String::new(), |r, _| {
             let mut out = String::new();
             for (i, d) in unique_properties_last_wins(&r.declarations)
                 .iter()
@@ -840,6 +855,40 @@ mod tests {
             "div { color: red } @media screen { p { color: blue } } span { color: green }",
             Origin::Author,
         )
+    }
+
+    #[test]
+    fn rule_priority_for_registered_transition_uses_the_sheet_registry() {
+        use super::{
+            DomApiHandler, EcsDom, InsertRule, JsValue, RuleStyleGetPropertyPriority, SessionCore,
+        };
+        let mut dom = EcsDom::new();
+        let sheet =
+            dom.create_element_ownerless_fixture("style", elidex_ecs::Attributes::default());
+        let mut session = SessionCore::new();
+        InsertRule
+            .invoke(
+                sheet,
+                &[
+                    JsValue::String("div { transition: initial !important }".into()),
+                    JsValue::Number(0.),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let id = session.cssom_sheets[&sheet].parsed.rules[0].rule_id;
+        #[allow(clippy::cast_precision_loss)]
+        let args = [
+            JsValue::Number(id as f64),
+            JsValue::String("transition".into()),
+        ];
+        assert_eq!(
+            RuleStyleGetPropertyPriority
+                .invoke(sheet, &args, &mut session, &mut dom)
+                .unwrap(),
+            JsValue::String("important".into())
+        );
     }
 
     #[test]

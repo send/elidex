@@ -175,7 +175,7 @@ pub(crate) fn parse_property_value(
     registry: Option<&CssPropertyRegistry>,
 ) -> Vec<Declaration> {
     if name.starts_with("--") {
-        return substitution::capture(input)
+        return substitution::capture(substitution::source(input))
             .map(|seq| single_decl(name, CssValue::Custom(seq)))
             .unwrap_or_default();
     }
@@ -184,11 +184,15 @@ pub(crate) fn parse_property_value(
         return Vec::new();
     };
     let start = input.state();
-    let Some(components) = substitution::capture(input) else {
-        return Vec::new();
-    };
-    if components.contains_var() {
-        return single_decl(name, CssValue::Pending(components));
+    let source = substitution::source(input);
+    match elidex_plugin::component_values::ComponentValues::inspect_variables(source) {
+        None => return Vec::new(),
+        Some(true) => {
+            return substitution::capture(source)
+                .map(|value| single_decl(name, CssValue::Pending(value)))
+                .unwrap_or_default()
+        }
+        Some(false) => {}
     }
     input.reset(&start);
 
@@ -213,6 +217,33 @@ pub(crate) fn parse_property_value(
 #[must_use]
 pub fn declaration_members(name: &str, registry: Option<&CssPropertyRegistry>) -> Vec<String> {
     PropertyGrammar::select(name, registry).map_or_else(Vec::new, |grammar| grammar.members(name))
+}
+
+/// Members and owning handler of a shorthand as admitted by its grammar.
+pub struct ShorthandFamily<'a> {
+    pub members: Vec<String>,
+    pub registered_handler: Option<&'a dyn elidex_plugin::CssPropertyHandler>,
+}
+
+/// CSSOM §6.6.1 uses the admitting grammar for shorthand operations.
+#[must_use]
+pub fn shorthand_family<'a>(
+    name: &str,
+    registry: Option<&'a CssPropertyRegistry>,
+) -> Option<ShorthandFamily<'a>> {
+    let grammar = PropertyGrammar::select(name, registry)?;
+    let members = grammar.members(name);
+    if members.is_empty() || matches!(members.as_slice(), [single] if single == name) {
+        return None;
+    }
+    let registered_handler = match grammar {
+        PropertyGrammar::Builtin(_) => None,
+        PropertyGrammar::Registered(handler) => Some(handler),
+    };
+    Some(ShorthandFamily {
+        members,
+        registered_handler,
+    })
 }
 
 type BuiltinParser = fn(&str, &mut Parser) -> Vec<Declaration>;

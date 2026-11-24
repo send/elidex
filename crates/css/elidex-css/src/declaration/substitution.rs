@@ -6,7 +6,7 @@ use elidex_plugin::CssValue;
 
 /// Preserve complete component spellings and trim only top-level whitespace
 /// tokens. A whitespace code point belonging to an escape stays in its token.
-pub(crate) fn capture(input: &mut Parser) -> Option<ComponentValues> {
+pub(crate) fn source<'i>(input: &mut Parser<'i, '_>) -> &'i str {
     let mut first = None;
     let mut last = input.position();
     loop {
@@ -34,7 +34,10 @@ pub(crate) fn capture(input: &mut Parser) -> Option<ComponentValues> {
         first.get_or_insert(state.position());
         last = input.position();
     }
-    let source = first.map_or("", |start| input.slice(start..last));
+    first.map_or("", |start| input.slice(start..last))
+}
+
+pub(crate) fn capture(source: &str) -> Option<ComponentValues> {
     let components = ComponentValues::capture(source)?;
     components.valid_variables().then_some(components)
 }

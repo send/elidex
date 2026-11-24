@@ -8,6 +8,7 @@ fn computed_custom(declarations: &str, property: &str) -> String {
 #[test]
 fn substitutions_preserve_token_boundaries_and_source() {
     for (declarations, expected) in [
+        ("--x:a/*b*/; --m:var(--x)*", "a/*b*/*"),
         ("--x:foo; --m:var(--x)+2", "foo/**/+2"),
         ("--x:2; --m:var(--x)px", "2/**/px"),
         ("--d:--; --m:var(--d)>", "--/**/>"),
@@ -35,6 +36,15 @@ fn substitutions_preserve_token_boundaries_and_source() {
 #[test]
 fn dynamic_names_spread_and_selected_fallbacks() {
     for (source, expected) in [
+        (
+            "--a:var(--missing) var(--b); --b:var(--a,2px); --m:var(--b,7px)",
+            "7px",
+        ),
+        ("--ok:2px; --m:var(--ok,f(...var(--missing)))", ""),
+        ("--ok:2px; --m:var(--ok,[...var(--missing)])", ""),
+        ("--ok:2px; --m:var(--ok,f(var(--missing)))", "2px"),
+        ("--ok:2px; --m:var(--absent,f([...var(--ok)]))", "f([2px])"),
+        ("--args:,7px; --m:var(...var(--args))", ""),
         ("--name:--x; --x:10px; --m:var(var(--name))", "10px"),
         ("--args:--missing,7px; --m:var(...var(--args))", "7px"),
         ("--args:--missing,7px; --m:var(var(--args))", ""),

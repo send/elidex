@@ -588,7 +588,7 @@ pub(super) fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Background shorthand ---
 
-/// CSS Backgrounds §3.10: a color-only background resets every omitted
+/// CSS Backgrounds 3 §2.10: a color-only background resets every omitted
 /// longhand to its initial value. Other layer grammars are handled separately.
 pub(super) fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
     let mut declarations = parse_color_property(input, "background-color");

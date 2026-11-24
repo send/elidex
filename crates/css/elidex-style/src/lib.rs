@@ -95,13 +95,10 @@ enum Kind {
 /// Classify a serialized component value string into its [`Kind`].
 ///
 /// Recognizes decoded var functions in component values, then
-/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` (no
-/// per-component allocation — the common all-physical read falls through here).
+/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` without retaining the tokens.
 fn value_kind(v: &str) -> Kind {
     const CSS_WIDE: [&str; 5] = ["initial", "inherit", "unset", "revert", "revert-layer"];
-    if elidex_plugin::component_values::ComponentValues::capture(v)
-        .is_some_and(|seq| seq.contains_var())
-    {
+    if elidex_plugin::component_values::ComponentValues::inspect_variables(v) == Some(true) {
         Kind::Var
     } else if CSS_WIDE.iter().any(|kw| v.eq_ignore_ascii_case(kw)) {
         Kind::CssWide // css-cascade-4 §7.3 (revert-layer: css-cascade-5 §7.3.5)
@@ -173,10 +170,8 @@ pub fn serialize_shorthand_value(
     property: &str,
     get: impl Fn(&str) -> Option<(String, bool)>,
 ) -> Option<String> {
-    let longhands = elidex_css::shorthand_longhands(property);
-    if longhands.is_empty() {
-        return None; // not a shorthand — caller reads the property directly
-    }
+    let family = elidex_css::shorthand_family(property, Some(registry))?;
+    let longhands = family.members;
     // §6.6.1: every mapped longhand must be present.
     let decls: Vec<(String, bool)> = longhands
         .iter()
@@ -223,9 +218,19 @@ pub fn serialize_shorthand_value(
     // `"initial"`). Running the value-KIND gate *before* this dispatch would emit
     // `Some("initial")` / `Some("")` from those still-present longhands and preempt
     // that fallback — so the gate applies ONLY once coverage is established.
-    let collapsed = registry
-        .resolve(&longhands[0])?
-        .serialize_shorthand(property, &pairs)?;
+    let collapsed = family
+        .registered_handler
+        .or_else(|| registry.resolve(&longhands[0]))?
+        .serialize_shorthand(property, &pairs);
+    let Some(collapsed) = collapsed else {
+        // Registered families expand CSS-wide values even when their physical
+        // shorthand serializer is unavailable. Preserve a pending direct entry.
+        return if family.registered_handler.is_some() && get(property).is_none() {
+            value_kind_gate(&pairs)
+        } else {
+            None
+        };
+    };
 
     // Covered. CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic).
     // Override the pure string-equality collapse when a component's KIND (an

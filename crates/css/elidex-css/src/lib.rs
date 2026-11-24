@@ -20,12 +20,14 @@ mod values;
 pub use declaration::{
     declaration_members, parse_declaration_block, parse_declaration_block_with_registry,
     parse_inline_style, parse_value_for_property, parse_var_function,
-    serialize_declaration_value_for_storage, shorthand_longhands, Declaration, Origin,
+    serialize_declaration_value_for_storage, shorthand_family, shorthand_longhands, Declaration,
+    Origin,
 };
 pub use escape::escape_ident;
 pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
 pub use parser::{
-    parse_single_rule, parse_stylesheet, parse_stylesheet_with_registry, CssRule, Stylesheet,
+    parse_single_rule, parse_single_rule_with_registry, parse_stylesheet,
+    parse_stylesheet_with_registry, CssRule, Stylesheet,
 };
 pub use selector::{
     parse_selector_from_str, parse_selector_list, AttributeMatcher, PseudoElement, Selector,
@@ -87,7 +89,9 @@ pub fn parse_raw_token_value(raw: &str) -> CssValue {
 
     let mut original = ParserInput::new(raw);
     let mut original = Parser::new(&mut original);
-    let Some(components) = declaration::substitution::capture(&mut original) else {
+    let Some(components) =
+        declaration::substitution::capture(declaration::substitution::source(&mut original))
+    else {
         return CssValue::RawTokens(String::new());
     };
     if !original.is_exhausted() {

@@ -24,7 +24,7 @@ enum Failure {
 
 struct Active {
     name: String,
-    cycle: bool,
+    cycle_root: Option<usize>,
     depth: usize,
 }
 
@@ -33,6 +33,8 @@ pub(super) struct Environment<'a> {
     locals: HashMap<String, Sequence>,
     cache: HashMap<String, Cached>,
     active: Vec<Active>,
+    // Unwound participants remain reachable until their entire cycle closes.
+    unwound: HashMap<String, usize>,
     deferred: Option<String>,
 }
 
@@ -43,14 +45,20 @@ impl<'a> Environment<'a> {
             locals,
             cache: HashMap::new(),
             active: Vec::new(),
+            unwound: HashMap::new(),
             deferred: None,
         }
     }
 
     fn lookup(&mut self, name: &str) -> Result<ComputedCustom, Failure> {
-        if let Some(index) = self.active.iter().position(|entry| entry.name == name) {
-            for entry in &mut self.active[index..] {
-                entry.cycle = true;
+        let active_index = self.active.iter().position(|entry| entry.name == name);
+        if let Some(index) = active_index.or_else(|| self.unwound.get(name).copied()) {
+            let root = self.active[index].cycle_root.unwrap_or(index);
+            for entry in &mut self.active[root..] {
+                entry.cycle_root = Some(root);
+            }
+            for earlier in self.unwound.values_mut() {
+                *earlier = (*earlier).min(root);
             }
             return Ok(ComputedCustom::Invalid);
         }
@@ -73,7 +81,7 @@ impl<'a> Environment<'a> {
             let local = local.clone();
             self.active.push(Active {
                 name: name.to_owned(),
-                cycle: false,
+                cycle_root: None,
                 depth: 1,
             });
             let result = if local.contains_var() {
@@ -105,7 +113,7 @@ impl<'a> Environment<'a> {
                     return Err(Failure::Depth);
                 }
             }
-            let value = if active.cycle {
+            let value = if active.cycle_root.is_some() {
                 ComputedCustom::Invalid
             } else {
                 result.unwrap_or(ComputedCustom::Invalid)
@@ -118,6 +126,19 @@ impl<'a> Environment<'a> {
                 },
                 value,
             };
+            if let Some(root) = active.cycle_root {
+                if root < self.active.len() {
+                    self.unwound.insert(name.to_owned(), root);
+                    return Ok(ComputedCustom::Invalid);
+                }
+                self.unwound.retain(|member, anchor| {
+                    if *anchor != root {
+                        return true;
+                    }
+                    self.cache.insert(member.clone(), entry.clone());
+                    false
+                });
+            }
             self.cache.insert(name.to_owned(), entry.clone());
             entry
         };
@@ -134,6 +155,7 @@ impl<'a> Environment<'a> {
         let mut pending = HashMap::from([(name.to_owned(), 0)]);
         while let Some(request) = work.last() {
             let result = self.lookup(request);
+            self.unwound.clear();
             if let Some(dependency) = self.deferred.take() {
                 if let Some(&start) = pending.get(&dependency) {
                     for participant in &work[start..] {
@@ -186,6 +208,7 @@ impl<'a> Environment<'a> {
         let mut writer = Writer::default();
         let mut i = range.start;
         let mut start = i;
+        let mut invalid = false;
         while i < range.end {
             let call = if early_only {
                 if i + 3 < range.end
@@ -194,7 +217,11 @@ impl<'a> Environment<'a> {
                 {
                     i + 3
                 } else {
-                    i = items[i].end;
+                    i = if is_var(&items[i].kind) {
+                        items[i].end
+                    } else {
+                        i + 1
+                    };
                     continue;
                 }
             } else if is_var(&items[i].kind) {
@@ -203,25 +230,37 @@ impl<'a> Environment<'a> {
                 i += 1;
                 continue;
             };
-            writer.append(seq, start..i).ok_or(Failure::Invalid)?;
-            let replacement = self.call(seq, call, nesting + 1)?;
-            writer.replacement(&replacement).ok_or(Failure::Invalid)?;
+            if !invalid {
+                writer.append(seq, start..i).ok_or(Failure::Invalid)?;
+            }
+            match self.call(seq, call, nesting + 1) {
+                Ok(value) if !invalid => {
+                    if i == range.start && items[call].end == range.end {
+                        if value
+                            .items()
+                            .last()
+                            .is_some_and(|t| t.span.end > Writer::MAX_BYTES)
+                        {
+                            return Err(Failure::Invalid);
+                        }
+                        return Ok(value);
+                    }
+                    writer.replacement(&value).ok_or(Failure::Invalid)?;
+                }
+                Ok(_) => {}
+                Err(Failure::Invalid) => invalid = true,
+                Err(Failure::Depth) => return Err(Failure::Depth),
+            }
             i = items[call].end;
             start = i;
         }
-        if early_only && start == range.start {
-            let source = if range.is_empty() {
-                ""
-            } else {
-                &seq.source()[items[range.start].span.start..items[range.end - 1].span.end]
-            };
-            return Sequence::fragment(source).ok_or(Failure::Invalid);
+        if invalid {
+            return Err(Failure::Invalid);
         }
         writer
             .append(seq, start..range.end)
             .ok_or(Failure::Invalid)?;
-        let source = writer.finish().ok_or(Failure::Invalid)?;
-        Sequence::fragment(&source).ok_or(Failure::Invalid)
+        writer.finish().ok_or(Failure::Invalid)
     }
 
     fn call(&mut self, seq: &Sequence, index: usize, nesting: usize) -> Result<Sequence, Failure> {
@@ -232,21 +271,10 @@ impl<'a> Environment<'a> {
             true,
             nesting,
         )?;
-        let mut comma = None;
-        let mut i = 0;
-        while i < args.items().len() {
-            if args.items()[i].kind == Kind::Comma {
-                comma = Some(i);
-                break;
-            }
-            i = args.items()[i].end;
-        }
-        let name = match self.expand(
-            &args,
-            0..comma.unwrap_or(args.items().len()),
-            false,
-            nesting,
-        ) {
+        let (name_range, fallback) = args
+            .variable_arguments(0..args.items().len())
+            .ok_or(Failure::Invalid)?;
+        let name = match self.expand(&args, name_range, false, nesting) {
             Ok(name) => Some(name),
             Err(Failure::Invalid) => None,
             Err(Failure::Depth) => return Err(Failure::Depth),
@@ -260,8 +288,8 @@ impl<'a> Environment<'a> {
                 return Ok(result);
             }
         }
-        let fallback = comma.ok_or(Failure::Invalid)? + 1;
-        self.expand(&args, fallback..args.items().len(), false, nesting)
+        let fallback = fallback.ok_or(Failure::Invalid)?;
+        self.expand(&args, fallback, false, nesting)
     }
 }
 
@@ -283,6 +311,37 @@ fn sole_ident(seq: &Sequence) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publishes_a_cycle_only_when_all_participants_have_unwound() {
+        let locals = HashMap::from([
+            (
+                "--a".into(),
+                Sequence::capture("var(--b,var(--c))").unwrap(),
+            ),
+            (
+                "--b".into(),
+                Sequence::capture("var(--b,var(--a))").unwrap(),
+            ),
+            ("--c".into(), Sequence::capture("var(--b,1px)").unwrap()),
+        ]);
+        let inherited = HashMap::new();
+        for a in locals.keys() {
+            for b in locals.keys().filter(|b| *b != a) {
+                let c = locals.keys().find(|c| *c != a && *c != b).unwrap();
+                let mut env = Environment::new(&inherited, locals.clone());
+                for name in [a, b, c] {
+                    assert_eq!(
+                        env.root(name),
+                        ComputedCustom::Invalid,
+                        "{a},{b},{c}: {name}"
+                    );
+                }
+                let width = Sequence::capture("var(--c,7px)").unwrap();
+                assert_eq!(env.ordinary(&width).unwrap().source(), "7px");
+            }
+        }
+    }
 
     #[test]
     fn depth_failure_and_caller_fallback_are_order_independent() {
