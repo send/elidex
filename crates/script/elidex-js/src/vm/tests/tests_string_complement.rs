@@ -316,15 +316,14 @@ fn new_string_constructor_property() {
 
 #[test]
 fn string_proto_to_string_and_value_of_have_distinct_names() {
-    // ECMA-262 §22.1.3.29: toString and valueOf share implementation, but `.name`
-    // must reflect the registered method name (§20.2.4.2).
+    // ECMA-262 §18 gives each built-in method its property name.
     assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
     assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
 }
 
 #[test]
 fn native_function_name_property() {
-    // §20.2.4.2: built-in functions have a `.name` data property.
+    // ECMA-262 §18 specifies the names of these built-in methods.
     assert_eq!(eval_string("Object.keys.name;"), "keys");
     assert_eq!(eval_string("Array.isArray.name;"), "isArray");
     assert_eq!(eval_string("String.fromCharCode.name;"), "fromCharCode");
