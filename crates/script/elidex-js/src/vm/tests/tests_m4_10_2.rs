@@ -407,22 +407,17 @@ fn arguments_write() {
 
 #[test]
 fn match_non_regexp_object() {
-    // §21.1.3.11: non-RegExp argument → ToString → regex pattern.
-    // `{}` → "[object Object]" which regress compiles as:
-    //   `[object Objec]` (character class: o,b,j,e,c,t,space,O)
-    //   followed by literal `t]`.
-    // The regress engine's match result for this pattern against the
-    // subject "[object Object]" is the single character "o" at index 1
-    // (the character class consumes one char from the input).  Record
-    // the observed behavior to catch regressions in ToString coercion.
+    // ECMA-262 §22.1.3.13: this plain object has no Symbol.match method,
+    // so match creates a RegExp. Its pattern, "[object Object]", is a
+    // character class whose first match in the subject is "o" at index 1.
     assert_eq!(eval_str("'[object Object]'.match({})[0];"), "o");
     assert_eq!(eval_number("'[object Object]'.match({}).index;"), 1.0);
 }
 
 #[test]
 fn search_non_regexp_object() {
-    // §21.1.3.14: non-RegExp → ToString → regex pattern.  First match
-    // index matches the match_non_regexp_object observation above.
+    // ECMA-262 §22.1.3.21: without a Symbol.search method, search creates
+    // a RegExp from the object and returns the first match index.
     assert_eq!(eval_number("'[object Object]'.search({});"), 1.0);
 }
 
