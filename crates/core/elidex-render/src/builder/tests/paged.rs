@@ -726,3 +726,74 @@ fn continued_block_paints_each_child_and_page_counter_once() {
         }
     }
 }
+
+#[test]
+fn precomputed_blank_page_paints_only_its_number() {
+    use elidex_plugin::{
+        ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Display, LayoutBox,
+        ListStyleType, MarginBoxContent, PageMargins, PageRule, Point, PropertyDeclaration,
+    };
+
+    let body = Rect::new(50., 50., 120., 40.);
+    let (dom, _) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            background_color: CssColor::RED,
+            ..Default::default()
+        },
+        LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    );
+    let font_db = elidex_text::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let mut ctx = make_page_ctx(220., 160.);
+    ctx.page_rules.push(PageRule {
+        margins: PageMargins {
+            top_left: Some(MarginBoxContent {
+                content: ContentValue::Items(vec![ContentItem::Counter {
+                    name: "page".into(),
+                    style: ListStyleType::Decimal,
+                }]),
+                properties: vec![PropertyDeclaration::new(
+                    "font-family",
+                    CssValue::String("Elidex Test Digits".into()),
+                )],
+            }),
+            ..Default::default()
+        },
+        selectors: vec![],
+        size: None,
+        properties: vec![],
+    });
+
+    let fragments = [1, 2].map(|page_number| elidex_layout::PageFragment {
+        page_number,
+        is_blank: page_number == 2,
+        matched_selectors: vec![],
+        layout_box: LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    });
+    let printed = crate::build_paged_display_lists(&dom, &font_db, &fragments, &ctx);
+    assert_eq!(printed.page_count(), 2);
+    for (page, id) in printed.pages.iter().zip([2, 3]) {
+        let mut commands = page.iter();
+        if id == 2 {
+            assert!(
+                matches!(commands.next(), Some(DisplayItem::SolidRect { rect, color }) if *rect == body && *color == CssColor::RED)
+            );
+        }
+        let Some(DisplayItem::Text { glyphs, .. }) = commands.next() else {
+            panic!("expected printed page number");
+        };
+        let [glyph] = glyphs.as_slice() else {
+            panic!("expected one digit");
+        };
+        assert_eq!((glyph.glyph_id, glyph.position), (id, Point::new(66., 33.)));
+        assert!(commands.next().is_none());
+    }
+}
