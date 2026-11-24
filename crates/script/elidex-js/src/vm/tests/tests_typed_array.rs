@@ -626,10 +626,9 @@ fn out_of_range_write_is_no_op() {
 #[test]
 fn non_canonical_string_key_falls_through_to_prototype() {
     let mut vm = Vm::new();
-    // Leading-zero numeric string "01" is NOT a Canonical Numeric
-    // Index String per §23.2.2, so falls through to prototype
-    // lookup.  Writing stores an ordinary own property; reading
-    // sees it.  No indexed-element interception.
+    // CanonicalNumericIndexString (§7.1.23 steps 2–4) returns undefined
+    // for "01" because the number 1 converts back to "1". The write
+    // and read therefore access an ordinary property.
     assert_eq!(
         eval_number(
             &mut vm,

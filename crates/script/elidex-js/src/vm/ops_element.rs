@@ -17,7 +17,7 @@
 //!
 //! ## TypedArray key classification
 //!
-//! ECMA-262 §10.4.5 + §7.1.22 (`CanonicalNumericIndexString`) splits
+//! ECMA-262 §10.4.5 + §7.1.23 (`CanonicalNumericIndexString`) splits
 //! property keys against a TypedArray receiver into three buckets:
 //!
 //! - **`IntegerIndex(u32)`** — non-negative integer in `[0, u32::MAX]`.
@@ -48,7 +48,7 @@ use super::VmInner;
 use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
 /// Classification of a WTF-16 string key against the TypedArray
-/// integer-indexed exotic object contract (ECMA-262 §10.4.5 + §7.1.22
+/// integer-indexed exotic object contract (ECMA-262 §10.4.5 + §7.1.23
 /// `CanonicalNumericIndexString`).
 #[cfg(feature = "engine")]
 enum TypedArrayStringKey {
@@ -119,7 +119,7 @@ fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArra
         if let Some(idx) = parse_typed_array_index_u32(units) {
             return TypedArrayStringKey::IntegerIndex(idx);
         }
-        // ECMA-262 §7.1.22 step 1 hard-codes `"-0"` as canonical numeric
+        // ECMA-262 §7.1.23 step 1 hard-codes `"-0"` as canonical numeric
         // (returns -0) even though ToString(-0) = "0" — the round-trip
         // check below would otherwise miss it.
         if units == [u16::from(b'-'), u16::from(b'0')] {
@@ -198,13 +198,9 @@ impl VmInner {
         // §7.2.1 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
-            // TypedArray integer-indexed get (ECMA-262 §10.4.5.17).  Must
-            // run ahead of the generic numeric fast path so any
-            // CanonicalNumericIndexString Number key — including
-            // `NaN` / ±`Infinity` / negative / fractional /
-            // out-of-u32-range values rejected by `try_as_array_index`
-            // — short-circuits to `undefined` without consulting
-            // ordinary properties or the prototype chain.
+            // A Number key on a TypedArray uses indexed access before ordinary
+            // lookup. A valid index reads its element. An invalid index returns
+            // undefined (§10.4.5.17 step 1), including NaN and fractions.
             #[cfg(feature = "engine")]
             if let JsValue::Number(n) = key {
                 if let ObjectKind::TypedArray {
@@ -447,12 +443,9 @@ impl VmInner {
                     }
                 }
             }
-            // String numeric key on TypedArray — ECMA-262 §10.4.5 integer-
-            // indexed exotic dispatch.  Any CanonicalNumericIndexString
-            // (§7.1.22) — including `"-0"` / `"Infinity"` / `"NaN"` /
-            // negative integer / fractional — short-circuits to
-            // `undefined` rather than falling through to ordinary
-            // property access.
+            // A canonical numeric string (§7.1.23) bypasses ordinary lookup.
+            // A valid index such as "0" reads the element. Invalid indices,
+            // including "-0" and "NaN", return undefined (§10.4.5.17 step 1).
             #[cfg(feature = "engine")]
             {
                 if let ObjectKind::TypedArray {

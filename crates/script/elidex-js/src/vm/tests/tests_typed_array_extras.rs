@@ -268,7 +268,7 @@ fn buffer_getter_brand_check_rejects_foreign() {
 #[test]
 fn canonical_numeric_keys_return_undefined_not_ordinary() {
     let mut vm = Vm::new();
-    // ECMA-262 §7.1.22: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
+    // ECMA-262 §7.1.23: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
     // canonical numeric index strings.  On a TypedArray integer-
     // indexed exotic they must return `undefined` (§10.4.5.17
     // step 1), without consulting ordinary properties.
