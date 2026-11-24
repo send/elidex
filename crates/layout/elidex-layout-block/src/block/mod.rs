@@ -600,16 +600,22 @@ pub fn layout_block_inner(
             child_phys_height.unwrap_or(content_inline)
         };
         children::validate_route(dom, entity, &children, input.break_token);
-        let progress = input
-            .break_token
-            .and_then(|token| match token.mode_data.as_ref() {
-                Some(crate::BreakTokenData::Block {
-                    continuation: crate::BlockContinuation::LocalRun { first },
-                    coverage,
-                    ..
-                }) if children.first() == Some(first) => Some(coverage.clone()),
-                _ => None,
-            });
+        let progress = input.break_token.map(|token| {
+            let Some(crate::BreakTokenData::Block {
+                continuation: crate::BlockContinuation::LocalRun { first },
+                coverage,
+                ..
+            }) = token.mode_data.as_ref()
+            else {
+                panic!("direct inline layout requires a local run continuation");
+            };
+            assert_eq!(
+                children.first(),
+                Some(first),
+                "direct inline run start mismatch"
+            );
+            coverage.clone()
+        });
         // Build fragmentation constraint for inline layout if fragmentainer is active.
         let inline_frag_constraint =
             child_fragmentainer

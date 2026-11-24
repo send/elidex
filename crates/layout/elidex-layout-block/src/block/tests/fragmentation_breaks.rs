@@ -56,7 +56,16 @@ fn forced_break_after_produces_break_token() {
 
     let admitted =
         make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
-    let deferred = make_block_child(&mut dom, parent, 50.0);
+    let hidden = make_block_child(&mut dom, parent, 0.0);
+    dom.world_mut().insert_one(
+        hidden,
+        ComputedStyle {
+            display: Display::None,
+            ..Default::default()
+        },
+    );
+    let deferred =
+        make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
 
     let frag = FragmentainerContext {
         available_block_size: 500.0,
@@ -77,13 +86,20 @@ fn forced_break_after_produces_break_token() {
     let bt = outcome.break_token.unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
-        assert_eq!(
-            *child_index, 1,
-            "break should occur after 1st child (resume at index 1)"
-        );
+        assert_eq!(*child_index, 2, "resume at the first eligible child");
     } else {
         panic!("expected Block break token data");
     }
+    let next = crate::layout_block_only(
+        &mut dom,
+        parent,
+        &LayoutInput {
+            break_token: Some(&bt),
+            ..input
+        },
+    );
+    assert!(next.break_token.is_none());
+    assert!(next.contribution.is_finished(parent, deferred));
 }
 
 #[test]

@@ -418,6 +418,12 @@ pub fn stack_block_children(
         };
         cursor_block += child_block_extent;
 
+        let next_participant = || {
+            children[idx + 1..]
+                .iter()
+                .position(|&c| super::participates(dom, c))
+                .map_or(children.len(), |offset| idx + 1 + offset)
+        };
         // --- Fragmentation: overflow detection ---
         if let Some(frag) = frag_ctx {
             let consumed = (cursor_block - cursor_block_origin).max(0.0);
@@ -440,7 +446,7 @@ pub fn stack_block_children(
                 result_break_token = Some(make_block_break_token(
                     parent_entity,
                     consumed,
-                    idx + 1,
+                    next_participant(),
                     BlockContinuation::ChildBoundary,
                 ));
                 break;
@@ -462,19 +468,13 @@ pub fn stack_block_children(
         if let Some(frag) = frag_ctx {
             if fragmentation::is_forced_break(child_style.break_after, frag.fragmentation_type) {
                 // §3.1.1: Only propagate break-after if this is the last content child.
-                let remaining_has_content = children[idx + 1..].iter().any(|&c| {
-                    crate::try_get_style(dom, c).is_none_or(|s| {
-                        s.display != Display::None
-                            && !crate::positioned::is_absolutely_positioned(&s)
-                    })
-                });
-                if !remaining_has_content {
+                if next_participant() == children.len() {
                     propagated_break_after = Some(child_style.break_after);
                 }
                 result_break_token = Some(make_block_break_token(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
-                    idx + 1,
+                    next_participant(),
                     BlockContinuation::ChildBoundary,
                 ));
                 break;

@@ -534,6 +534,11 @@ fn block_preserves_table_row_contributions_at_a_forced_break() {
         child.entity = q;
     }
     assert_rejected_before_publication(&mut dom, block, &input, &corrupt);
+    let mut wrong_route = token.clone();
+    if let Some(BreakTokenData::Block { continuation, .. }) = &mut wrong_route.mode_data {
+        *continuation = BlockContinuation::ChildBoundary;
+    }
+    assert_rejected_before_publication(&mut dom, block, &input, &wrong_route);
     for width in [120.0, 260.0] {
         let next = dispatch_layout_child(
             &mut dom,

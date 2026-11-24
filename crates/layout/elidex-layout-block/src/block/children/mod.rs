@@ -98,10 +98,16 @@ pub(super) fn validate_route(
     );
     match continuation {
         crate::BlockContinuation::ChildBoundary => {
-            if let Some(&child) = rest.iter().find(|&&c| participates(dom, c)) {
+            if let Some(&child) = rest.first() {
                 assert!(
-                    !index.is_finished(owner, child),
-                    "Block route restarts consumed source"
+                    participates(dom, child),
+                    "Block boundary names a skipped child"
+                );
+                assert!(
+                    !coverage
+                        .contributed_items()
+                        .any(|key| key == (owner, child)),
+                    "Block boundary restarts consumed source"
                 );
             }
         }
@@ -112,11 +118,20 @@ pub(super) fn validate_route(
                 "interrupted child identity mismatch"
             );
             assert!(
-                !index.is_finished(owner, nested.entity),
+                crate::try_get_style(dom, nested.entity)
+                    .is_some_and(|s| super::is_block_level(s.display))
+                    && coverage
+                        .contributed_items()
+                        .any(|key| key == (owner, nested.entity))
+                    && !index.is_finished(owner, nested.entity),
                 "interrupted child already complete"
             );
         }
         crate::BlockContinuation::LocalRun { first, .. } => {
+            assert!(
+                crate::try_get_style(dom, *first).is_none_or(|s| !super::is_block_level(s.display)),
+                "local run names a block child"
+            );
             assert_eq!(rest.first(), Some(first), "local run identity mismatch");
         }
     }

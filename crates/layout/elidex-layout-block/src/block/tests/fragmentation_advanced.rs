@@ -808,3 +808,51 @@ fn mixed_stack_routes_both_local_runs_to_their_source() {
     assert!(token.is_none());
     assert_eq!(local_runs, [before, before, after, after]);
 }
+
+#[test]
+fn direct_inline_rejects_changed_route_kind() {
+    let fonts = FontDatabase::from_fixture(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../core/elidex-render/tests/fixtures/digits.ttf"
+    )));
+    let (mut dom, owner) = make_dom_with_block_div(ComputedStyle {
+        orphans: 1,
+        widows: 1,
+        font_family: vec!["Elidex Test Digits".into()],
+        ..block_style()
+    });
+    let text = dom.create_text_ownerless_fixture("A B C");
+    dom.append_child(owner, text);
+    let frag = FragmentainerContext {
+        available_block_size: 1.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    let input = LayoutInput {
+        containing: elidex_plugin::CssSize::definite(1.0, 1.0),
+        containing_inline_size: 1.0,
+        fragmentainer: Some(&frag),
+        ..base_input(&fonts)
+    };
+    let mut token = crate::layout_block_only(&mut dom, owner, &input)
+        .break_token
+        .unwrap();
+    let Some(BreakTokenData::Block { continuation, .. }) = &mut token.mode_data else {
+        panic!("expected Block token");
+    };
+    assert!(matches!(
+        continuation,
+        crate::BlockContinuation::LocalRun { .. }
+    ));
+    *continuation = crate::BlockContinuation::ChildBoundary;
+    let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::layout_block_only(
+            &mut dom,
+            owner,
+            &LayoutInput {
+                break_token: Some(&token),
+                ..input
+            },
+        )
+    }));
+    assert!(rejected.is_err());
+}
