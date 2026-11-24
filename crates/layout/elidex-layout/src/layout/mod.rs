@@ -147,27 +147,33 @@ pub fn dispatch_layout_child(
         }
     }
 
-    // CSS 2.1 §9.4.3: relative offset.
-    // Return the original LayoutBox (without offset) so siblings use the
-    // unshifted space. The ECS LayoutBox is updated with the offset.
     if style.position == Position::Relative {
-        let lb = &outcome.layout_box;
-        let mut offset_lb = lb.clone();
-        positioned::apply_relative_offset(
-            &mut offset_lb,
-            &style,
-            input.containing.width,
-            input.containing.height,
-        );
-        let delta = offset_lb.content.origin - lb.content.origin;
-        dom.set_layout_box(entity, offset_lb);
-        if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
-            let children: Vec<_> = dom.children_iter(entity).collect();
-            elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
-        }
+        publish_relative_offset(dom, entity, input, &style, &outcome.layout_box);
     }
-
     outcome
+}
+
+/// CSS 2.1 §9.4.3. Publish the offset box while preserving the normal-flow result.
+fn publish_relative_offset(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    style: &ComputedStyle,
+    lb: &LayoutBox,
+) {
+    let mut offset_lb = lb.clone();
+    positioned::apply_relative_offset(
+        &mut offset_lb,
+        style,
+        input.containing.width,
+        input.containing.height,
+    );
+    let delta = offset_lb.content.origin - lb.content.origin;
+    dom.set_layout_box(entity, offset_lb);
+    if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
+        let children: Vec<_> = dom.children_iter(entity).collect();
+        elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
+    }
 }
 
 /// Result of laying out a single page fragment in paged media.

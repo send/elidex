@@ -114,6 +114,7 @@ test	crates/layout/elidex-layout/src/hit_test.rs	let lb = LayoutBox {
 import	crates/layout/elidex-layout/src/hit_test.rs	use elidex_plugin::{ComputedStyle, Display, LayoutBox, Point, Vector};
 import	crates/layout/elidex-layout/src/layout/mod.rs	ComputedStyle, CssSize, Display, LayoutBox, PageSelector, Position, PreparedPages, Size,
 producer	crates/layout/elidex-layout/src/layout/mod.rs	Display::Contents => LayoutBox {
+producer	crates/layout/elidex-layout/src/layout/mod.rs	lb: &LayoutBox,
 producer	crates/layout/elidex-layout/src/layout/mod.rs	pub layout_box: LayoutBox,
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/intersection_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
 pending-migration:C-3d	crates/script/elidex-js/src/vm/host/resize_observer.rs	let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
