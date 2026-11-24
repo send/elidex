@@ -68,4 +68,4 @@ Check cumulative coverage, absence of consumed and rejected items, and an empty 
 | css-grid-2 §13 Fragmenting Grid Layout | choose break and preserve unfinished child | row boundary, spanning child | Grid fragmentation producer and child layout reader | supported fragmentation | yes |
 | css-break-3 §5.1 Breaking into Varying-size Fragmentainers | resume progress | narrower, wider and constant geometry | shared cursor at layout entry | supported page sizes | yes |
 
-Extend elidex-layout-grid/src/tests/fragmentation.rs through the normal Grid entry. Its existing resume_with_child_break_tokens test only requires completion; read emitted content and the new progress as well. Run Grid and layout all-feature tests.
+Extend elidex-layout-grid/src/tests/fragmentation.rs through the normal Grid entry. Build the width-changing checks on the same-width dispatch and emitted-suffix assertions assigned to P2 in the §1 test inventory. Run Grid and layout all-feature tests.
