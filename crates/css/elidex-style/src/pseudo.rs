@@ -1,7 +1,7 @@
 //! Pseudo-element (`::before`/`::after`) generation for style resolution.
 
 use elidex_css::media::MediaEnvironment;
-use elidex_css::{PseudoElement, Stylesheet};
+use elidex_css::PseudoElement;
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker};
 use elidex_plugin::{ComputedStyle, ContentValue, Display};
 
@@ -27,7 +27,7 @@ pub(crate) fn remove_pseudo_entities(dom: &mut EcsDom, parent: Entity) {
 pub(crate) fn generate_pseudo_entity(
     dom: &mut EcsDom,
     entity: Entity,
-    stylesheets: &[&Stylesheet],
+    stylesheets: crate::cascade::ElementSheets<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
     media_env: &MediaEnvironment,

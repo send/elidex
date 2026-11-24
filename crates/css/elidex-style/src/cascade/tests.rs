@@ -24,7 +24,13 @@ fn ordinary_winners(
     media: &MediaEnvironment,
 ) -> std::collections::HashMap<String, CssValue> {
     resolved(&collect_and_cascade(
-        entity, dom, sheets, inline, hints, shadow, media,
+        entity,
+        dom,
+        ElementSheets::document(sheets),
+        inline,
+        hints,
+        shadow,
+        media,
     ))
 }
 
@@ -74,7 +80,7 @@ fn single_declaration_wins() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
@@ -99,7 +105,7 @@ fn specificity_wins() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
@@ -122,7 +128,7 @@ fn source_order_tiebreak() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
@@ -145,7 +151,7 @@ fn important_beats_normal() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
@@ -168,7 +174,7 @@ fn ua_important_beats_author_important() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(
@@ -196,7 +202,7 @@ fn inline_beats_selector() {
         &sheets,
         &inline,
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
@@ -224,7 +230,7 @@ fn important_inline_is_strongest_author() {
         &sheets,
         &inline,
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
@@ -252,7 +258,7 @@ fn independent_property_resolution() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     // color: .highlight (class specificity) beats div (tag specificity)
@@ -280,7 +286,7 @@ fn no_matching_rules_empty_winners() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert!(winners.is_empty());
@@ -303,7 +309,7 @@ fn author_normal_beats_ua_normal() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
@@ -328,7 +334,7 @@ fn extra_decl_beats_ua_rule() {
         &sheets,
         &[],
         &hints,
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     // Hint (author origin) beats UA normal.
@@ -352,7 +358,7 @@ fn extra_decl_loses_to_author_selector() {
         &sheets,
         &[],
         &hints,
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     // Author selector rule beats hint (same origin, higher source_order).
@@ -374,7 +380,7 @@ fn outer_context_beats_inner_context() {
 
     let mut entries: Vec<CascadeEntry> = Vec::new();
 
-    // Simulate inner rules at is_outer_context = false.
+    // Simulate rules from the inner shadow tree.
     let mut inner_attrs = Attributes::default();
     inner_attrs.set("id", "special");
     inner_attrs.set("class", "important");
@@ -387,18 +393,18 @@ fn outer_context_beats_inner_context() {
         &mut entries,
         inner_div,
         &dom,
-        &inner_sheets,
+        ElementSheets::document(&inner_sheets),
         None,
-        false,
+        TreeContext::HostShadow,
         &test_env(),
     );
     collect_matching_rules(
         &mut entries,
         inner_div,
         &dom,
-        &outer_sheets,
+        ElementSheets::document(&outer_sheets),
         None,
-        true,
+        TreeContext::Element,
         &test_env(),
     );
 
@@ -422,7 +428,7 @@ fn host_selector_skipped_in_outer_context() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
 
@@ -441,7 +447,10 @@ fn shadow_cascade_host_participates() {
         &[],
         &[],
         &[],
-        &ShadowCascade::Host(&shadow_sheet),
+        &ShadowCascade {
+            host: Some(&shadow_sheet),
+            slot: None,
+        },
         &test_env(),
     );
 
@@ -477,7 +486,10 @@ fn shadow_cascade_slotted_participates() {
         &[],
         &[],
         &[],
-        &ShadowCascade::Slotted(&shadow_sheet),
+        &ShadowCascade {
+            slot: Some((host, &shadow_sheet)),
+            host: None,
+        },
         &test_env(),
     );
 
@@ -517,7 +529,10 @@ fn outer_rule_beats_slotted_rule() {
         &outer_sheets,
         &[],
         &[],
-        &ShadowCascade::Slotted(&shadow_sheet),
+        &ShadowCascade {
+            slot: Some((host, &shadow_sheet)),
+            host: None,
+        },
         &test_env(),
     );
 
@@ -547,7 +562,7 @@ fn extra_decl_loses_to_inline_style() {
         &sheets,
         &inline,
         &hints,
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &test_env(),
     );
     // Inline style beats hint.
@@ -570,7 +585,10 @@ fn important_inner_beats_normal_outer() {
         &outer_sheets,
         &[],
         &[],
-        &ShadowCascade::Host(&shadow_sheet),
+        &ShadowCascade {
+            host: Some(&shadow_sheet),
+            slot: None,
+        },
         &test_env(),
     );
 
@@ -593,7 +611,10 @@ fn important_inner_beats_important_outer() {
         &outer_sheets,
         &[],
         &[],
-        &ShadowCascade::Host(&shadow_sheet),
+        &ShadowCascade {
+            host: Some(&shadow_sheet),
+            slot: None,
+        },
         &test_env(),
     );
 
@@ -635,7 +656,10 @@ fn important_slotted_beats_normal_outer() {
         &outer_sheets,
         &[],
         &[],
-        &ShadowCascade::Slotted(&shadow_sheet),
+        &ShadowCascade {
+            slot: Some((host, &shadow_sheet)),
+            host: None,
+        },
         &test_env(),
     );
 
@@ -662,7 +686,15 @@ fn media_min_width_gates_declaration() {
         viewport_width: 1024.0,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &wide);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &wide,
+    );
     assert_eq!(
         winners.get("color"),
         Some(&CssValue::Color(CssColor::BLUE)),
@@ -674,7 +706,15 @@ fn media_min_width_gates_declaration() {
         viewport_width: 100.0,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &narrow);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &narrow,
+    );
     assert!(
         !winners.contains_key("color"),
         "min-width:500px should NOT match a 100px viewport"
@@ -695,7 +735,15 @@ fn media_print_excluded_on_screen() {
         medium: Medium::Screen,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &screen);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &screen,
+    );
     assert!(
         !winners.contains_key("color"),
         "@media print must not apply on a screen medium"
@@ -706,7 +754,15 @@ fn media_print_excluded_on_screen() {
         medium: Medium::Print,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &print);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &print,
+    );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
@@ -725,7 +781,15 @@ fn media_source_order_tiebreak_across_boundary() {
         medium: Medium::Screen,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &env);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &env,
+    );
     assert_eq!(
         winners.get("color"),
         Some(&CssValue::Color(CssColor::BLUE)),
@@ -750,7 +814,15 @@ fn nested_media_gates_on_all_conditions() {
         viewport_width: 1024.0,
         ..MediaEnvironment::default()
     };
-    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &both);
+    let winners = ordinary_winners(
+        div,
+        &dom,
+        &sheets,
+        &[],
+        &[],
+        &ShadowCascade::default(),
+        &both,
+    );
     assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 
     // screen but only 100px → inner condition false → the whole chain fails.
@@ -765,7 +837,7 @@ fn nested_media_gates_on_all_conditions() {
         &sheets,
         &[],
         &[],
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
         &inner_false,
     );
     assert!(
