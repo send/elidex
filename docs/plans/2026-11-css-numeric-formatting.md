@@ -32,6 +32,8 @@ Test C2 interpolation with known endpoints, progress, public computed string and
 | cssom-view-1 §4.2 The MediaQueryList Interface | serialize associated list for getter and trusted event | initial read and change | matchMedia and event initialization | live lists | yes |
 | mediaqueries-4 §1.2 Values / §1.3 Units | evaluate a feature threshold | numeric range and initial-font-relative unit | media evaluator and media serialization | supported range features | yes |
 
+PM 1054 retains one implementation PR. The typed animation inputs, stage-specific projections and public and lossless rendering paths meet at the same formatter. Activate the contract and its production readers together so a rounded animation or media string cannot be reused as internal state during migration.
+
 ## Binding R3 acceptance
 
 **C-6, C-14.** Expose the common formatter from elidex-plugin in `src/values/serialization.rs`. CssValue and CalcExpr serialization, Flex and the other handlers, resolved getters and media delegate there. Reproduce the spec headings with `.claude/tools/webref heading css-values-4 10`. Inventory every `git grep -n to_css_string -- crates` hit at the landing base and classify its context. Record old and new exact oracles for every changed hit, including plugin values/tests.rs nested arithmetic. Test the following callers at their normal entry points.
