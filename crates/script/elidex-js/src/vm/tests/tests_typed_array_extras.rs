@@ -74,7 +74,7 @@ fn array_buffer_is_view_on_data_view() {
 #[test]
 fn array_buffer_is_view_on_non_views() {
     let mut vm = Vm::new();
-    // Plain ArrayBuffer is NOT a view (spec §25.1.4.3 step 2).
+    // ECMA-262 §25.1.5.1: a plain ArrayBuffer lacks `[[ViewedArrayBuffer]]`, so isView returns false.
     assert!(!eval_bool(
         &mut vm,
         "ArrayBuffer.isView(new ArrayBuffer(4));"
