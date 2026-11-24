@@ -347,3 +347,22 @@ fn perspective_property_resolves_physical_and_viewport_literals() {
         }
     }
 }
+
+#[test]
+fn calculated_flex_basis_samples_in_the_targets_length_context() {
+    for property in ["flex:1 1", "flex-basis:"] {
+        for (from, to, midpoint) in [
+            ("calc(10px)", "calc(50px)", 30.),
+            ("calc(1em + 4px)", "calc(2em)", 32.),
+            ("calc(-10px)", "calc(50px)", 25.),
+        ] {
+            let frames = format!("from {{{property} {from}}} to {{{property} {to}}}");
+            let style = sample_on(&frames, 0.5, "font-size:20px;flex-basis:7px");
+            assert_eq!(
+                style.flex_basis,
+                elidex_plugin::FlexBasis::Length(midpoint),
+                "{frames}"
+            );
+        }
+    }
+}

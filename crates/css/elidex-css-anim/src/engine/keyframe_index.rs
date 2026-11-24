@@ -85,6 +85,13 @@ impl IndexedRule {
                             elidex_plugin::css_resolve::resolve_length(*v, *unit, reference),
                             LengthUnit::Px,
                         ),
+                        CssValue::Calc(expr)
+                            if name == "flex-basis" && !expr.contains_percentage() =>
+                        {
+                            let px =
+                                elidex_plugin::css_resolve::resolve_calc_expr(expr, 0., reference);
+                            CssValue::Length(px.max(0.), LengthUnit::Px)
+                        }
                         CssValue::TransformList(functions) => CssValue::TransformList(
                             functions
                                 .iter()
