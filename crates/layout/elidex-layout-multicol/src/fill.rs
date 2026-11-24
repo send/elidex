@@ -268,7 +268,7 @@ pub fn fill_columns_sequential(
 /// into overflow columns in the inline direction (CSS Multicol L1 §8.2) — the
 /// content is laid out, never dropped. The search probe is capped at `count + 1`
 /// (the minimal cap that decides feasibility); the definitive final pass is
-/// uncapped (`u32::MAX`) so it lays out the *full* child set.
+/// requested with `u32::MAX` and returns a carry at the per-fill safety limit.
 ///
 /// Laying out the *full* child set in the definitive pass is also what
 /// reconciles inline state. The unconstrained probe (Step 1) persists a
@@ -280,9 +280,8 @@ pub fn fill_columns_sequential(
 /// the balanced path relies on — see `multicol_balanced_persists_one_fragment_per_run`).
 /// A child the definitive pass skipped is never overwritten, so its probe flow
 /// is stranded at column-0, which render paints as a ghost. The overwrite holds
-/// up to the [`MAX_OVERFLOW_COLUMNS`] runaway-safety cap (shared with the auto
-/// path): pathological content needing more columns than that is truncated, the
-/// same deliberate tradeoff that path already makes.
+/// across capped fills. Paged layout returns the carry; continuous layout resumes
+/// it here in the same layout invocation while source coverage advances.
 ///
 /// Returns `(fragments, resolved_column_height)`.
 pub fn fill_columns_balanced(
@@ -362,12 +361,8 @@ pub fn fill_columns_balanced(
     }
 
     // Definitive pass at converged `high` to produce the final fragments and
-    // ensure children's LayoutBoxes match. Unlike the bounded search probe, this
-    // is uncapped (`u32::MAX`) because it must lay out the *full* child set: when
-    // `high` (saturated at `max_height`) cannot fit the content in `geom.count`
-    // columns, the surplus spills into overflow columns (§8.2) instead of being
-    // dropped — which also overwrites every child's column-0 probe `InlineFlow`
-    // with its real per-column flow (see the function doc).
+    // ensure children's LayoutBoxes match. Overflow columns use the same carry
+    // contract as sequential fill when a batch reaches its column limit.
     // Definitive pass: probe=false. (It still inherits an ANCESTOR's probe via
     // `env.input.is_probe` inside `build_column_input` — this `false` only says
     // "not a balanced search probe of THIS multicol".)
