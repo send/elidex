@@ -286,7 +286,7 @@ fn boolean_construct_form_boxes_a_wrapper_object() {
     assert_eq!(eval_string("typeof new Boolean(true);"), "object");
     assert!(eval_bool("new Boolean(true).valueOf();"));
     assert!(eval_bool("new Boolean(true) instanceof Boolean;"));
-    // §20.3.3.3: even `new Boolean(false)` is a truthy object.
+    // ECMA-262 §7.1.2 (`ToBoolean`) returns true for this Boolean wrapper.
     assert!(eval_bool("new Boolean(false) ? true : false;"));
 }
 

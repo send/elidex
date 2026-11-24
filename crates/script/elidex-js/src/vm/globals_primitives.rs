@@ -67,7 +67,8 @@ impl VmInner {
             ("match", native_string_match),
             ("search", native_string_search),
             ("valueOf", native_string_value_of),
-            // §21.1.3.25: String.prototype.toString is identical to valueOf.
+            // toString and valueOf both call ThisStringValue (§§22.1.3.29, 22.1.3.35).
+            // Register each method with its own name and the shared Rust callback.
             ("toString", native_string_value_of),
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
