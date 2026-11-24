@@ -4,6 +4,30 @@ use elidex_css::parse_stylesheet;
 use elidex_ecs::Attributes;
 use elidex_plugin::CssColor;
 
+fn resolved(entries: &[CascadeEntry]) -> std::collections::HashMap<String, CssValue> {
+    let winners =
+        crate::resolve::resolve_candidates(entries, &elidex_plugin::ComputedStyle::default());
+    winners
+        .ordinary()
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.clone()))
+        .collect()
+}
+
+fn ordinary_winners(
+    entity: Entity,
+    dom: &EcsDom,
+    sheets: &[&Stylesheet],
+    inline: &[Declaration],
+    hints: &[Declaration],
+    shadow: &ShadowCascade,
+    media: &MediaEnvironment,
+) -> std::collections::HashMap<String, CssValue> {
+    resolved(&collect_and_cascade(
+        entity, dom, sheets, inline, hints, shadow, media,
+    ))
+}
+
 /// Default `@media` environment for cascade tests (no `@media` rules ⇒ the gate
 /// is a no-op; every rule is unconditional).
 fn test_env() -> MediaEnvironment {
@@ -44,7 +68,7 @@ fn single_declaration_wins() {
     let (dom, _, div) = setup_with_element("div");
     let ss = parse_stylesheet("div { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -53,7 +77,7 @@ fn single_declaration_wins() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -69,7 +93,7 @@ fn specificity_wins() {
     let css = "div { color: red; } .highlight { color: blue; }";
     let ss = parse_stylesheet(css, Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -78,10 +102,7 @@ fn specificity_wins() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -95,7 +116,7 @@ fn source_order_tiebreak() {
     let css = "div { color: red; } div { color: blue; }";
     let ss = parse_stylesheet(css, Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -104,10 +125,7 @@ fn source_order_tiebreak() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -121,7 +139,7 @@ fn important_beats_normal() {
     let css = "div { color: red !important; } div { color: blue; }";
     let ss = parse_stylesheet(css, Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -130,7 +148,7 @@ fn important_beats_normal() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -144,7 +162,7 @@ fn ua_important_beats_author_important() {
     let ua = parse_stylesheet("div { color: green !important; }", Origin::UserAgent);
     let author = parse_stylesheet("div { color: red !important; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ua, &author];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -155,7 +173,7 @@ fn ua_important_beats_author_important() {
     );
     assert_eq!(
         winners.get("color"),
-        Some(&&CssValue::Color(CssColor::GREEN))
+        Some(&CssValue::Color(CssColor::GREEN))
     );
 }
 
@@ -172,7 +190,7 @@ fn inline_beats_selector() {
     let ss = parse_stylesheet("div { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
     let inline = get_inline_declarations(div, &dom);
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -181,10 +199,7 @@ fn inline_beats_selector() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -203,7 +218,7 @@ fn important_inline_is_strongest_author() {
     let ss = parse_stylesheet(css, Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
     let inline = get_inline_declarations(div, &dom);
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -212,10 +227,7 @@ fn important_inline_is_strongest_author() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -234,7 +246,7 @@ fn independent_property_resolution() {
     ";
     let ss = parse_stylesheet(css, Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -244,11 +256,11 @@ fn independent_property_resolution() {
         &test_env(),
     );
     // color: .highlight (class specificity) beats div (tag specificity)
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
     // display: only .highlight declares it
     assert_eq!(
         winners.get("display"),
-        Some(&&CssValue::Keyword("block".to_string()))
+        Some(&CssValue::Keyword("block".to_string()))
     );
 }
 
@@ -262,7 +274,7 @@ fn no_matching_rules_empty_winners() {
 
     let ss = parse_stylesheet("p { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ss];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -285,7 +297,7 @@ fn author_normal_beats_ua_normal() {
     let ua = parse_stylesheet("div { color: green; }", Origin::UserAgent);
     let author = parse_stylesheet("div { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&ua, &author];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -294,7 +306,7 @@ fn author_normal_beats_ua_normal() {
         &ShadowCascade::Outer,
         &test_env(),
     );
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 // --- Presentational hint (extra_declarations) cascade priority tests ---
@@ -310,7 +322,7 @@ fn extra_decl_beats_ua_rule() {
     let ua = parse_stylesheet("div { color: green; }", Origin::UserAgent);
     let sheets: Vec<&Stylesheet> = vec![&ua];
     let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -320,10 +332,7 @@ fn extra_decl_beats_ua_rule() {
         &test_env(),
     );
     // Hint (author origin) beats UA normal.
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -337,7 +346,7 @@ fn extra_decl_loses_to_author_selector() {
     let author = parse_stylesheet("div { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&author];
     let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -347,7 +356,7 @@ fn extra_decl_loses_to_author_selector() {
         &test_env(),
     );
     // Author selector rule beats hint (same origin, higher source_order).
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -393,15 +402,11 @@ fn outer_context_beats_inner_context() {
         &test_env(),
     );
 
-    entries.sort_by_key(|e| e.priority);
-    let mut winners: HashMap<&str, &CssValue> = HashMap::new();
-    for entry in &entries {
-        winners.insert(entry.property, entry.value);
-    }
+    let winners = resolved(&entries);
 
     // Outer context (div { color: red }) wins over inner context
     // despite lower specificity.
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -411,7 +416,7 @@ fn host_selector_skipped_in_outer_context() {
     // :host selector in outer stylesheet should be skipped.
     let outer_with_host = parse_stylesheet(":host { color: red; }", Origin::Author);
     let sheets: Vec<&Stylesheet> = vec![&outer_with_host];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         host,
         &dom,
         &sheets,
@@ -430,7 +435,7 @@ fn shadow_cascade_host_participates() {
     let (dom, host) = setup_shadow_host();
 
     let shadow_sheet = parse_stylesheet(":host { color: blue; }", Origin::Author);
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         host,
         &dom,
         &[],
@@ -440,10 +445,7 @@ fn shadow_cascade_host_participates() {
         &test_env(),
     );
 
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -469,7 +471,7 @@ fn shadow_cascade_slotted_participates() {
         .unwrap();
 
     let shadow_sheet = parse_stylesheet("::slotted(p) { font-weight: bold; }", Origin::Author);
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         p,
         &dom,
         &[],
@@ -481,7 +483,7 @@ fn shadow_cascade_slotted_participates() {
 
     assert_eq!(
         winners.get("font-weight"),
-        Some(&&CssValue::Keyword("bold".to_string()))
+        Some(&CssValue::Keyword("bold".to_string()))
     );
 }
 
@@ -509,7 +511,7 @@ fn outer_rule_beats_slotted_rule() {
     let outer = parse_stylesheet("p { font-weight: normal; }", Origin::Author);
     let shadow_sheet = parse_stylesheet("::slotted(p) { font-weight: bold; }", Origin::Author);
     let outer_sheets: Vec<&Stylesheet> = vec![&outer];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         p,
         &dom,
         &outer_sheets,
@@ -522,7 +524,7 @@ fn outer_rule_beats_slotted_rule() {
     // Outer context wins over ::slotted().
     assert_eq!(
         winners.get("font-weight"),
-        Some(&&CssValue::Keyword("normal".to_string()))
+        Some(&CssValue::Keyword("normal".to_string()))
     );
 }
 
@@ -539,7 +541,7 @@ fn extra_decl_loses_to_inline_style() {
     let sheets: Vec<&Stylesheet> = vec![];
     let inline = get_inline_declarations(div, &dom);
     let hints = [Declaration::new("color", CssValue::Color(CssColor::BLUE))];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,
@@ -549,7 +551,7 @@ fn extra_decl_loses_to_inline_style() {
         &test_env(),
     );
     // Inline style beats hint.
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 // --- CSS Cascading L4 §6.1: !important reversal for shadow context ---
@@ -562,7 +564,7 @@ fn important_inner_beats_normal_outer() {
     let outer = parse_stylesheet("div { color: blue; }", Origin::Author);
     let shadow_sheet = parse_stylesheet(":host { color: red !important; }", Origin::Author);
     let outer_sheets: Vec<&Stylesheet> = vec![&outer];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         host,
         &dom,
         &outer_sheets,
@@ -573,7 +575,7 @@ fn important_inner_beats_normal_outer() {
     );
 
     // Inner !important beats outer normal (CSS Cascading L4 §6.1).
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -585,7 +587,7 @@ fn important_inner_beats_important_outer() {
     let outer = parse_stylesheet("div { color: blue !important; }", Origin::Author);
     let shadow_sheet = parse_stylesheet(":host { color: red !important; }", Origin::Author);
     let outer_sheets: Vec<&Stylesheet> = vec![&outer];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         host,
         &dom,
         &outer_sheets,
@@ -596,7 +598,7 @@ fn important_inner_beats_important_outer() {
     );
 
     // Both !important: inner context wins over outer (reversed per §6.1).
-    assert_eq!(winners.get("color"), Some(&&CssValue::Color(CssColor::RED)));
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::RED)));
 }
 
 #[test]
@@ -627,7 +629,7 @@ fn important_slotted_beats_normal_outer() {
         Origin::Author,
     );
     let outer_sheets: Vec<&Stylesheet> = vec![&outer];
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         p,
         &dom,
         &outer_sheets,
@@ -640,7 +642,7 @@ fn important_slotted_beats_normal_outer() {
     // Inner !important beats outer normal.
     assert_eq!(
         winners.get("font-weight"),
-        Some(&&CssValue::Keyword("bold".to_string()))
+        Some(&CssValue::Keyword("bold".to_string()))
     );
 }
 
@@ -660,10 +662,10 @@ fn media_min_width_gates_declaration() {
         viewport_width: 1024.0,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &wide);
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &wide);
     assert_eq!(
         winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE)),
+        Some(&CssValue::Color(CssColor::BLUE)),
         "min-width:500px should match a 1024px viewport"
     );
 
@@ -672,7 +674,7 @@ fn media_min_width_gates_declaration() {
         viewport_width: 100.0,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &narrow);
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &narrow);
     assert!(
         !winners.contains_key("color"),
         "min-width:500px should NOT match a 100px viewport"
@@ -693,7 +695,7 @@ fn media_print_excluded_on_screen() {
         medium: Medium::Screen,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &screen);
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &screen);
     assert!(
         !winners.contains_key("color"),
         "@media print must not apply on a screen medium"
@@ -704,11 +706,8 @@ fn media_print_excluded_on_screen() {
         medium: Medium::Print,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &print);
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &print);
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 }
 
 #[test]
@@ -726,10 +725,10 @@ fn media_source_order_tiebreak_across_boundary() {
         medium: Medium::Screen,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &env);
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &env);
     assert_eq!(
         winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE)),
+        Some(&CssValue::Color(CssColor::BLUE)),
         "later @media screen rule should win the source-order tiebreak"
     );
 }
@@ -751,11 +750,8 @@ fn nested_media_gates_on_all_conditions() {
         viewport_width: 1024.0,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &both);
-    assert_eq!(
-        winners.get("color"),
-        Some(&&CssValue::Color(CssColor::BLUE))
-    );
+    let winners = ordinary_winners(div, &dom, &sheets, &[], &[], &ShadowCascade::Outer, &both);
+    assert_eq!(winners.get("color"), Some(&CssValue::Color(CssColor::BLUE)));
 
     // screen but only 100px → inner condition false → the whole chain fails.
     let inner_false = MediaEnvironment {
@@ -763,7 +759,7 @@ fn nested_media_gates_on_all_conditions() {
         viewport_width: 100.0,
         ..MediaEnvironment::default()
     };
-    let winners = collect_and_cascade(
+    let winners = ordinary_winners(
         div,
         &dom,
         &sheets,

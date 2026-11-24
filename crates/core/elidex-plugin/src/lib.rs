@@ -6,6 +6,7 @@
 pub mod background;
 mod channel;
 mod color;
+pub mod component_values;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -68,7 +69,9 @@ pub use sandbox::{parse_sandboxing_directive, SandboxingFlagSet};
 /// [`CssPropertyHandler::serialize_shorthand`] implementations. Homed in the base
 /// crate so every handler crate can reach them (`elidex-css-flex` depends only on
 /// `elidex-plugin`, not `elidex-css`).
-pub use shorthand::{serialize_axis_pair, serialize_omit_initial, serialize_rectangular};
+pub use shorthand::{
+    declaration_wins, serialize_axis_pair, serialize_omit_initial, serialize_rectangular,
+};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
     StyleCompatPolicy, WebApiSpecLevel,

@@ -9,6 +9,27 @@ fn setup() -> (EcsDom, Entity, SessionCore) {
 }
 
 #[test]
+fn registered_transition_priority_and_removal_use_all_four_members() {
+    let (mut dom, elem, mut session) = setup();
+    dom.set_attribute(elem, "style", "transition: initial !important; color: red");
+    let property = [JsValue::String("transition".into())];
+    assert_eq!(
+        StyleGetPropertyPriority
+            .invoke(elem, &property, &mut session, &mut dom)
+            .unwrap(),
+        JsValue::String("important".into())
+    );
+    let removed = StyleRemoveProperty
+        .invoke(elem, &property, &mut session, &mut dom)
+        .unwrap();
+    assert_eq!(removed, JsValue::String("initial".into()));
+    assert_eq!(
+        dom.world().get::<&Attributes>(elem).unwrap().get("style"),
+        Some("color: #ff0000")
+    );
+}
+
+#[test]
 fn set_and_get_property() {
     let (mut dom, elem, mut session) = setup();
     StyleSetProperty

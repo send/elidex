@@ -897,3 +897,24 @@ fn table_rtl_reverses_column_order() {
         lb2.content.origin.x,
     );
 }
+
+#[test]
+fn anonymous_table_boxes_inherit_computed_custom_properties() {
+    use elidex_plugin::component_values::{ComponentValues, ComputedCustom};
+    let mut parent = elidex_plugin::ComputedStyle::default();
+    for (name, value) in [
+        (
+            "--valid",
+            ComputedCustom::Value(ComponentValues::capture("2/**/px").unwrap()),
+        ),
+        (
+            "--empty",
+            ComputedCustom::Value(ComponentValues::capture("").unwrap()),
+        ),
+        ("--invalid", ComputedCustom::Invalid),
+    ] {
+        parent.custom_properties.insert(name.into(), value);
+    }
+    let child = crate::grid::inherit_for_anonymous(&parent, elidex_plugin::Display::TableCell);
+    assert_eq!(child.custom_properties, parent.custom_properties);
+}

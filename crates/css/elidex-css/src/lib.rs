@@ -10,20 +10,24 @@ pub mod page;
 mod parser;
 mod selector;
 mod serialize;
+mod substitution_writer;
+pub use substitution_writer::SubstitutionWriter;
 mod values;
 
 // `parse_color` (+ the `CssColor` grammar) lives in `elidex-plugin`, co-located
 // with the `CssColor` type, so CSS and `elidex-form` share one color-parse home.
 // Re-exported here so existing `elidex_css::parse_color` callers stay unchanged.
 pub use declaration::{
-    parse_declaration_block, parse_declaration_block_with_registry, parse_inline_style,
-    parse_value_for_property, parse_var_function, serialize_declaration_value_for_storage,
-    shorthand_longhands, Declaration, Origin,
+    declaration_members, parse_declaration_block, parse_declaration_block_with_registry,
+    parse_inline_style, parse_value_for_property, parse_var_function,
+    serialize_declaration_value_for_storage, shorthand_family, shorthand_longhands, Declaration,
+    Origin,
 };
 pub use escape::escape_ident;
 pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
 pub use parser::{
-    parse_single_rule, parse_stylesheet, parse_stylesheet_with_registry, CssRule, Stylesheet,
+    parse_single_rule, parse_single_rule_with_registry, parse_stylesheet,
+    parse_stylesheet_with_registry, CssRule, Stylesheet,
 };
 pub use selector::{
     parse_selector_from_str, parse_selector_list, AttributeMatcher, PseudoElement, Selector,
@@ -83,9 +87,18 @@ pub fn parse_raw_token_value(raw: &str) -> CssValue {
     let mut pi = ParserInput::new(trimmed);
     let mut parser = Parser::new(&mut pi);
 
-    // Try var() function first.
-    if let Ok(var_val) = try_parse_exhaustive(&mut parser, parse_var_function) {
-        return var_val;
+    let mut original = ParserInput::new(raw);
+    let mut original = Parser::new(&mut original);
+    let Some(components) =
+        declaration::substitution::capture(declaration::substitution::source(&mut original))
+    else {
+        return CssValue::RawTokens(String::new());
+    };
+    if !original.is_exhausted() {
+        return CssValue::RawTokens(String::new());
+    }
+    if components.contains_var() {
+        return CssValue::Pending(components);
     }
 
     // Try color.

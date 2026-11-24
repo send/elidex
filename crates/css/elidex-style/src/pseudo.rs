@@ -40,7 +40,12 @@ pub(crate) fn generate_pseudo_entity(
     }
 
     // Build computed style for the pseudo-element (inherits from originating element).
-    let pe_style = build_computed_style(&winners, parent_style, ctx);
+    let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
+    let custom = std::mem::take(&mut resolved.custom);
+    let winners = resolved.ordinary();
+    let mut pe_style = build_computed_style(&winners, parent_style, ctx);
+
+    pe_style.custom_properties = custom;
 
     // CSS Generated Content §2: on pseudo-elements, `content: normal` computes
     // to `none`.  Both `normal` and `none` suppress generation.

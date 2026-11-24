@@ -444,9 +444,9 @@ pub struct ComputedStyle {
     // --- Custom properties (CSS Variables) ---
     /// Custom property values (e.g. `--bg: #0d1117`).
     ///
-    /// Keys include the `--` prefix. Values are raw token strings.
+    /// Keys include the `--` prefix. Values are immutable computed component sequences or guaranteed-invalid.
     /// Custom properties are inherited by default (CSS Variables Level 1).
-    pub custom_properties: HashMap<String, String>,
+    pub custom_properties: HashMap<String, crate::component_values::ComputedCustom>,
 }
 
 impl Default for ComputedStyle {

@@ -11,6 +11,7 @@ mod properties;
 mod selectors_pseudo;
 mod shadow_compat;
 mod shorthand;
+mod substitution;
 
 fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();

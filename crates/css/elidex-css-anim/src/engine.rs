@@ -487,7 +487,11 @@ impl AnimationEngine {
 
         // CSS Animations L1 §3.9.1: apply per-keyframe timing function if present,
         // otherwise fall back to the animation's overall timing function.
-        let interval_timing = before.timing_function.as_ref().or(anim_timing);
+        let interval_timing = before
+            .timing_function
+            .as_ref()
+            .and_then(crate::parse::IntervalTiming::resolved)
+            .or(anim_timing);
         let local_t = if let Some(tf) = interval_timing {
             tf.sample(raw_local_t)
         } else {

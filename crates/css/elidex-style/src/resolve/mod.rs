@@ -18,7 +18,7 @@ use elidex_plugin::{
 
 pub(crate) use helpers::PropertyMap;
 
-use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
+pub(crate) use var_resolution::resolve_candidates;
 
 use font::{
     resolve_background_color, resolve_color, resolve_font_and_text_properties, resolve_font_size,
@@ -53,8 +53,10 @@ pub fn get_computed_with_registry(
     // Custom properties are not handled by plugin handlers.
     if property.starts_with("--") {
         return match style.custom_properties.get(property) {
-            Some(raw) => CssValue::RawTokens(raw.clone()),
-            None => CssValue::RawTokens(String::new()),
+            Some(elidex_plugin::component_values::ComputedCustom::Value(seq)) => {
+                CssValue::Custom(seq.clone())
+            }
+            _ => CssValue::RawTokens(String::new()),
         };
     }
     // Compound shorthand: border-spacing (two longhands → single/pair value).
@@ -93,59 +95,50 @@ pub(crate) fn build_computed_style(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> ComputedStyle {
-    // Phase 1: Build custom properties map (inherit from parent + override).
-    let mut style = ComputedStyle {
-        custom_properties: build_custom_properties(winners, parent_style),
-        ..ComputedStyle::default()
-    };
-
-    // Phase 2: Resolve var() references in winners.
-    let resolved_winners = resolve_var_references(winners, &style.custom_properties);
-    let winners = merge_winners(winners, &resolved_winners);
-
+    let mut style = ComputedStyle::default();
     // Phase 3: Font-size first (em units in all other properties depend on it).
-    let element_font_size = resolve_font_size(&winners, parent_style, ctx);
+    let element_font_size = resolve_font_size(winners, parent_style, ctx);
     style.font_size = element_font_size;
     let elem_ctx = ctx.with_em_base(element_font_size);
 
     // Phase 4: Font, text, and color properties.
-    resolve_font_and_text_properties(&mut style, &winners, parent_style, &elem_ctx);
-    style.color = resolve_color(&winners, parent_style);
-    resolve_background_color(&mut style, &winners, parent_style);
+    resolve_font_and_text_properties(&mut style, winners, parent_style, &elem_ctx);
+    style.color = resolve_color(winners, parent_style);
+    resolve_background_color(&mut style, winners, parent_style);
 
     // Phase 5: Display, positioning, overflow.
-    resolve_display(&mut style, &winners, parent_style);
-    resolve_position(&mut style, &winners, parent_style);
-    resolve_position_offsets(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_overflow(&mut style, &winners, parent_style);
+    resolve_display(&mut style, winners, parent_style);
+    resolve_position(&mut style, winners, parent_style);
+    resolve_position_offsets(&mut style, winners, parent_style, &elem_ctx);
+    resolve_overflow(&mut style, winners, parent_style);
 
     // Phase 6: Box model — dimensions, margin, padding, border, extras.
-    resolve_box_dimensions(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_box_dimensions(&mut style, winners, parent_style, &elem_ctx);
+    resolve_border_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_box_model_extras(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 7: Flex, grid, and gap properties.
-    resolve_flex_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_flex_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_grid_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_gap_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 8: Content property (non-inherited).
-    resolve_content(&mut style, &winners, parent_style);
+    resolve_content(&mut style, winners, parent_style);
 
     // Phase 9: Table properties.
-    resolve_table_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_table_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 10: Writing mode / BiDi properties.
-    resolve_writing_mode_properties(&mut style, &winners, parent_style);
+    resolve_writing_mode_properties(&mut style, winners, parent_style);
 
     // Phase 11: Float, clear, visibility, vertical-align.
-    resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_float_visibility_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 12: Background layers (CSS Backgrounds Level 3).
-    resolve_background_layers(&winners, &mut style);
+    resolve_background_layers(winners, &mut style);
 
     // Phase 13: Transform properties (CSS Transforms L1/L2, will-change).
-    resolve_transform_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_transform_properties(&mut style, winners, parent_style, &elem_ctx);
 
     style
 }
@@ -343,8 +336,8 @@ fn resolve_background_layers(winners: &PropertyMap<'_>, style: &mut ComputedStyl
     let get_list = |prop: &str| -> Vec<&CssValue> {
         match winners.get(prop).copied() {
             Some(CssValue::List(items)) => items.iter().collect(),
+            None | Some(CssValue::Initial | CssValue::Unset) => vec![],
             Some(v) => vec![v],
-            None => vec![],
         }
     };
 
@@ -430,13 +423,18 @@ mod tests {
         let style = ComputedStyle {
             custom_properties: {
                 let mut m = HashMap::new();
-                m.insert("--my-color".to_string(), "red".to_string());
+                m.insert(
+                    "--my-color".to_string(),
+                    elidex_plugin::component_values::ComputedCustom::Value(
+                        elidex_plugin::component_values::ComponentValues::capture("red").unwrap(),
+                    ),
+                );
                 m
             },
             ..ComputedStyle::default()
         };
         let val = crate::get_computed("--my-color", &style);
-        assert_eq!(val, CssValue::RawTokens("red".to_string()));
+        assert_eq!(val.to_css_string(), "red");
     }
 
     #[test]

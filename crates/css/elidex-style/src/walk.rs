@@ -188,7 +188,12 @@ fn resolve_and_attach_style(
     let element_ctx = ctx.with_em_base(parent_style.font_size);
 
     // Resolve values → ComputedStyle.
+    let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
+    let custom = std::mem::take(&mut resolved.custom);
+    let winners = resolved.ordinary();
     let mut style = build_computed_style(&winners, parent_style, &element_ctx);
+
+    style.custom_properties = custom;
 
     // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
     crate::counter::apply_implicit_list_counters_from_dom(dom, entity, &mut style);
