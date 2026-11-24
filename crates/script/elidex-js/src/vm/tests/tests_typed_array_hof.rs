@@ -1,9 +1,6 @@
 //! `%TypedArray%.prototype` higher-order method tests
-//! (ECMA-262 §23.2.3): `forEach` / `every` / `some` / `find` /
-//! `findIndex` / `findLast` / `findLastIndex` / `map` / `filter` /
-//! `flatMap` plus the species-resolution and `thisArg`-binding
-//! contracts that the species-allocating HOFs (`map` / `filter` /
-//! `flatMap`) share.
+//! Tests species selection by map and filter, and by the VM flatMap extension. The extension
+//! has no TypedArray prototype method section.
 //!
 //! Split from sibling [`super::tests_typed_array_methods`]
 //! (basic prototype methods) and
@@ -375,10 +372,8 @@ fn filter_throws_when_callback_not_callable() {
 #[test]
 fn filter_bigint_array_keeps_through_alloc_point() {
     let mut vm = Vm::new();
-    // BigInt elements allocate fresh `BigIntId`s on every read;
-    // collected values must remain GC-rooted across the
-    // `create_typed_array_for_length` allocation point inside
-    // `filter`.  Same hazard as SP8a `from`'s iterator drain.
+    // BigInt reads use a deduplicating pool (pools.rs:89–101). The collected handles remain on
+    // the stack across destination allocation. The test checks returned values.
     assert!(eval_bool(
         &mut vm,
         "var a = new BigInt64Array([1n, 2n, 3n, 4n]); \
@@ -427,9 +422,8 @@ fn map_throws_when_constructor_is_non_object() {
 #[test]
 fn map_throws_when_species_not_constructor() {
     let mut vm = Vm::new();
-    // `Ctor[@@species]` resolves to a callable but non-constructor
-    // (arrow functions lack `[[Construct]]`) — spec §7.3.22 step
-    // 6/7 throws TypeError.
+    // SpeciesConstructor step 6 returns a constructable species; step 7 throws for this arrow
+    // function. (SpeciesConstructor §7.3.22.)
     assert!(vm
         .eval(
             "function Ctor() {} \
@@ -647,10 +641,8 @@ fn flat_map_propagates_callback_error() {
 #[test]
 fn flat_map_bigint_array_keeps_through_alloc_point() {
     let mut vm = Vm::new();
-    // BigInt elements allocate fresh BigIntId on every read; the
-    // collect frame must keep them rooted across the destination
-    // view's `create_typed_array_for_length` allocation.  Same
-    // GC hazard as `filter`'s collect path.
+    // BigInt reads use a deduplicating pool (pools.rs:89–101). The collected handles remain on
+    // the stack across destination allocation. The test checks returned values.
     assert!(eval_bool(
         &mut vm,
         "var a = new BigInt64Array([1n, 2n, 3n]); \

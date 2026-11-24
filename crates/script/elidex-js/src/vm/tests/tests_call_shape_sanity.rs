@@ -140,13 +140,8 @@ fn illegal_constructor_both_modes_all_sites() {
 
 #[test]
 fn illegal_constructor_distinct_from_typedarray_carveout() {
-    // %TypedArray% is the deliberate carve-out (ECMA-262 §23.2.1.1
-    // abstract-class wording, NOT migrated to IllegalConstructor —
-    // plan §3.3 DR-3).  It must still throw, but with its ECMA-flavored
-    // message, NOT the WebIDL "Illegal constructor" form — proving the
-    // carve-out held.  `%TypedArray%` is not a global binding, so it is
-    // reached via `Object.getPrototypeOf(Uint8Array)` (the abstract
-    // intrinsic is the [[Prototype]] of the concrete TA ctors).
+    // The abstract intrinsic throws TypeError at step 1. The VM chooses a diagnostic distinct
+    // from its WebIDL IllegalConstructor message. (%TypedArray% ( ) §23.2.1.1.)
     let mut vm = Vm::new();
     let msg = match vm
         .eval(
@@ -160,7 +155,7 @@ fn illegal_constructor_distinct_from_typedarray_carveout() {
     };
     assert!(
         msg.contains("not directly constructable"),
-        "%TypedArray% carve-out should keep its ECMA abstract-class message, got: {msg}",
+        "Expected the VM-specific abstract TypedArray diagnostic, got: {msg}",
     );
     assert!(
         !msg.contains("Illegal constructor"),

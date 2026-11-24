@@ -523,10 +523,7 @@ fn data_view_nan_offset_still_bounds_checks() {
 #[test]
 fn typed_array_set_accepts_primitive_source_via_to_object() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.26 TypedArraySetArrayElements step 3: `ToObject(source)`.
-    // Primitive strings become StringWrapper whose length + indexed
-    // access drive the write loop (each 1-char string ToNumber's to
-    // NaN → 0 for Uint8Array).
+    // SetTypedArrayFromArrayLike §23.2.3.26.1 step 3 calls ToObject.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -535,7 +532,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
         ),
         0.0
     );
-    // Null / undefined still TypeError (§7.1.19 ToObject).
+    // ToObject §7.1.20 rejects null and undefined.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array(1); var ok = false; \

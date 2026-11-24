@@ -542,7 +542,7 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 }
 
 // ---------------------------------------------------------------------------
-// Slice / index abstract ops (ECMA-262 §7.1.5 ToIntegerOrInfinity, §7.1.23 ToIndex)
+// Slice and index conversions use ToIntegerOrInfinity §7.1.5 and ToIndex §7.1.24.
 // ---------------------------------------------------------------------------
 
 /// ECMA-262 §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
@@ -594,13 +594,8 @@ pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
     }
 }
 
-/// ECMA-262 §7.1.23 `ToIndex`, narrowed to `u32`.  Coerces `val` via
-/// `ToNumber`, truncates toward zero per `ToIntegerOrInfinity`, and
-/// rejects negative / non-finite / `> u32::MAX` results with a
-/// `RangeError`.  Used by the TypedArray and DataView constructors
-/// where the spec specifies `unsigned long long`-with-`ToIndex` but
-/// our `[[ByteLength]]` slot is `u32`, so the upper bound has to
-/// drop from `2^53 − 1` down to `u32::MAX`.
+/// ECMA-262 §7.1.24 ToIndex, narrowed to the VM u32 slot. Reject negative, infinite or
+/// above-u32 truncated results. NaN maps to zero. This is an ECMAScript conversion.
 ///
 /// Error messages mirror V8's
 /// `"Failed to construct '{ctor_name}': {what} ..."` shape so
