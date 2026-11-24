@@ -17,7 +17,7 @@
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
 //! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
-//! - `join(separator?)` (§23.2.3.19)
+//! - `join(separator?)` (§23.2.3.18)
 //! - `toLocaleString(locales?, options?)` forwards the ECMA-402 §20.6.1 argument pair.
 //!
 //! Higher-order callback methods (`forEach` / `every` / `some` /
