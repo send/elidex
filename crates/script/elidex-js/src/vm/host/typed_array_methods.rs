@@ -15,7 +15,7 @@
 //!   reuse `ObjectKind::ArrayIterator` infra
 //! - `set(source, offset?)` (§23.2.3.24)
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
-//! - `reverse()` (§23.2.3.23)
+//! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
 //! - `toLocaleString(locales?, options?)` forwards the ECMA-402 §20.6.1 argument pair.
