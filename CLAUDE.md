@@ -27,7 +27,7 @@ Experimental browser engine written in Rust.
 - **One issue, one way**: より良い機構を見つけたら、その種の処理は **単一の正準形に一括収束** (full unification) させる。「新 seam + N 個の legacy 実装」が共存する strangler 中間状態を残さない — 共存は「どっちで書く?/これは migration 対象?」という決定 tax を消さず移すだけで、PR ごと・reader ごとに再発する。決定の表面積を下げること自体が目的で、upfront の大きめ refactor に値する (Ideal over pragmatic の decision-surface 版)。
 - **Phase design is not a shortcut license**: design doc の Phase 1–3 / Phase 4+ は「長期簡素化を妨げない境界を先に置く」ための段階的緩和であって、temporary hack の免罪符ではない。外部 runtime / process boundary / transport / storage backend 等を暫定採用する時は、`IpcChannel` / `AsyncRuntime` / `FrameSource` / `StorageBackend` / `HttpTransport` のように、後続の統合・置換が設定変更または局所差し替えになる trait boundary を置く。存在しない代替のための抽象化は ADR #26 (Vello) のように明示例外化する。
 - **Supported-surface testing**: elidex は WPT 100% を目標にせず、plugin / feature が宣言した supported subset の regression を防ぐ。新しい standard/plugin surface は担当 WPT subset・engine-independent unit/integration coverage・必要なら visual/fuzz/benchmark のどれで守るかを明示する。Compat は best-effort でも、core supported surface の新規失敗は原則 block。
-- **TODO 先送り禁止**: 計画に含めた実装を安易に TODO にしない。実装不可能なら理由 + 対処時期を明示して確認を取る
+- **TODO 先送り禁止**: 計画に含めた実装を安易に TODO にしない。実装不可能なら理由 + 対処時期を明示して確認を取る。先送りする時は受け側 (slot ID か受け側 memo の file:line) を同じ場所に書く
 - **後方互換性は維持しない**: デッドコードや shim は残さず削除
 - **1000-line debt = touch-time split (defer しない)**: >1000 行の file (source・test 問わず) を触る時、real cohesion seam があれば feature 着手前に **standalone な prereq split** (単独 PR / 単独 commit、feature PR に bundle しない) として分割する。line-count の機械適用でなく cohesion 判断 (一枚岩の cohesive unit・巨大 generated table・flat な case table は対象外)。review 時の backstop は `.claude/skills/elidex-review/axes.md` Axis 5 (trigger が別で、本 discipline の検出器ではない)。
 - **Edge-dense work = multi-PR program + 実装前 plan-review 必須**: ≥3 intersecting invariant axes を束ねる、または正準アルゴリズムが無い subsystem を触る work は、単一 PR に束ねず umbrella plan + per-PR plan に分割して各 PR を個別に full review し、各 PR は実装前に `/elidex-plan-review` 必須 (judgment でなく rule)。edge-matrix を upfront に map して review tail を先取りする。再帰の終端 (承認済 umbrella 配下の per-PR slice) は `.claude/skills/elidex-plan-review/SKILL.md`「When to invoke」が正。
@@ -45,6 +45,8 @@ Experimental browser engine written in Rust.
 - 「§X.Y.Z = <name>」の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない)。
 - ECMA-262 は AO 名が版間で section 番号より安定なので、`aoid <spec> <name>` で AO 名から正規番号を引き直すのが推奨。step の prose は `body <spec> <anchor-or-AO-name>` (truncate なし)。
 - CSS は第 1 引数に **level 込みの module shortname** (`css-text-3` であって `css-text` でない。不明時は `specs <keyword>`)。例: `body css-text-3 line-break-transform` = §4.1.3 Segment Break Transformation Rules。
+- webref `body` が `# source:` 付きで返した引用は、raw cache の付記なしで引用してよい (付記は webref が unreachable を返した時だけ)。`webref idl` の not present は「無い」の証拠にしない。
+- code comment の仕様の主張は step の適用条件まで書く (例: ToObject が box するのは primitive だけで、object は identity を保つ)。VM が決めた文言・挙動を仕様に帰さず「VM-defined」と書く。仕様との差は「仕様に対する欠陥」として名指す。
 
 ### Workflow
 
