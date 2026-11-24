@@ -13,7 +13,7 @@
 //! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
 //!   reuse `ObjectKind::ArrayIterator` infra
-//! - `set(source, offset?)` (§23.2.3.26)
+//! - `set(source, offset?)` (§23.2.3.26).
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
 //! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
@@ -505,8 +505,8 @@ fn set_array_like_body(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
     }
-    // SetTypedArrayFromArrayLike step 8.b gets the indexed property of the object created in
-    // step 3. (SetTypedArrayFromArrayLike §23.2.3.26.1.)
+    // SetTypedArrayFromArrayLike (§23.2.3.26.1) step 8.b gets the indexed property
+    // of the object returned by ToObject in step 3.
     for i in 0..src_len {
         #[allow(clippy::cast_precision_loss)]
         let key = JsValue::Number(f64::from(i));

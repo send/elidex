@@ -70,8 +70,8 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
 }
 
 /// The runtime depth limit belongs to the VM admission predicate. Bound `[[Construct]]`
-/// substitutes a matching newTarget and delegates at steps 5–6. (BoundFunctionCreate
-/// §10.4.1.3.)
+/// (§10.4.1.2 steps 5–6) substitutes the target when newTarget is the bound function,
+/// then delegates construction to the target.
 fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
     let mut current = id;
     for _ in 0..=crate::vm::MAX_BIND_CHAIN_DEPTH {
@@ -112,10 +112,10 @@ fn require_subclass_ctor(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
     }
-    // TypedArrayCreateFromConstructor step 1 calls Construct. Bound `[[Construct]]` supplies
-    // bound arguments and delegates to the target. The VM unwraps only for kind discovery and
-    // reads the original wrapper prototype. Use Uint8Array.of.call(Bound, ...) for this VM.
-    // (BoundFunctionCreate §10.4.1.3.)
+    // TypedArrayCreateFromConstructor (§23.2.4.1 step 1) calls Construct. Bound
+    // `[[Construct]]` (§10.4.1.2) prepends bound arguments in step 4 and delegates
+    // in step 6. The VM unwraps only for kind discovery and reads the original wrapper
+    // prototype. Use Uint8Array.of.call(Bound, ...) for this VM.
     resolve_typed_array_constructor_in_chain(ctx, ctor_id)?.ok_or_else(|| {
         VmError::type_error(format!(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"

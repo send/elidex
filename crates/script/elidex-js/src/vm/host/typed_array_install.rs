@@ -51,7 +51,7 @@ impl VmInner {
         self.typed_array_prototype = Some(proto_id);
         self.install_typed_array_prototype_members(proto_id);
 
-        // The intrinsic always throws TypeError under §23.2.1.1 step 1. The quoted diagnostic
+        // The intrinsic always throws TypeError under §23.2.1.1 step 1. The diagnostic
         // is VM-defined.
         let abstract_ctor =
             self.create_constructable_function("TypedArray", native_abstract_typed_array_ctor);
