@@ -4,7 +4,7 @@
 use cssparser::{Parser, Token};
 use elidex_plugin::CssValue;
 
-use crate::values::parse_length_or_percentage;
+use elidex_plugin::css_resolve::strict::parse_length_or_percentage;
 
 use super::{parse_value_property, single_decl, try_parse_keyword, Declaration};
 

@@ -146,15 +146,6 @@ pub fn resolve_flex_factor(value: &CssValue, ctx: &ResolveContext) -> Option<f32
     Some(if n.is_finite() { n.max(0.0) } else { 0.0 })
 }
 
-/// Resolve a [`CssValue::Number`] to a non-negative `f32`.
-#[must_use]
-pub fn resolve_non_negative_f32(value: &CssValue, default: f32) -> f32 {
-    match value {
-        CssValue::Number(n) => n.max(0.0),
-        _ => default,
-    }
-}
-
 /// Resolve a [`CssValue::Number`] to an `i32`.
 ///
 /// Non-finite values (NaN/Infinity) return `default`.

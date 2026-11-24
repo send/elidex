@@ -1,8 +1,4 @@
-//! CSS declaration keywords and shared strict numeric grammar.
-pub use elidex_plugin::css_resolve::strict::{
-    parse_length, parse_length_or_percentage, parse_length_percentage_or_auto, parse_length_unit,
-    parse_non_negative_length_or_percentage,
-};
+//! CSS declaration keywords.
 use elidex_plugin::CssValue;
 
 /// Check if an identifier is a CSS global keyword (`initial`, `inherit`, `unset`).

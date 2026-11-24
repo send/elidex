@@ -515,3 +515,57 @@ fn duplicate_offset_overrides_expanded_member_and_sets_interval_timing() {
         assert!(values.contains(&("flex-shrink".into(), CssValue::Number(shrink))));
     }
 }
+
+impl AnimationEngine {
+    #[must_use]
+    pub(crate) fn keyframe_values(
+        &self,
+        name: &str,
+        progress: f64,
+        anim_timing: Option<&crate::timing::TimingFunction>,
+        underlying_values: Option<&std::collections::HashMap<String, elidex_plugin::CssValue>>,
+    ) -> Vec<(String, elidex_plugin::CssValue)> {
+        let ctx = elidex_plugin::ResolveContext::default();
+        self.keyframe_values_for_target(
+            name,
+            progress,
+            anim_timing,
+            &KeyframeTarget {
+                underlying: underlying_values,
+                lengths: &ctx,
+                font_lengths: &ctx,
+                defaulted: &|_, _| panic!("test requires a target for explicit defaulting"),
+            },
+        )
+    }
+}
+
+#[test]
+fn stylesheet_order_selects_existing_captures() {
+    let sheet = |v| {
+        Arc::new(elidex_css::parse_stylesheet(
+            &format!("@keyframes same {{to {{order:{v}}}}}"),
+            elidex_css::Origin::Author,
+        ))
+    };
+    let first = sheet(1);
+    let second = sheet(2);
+    let mut engine = AnimationEngine::new();
+    engine.sync_stylesheets(std::slice::from_ref(&first));
+    let initial = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    engine.sync_stylesheets(&[Arc::clone(&first), Arc::clone(&second)]);
+    let overriding = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    assert_ne!(initial, overriding);
+    engine.sync_stylesheets(&[second, first]);
+    assert_eq!(
+        initial,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.prune_unused_keyframes();
+    assert_eq!(
+        initial,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.sync_stylesheets(&[]);
+    assert!(engine.get_keyframes("same").is_none());
+}

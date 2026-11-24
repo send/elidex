@@ -48,6 +48,12 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     if let Ok(val) = input.try_parse(parse_calc) {
         return Ok(val);
     }
+    parse_literal_length_or_percentage(input)
+}
+
+/// Parse a single length or percentage token in a grammar without math functions.
+#[allow(clippy::result_unit_err)]
+pub fn parse_literal_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let token = input.next().map_err(|_| ())?;
     if let Some(val) = try_dimension_or_zero(token) {
         return Ok(val);
@@ -64,14 +70,15 @@ pub fn parse_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
 ///
 /// Returns `Err(())` if the value is negative. `calc()` expressions are
 /// accepted — per CSS Values 4 §§9.1, 10.12, out-of-range `calc()` results
-/// are clamped to the allowed range at used-value time, not at parse time.
+/// are clamped at the top level at computed-value time when possible, or at
+/// used-value time when the result depends on used-value inputs.
 #[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
 pub fn parse_non_negative_length_or_percentage(input: &mut Parser) -> Result<CssValue, ()> {
     let val = parse_length_or_percentage(input)?;
     match &val {
         CssValue::Length(px, _) if *px < 0.0 => Err(()),
         CssValue::Percentage(pct) if *pct < 0.0 => Err(()),
-        // calc() negativity is clamped at used-value time (CSS Values 4 §10.12).
+        // Preserve the calculation until the applicable range can be applied.
         _ => Ok(val),
     }
 }

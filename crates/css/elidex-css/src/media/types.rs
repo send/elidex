@@ -178,7 +178,7 @@ pub enum RangeValue {
     Length { value: f64, unit: LengthUnit },
     /// A length-typed `calc()` for `width`/`height` — MQ4 §1.2/§1.3 delegates
     /// `<mf-value>` types/units to CSS Values, so the math tree (parsed by the
-    /// canonical `crate::values::parse_length`) is carried symbolically and
+    /// canonical `elidex_plugin::css_resolve::strict::parse_length`) is carried symbolically and
     /// resolved against the queried environment at eval, not at parse —
     /// relative/viewport units (`em`, `vw`, …) need the environment. The
     /// remaining unit/math tail (abs-unit lengths, resolution `calc()`, font-

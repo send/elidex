@@ -78,7 +78,9 @@ pub fn distribute_slots(dom: &mut EcsDom, host: Entity) {
     // Attach SlotAssignment to each slot entity, and SlottedMarker to assigned nodes.
     for (slot_entity, assigned_nodes) in assignments {
         for &node in &assigned_nodes {
-            let _ = dom.world_mut().insert_one(node, SlottedMarker);
+            let _ = dom
+                .world_mut()
+                .insert_one(node, SlottedMarker { slot: slot_entity });
         }
         let _ = dom
             .world_mut()

@@ -582,7 +582,7 @@ fn slotted_matches_assigned_node() {
         )
         .unwrap();
     dom.world_mut()
-        .insert_one(light, elidex_ecs::SlottedMarker)
+        .insert_one(light, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     let sel = parse_sel("::slotted(p)").unwrap();

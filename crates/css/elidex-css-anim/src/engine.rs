@@ -22,7 +22,36 @@ const MAX_EVENTS_PER_TICK: usize = 10_000;
 const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
 
 mod keyframe_index;
+mod stylesheets;
 use keyframe_index::IndexedRule;
+use std::sync::Arc;
+
+#[derive(Debug)]
+enum RegisteredRule {
+    Standalone(IndexedRule),
+    Stylesheet(Arc<IndexedRule>),
+}
+
+impl RegisteredRule {
+    fn indexed(&self) -> &IndexedRule {
+        match self {
+            Self::Standalone(rule) => rule,
+            Self::Stylesheet(rule) => rule,
+        }
+    }
+}
+
+/// Inputs captured for one target before this frame's animation publication.
+pub struct KeyframeTarget<'a> {
+    /// Computed values supplying implicit boundary keyframes.
+    pub underlying: Option<&'a HashMap<String, elidex_plugin::CssValue>>,
+    /// References for ordinary length endpoints.
+    pub lengths: &'a elidex_plugin::ResolveContext,
+    /// References for font-size endpoints, including the flat-tree parent's font.
+    pub font_lengths: &'a elidex_plugin::ResolveContext,
+    /// Resolve an explicit initial, inherit or unset marker to a computed value.
+    pub defaulted: &'a dyn Fn(&str, &elidex_plugin::CssValue) -> elidex_plugin::CssValue,
+}
 
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
@@ -40,7 +69,8 @@ pub struct AnimationEngine {
     /// Running animation instances per entity.
     animations: HashMap<EntityId, Vec<AnimationInstance>>,
     /// Registered `@keyframes` rules by name.
-    keyframes: HashMap<String, IndexedRule>,
+    keyframes: HashMap<String, RegisteredRule>,
+    sheets: Vec<stylesheets::SheetCapture>,
     /// Cached result of `has_running()`. `None` means invalidated (needs recomputation).
     has_running_cache: Option<bool>,
 }
@@ -54,6 +84,7 @@ impl AnimationEngine {
             transitions: HashMap::new(),
             animations: HashMap::new(),
             keyframes: HashMap::new(),
+            sheets: Vec::new(),
             has_running_cache: None,
         }
     }
@@ -75,14 +106,16 @@ impl AnimationEngine {
         rule: KeyframesRule,
         registry: Option<&elidex_plugin::CssPropertyRegistry>,
     ) {
-        self.keyframes
-            .insert(rule.name.clone(), IndexedRule::new(rule, registry));
+        self.keyframes.insert(
+            rule.name.clone(),
+            RegisteredRule::Standalone(IndexedRule::new(rule, registry)),
+        );
     }
 
     /// Look up a `@keyframes` rule by name.
     #[must_use]
     pub fn get_keyframes(&self, name: &str) -> Option<&KeyframesRule> {
-        self.keyframes.get(name).map(|indexed| &indexed.rule)
+        self.keyframes.get(name).map(|entry| &entry.indexed().rule)
     }
 
     /// Add a transition for an entity.
@@ -438,45 +471,18 @@ impl AnimationEngine {
             .copied()
     }
 
-    /// Look up keyframe values for a named animation at a given progress.
-    ///
-    /// Finds the surrounding keyframes and interpolates each declared property.
-    /// Returns an empty `Vec` if the animation name is not registered.
-    ///
-    /// `anim_timing` is the animation-level timing function, used as fallback
-    /// when a keyframe does not declare its own `animation-timing-function`.
-    /// Per CSS Animations L1 §3.9.1, per-keyframe timing functions apply to
-    /// the interval starting at the `before` keyframe.
-    ///
-    /// `underlying_values`, when provided, supplies the element's non-animated
-    /// computed values. Properties declared only in the `before` keyframe will
-    /// interpolate toward the underlying value per CSS Animations L1 §5.
-    #[must_use]
-    pub fn keyframe_values(
-        &self,
-        name: &str,
-        progress: f64,
-        anim_timing: Option<&crate::timing::TimingFunction>,
-        underlying_values: Option<&std::collections::HashMap<String, elidex_plugin::CssValue>>,
-    ) -> Vec<(String, elidex_plugin::CssValue)> {
-        let ctx = elidex_plugin::ResolveContext::default();
-        self.keyframe_values_for_target(name, progress, anim_timing, underlying_values, &ctx, &ctx)
-    }
-
     /// Sample only the surrounding declarations of each longhand for this target.
     pub fn keyframe_values_for_target(
         &self,
         name: &str,
         progress: f64,
         anim_timing: Option<&crate::timing::TimingFunction>,
-        underlying: Option<&HashMap<String, elidex_plugin::CssValue>>,
-        ctx: &elidex_plugin::ResolveContext,
-        font_ctx: &elidex_plugin::ResolveContext,
+        target: &KeyframeTarget<'_>,
     ) -> Vec<(String, elidex_plugin::CssValue)> {
         #[allow(clippy::cast_possible_truncation)]
         let progress = progress.clamp(0.0, 1.0) as f32;
         self.keyframes.get(name).map_or_else(Vec::new, |rule| {
-            rule.sample(progress, anim_timing, underlying, ctx, font_ctx)
+            rule.indexed().sample(progress, anim_timing, target)
         })
     }
 
@@ -513,8 +519,9 @@ impl AnimationEngine {
             .values()
             .flat_map(|anims| anims.iter().map(AnimationInstance::name))
             .collect();
-        self.keyframes
-            .retain(|name, _| referenced.contains(name.as_str()));
+        self.keyframes.retain(|name, rule| {
+            matches!(rule, RegisteredRule::Stylesheet(_)) || referenced.contains(name.as_str())
+        });
     }
 
     /// Cancel all running animations for an entity, emitting `animationcancel` events.

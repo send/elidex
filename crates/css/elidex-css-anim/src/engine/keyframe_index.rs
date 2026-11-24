@@ -3,8 +3,8 @@ use crate::{
     parse::{IntervalTiming, KeyframesRule},
     timing::TimingFunction,
 };
-use elidex_plugin::{CssPropertyRegistry, CssValue, LengthUnit, ResolveContext};
-use std::collections::{BTreeMap, HashMap};
+use elidex_plugin::{CssPropertyRegistry, CssValue, LengthUnit};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug)]
 struct Entry {
@@ -46,9 +46,7 @@ impl IndexedRule {
         &self,
         p: f32,
         timing: Option<&TimingFunction>,
-        underlying: Option<&HashMap<String, CssValue>>,
-        ctx: &ResolveContext,
-        font_ctx: &ResolveContext,
+        target: &super::KeyframeTarget<'_>,
     ) -> Vec<(String, CssValue)> {
         self.tracks
             .iter()
@@ -60,13 +58,27 @@ impl IndexedRule {
                 let offset = |entry: Entry| self.rule.keyframes[entry.frame].offset;
                 let start = before.map_or(0., offset);
                 let end = after.map_or(1., offset);
-                let reference = if name == "font-size" { font_ctx } else { ctx };
+                let reference = if name == "font-size" {
+                    target.font_lengths
+                } else {
+                    target.lengths
+                };
                 let endpoint = |entry: Option<Entry>| {
                     let value = match entry {
                         Some(entry) => {
                             &self.rule.keyframes[entry.frame].declarations[entry.declaration].value
                         }
-                        None => underlying?.get(name)?,
+                        None => target.underlying?.get(name)?,
+                    };
+                    let computed;
+                    let value = if matches!(
+                        value,
+                        CssValue::Initial | CssValue::Inherit | CssValue::Unset
+                    ) {
+                        computed = (target.defaulted)(name, value);
+                        &computed
+                    } else {
+                        value
                     };
                     Some(match value {
                         CssValue::Length(v, unit) => CssValue::Length(

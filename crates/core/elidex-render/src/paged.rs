@@ -61,7 +61,7 @@ fn prepare(dom: &EcsDom, context: &PagedMediaContext) -> PagedMediaContext {
         em_base: root_font_size,
         viewport: Size::new(context.content_width(), context.content_height()),
     };
-    // CSS Page 3 §5.1: margin boxes inherit from the page context. The
+    // CSS Page 3 §6: margin boxes inherit from the page context. The
     // document's root font and the print ICB remain separate references.
     let page_font = context
         .page_rules

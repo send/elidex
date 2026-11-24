@@ -467,7 +467,7 @@ fn shadow_cascade_slotted_participates() {
 
     // Mark p as slotted.
     dom.world_mut()
-        .insert_one(p, elidex_ecs::SlottedMarker)
+        .insert_one(p, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     let shadow_sheet = parse_stylesheet("::slotted(p) { font-weight: bold; }", Origin::Author);
@@ -505,7 +505,7 @@ fn outer_rule_beats_slotted_rule() {
     dom.append_child(sr, slot);
 
     dom.world_mut()
-        .insert_one(p, elidex_ecs::SlottedMarker)
+        .insert_one(p, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     let outer = parse_stylesheet("p { font-weight: normal; }", Origin::Author);
@@ -620,7 +620,7 @@ fn important_slotted_beats_normal_outer() {
     dom.append_child(sr, slot);
 
     dom.world_mut()
-        .insert_one(p, elidex_ecs::SlottedMarker)
+        .insert_one(p, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     let outer = parse_stylesheet("p { font-weight: normal; }", Origin::Author);

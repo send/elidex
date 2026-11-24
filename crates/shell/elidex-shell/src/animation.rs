@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use elidex_css::Stylesheet;
 use elidex_css_anim::engine::{AnimationEngine, AnimationEvent};
 use elidex_css_anim::style::AnimStyle;
 use elidex_ecs::Entity;
@@ -10,36 +9,6 @@ use elidex_plugin::{AnimationEventInit, ComputedStyle, EventPayload, TransitionE
 use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
-
-/// Register `@keyframes` rules from parsed stylesheets into the animation engine.
-///
-/// Generic over any `&Stylesheet` iterable so both the construction-time build
-/// (`&[Stylesheet]`) and the `re_render` re-collection (`Vec<&Stylesheet>` via
-/// `.iter().copied()`) share the single canonical registration path.
-/// `register_keyframes` is a name-keyed `HashMap::insert`, so re-adding an
-/// already-registered rule is idempotent and a redefinition overwrites in place.
-pub(crate) fn register_keyframes_from_stylesheets<'a>(
-    stylesheets: impl IntoIterator<Item = &'a Stylesheet>,
-    engine: &mut AnimationEngine,
-) {
-    for ss in stylesheets {
-        for (name, body) in &ss.keyframes_raw {
-            let rule = elidex_css_anim::parse::parse_keyframes_with_registry(
-                name,
-                body,
-                ss.grammar_registry.as_deref(),
-            );
-            engine.register_keyframes_with_registry(rule, ss.grammar_registry.as_deref());
-        }
-    }
-}
-
-/// Create and initialize an `AnimationEngine` with `@keyframes` from stylesheets.
-pub(crate) fn create_animation_engine(stylesheets: &[Stylesheet]) -> AnimationEngine {
-    let mut engine = AnimationEngine::new();
-    register_keyframes_from_stylesheets(stylesheets, &mut engine);
-    engine
-}
 
 /// Collect old computed styles for entities that have an `AnimStyle` component.
 ///
@@ -449,6 +418,41 @@ pub(crate) fn anim_event_to_payload(event: &AnimationEvent) -> (&'static str, Ev
     }
 }
 
+/// CSS Shadow 1 §4.1: slotted nodes inherit from their slot and top-level
+/// shadow children inherit from their host. Use this frame's slot distribution.
+fn inheritance_parent(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<Entity> {
+    let parent = dom.get_parent(entity)?;
+    if let Some(root) = dom.get_shadow_root(parent) {
+        if let Ok(marker) = dom.world().get::<&elidex_ecs::SlottedMarker>(entity) {
+            if dom.find_tree_root(marker.slot) == root {
+                return Some(marker.slot);
+            }
+        }
+    }
+    Some(dom.shadow_host(parent).unwrap_or(parent))
+}
+
+/// CSS Cascade §7.3: compute explicit defaulting before interpolating endpoints.
+fn defaulted_endpoint(
+    name: &str,
+    keyword: &elidex_plugin::CssValue,
+    parent: &ComputedStyle,
+    initial: &ComputedStyle,
+    registry: &elidex_plugin::CssPropertyRegistry,
+) -> elidex_plugin::CssValue {
+    use elidex_plugin::CssValue;
+    let inherits = matches!(keyword, CssValue::Inherit)
+        || (matches!(keyword, CssValue::Unset)
+            && registry
+                .resolve(name)
+                .is_some_and(|handler| handler.is_inherited(name)));
+    elidex_style::get_computed_with_registry(
+        name,
+        if inherits { parent } else { initial },
+        registry,
+    )
+}
+
 /// Apply animated values from active transitions and animations to `ComputedStyle`.
 ///
 /// Iterates over all entities with active transitions and animations in the engine,
@@ -469,6 +473,7 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
             .ok()
             .map(|style| style.font_size)
     };
+    let initial_style = ComputedStyle::default();
     let initial_font = elidex_plugin::ResolveContext::default().root_font_size;
     let root_font_size = root
         .and_then(|e| font_size(&result.dom, e))
@@ -497,7 +502,8 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
             .map(|style| {
                 let mut map = HashMap::new();
                 for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
-                    let v = elidex_style::get_computed(prop, &style);
+                    let v =
+                        elidex_style::get_computed_with_registry(prop, &style, &result.registry);
                     if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
                         map.insert((*prop).to_string(), v);
                     }
@@ -505,11 +511,10 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
                 map
             });
 
-        let parent_font = result
-            .dom
-            .get_parent(entity)
-            .and_then(|e| font_size(&result.dom, e))
-            .unwrap_or(initial_font);
+        let parent_style = inheritance_parent(&result.dom, entity)
+            .and_then(|e| result.dom.world().get::<&ComputedStyle>(e).ok());
+        let parent_style = parent_style.as_deref().unwrap_or(&initial_style);
+        let parent_font = parent_style.font_size;
         let ctx = elidex_plugin::ResolveContext {
             em_base: font_size(&result.dom, entity).unwrap_or(parent_font),
             root_font_size,
@@ -531,9 +536,20 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
                     anim.name(),
                     f64::from(progress),
                     Some(anim.timing_function()),
-                    underlying_values.as_ref(),
-                    &ctx,
-                    &font_ctx,
+                    &elidex_css_anim::engine::KeyframeTarget {
+                        underlying: underlying_values.as_ref(),
+                        lengths: &ctx,
+                        font_lengths: &font_ctx,
+                        defaulted: &|name, keyword| {
+                            defaulted_endpoint(
+                                name,
+                                keyword,
+                                parent_style,
+                                &initial_style,
+                                &result.registry,
+                            )
+                        },
+                    },
                 );
                 animated_values.extend(kf_values);
             }

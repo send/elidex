@@ -427,7 +427,7 @@ enum RawMfValue {
     Ratio(f64, f64),
     Ident(String),
     /// A length-typed `calc()` (CSS math), parsed by the canonical
-    /// `crate::values::parse_length` — MQ4 §1.2/§1.3 delegates `<mf-value>` to
+    /// `elidex_plugin::css_resolve::strict::parse_length` — MQ4 §1.2/§1.3 delegates `<mf-value>` to
     /// CSS Values. Only valid for `width`/`height`; resolved at eval.
     Calc(Box<CalcExpr>),
 }
@@ -454,10 +454,14 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
     // number-typed one (e.g. `calc(40)`) is filtered at coercion per feature.
     // The unsupported tail (abs-unit/resolution-unit `calc()`, `min`/`max`/
     // `clamp`) is the carved slot `#11-media-css-values-fidelity`.
-    if let Ok(expr) = input.try_parse(|i| match crate::values::parse_length(i) {
-        Ok(CssValue::Calc(expr)) => Ok(expr),
-        _ => Err(()),
-    }) {
+    if let Ok(expr) =
+        input.try_parse(
+            |i| match elidex_plugin::css_resolve::strict::parse_length(i) {
+                Ok(CssValue::Calc(expr)) => Ok(expr),
+                _ => Err(()),
+            },
+        )
+    {
         return Ok(RawMfValue::Calc(expr));
     }
     let first = match input.next().map_err(|_| ())? {
