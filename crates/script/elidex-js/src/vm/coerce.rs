@@ -391,7 +391,7 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt8 (§7.1.11) / ToUint8 (§7.1.12) / ToUint8Clamp (§7.1.13) / ToInt16 (§7.1.9)
+// ToInt8 (§7.1.11) / ToUint8 (§7.1.12) / ToUint8Clamp (§7.1.14) / ToInt16 (§7.1.9)
 // All ECMA-262 §7.1.
 // ---------------------------------------------------------------------------
 //
@@ -430,7 +430,7 @@ pub(crate) fn f64_to_uint8(n: f64) -> u8 {
     result
 }
 
-/// `ToUint8Clamp` (ECMA-262 §7.1.13) — **not** a modular conversion.
+/// `ToUint8Clamp` (ECMA-262 §7.1.14) — **not** a modular conversion.
 /// NaN → 0, n ≤ 0 → 0, n ≥ 255 → 255, else round with
 /// **roundTiesToEven** (IEEE 754 banker's rounding).  Used by
 /// `Uint8ClampedArray` indexed element writes; diverges from
@@ -487,7 +487,7 @@ pub(crate) fn to_uint8(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
 }
 
 /// ToUint8Clamp wrapper — coerces `val` via `ToNumber` then clamps
-/// (ECMA-262 §7.1.13).
+/// (ECMA-262 §7.1.14).
 #[cfg(feature = "engine")]
 #[inline]
 pub(crate) fn to_uint8_clamp(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {

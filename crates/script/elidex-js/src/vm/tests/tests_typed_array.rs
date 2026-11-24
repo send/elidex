@@ -441,7 +441,7 @@ fn uint8_wraps_overflow() {
 #[test]
 fn uint8_clamped_rounds_ties_to_even() {
     let mut vm = Vm::new();
-    // IEEE 754 roundTiesToEven per §7.1.11 — NOT round-half-up.
+    // ToUint8Clamp (§7.1.14 steps 5–9) rounds ties to even.
     //   0.5 → 0, 1.5 → 2, 2.5 → 2, 3.5 → 4, 4.5 → 4.
     assert_eq!(
         eval_number(
