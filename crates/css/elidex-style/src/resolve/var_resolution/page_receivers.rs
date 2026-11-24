@@ -53,7 +53,11 @@ fn page_shorthand_and_independent_longhand_reparse_in_their_own_sheets() {
         let pages = prepare(&[&a, &b]);
         let calls = CALLS.take().unwrap();
         assert_eq!(calls.len(), 12);
-        assert!(calls.chunks_exact(2).all(|pair| pair == expected_calls));
+        assert!(calls
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .all(|pair| pair == &expected_calls));
         let control = parse(&format!("@page {{ margin:{expected}px;margin-left:7px }}"));
         let margins = pages.select(1, false).geometry.margins;
         assert_eq!(

@@ -33,7 +33,7 @@ pub(crate) fn alternatives<'i>(
     input.parse_comma_separated(|part| {
         part.skip_whitespace();
         let name = part
-            .try_parse(|p| p.expect_ident_cloned())
+            .try_parse(Parser::expect_ident_cloned)
             .ok()
             .map(|ident| ident.to_string());
         let mut specificity = Specificity {
@@ -53,10 +53,10 @@ pub(crate) fn alternatives<'i>(
                 PageSelector::from_keyword(ident).ok_or_else(|| part.new_custom_error(()))?;
             match pseudo {
                 PageSelector::First | PageSelector::Blank => {
-                    specificity.class = specificity.class.saturating_add(1)
+                    specificity.class = specificity.class.saturating_add(1);
                 }
                 PageSelector::Left | PageSelector::Right => {
-                    specificity.tag = specificity.tag.saturating_add(1)
+                    specificity.tag = specificity.tag.saturating_add(1);
                 }
             }
             pseudos.push(pseudo);

@@ -14,7 +14,7 @@ pub fn parse_page_size(source: &str) -> Option<CssValue> {
     let mut tokens = ParserInput::new(source);
     let mut input = Parser::new(&mut tokens);
     let mut result = Vec::new();
-    if let Ok(ident) = input.try_parse(|p| p.expect_ident_cloned()) {
+    if let Ok(ident) = input.try_parse(Parser::expect_ident_cloned) {
         let mut name = None;
         let mut orientation = None;
         let mut word = ident.to_ascii_lowercase();

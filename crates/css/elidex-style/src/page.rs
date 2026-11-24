@@ -95,7 +95,7 @@ fn prepare_geometry(
                         u32::try_from(sheet_index).unwrap_or(u32::MAX),
                         u32::try_from(order).unwrap_or(u32::MAX),
                         specificity,
-                    )
+                    );
                 };
                 push(&mut candidates, &rule.declarations);
                 for (position, decls) in &rule.boxes {
