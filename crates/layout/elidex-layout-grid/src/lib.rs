@@ -646,7 +646,7 @@ pub fn layout_grid(
     elidex_layout_block::LayoutOutcome {
         contribution: elidex_layout_block::source_progress::SourceProgress::default(),
         layout_box: lb,
-        break_token: result_break_token,
+        end: result_break_token.into(),
         propagated_break_before,
         propagated_break_after,
     }

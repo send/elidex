@@ -106,7 +106,7 @@ fn no_fragmentation_returns_none() {
         None, // no fragmentainer
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@ fn rows_fit_no_break() {
         }),
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +167,10 @@ fn overflow_at_row_boundary() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     assert_eq!(bt.entity, entity);
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -205,7 +208,7 @@ fn resume_from_break_token() {
         frag,
         None,
     );
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
 
     // Second pass with break token: row 2 only (60px) fits in 130px.
     let outcome2 = do_layout_grid_fragmented(
@@ -221,7 +224,7 @@ fn resume_from_break_token() {
         Some(bt1),
     );
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "second pass should complete without break"
     );
 }
@@ -256,7 +259,8 @@ fn forced_break_before_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -296,7 +300,8 @@ fn forced_break_after_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break-after should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -338,7 +343,7 @@ fn break_inside_avoid() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
             // Break candidates: row 1 (at 60px), row 2 (at 120px).
@@ -380,7 +385,7 @@ fn spanning_item_fragmentation() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -581,7 +586,10 @@ fn spanning_item_produces_child_break_token() {
         None,
     );
 
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -669,7 +677,10 @@ fn spanning_item_consumed_size_correct() {
         None,
     );
 
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -749,7 +760,7 @@ fn resume_with_child_break_tokens() {
         frag,
         None,
     );
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
     match &bt1.mode_data {
         Some(BreakTokenData::Grid {
             child_break_tokens, ..
@@ -781,7 +792,7 @@ fn resume_with_child_break_tokens() {
     // Whether it breaks again or completes, it should not panic.
     // With 2 remaining rows at 50px each (100px total) and 60px available,
     // it should break again at the next row boundary.
-    if let Some(bt2) = &outcome2.break_token {
+    if let Some(bt2) = outcome2.end.token() {
         match &bt2.mode_data {
             Some(BreakTokenData::Grid {
                 row_index,

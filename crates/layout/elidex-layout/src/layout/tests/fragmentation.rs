@@ -42,7 +42,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
     };
     let fragments = layout_fragmented(&mut dom, div, &input, frag);
     assert_eq!(fragments.len(), 1, "content fits → 1 fragment");
-    assert!(fragments[0].break_token.is_none());
+    assert!(fragments[0].end.is_complete());
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
     // Break tokens are consumed by the fragmentation loop — non-last fragments
     // were successfully fragmented (verified by the fragment count above).
     assert!(
-        fragments.last().unwrap().break_token.is_none(),
+        fragments.last().unwrap().end.is_complete(),
         "last fragment has no break token"
     );
 }
@@ -521,7 +521,7 @@ fn block_preserves_table_row_contributions_at_a_forced_break() {
         assert!(first.contribution.is_finished(table, p));
         assert!(!first.contribution.is_finished(table, q));
         assert!(!first.contribution.is_finished(block, table));
-        let token = first.break_token.expect("Table interrupted after P");
+        let token = first.end.into_token().expect("Table interrupted after P");
         let Some(BreakTokenData::Block {
             continuation: BlockContinuation::InterruptedChild(child),
             ..
@@ -563,7 +563,7 @@ fn block_preserves_table_row_contributions_at_a_forced_break() {
             assert!(!next.contribution.is_finished(table, p));
             assert!(next.contribution.is_finished(table, q));
             assert!(next.contribution.is_finished(block, table));
-            assert!(next.break_token.is_none());
+            assert!(next.end.is_complete());
         }
     }
 }
@@ -636,7 +636,7 @@ fn block_retreat_commits_only_the_winning_boundary() {
             child
         });
         let page = dispatch_layout_child(&mut dom, block, &input);
-        let token = page.break_token.unwrap();
+        let token = page.end.into_token().unwrap();
         let Some(BreakTokenData::Block {
             child_index,
             coverage,
@@ -670,7 +670,7 @@ fn block_retreat_commits_only_the_winning_boundary() {
                 ..input
             },
         );
-        assert!(next.break_token.is_none());
+        assert!(next.end.is_complete());
         for (i, child) in items.iter().enumerate() {
             assert_eq!(
                 next.contribution.is_finished(block, *child),
@@ -753,7 +753,7 @@ fn block_reports_only_rows_admitted_by_table_grid() {
             fragmentation_type: FragmentationType::Page,
         };
         let outcome = dispatch_layout_child(&mut dom, block, &contribution_input(&fonts, &frag));
-        assert!(outcome.break_token.is_none());
+        assert!(outcome.end.is_complete());
         assert!(outcome.contribution.is_finished(block, table));
         for (index, row) in rows.into_iter().enumerate() {
             assert_eq!(
@@ -794,7 +794,7 @@ fn balanced_multicol_reports_empty_block_to_its_parent() {
     let input = contribution_input(&fonts, &frag);
     for entry in [multi, owner] {
         let outcome = dispatch_layout_child(&mut dom, entry, &input);
-        assert!(outcome.break_token.is_none());
+        assert!(outcome.end.is_complete());
         assert!(outcome.contribution.is_finished(multi, empty));
         if entry == owner {
             assert!(outcome.contribution.is_finished(owner, multi));
@@ -949,4 +949,75 @@ fn nested_screen_multicol_keeps_overflow_columns_at_the_inner_pitch() {
             .x,
         150_000.0
     );
+}
+
+#[test]
+fn stalled_multicol_remains_incomplete_through_whole_children_and_page_counting() {
+    use elidex_layout_block::{FragmentEnd, FragmentainerContext, FragmentationType};
+    use elidex_plugin::{BreakValue, ColumnFill, ColumnSpan, Float, Medium};
+
+    for (float, span) in [
+        (Float::None, ColumnSpan::None),
+        (Float::Left, ColumnSpan::None),
+        (Float::None, ColumnSpan::All),
+    ] {
+        let mut dom = EcsDom::new();
+        let mut node = |parent, style| {
+            let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+            dom.world_mut().insert_one(id, style);
+            if let Some(owner) = parent {
+                dom.append_child(owner, id);
+            }
+            id
+        };
+        let block = ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        };
+        let root = node(None, block.clone());
+        let wrapper = node(
+            Some(root),
+            ComputedStyle {
+                column_count: (span == ColumnSpan::All).then_some(2),
+                ..block.clone()
+            },
+        );
+        let inner = node(
+            Some(wrapper),
+            ComputedStyle {
+                column_count: Some(2),
+                height: Dimension::Length(40.0),
+                column_fill: ColumnFill::Auto,
+                float,
+                column_span: span,
+                ..block.clone()
+            },
+        );
+        let pending = node(
+            Some(inner),
+            ComputedStyle {
+                break_before: BreakValue::Column,
+                height: Dimension::Length(1.0),
+                ..block
+            },
+        );
+        let fonts = FontDatabase::new();
+        let page = FragmentainerContext {
+            available_block_size: 100.0,
+            fragmentation_type: FragmentationType::Page,
+        };
+        let input = elidex_layout_block::LayoutInput {
+            medium: Medium::Print,
+            ..contribution_input(&fonts, &page)
+        };
+        for owner in [inner, wrapper, root] {
+            let fragments = layout_fragmented(&mut dom, owner, &input, page);
+            assert_eq!(fragments.len(), 1);
+            let outcome = &fragments[0];
+            assert!(matches!(outcome.end, FragmentEnd::Incomplete));
+            for (parent, child) in [(inner, pending), (wrapper, inner), (root, wrapper)] {
+                assert!(!outcome.contribution.is_finished(parent, child));
+            }
+        }
+    }
 }

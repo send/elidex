@@ -176,7 +176,7 @@ pub fn fill_columns_sequential(
         );
 
         // Only a split inside a child snapshots that child's per-column box.
-        let break_out_child = interrupted_child(result.break_token.as_ref());
+        let break_out_child = interrupted_child(result.end.token());
 
         let mut col_children: Vec<_> = result
             .contribution
@@ -221,7 +221,8 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
-        let carry = result.break_token.filter(|token| {
+        stalled = matches!(result.end, elidex_layout_block::FragmentEnd::Incomplete);
+        let carry = result.end.into_token().filter(|token| {
             !matches!(&token.mode_data, Some(BreakTokenData::Block {
             child_index, continuation: elidex_layout_block::BlockContinuation::ChildBoundary, ..
         }) if *child_index == children.len())

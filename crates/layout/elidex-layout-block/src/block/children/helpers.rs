@@ -218,7 +218,7 @@ pub(super) fn layout_float(
     wm: WritingModeContext,
     cursor_block: f32,
     layout_child: crate::ChildLayoutFn,
-) -> crate::source_progress::SourceProgress {
+) -> (crate::source_progress::SourceProgress, crate::FragmentEnd) {
     let child_style = crate::get_style(dom, child);
     let is_horizontal = wm.is_horizontal();
 
@@ -389,7 +389,7 @@ pub(super) fn layout_float(
             input.is_probe,
         );
     }
-    outcome.contribution
+    (outcome.contribution, outcome.end)
 }
 
 /// Resolve the final block-axis size for a block element.

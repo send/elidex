@@ -301,14 +301,14 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
         let first = layout_multicol(&mut dom, owner, &input, layout_child_fn);
         assert!(first.contribution.is_finished(owner, children[999]));
         if count == 1000 {
-            assert!(first.break_token.is_none());
+            assert!(first.end.is_complete());
             assert_eq!(
                 dom.world().get::<&MulticolInfo>(owner).unwrap().segments[0].0,
                 1000
             );
         } else if outer.is_some() {
             assert!(!first.contribution.is_finished(owner, children[1000]));
-            let token = first.break_token.unwrap();
+            let token = first.end.into_token().unwrap();
             assert!(
                 matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
             );
@@ -349,10 +349,10 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
                 tail.contribution.contributed_items().collect::<Vec<_>>(),
                 [(owner, children[1000])]
             );
-            assert!(tail.break_token.is_none());
+            assert!(tail.end.is_complete());
         } else {
             assert!(first.contribution.is_finished(owner, children[1000]));
-            assert!(first.break_token.is_none());
+            assert!(first.end.is_complete());
             assert_eq!(
                 dom.world()
                     .get::<&LayoutBox>(children[1000])

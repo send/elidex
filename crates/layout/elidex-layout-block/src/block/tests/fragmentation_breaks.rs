@@ -30,12 +30,12 @@ fn forced_break_before_produces_break_token() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "forced break-before should produce a break token"
     );
     assert!(outcome.contribution.is_finished(parent, admitted));
     assert!(!outcome.contribution.is_finished(parent, deferred));
-    let bt = outcome.break_token.unwrap();
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -57,7 +57,7 @@ fn forced_break_before_produces_break_token() {
                 ..input
             },
         );
-        assert!(resumed.break_token.is_none());
+        assert!(resumed.end.is_complete());
         assert_eq!(
             resumed.contribution.contributed_items().collect::<Vec<_>>(),
             [(parent, deferred)]
@@ -102,12 +102,12 @@ fn forced_break_after_produces_break_token() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "forced break-after should produce a break token"
     );
     assert!(outcome.contribution.is_finished(parent, admitted));
     assert!(!outcome.contribution.is_finished(parent, deferred));
-    let bt = outcome.break_token.unwrap();
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(*child_index, 2, "resume at the first eligible child");
@@ -122,7 +122,7 @@ fn forced_break_after_produces_break_token() {
             ..input
         },
     );
-    assert!(next.break_token.is_none());
+    assert!(next.end.is_complete());
     assert!(next.contribution.is_finished(parent, deferred));
 }
 
@@ -147,7 +147,7 @@ fn column_break_not_forced_in_page_context() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_none(),
+        outcome.end.is_complete(),
         "column break should not force in page context"
     );
 }
@@ -178,7 +178,7 @@ fn overflow_produces_break_token() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "overflow should produce a break token"
     );
 }
@@ -196,7 +196,7 @@ fn no_fragmentainer_no_break() {
     let input = base_input(&font_db);
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_none(),
+        outcome.end.is_complete(),
         "no fragmentainer → no break token"
     );
 }
@@ -226,9 +226,9 @@ fn break_token_resume_starts_from_correct_child() {
     };
 
     let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome1.break_token.is_some());
+    assert!(outcome1.end.token().is_some());
 
-    let bt = outcome1.break_token.unwrap();
+    let bt = outcome1.end.into_token().unwrap();
     let frag2 = FragmentainerContext {
         available_block_size: 200.0,
         fragmentation_type: FragmentationType::Page,
@@ -241,7 +241,7 @@ fn break_token_resume_starts_from_correct_child() {
 
     let outcome2 = crate::layout_block_only(&mut dom, parent, &input2);
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "remaining children should fit in 200px"
     );
 }
@@ -281,7 +281,7 @@ fn monolithic_first_child_overflows_without_break() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.contribution.is_finished(parent, child));
     // First (and only) child is monolithic with no prior content → overflow allowed.
-    if let Some(bt) = &outcome.break_token {
+    if let Some(bt) = outcome.end.token() {
         if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
             assert_eq!(*child_index, 1);
         }
@@ -326,7 +326,7 @@ fn hidden_inline_descendant_leaves_only_its_wrapper_terminal() {
         .contribution
         .contributed_items()
         .any(|(_, id)| id == hidden));
-    let token = first.break_token.unwrap();
+    let token = first.end.into_token().unwrap();
     let next = crate::layout_block_only(
         &mut dom,
         owner,
@@ -336,5 +336,5 @@ fn hidden_inline_descendant_leaves_only_its_wrapper_terminal() {
         },
     );
     assert!(next.contribution.is_finished(owner, deferred));
-    assert!(next.break_token.is_none());
+    assert!(next.end.is_complete());
 }

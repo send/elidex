@@ -328,8 +328,8 @@ pub fn layout_fragmented_with_tokens(
             break_token: current_token.as_ref(),
             ..*input
         };
-        let mut outcome = dispatch_layout_child(dom, entity, &frag_input);
-        current_token = outcome.break_token.take();
+        let outcome = dispatch_layout_child(dom, entity, &frag_input);
+        current_token = outcome.end.token().cloned();
         let has_more = current_token.is_some();
         fragments.push(outcome);
 

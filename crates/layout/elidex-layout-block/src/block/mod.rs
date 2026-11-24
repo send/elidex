@@ -433,7 +433,7 @@ pub fn layout_block_inner(
     let mut static_positions_stash = std::collections::HashMap::new();
     let mut block_first_baseline: Option<f32> = None;
     let mut contribution = crate::source_progress::SourceProgress::default();
-    let mut child_break_token: Option<crate::BreakToken> = None;
+    let mut end = crate::FragmentEnd::Complete;
     let mut propagated_break_before: Option<elidex_plugin::BreakValue> = None;
     let mut propagated_break_after: Option<elidex_plugin::BreakValue> = None;
     // Direct inline layout can interrupt inside its single local run.
@@ -519,12 +519,12 @@ pub fn layout_block_inner(
             is_probe: input.is_probe,
         };
         let is_bfc = input.is_flex_item || establishes_bfc(&style);
-        let mut result =
+        let result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
         // Capture fragmentation results from stack_block_children.
         contribution = result.contribution;
-        child_break_token = result.break_token.take();
+        end = result.end;
         propagated_break_before = result.propagated_break_before;
         propagated_break_after = result.propagated_break_after;
 
@@ -748,7 +748,7 @@ pub fn layout_block_inner(
         return crate::LayoutOutcome {
             contribution,
             layout_box: lb,
-            break_token: Some(crate::BreakToken {
+            end: crate::FragmentEnd::Continue(crate::BreakToken {
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
                 mode_data: Some(crate::BreakTokenData::Block {
@@ -763,21 +763,14 @@ pub fn layout_block_inner(
     }
 
     // The stack token already belongs to this block. Include its leading decoration.
-    if let Some(mut child_bt) = child_break_token {
+    if let crate::FragmentEnd::Continue(child_bt) = &mut end {
         child_bt.consumed_block_size += block_start_pb;
-        return crate::LayoutOutcome {
-            contribution,
-            layout_box: lb,
-            break_token: Some(child_bt),
-            propagated_break_before,
-            propagated_break_after,
-        };
     }
 
     crate::LayoutOutcome {
         contribution,
         layout_box: lb,
-        break_token: None,
+        end,
         propagated_break_before,
         propagated_break_after,
     }

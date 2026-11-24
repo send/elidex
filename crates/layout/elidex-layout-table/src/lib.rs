@@ -477,7 +477,7 @@ pub fn layout_table(
         return elidex_layout_block::LayoutOutcome {
             layout_box: lb,
             contribution,
-            break_token,
+            end: break_token.into(),
             propagated_break_before,
             propagated_break_after,
         };
@@ -904,7 +904,7 @@ pub fn layout_table(
     elidex_layout_block::LayoutOutcome {
         contribution,
         layout_box: lb,
-        break_token: result_break_token,
+        end: result_break_token.into(),
         propagated_break_before,
         propagated_break_after,
     }

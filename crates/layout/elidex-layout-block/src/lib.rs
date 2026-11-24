@@ -52,15 +52,56 @@ pub struct FragmentainerContext {
     pub fragmentation_type: FragmentationType,
 }
 
-/// Result of a layout pass, including an optional break token for fragmentation.
+/// How a formatter ended the current fragment.
+#[derive(Clone, Debug, Default)]
+pub enum FragmentEnd {
+    /// All the source was laid out.
+    #[default]
+    Complete,
+    /// A subsequent fragment can resume here.
+    Continue(BreakToken),
+    /// Layout stopped without a resumable route.
+    Incomplete,
+}
+
+impl FragmentEnd {
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete)
+    }
+
+    #[must_use]
+    pub fn into_token(self) -> Option<BreakToken> {
+        match self {
+            Self::Continue(token) => Some(token),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn token(&self) -> Option<&BreakToken> {
+        match self {
+            Self::Continue(token) => Some(token),
+            _ => None,
+        }
+    }
+}
+
+impl From<Option<BreakToken>> for FragmentEnd {
+    fn from(token: Option<BreakToken>) -> Self {
+        token.map_or(Self::Complete, Self::Continue)
+    }
+}
+
+/// Result of a layout pass, including the completion state of the fragment.
 #[derive(Clone, Debug)]
 pub struct LayoutOutcome {
     /// Source committed in this fragment, independently of the next resume route.
     pub contribution: source_progress::SourceProgress,
     /// The layout box produced by this fragment.
     pub layout_box: LayoutBox,
-    /// If layout was interrupted by a fragmentainer break, the token to resume.
-    pub break_token: Option<BreakToken>,
+    /// Completion state for this fragment.
+    pub end: FragmentEnd,
     /// CSS Fragmentation L3 §3.1.1: propagated forced break-before from first child.
     pub propagated_break_before: Option<elidex_plugin::BreakValue>,
     /// CSS Fragmentation L3 §3.1.1: propagated forced break-after from last child.
@@ -72,7 +113,7 @@ impl From<LayoutBox> for LayoutOutcome {
         Self {
             contribution: source_progress::SourceProgress::default(),
             layout_box: lb,
-            break_token: None,
+            end: FragmentEnd::Complete,
             propagated_break_before: None,
             propagated_break_after: None,
         }
@@ -540,14 +581,14 @@ mod tests {
     fn layout_outcome_from_layout_box() {
         let lb = LayoutBox::default();
         let outcome: LayoutOutcome = lb.clone().into();
-        assert!(outcome.break_token.is_none());
+        assert!(outcome.end.is_complete());
         assert_eq!(outcome.layout_box.content.size.width, lb.content.size.width);
     }
 
     #[test]
     fn layout_outcome_no_break_default() {
         let outcome = LayoutOutcome::from(LayoutBox::default());
-        assert!(outcome.break_token.is_none());
+        assert!(outcome.end.is_complete());
     }
 
     #[test]
