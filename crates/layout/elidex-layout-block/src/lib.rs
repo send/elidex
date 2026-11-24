@@ -55,6 +55,8 @@ pub struct FragmentainerContext {
 /// Result of a layout pass, including an optional break token for fragmentation.
 #[derive(Clone, Debug)]
 pub struct LayoutOutcome {
+    /// Source committed in this fragment, independently of the next resume route.
+    pub contribution: source_progress::SourceProgress,
     /// The layout box produced by this fragment.
     pub layout_box: LayoutBox,
     /// If layout was interrupted by a fragmentainer break, the token to resume.
@@ -68,6 +70,7 @@ pub struct LayoutOutcome {
 impl From<LayoutBox> for LayoutOutcome {
     fn from(lb: LayoutBox) -> Self {
         Self {
+            contribution: source_progress::SourceProgress::default(),
             layout_box: lb,
             break_token: None,
             propagated_break_before: None,
@@ -136,10 +139,7 @@ impl FragmentSize {
 pub enum BlockContinuation {
     ChildBoundary,
     InterruptedChild(Box<BreakToken>),
-    LocalRun {
-        first: Entity,
-        progress: source_progress::SourceProgress,
-    },
+    LocalRun { first: Entity },
 }
 
 /// Layout-mode-specific data stored in a [`BreakToken`].
@@ -147,6 +147,7 @@ pub enum BlockContinuation {
 pub enum BreakTokenData {
     /// Block layout: index of the next child to lay out.
     Block {
+        coverage: source_progress::SourceProgress,
         child_index: usize,
         continuation: BlockContinuation,
     },
@@ -165,6 +166,11 @@ pub enum BreakTokenData {
         /// Spanning items that were fragmented at this break row.
         /// Each entry is `(item_entity, child_break_token)` for resumption.
         child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
+    },
+    /// Column cap reached inside a normal segment. Resume its Block stack.
+    Multicol {
+        segment_index: usize,
+        column: Box<BreakToken>,
     },
     /// Table layout: row index and optional header/footer entities for
     /// repetition in continuation fragments.
@@ -591,6 +597,7 @@ mod tests {
             consumed_block_size: 50.0,
             mode_data: Some(BreakTokenData::Block {
                 child_index: 2,
+                coverage: crate::source_progress::SourceProgress::default(),
                 continuation: BlockContinuation::ChildBoundary,
             }),
         };
@@ -622,6 +629,7 @@ mod tests {
     fn break_token_data_variants() {
         let block = BreakTokenData::Block {
             child_index: 5,
+            coverage: crate::source_progress::SourceProgress::default(),
             continuation: BlockContinuation::ChildBoundary,
         };
         let flex = BreakTokenData::Flex {

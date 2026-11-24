@@ -364,7 +364,7 @@ pub fn layout_table(
     }
 
     // Collect all rows (from row groups + direct rows).
-    let all_rows = collect_all_rows(dom, &row_groups, &direct_rows);
+    let mut all_rows = collect_all_rows(dom, &row_groups, &direct_rows);
 
     // Identify thead/tfoot row groups for repetition in continuation fragments
     // (CSS 2.1 §17.5.4).
@@ -392,6 +392,7 @@ pub fn layout_table(
 
     // Build cell grid from rows.
     let (cells, num_cols, num_rows) = build_cell_grid(dom, &all_rows);
+    all_rows.truncate(num_rows);
 
     // Invariant: build_cell_grid guarantees cell indices are within bounds.
     debug_assert!(cells
@@ -438,7 +439,11 @@ pub fn layout_table(
             None,
         );
         dom.set_layout_box(entity, lb.clone());
-        return lb.into();
+        let mut outcome = elidex_layout_block::LayoutOutcome::from(lb);
+        for row in all_rows.iter().skip(resume_row) {
+            outcome.contribution.finish_item(entity, row.entity);
+        }
+        return outcome;
     }
 
     let spacing_h = if is_collapse {
@@ -659,6 +664,7 @@ pub fn layout_table(
     // CSS Fragmentation L3 §4: counter-increment should only happen on the first
     // fragment. CSS counters are not yet implemented (planned for G11), so this
     // constraint is currently satisfied by default.
+    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let (result_break_token, propagated_break_before, propagated_break_after) =
         if let Some(&frag) = input.fragmentainer {
             compute_table_fragmentation(
@@ -671,8 +677,12 @@ pub fn layout_table(
                 resume_row,
                 thead_entity,
                 tfoot_entity,
+                &mut contribution,
             )
         } else {
+            for row in &all_rows {
+                contribution.finish_item(entity, row.entity);
+            }
             (None, None, None)
         };
 
@@ -875,6 +885,7 @@ pub fn layout_table(
     }
 
     elidex_layout_block::LayoutOutcome {
+        contribution,
         layout_box: lb,
         break_token: result_break_token,
         propagated_break_before,

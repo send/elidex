@@ -24,6 +24,7 @@ pub struct ColumnFillEnv<'a> {
 /// Result of laying out content into a single column.
 #[derive(Clone, Debug)]
 pub struct ColumnFragment {
+    pub contribution: elidex_layout_block::source_progress::SourceProgress,
     /// Entities laid out in this column (direct children).
     pub children: Vec<Entity>,
     /// Per-column snapshots of the **spanning** (mid-break) children laid out in
@@ -33,6 +34,12 @@ pub struct ColumnFragment {
     /// this column's inline position. Empty for a column whose children all fit
     /// whole (those use the shifted `LayoutBox`/`InlineFlow`, I-multicol).
     pub box_snapshots: Vec<FragmentSnapshot>,
+}
+
+pub struct ColumnBatch {
+    pub fragments: Vec<ColumnFragment>,
+    pub carry: Option<BreakToken>,
+    pub stalled: bool,
 }
 
 /// One mid-break spanning child's per-column snapshot: its box-model geometry
@@ -77,21 +84,21 @@ fn snapshot_box(dom: &EcsDom, entity: Entity) -> Option<BoxFragment> {
     Some(BoxFragment::from(&*lb))
 }
 
+fn interrupted_child(token: Option<&BreakToken>) -> Option<Entity> {
+    match token.and_then(|token| token.mode_data.as_ref()) {
+        Some(BreakTokenData::Block {
+            continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
+            ..
+        }) => Some(child.entity),
+        _ => None,
+    }
+}
+
 /// Maximum number of binary search iterations for balanced fill.
 const MAX_BALANCE_ITERATIONS: u32 = 10;
 
 /// Maximum number of overflow columns to prevent infinite loops.
 const MAX_OVERFLOW_COLUMNS: u32 = 1000;
-
-/// Extract `child_index` from a break token's mode data.
-fn extract_child_index(token: Option<&BreakToken>) -> Option<usize> {
-    token
-        .and_then(|bt| bt.mode_data.as_ref())
-        .and_then(|md| match md {
-            BreakTokenData::Block { child_index, .. } => Some(*child_index),
-            _ => None,
-        })
-}
 
 /// Fill columns sequentially (column-fill: auto).
 ///
@@ -117,16 +124,20 @@ pub fn fill_columns_sequential(
     column_height: f32,
     max_columns: u32,
     probe: bool,
-) -> Vec<ColumnFragment> {
+) -> ColumnBatch {
+    let order: std::collections::HashMap<_, _> = children
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, e)| (e, i))
+        .collect();
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
-    let mut carry_break_token: Option<BreakToken> = None;
-    // The child the PREVIOUS column broke mid-way on — it continues into this
-    // column, so its per-column box fragment must be snapshotted here too (the
-    // `next == prev` mid-break test below only catches the column a child
-    // *breaks out of*, not the column it *resumes and finishes in*). `None`
-    // when the previous column ended at a clean child boundary.
-    let mut carry_midbreak: Option<Entity> = None;
+    let mut carry_break_token = env.input.break_token.cloned();
+    let mut stalled = false;
+    // Snapshot an incoming interrupted child even when it finishes in this column.
+    // A clean child boundary has no incoming box fragment.
+    let mut carry_midbreak = interrupted_child(carry_break_token.as_ref());
 
     // Safety limit to prevent infinite loops.
     let total_limit = max_columns.min(MAX_OVERFLOW_COLUMNS);
@@ -164,41 +175,18 @@ pub fn fill_columns_sequential(
             env.parent_entity,
         );
 
-        // Determine which children ended up in this column.
-        let next_child_idx =
-            extract_child_index(result.break_token.as_ref()).unwrap_or(children.len());
-        let prev_child_idx = extract_child_index(carry_break_token.as_ref()).unwrap_or(0);
-
         // Only a split inside a child snapshots that child's per-column box.
-        let break_out_child = result
-            .break_token
-            .as_ref()
-            .and_then(|bt| match &bt.mode_data {
-                Some(BreakTokenData::Block {
-                    continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
-                    ..
-                }) => Some(child.entity),
-                _ => None,
-            });
+        let break_out_child = interrupted_child(result.break_token.as_ref());
 
-        // Build the children list for this column fragment.
-        //
-        // Mid-child break (next == prev AND the child genuinely split here): the
-        // child is fragmented mid-way and only partially laid out in this column.
-        // Include it so that position_column_fragments shifts it with this column.
-        //
-        // When next > prev, children[prev..next] fit here; a child at `next` that
-        // broke out belongs to the NEXT column — the ECS model has one LayoutBox
-        // per entity, so the next column's layout overwrites it (G11).
-        let is_midbreak = next_child_idx == prev_child_idx && break_out_child.is_some();
-
-        let col_children = if is_midbreak {
-            // Mid-child break: only this partially-laid-out child.
-            vec![children[next_child_idx]]
-        } else {
-            children[prev_child_idx.min(children.len())..next_child_idx.min(children.len())]
-                .to_vec()
-        };
+        let mut col_children: Vec<_> = result
+            .contribution
+            .contributed_items()
+            .filter_map(|(owner, item)| {
+                (owner == env.parent_entity && order.contains_key(&item)).then_some(item)
+            })
+            .collect();
+        col_children.sort_unstable_by_key(|item| order[item]);
+        col_children.dedup();
 
         // Snapshot the per-column box fragments of this column's SPANNING children,
         // before the next column overwrites their `LayoutBox` (G11). This column's
@@ -233,20 +221,36 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
+        if result.break_token.is_some() {
+            let empty = elidex_layout_block::source_progress::SourceProgress::default();
+            let previous = match carry_break_token
+                .as_ref()
+                .and_then(|token| token.mode_data.as_ref())
+            {
+                Some(BreakTokenData::Block { coverage, .. }) => coverage,
+                _ => &empty,
+            };
+            stalled = !result.contribution.advances(previous);
+        }
         fragments.push(ColumnFragment {
+            contribution: result.contribution,
             children: col_children,
             box_snapshots,
         });
 
         carry_break_token = result.break_token;
-        if carry_break_token.is_none() {
+        if carry_break_token.is_none() || stalled {
             break;
         }
 
         col_index += 1;
     }
 
-    fragments
+    ColumnBatch {
+        fragments,
+        carry: carry_break_token,
+        stalled,
+    }
 }
 
 /// Fill columns with balanced heights (column-fill: balance).
@@ -259,7 +263,7 @@ pub fn fill_columns_sequential(
 /// into overflow columns in the inline direction (CSS Multicol L1 §8.2) — the
 /// content is laid out, never dropped. The search probe is capped at `count + 1`
 /// (the minimal cap that decides feasibility); the definitive final pass is
-/// uncapped (`u32::MAX`) so it lays out the *full* child set.
+/// requested with `u32::MAX` and returns a carry at the per-fill safety limit.
 ///
 /// Laying out the *full* child set in the definitive pass is also what
 /// reconciles inline state. The unconstrained probe (Step 1) persists a
@@ -271,9 +275,8 @@ pub fn fill_columns_sequential(
 /// the balanced path relies on — see `multicol_balanced_persists_one_fragment_per_run`).
 /// A child the definitive pass skipped is never overwritten, so its probe flow
 /// is stranded at column-0, which render paints as a ghost. The overwrite holds
-/// up to the [`MAX_OVERFLOW_COLUMNS`] runaway-safety cap (shared with the auto
-/// path): pathological content needing more columns than that is truncated, the
-/// same deliberate tradeoff that path already makes.
+/// across capped fills. Paged layout returns the carry; continuous layout resumes
+/// it here in the same layout invocation while source coverage advances.
 ///
 /// Returns `(fragments, resolved_column_height)`.
 pub fn fill_columns_balanced(
@@ -281,16 +284,26 @@ pub fn fill_columns_balanced(
     children: &[Entity],
     env: &ColumnFillEnv<'_>,
     max_height: Option<f32>,
-) -> (Vec<ColumnFragment>, f32) {
+) -> (ColumnBatch, f32) {
     if children.is_empty() {
-        return (Vec::new(), 0.0);
+        return (
+            ColumnBatch {
+                fragments: Vec::new(),
+                carry: None,
+                stalled: false,
+            },
+            0.0,
+        );
     }
 
     // Step 1: Unconstrained probe to get total content height.
     let total_height = probe_total_height(dom, children, env);
 
     if total_height <= 0.0 {
-        return (Vec::new(), 0.0);
+        return (
+            fill_columns_sequential(dom, children, env, 0.0, u32::MAX, false),
+            0.0,
+        );
     }
 
     let tallest_monolithic = find_tallest_monolithic(dom, children, env.col_ctx.wm);
@@ -333,9 +346,9 @@ pub fn fill_columns_balanced(
         let frags = fill_columns_sequential(dom, children, env, mid, probe_cap, true);
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let used_columns = frags.len() as u32;
+        let used_columns = frags.fragments.len() as u32;
 
-        if used_columns <= env.geom.count {
+        if frags.carry.is_none() && used_columns <= env.geom.count {
             high = mid;
         } else {
             low = mid;
@@ -343,12 +356,8 @@ pub fn fill_columns_balanced(
     }
 
     // Definitive pass at converged `high` to produce the final fragments and
-    // ensure children's LayoutBoxes match. Unlike the bounded search probe, this
-    // is uncapped (`u32::MAX`) because it must lay out the *full* child set: when
-    // `high` (saturated at `max_height`) cannot fit the content in `geom.count`
-    // columns, the surplus spills into overflow columns (§8.2) instead of being
-    // dropped — which also overwrites every child's column-0 probe `InlineFlow`
-    // with its real per-column flow (see the function doc).
+    // ensure children's LayoutBoxes match. Overflow columns use the same carry
+    // contract as sequential fill when a batch reaches its column limit.
     // Definitive pass: probe=false. (It still inherits an ANCESTOR's probe via
     // `env.input.is_probe` inside `build_column_input` — this `false` only says
     // "not a balanced search probe of THIS multicol".)

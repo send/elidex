@@ -17,11 +17,12 @@ use super::shift::shift_descendants;
 
 /// Result of flushing an inline run.
 pub(super) struct InlineRunResult {
+    pub contribution: crate::source_progress::SourceProgress,
     /// Block-axis extent consumed by the inline run.
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
     /// If fragmentation was applied, the line index after which to break.
-    pub continuation: Option<crate::source_progress::SourceProgress>,
+    pub interrupted: bool,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
@@ -76,7 +77,7 @@ pub(super) fn flush_inline_run(
         }
     });
 
-    let result = crate::inline::layout_inline_context_fragmented(
+    let (result, interrupted) = crate::inline::layout_inline_fragment(
         dom,
         inline_children,
         inline_size,
@@ -103,7 +104,8 @@ pub(super) fn flush_inline_run(
     InlineRunResult {
         block_extent: result.height,
         first_baseline: result.first_baseline,
-        continuation: result.continuation,
+        interrupted,
+        contribution: result.contribution,
     }
 }
 
@@ -216,7 +218,7 @@ pub(super) fn layout_float(
     wm: WritingModeContext,
     cursor_block: f32,
     layout_child: crate::ChildLayoutFn,
-) {
+) -> crate::source_progress::SourceProgress {
     let child_style = crate::get_style(dom, child);
     let is_horizontal = wm.is_horizontal();
 
@@ -318,7 +320,8 @@ pub(super) fn layout_float(
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
     };
-    let child_box = layout_child(dom, child, &temp_input).layout_box;
+    let outcome = layout_child(dom, child, &temp_input);
+    let child_box = outcome.layout_box;
     let content_width = child_box.content.size.width;
     let content_height = child_box.content.size.height;
 
@@ -385,6 +388,7 @@ pub(super) fn layout_float(
             input.is_probe,
         );
     }
+    outcome.contribution
 }
 
 /// Resolve the final block-axis size for a block element.

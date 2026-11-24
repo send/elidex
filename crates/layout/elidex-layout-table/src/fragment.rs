@@ -8,6 +8,7 @@ use elidex_layout_block::block::fragmentation::{
 use elidex_layout_block::{BreakToken, BreakTokenData};
 
 use crate::grid::RowInfo;
+use elidex_layout_block::source_progress::SourceProgress;
 
 /// CSS 2.1 §17.5.4: Fragmenting Table Layout.
 ///
@@ -28,6 +29,7 @@ pub(crate) fn compute_table_fragmentation(
     resume_row: usize,
     thead_entity: Option<Entity>,
     tfoot_entity: Option<Entity>,
+    contribution: &mut SourceProgress,
 ) -> (
     Option<BreakToken>,
     Option<elidex_plugin::BreakValue>,
@@ -99,6 +101,10 @@ pub(crate) fn compute_table_fragmentation(
 
     let mut candidates: Vec<BreakCandidate> = Vec::new();
 
+    // Keep the selected source independently of the ordinal used for resumption.
+    let mut break_token = None;
+    let mut admitted = Vec::new();
+    let mut checkpoints = Vec::new();
     for row_idx in resume_row..num_rows {
         let row_h = row_heights.get(row_idx).copied().unwrap_or(0.0);
 
@@ -118,7 +124,8 @@ pub(crate) fn compute_table_fragmentation(
                             tfoot_entity,
                         }),
                     };
-                    return (Some(bt), propagated_before, propagated_after);
+                    break_token = Some(bt);
+                    break;
                 }
             }
         }
@@ -139,7 +146,8 @@ pub(crate) fn compute_table_fragmentation(
                             tfoot_entity,
                         }),
                     };
-                    return (Some(bt), propagated_before, propagated_after);
+                    break_token = Some(bt);
+                    break;
                 }
             }
         }
@@ -147,6 +155,7 @@ pub(crate) fn compute_table_fragmentation(
         // Record a break candidate between rows.
         if row_idx > resume_row {
             let violates_avoid = check_avoid_between_table_rows(dom, all_rows, row_idx, frag_type);
+            checkpoints.push(admitted.len());
             candidates.push(BreakCandidate {
                 child_index: row_idx,
                 class: BreakClass::A,
@@ -155,6 +164,8 @@ pub(crate) fn compute_table_fragmentation(
                 orphan_widow_penalty: false,
             });
         }
+
+        admitted.push(all_rows[row_idx].entity);
 
         // Add this row's height to consumed.
         consumed += row_h;
@@ -174,7 +185,9 @@ pub(crate) fn compute_table_fragmentation(
                         tfoot_entity,
                     }),
                 };
-                return (Some(bt), propagated_before, propagated_after);
+                admitted.truncate(checkpoints[best_idx]);
+                break_token = Some(bt);
+                break;
             }
         }
 
@@ -184,8 +197,10 @@ pub(crate) fn compute_table_fragmentation(
         }
     }
 
-    // All rows fit — no break needed.
-    (None, propagated_before, propagated_after)
+    for row in admitted {
+        contribution.finish_item(entity, row);
+    }
+    (break_token, propagated_before, propagated_after)
 }
 
 /// Check whether breaking between rows at `row_idx` violates an avoid constraint.

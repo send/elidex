@@ -321,15 +321,7 @@ fn collect_inline_items_inner(
             } else {
                 group_key
             };
-            if track_source && grandchildren.is_empty() {
-                items.push(InlineItem::Text(StyledRun::from_style(
-                    child,
-                    child,
-                    String::new(),
-                    &style,
-                    child_group,
-                )));
-            }
+            let start = items.len();
             collect_inline_items_inner(
                 dom,
                 &grandchildren,
@@ -342,6 +334,15 @@ fn collect_inline_items_inner(
                 root_horizontal,
                 track_source,
             );
+            if track_source && items.len() == start {
+                items.push(InlineItem::Text(StyledRun::from_style(
+                    child,
+                    child,
+                    String::new(),
+                    &style,
+                    child_group,
+                )));
+            }
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style. Neither bidi
             // nor text-transform gates persistence any more: the run persists in

@@ -175,9 +175,18 @@ pub fn layout_multicol(
 
     // --- Lay out segments ---
     let mut block_cursor: f32 = 0.0;
+    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let mut multicol_segments: Vec<(u32, f32, f32)> = Vec::new();
 
-    for segment in &segments {
+    let (start, incoming) = match input.break_token.and_then(|bt| bt.mode_data.as_ref()) {
+        Some(elidex_layout_block::BreakTokenData::Multicol {
+            segment_index,
+            column,
+        }) => (*segment_index, Some(column.as_ref())),
+        _ => (0, None),
+    };
+    let mut break_token = None;
+    for (index, segment) in segments.iter().enumerate().skip(start) {
         match segment {
             Segment::Normal(seg_children) => {
                 if seg_children.is_empty() {
@@ -201,14 +210,18 @@ pub fn layout_multicol(
                     layout_generation: input.layout_generation,
                     is_probe: input.is_probe,
                 };
+                let segment_input = LayoutInput {
+                    break_token: incoming.filter(|_| index == start),
+                    ..*input
+                };
                 let env = ColumnFillEnv {
-                    input,
+                    input: &segment_input,
                     geom: &geom,
                     env: &layout_env,
                     parent_entity: entity,
                     col_ctx: &col_ctx,
                 };
-                let (frags, col_height) = layout_normal_segment(
+                let (batch, col_height) = layout_normal_segment(
                     dom,
                     seg_children,
                     &env,
@@ -217,6 +230,10 @@ pub fn layout_multicol(
                     &style,
                 );
 
+                let frags = batch.fragments;
+                for fragment in &frags {
+                    contribution.include(&fragment.contribution);
+                }
                 // Position column fragments.
                 #[allow(clippy::cast_possible_truncation)]
                 let actual_count = frags.len().min(u32::MAX as usize) as u32;
@@ -224,6 +241,17 @@ pub fn layout_multicol(
                     multicol_segments.push((actual_count, block_cursor, col_height));
                 }
                 block_cursor += col_height;
+                if let Some(column) = batch.carry {
+                    break_token = Some(elidex_layout_block::BreakToken {
+                        entity,
+                        consumed_block_size: block_cursor,
+                        mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {
+                            segment_index: index,
+                            column: Box::new(column),
+                        }),
+                    });
+                    break;
+                }
             }
             Segment::Spanner(spanner_entity) => {
                 // Lay out spanner at full container width.
@@ -262,6 +290,8 @@ pub fn layout_multicol(
                     is_probe: input.is_probe,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
+                contribution.include(&outcome.contribution);
+                contribution.finish_item(entity, *spanner_entity);
                 // Use margin_box() for spanner block extent.
                 let mb = outcome.layout_box.margin_box();
                 let spanner_block_extent = if is_horizontal {
@@ -353,7 +383,11 @@ pub fn layout_multicol(
         .world_mut()
         .remove_one::<elidex_ecs::ColumnFlowSlice>(entity);
 
-    lb.into()
+    elidex_layout_block::LayoutOutcome {
+        contribution,
+        break_token,
+        ..lb.into()
+    }
 }
 
 /// Lay out a normal (non-spanner) segment across columns.
@@ -366,47 +400,80 @@ fn layout_normal_segment(
     definite_height: Option<f32>,
     balance_max_height: Option<f32>,
     style: &ComputedStyle,
-) -> (Vec<fill::ColumnFragment>, f32) {
-    let fill_and_position =
-        |dom: &mut EcsDom, frags: Vec<fill::ColumnFragment>| -> Vec<fill::ColumnFragment> {
-            // `env.input.is_probe` is true iff an ANCESTOR multicol/intrinsic pass
-            // is probing (this multicol's OWN balanced search probes never reach
-            // `fill_and_position` — they call `fill_columns_sequential` directly,
-            // the F1 own-probe invariant). When true, suppress the store write so
-            // an ancestor probe leaves no garbage fragments (P1).
-            position_column_fragments(
-                dom,
-                &frags,
-                env.geom,
-                env.col_ctx.wm,
-                env.input.is_probe,
-                env.input.layout_generation,
-            );
-            frags
+) -> (fill::ColumnBatch, f32) {
+    let (mut batch, height) = match (definite_height, style.column_fill) {
+        (Some(h), ColumnFill::Auto) => (
+            fill_columns_sequential(dom, children, env, h, u32::MAX, false),
+            h,
+        ),
+        (Some(h), ColumnFill::Balance) => fill_columns_balanced(
+            dom,
+            children,
+            env,
+            Some(balance_max_height.map_or(h, |m| h.min(m))),
+        ),
+        (None, _) => fill_columns_balanced(dom, children, env, balance_max_height),
+    };
+    while env.input.fragmentainer.is_none() && !batch.stalled {
+        let Some(carry) = batch.carry.take() else {
+            break;
         };
+        let input = LayoutInput {
+            break_token: Some(&carry),
+            ..*env.input
+        };
+        let resumed = ColumnFillEnv {
+            input: &input,
+            ..*env
+        };
+        let next = fill_columns_sequential(dom, children, &resumed, height, u32::MAX, false);
+        batch.fragments.extend(next.fragments);
+        batch.carry = next.carry;
+        batch.stalled = next.stalled;
+    }
+    position_column_fragments(
+        dom,
+        &batch.fragments,
+        children,
+        env.geom,
+        env.col_ctx.wm,
+        env.input.is_probe,
+        env.input.layout_generation,
+    );
+    (batch, height)
+}
 
-    match (definite_height, style.column_fill) {
-        // Definite height + auto fill → sequential
-        (Some(h), ColumnFill::Auto) => {
-            let frags = fill_columns_sequential(dom, children, env, h, u32::MAX, false);
-            let frags = fill_and_position(dom, frags);
-            (frags, h)
-        }
-        // Definite height + balance → balanced with max_height
-        (Some(h), ColumnFill::Balance) => {
-            // Use min(definite_height, max-block-size) as balance upper bound.
-            let max_h = balance_max_height.map_or(h, |m| h.min(m));
-            let (frags, col_height) = fill_columns_balanced(dom, children, env, Some(max_h));
-            let frags = fill_and_position(dom, frags);
-            (frags, col_height.min(h))
-        }
-        // Auto height → always balance (CSS Multi-column L1 §7)
-        (None, _) => {
-            let (frags, col_height) = fill_columns_balanced(dom, children, env, balance_max_height);
-            let frags = fill_and_position(dom, frags);
-            (frags, col_height)
+fn column_shift_roots(
+    dom: &EcsDom,
+    children: &[Entity],
+    frags: &[fill::ColumnFragment],
+    atomic_exclude: &std::collections::HashSet<Entity>,
+) -> Vec<Vec<Entity>> {
+    // Each live entity retains its last fragment. A descendant can finish in an
+    // earlier column than its parent. Move its subtree at its own column offset.
+    let mut last_column = std::collections::HashMap::new();
+    for (column, fragment) in frags.iter().enumerate() {
+        for (_, entity) in fragment.contribution.contributed_items() {
+            last_column.insert(entity, column);
         }
     }
+    let mut shift_roots = vec![Vec::new(); frags.len()];
+    let mut pending: Vec<_> = children.iter().map(|&child| (child, None)).collect();
+    while let Some((entity, inherited_column)) = pending.pop() {
+        if atomic_exclude.contains(&entity) {
+            continue;
+        }
+        let column = last_column.get(&entity).copied().or(inherited_column);
+        if let Some(index) = column.filter(|&index| Some(index) != inherited_column) {
+            shift_roots[index].push(entity);
+        }
+        pending.extend(
+            dom.composed_children(entity)
+                .into_iter()
+                .map(|child| (child, column)),
+        );
+    }
+    shift_roots
 }
 
 /// Position column fragment children by shifting them to their column's
@@ -414,6 +481,7 @@ fn layout_normal_segment(
 fn position_column_fragments(
     dom: &mut EcsDom,
     frags: &[fill::ColumnFragment],
+    children: &[Entity],
     geom: &ColumnGeometry,
     wm: WritingModeContext,
     is_probe: bool,
@@ -478,6 +546,9 @@ fn position_column_fragments(
     // born-absolute lines excluded from the column shift by construction (timing).
     let mut flows: std::collections::HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>> =
         std::collections::HashMap::new();
+    let shift_roots = column_shift_roots(dom, children, frags, &atomic_exclude);
+    let mut exclude = atomic_exclude.clone();
+    exclude.extend(shift_roots.iter().flatten().copied());
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
@@ -572,14 +643,18 @@ fn position_column_fragments(
         // rebuilt by the probe). This mirrors the `push_box` suppression above
         // (`if !is_probe`) — the col-shift now honors the same flag the col-commit
         // already does, so a probe neither pushes nor shifts persisted render state.
+        for root in &shift_roots[i] {
+            exclude.remove(root);
+        }
         elidex_layout_block::block::shift_descendants_excluding_own_fragments(
             dom,
-            &frag.children,
+            &shift_roots[i],
             delta,
             &own,
-            &atomic_exclude,
+            &exclude,
             is_probe,
         );
+        exclude.extend(shift_roots[i].iter().copied());
     }
 
     // Build the mid-break run-starts' `InlineFlow` AFTER the column loop (the

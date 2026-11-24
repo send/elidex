@@ -113,6 +113,7 @@ fn direct_text_resumes_in_each_column_without_a_spanning_child_snapshot() {
         } else {
             fill_columns_sequential(&mut dom, &[text], &env, 1.0, 10, false)
         };
+        let columns = columns.fragments;
         assert_eq!(columns.len(), 4);
         assert!(columns.iter().all(|col| col.box_snapshots.is_empty()));
         let slice = dom
@@ -245,6 +246,82 @@ fn mixed_child_keeps_both_run_keys_in_the_resumed_column() {
                     .collect();
                 assert_eq!(words, expected.split_whitespace().collect::<Vec<_>>());
             }
+        }
+    }
+}
+
+#[test]
+fn overflow_column_cap_preserves_remaining_source_in_both_media() {
+    use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType};
+    let fonts = make_font_db();
+    let frag = FragmentainerContext {
+        available_block_size: 100.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    for outer in [Some(&frag), None] {
+        let mut dom = EcsDom::new();
+        let owner = elem(&mut dom, "div");
+        dom.world_mut().insert_one(
+            owner,
+            ComputedStyle {
+                display: Display::Block,
+                column_count: Some(2),
+                column_gap: Dimension::Length(0.0),
+                column_fill: ColumnFill::Auto,
+                height: Dimension::Length(40.0),
+                ..Default::default()
+            },
+        );
+        let children: Vec<_> = (0..1001)
+            .map(|i| {
+                let id = add_block_child(&mut dom, owner, 1.0);
+                if i < 1000 {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(id)
+                        .unwrap()
+                        .break_after = elidex_plugin::BreakValue::Column;
+                }
+                id
+            })
+            .collect();
+        let input = LayoutInput {
+            fragmentainer: outer,
+            ..make_input(&fonts)
+        };
+        let first = layout_multicol(&mut dom, owner, &input, layout_child_fn);
+        assert!(first.contribution.is_finished(owner, children[999]));
+        if outer.is_some() {
+            assert!(!first.contribution.is_finished(owner, children[1000]));
+            let token = first.break_token.unwrap();
+            assert!(
+                matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
+            );
+            let tail = layout_multicol(
+                &mut dom,
+                owner,
+                &LayoutInput {
+                    break_token: Some(&token),
+                    ..input
+                },
+                layout_child_fn,
+            );
+            assert_eq!(
+                tail.contribution.contributed_items().collect::<Vec<_>>(),
+                [(owner, children[1000])]
+            );
+            assert!(tail.break_token.is_none());
+        } else {
+            assert!(first.contribution.is_finished(owner, children[1000]));
+            assert!(first.break_token.is_none());
+            assert_eq!(
+                dom.world()
+                    .get::<&LayoutBox>(children[1000])
+                    .unwrap()
+                    .content
+                    .origin
+                    .x,
+                300_000.0
+            );
         }
     }
 }

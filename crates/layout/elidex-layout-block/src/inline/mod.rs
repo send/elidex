@@ -53,6 +53,7 @@ pub(in crate::inline) use whitespace::is_collapsible_space;
 
 /// Result of inline layout, including static positions for absolutely positioned descendants.
 pub struct InlineLayoutResult {
+    pub contribution: crate::source_progress::SourceProgress,
     /// Total block-axis dimension consumed by all line boxes.
     pub height: f32,
     /// Static positions for absolutely positioned placeholders
@@ -147,16 +148,40 @@ pub fn layout_inline_context_fragmented(
     env: &crate::LayoutEnv<'_>,
     frag_constraint: Option<&InlineFragConstraint>,
 ) -> InlineLayoutResult {
+    let (mut result, interrupted) = layout_inline_fragment(
+        dom,
+        children,
+        containing_inline_size,
+        parent_entity,
+        content_origin,
+        env,
+        frag_constraint,
+    );
+    if interrupted {
+        let mut cumulative = frag_constraint
+            .and_then(|constraint| constraint.progress.clone())
+            .unwrap_or_default();
+        cumulative.include(&result.contribution);
+        result.continuation = Some(cumulative);
+    }
+    result
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn layout_inline_fragment(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    containing_inline_size: f32,
+    parent_entity: Entity,
+    content_origin: Point,
+    env: &crate::LayoutEnv<'_>,
+    frag_constraint: Option<&InlineFragConstraint>,
+) -> (InlineLayoutResult, bool) {
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, candidate_keys, top_level_key) = collect_inline_items(
-        dom,
-        children,
-        &parent_style,
-        parent_entity,
-        frag_constraint.is_some(),
-    );
+    let (mut items, candidate_keys, top_level_key) =
+        collect_inline_items(dom, children, &parent_style, parent_entity, true);
     let progress = frag_constraint.and_then(|c| c.progress.as_ref());
     let source_index = progress.map(crate::source_progress::SourceProgress::index);
     if let Some(cursor) = &source_index {
@@ -171,13 +196,17 @@ pub fn layout_inline_context_fragmented(
     if items.is_empty() {
         clear_inline_flows(dom, &candidate_keys, &no_persisted);
         let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
-        return InlineLayoutResult {
-            height: 0.0,
-            static_positions: HashMap::new(),
-            first_baseline: None,
-            line_count: 0,
-            continuation: None,
-        };
+        return (
+            InlineLayoutResult {
+                contribution: crate::source_progress::SourceProgress::default(),
+                height: 0.0,
+                static_positions: HashMap::new(),
+                first_baseline: None,
+                line_count: 0,
+                continuation: None,
+            },
+            false,
+        );
     }
 
     let is_vertical = !parent_style.writing_mode.is_horizontal();
@@ -211,13 +240,24 @@ pub fn layout_inline_context_fragmented(
         if !any_font && !items.iter().any(|i| matches!(i, InlineItem::Atomic { .. })) {
             clear_inline_flows(dom, &candidate_keys, &no_persisted);
             let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
-            return InlineLayoutResult {
-                height: 0.0,
-                static_positions: HashMap::new(),
-                first_baseline: None,
-                line_count: 0,
-                continuation: None,
-            };
+            return (
+                InlineLayoutResult {
+                    contribution: committed_source(
+                        dom,
+                        parent_entity,
+                        children,
+                        &items,
+                        source_index.as_ref(),
+                        None,
+                    ),
+                    height: 0.0,
+                    static_positions: HashMap::new(),
+                    first_baseline: None,
+                    line_count: 0,
+                    continuation: None,
+                },
+                false,
+            );
         }
     }
 
@@ -308,38 +348,20 @@ pub fn layout_inline_context_fragmented(
 
     // Compute total block using only lines up to break point (if fragmented).
     let effective_line_count = break_after_line.unwrap_or(line_count);
-    let continuation = break_after_line.map(|line| {
-        // Each rendered line is flushed by a placed item. Verify forced and soft wraps:
-        // cargo test -p elidex-layout-block fragment_cursor
-        let (_, index, start) = placements
+    let cut = break_after_line.map(|line| {
+        placements
             .iter()
             .find(|(placed, ..)| *placed >= line)
-            .expect("break precedes a packed line");
-        let mut cursor = progress.cloned().unwrap_or_default();
-        let prefix = |entity| {
-            source_index
-                .as_ref()
-                .map_or_else(crate::source_progress::SourcePosition::default, |i| {
-                    i.prefix_end(parent_entity, entity)
-                })
-        };
-        for item in &items[..*index] {
-            let (entity, len) = item.source();
-            cursor.consume(
-                parent_entity,
-                entity,
-                prefix(entity)..crate::source_progress::SourcePosition::byte(len),
-            );
-            cursor.finish_item(parent_entity, entity);
-        }
-        cursor.consume(
-            parent_entity,
-            items[*index].source().0,
-            prefix(items[*index].source().0)..*start,
-        );
-        cursor
+            .expect("break precedes a packed line")
     });
-
+    let contribution = committed_source(
+        dom,
+        parent_entity,
+        children,
+        &items,
+        source_index.as_ref(),
+        cut.map(|(_, i, pos)| (*i, *pos)),
+    );
     // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
     // the three text-feature gates that once forced render's legacy
     // collect/collapse/emit path — text-transform, bidi, and **justify** — have all
@@ -450,13 +472,80 @@ pub fn layout_inline_context_fragmented(
         &packer.relpos_atomic_placements,
     );
 
-    InlineLayoutResult {
-        height: total_block,
-        static_positions,
-        first_baseline: packer.first_baseline,
-        line_count,
-        continuation,
+    (
+        InlineLayoutResult {
+            contribution,
+            height: total_block,
+            static_positions,
+            first_baseline: packer.first_baseline,
+            line_count,
+            continuation: None,
+        },
+        cut.is_some(),
+    )
+}
+
+fn committed_source(
+    dom: &EcsDom,
+    parent_entity: Entity,
+    children: &[Entity],
+    items: &[InlineItem],
+    source_index: Option<&crate::source_progress::ProgressIndex>,
+    cut: Option<(usize, crate::source_progress::SourcePosition)>,
+) -> crate::source_progress::SourceProgress {
+    let mut contribution = crate::source_progress::SourceProgress::default();
+    let prefix = |entity| {
+        source_index
+            .as_ref()
+            .map_or_else(crate::source_progress::SourcePosition::default, |index| {
+                index.prefix_end(parent_entity, entity)
+            })
+    };
+    let finished = cut.map_or(items.len(), |(index, _)| index);
+    for item in &items[..finished] {
+        let (entity, len) = item.source();
+        contribution.consume(
+            parent_entity,
+            entity,
+            prefix(entity)..crate::source_progress::SourcePosition::byte(len),
+        );
+        contribution.finish_item(parent_entity, entity);
     }
+    if let Some((index, start)) = cut {
+        let entity = items[index].source().0;
+        contribution.consume(parent_entity, entity, prefix(entity)..start);
+    }
+    // Source ranges may belong to a text node inside a direct inline child.
+    // Report that child's membership to its parent regardless of nesting.
+    let sources: std::collections::HashSet<_> = items.iter().map(|item| item.source().0).collect();
+    let touched: std::collections::HashSet<_> = contribution
+        .contributed_items()
+        .map(|(_, item)| item)
+        .collect();
+    for &wrapper in children {
+        if sources.contains(&wrapper) {
+            continue;
+        }
+        let mut pending = dom.composed_children(wrapper);
+        let mut advanced = false;
+        let mut finished = true;
+        while let Some(source) = pending.pop() {
+            if sources.contains(&source) {
+                advanced |= touched.contains(&source);
+                finished &= contribution.is_finished(parent_entity, source);
+            } else {
+                pending.extend(dom.composed_children(source));
+            }
+        }
+        if advanced {
+            if finished {
+                contribution.finish_item(parent_entity, wrapper);
+            } else {
+                contribution.record_item(parent_entity, wrapper);
+            }
+        }
+    }
+    contribution
 }
 
 /// Reposition an atomic inline's `LayoutBox` (and its descendants) from the
