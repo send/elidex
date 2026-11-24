@@ -682,8 +682,8 @@ pub struct JsCalleeInfo {
 ///   throws TypeError because the function has no `[[Construct]]`
 ///   (ECMA-262 §10.3 — "A built-in function object has a
 ///   `[[Construct]]` internal method if and only if it is described
-///   as a 'constructor'") and §7.2.4 IsConstructor's precondition at
-///   the `new` evaluation site raises "not a constructor".
+///   as a 'constructor'"). `IsConstructor` (§7.2.4) returns false.
+///   VM constructor admission supplies the TypeError diagnostic for `new`.
 ///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
 ///   throws TypeError per the WebIDL §3.7.1 (Interface object) creation
@@ -707,8 +707,8 @@ pub struct JsCalleeInfo {
 ///   `AbortSignal` (no `constructor()` in its WebIDL — instances come
 ///   from `new AbortController().signal` / the static `AbortSignal.abort`
 ///   / `.timeout` / `.any` factories).
-///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
-///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
+///   `CallableOnly` permits `[[Call]]`. On construction, VM constructor admission
+///   produces the diagnostic `"<name> is not a constructor"`. The WebIDL gate
 ///   throws in *both* modes with the WebIDL "Illegal constructor"
 ///   message.  The thrown text is not spec-prescribed (§3.7.1 mandates
 ///   only "throw a TypeError"); the wording matches Chrome's WebIDL
