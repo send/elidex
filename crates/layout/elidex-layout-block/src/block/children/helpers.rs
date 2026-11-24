@@ -21,7 +21,7 @@ pub(super) struct InlineRunResult {
     /// Block-axis extent consumed by the inline run.
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
-    /// If fragmentation was applied, the line index after which to break.
+    /// Whether the selected inline fragment has remaining source.
     pub interrupted: bool,
 }
 

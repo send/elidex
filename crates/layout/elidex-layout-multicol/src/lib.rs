@@ -178,12 +178,29 @@ pub fn layout_multicol(
     let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let mut multicol_segments: Vec<(u32, f32, f32)> = Vec::new();
 
-    let (start, incoming) = match input.break_token.and_then(|bt| bt.mode_data.as_ref()) {
-        Some(elidex_layout_block::BreakTokenData::Multicol {
+    let (start, incoming) = if let Some(token) = input.break_token {
+        assert_eq!(token.entity, entity, "Multicol continuation owner mismatch");
+        let Some(elidex_layout_block::BreakTokenData::Multicol {
             segment_index,
             column,
-        }) => (*segment_index, Some(column.as_ref())),
-        _ => (0, None),
+        }) = &token.mode_data
+        else {
+            panic!("Multicol continuation requires a segment and column route");
+        };
+        let Some(Segment::Normal(children)) = segments.get(*segment_index) else {
+            panic!("Multicol continuation must name a normal segment");
+        };
+        assert!(
+            matches!(
+                column.mode_data,
+                Some(elidex_layout_block::BreakTokenData::Block { .. })
+            ),
+            "invalid column route kind"
+        );
+        elidex_layout_block::block::validate_block_route(dom, entity, children, Some(column));
+        (*segment_index, Some(column.as_ref()))
+    } else {
+        (0, None)
     };
     let mut break_token = None;
     for (index, segment) in segments.iter().enumerate().skip(start) {

@@ -27,6 +27,7 @@ use crate::{
     sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
+pub use children::validate_route as validate_block_route;
 pub use children::{
     resolve_block_height, shift_descendants, shift_descendants_excluding_own_fragments,
     stack_block_children, StackResult,

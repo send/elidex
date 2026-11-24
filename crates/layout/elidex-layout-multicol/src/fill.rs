@@ -221,7 +221,12 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
-        if result.break_token.is_some() {
+        let carry = result.break_token.filter(|token| {
+            !matches!(&token.mode_data, Some(BreakTokenData::Block {
+            child_index, continuation: elidex_layout_block::BlockContinuation::ChildBoundary, ..
+        }) if *child_index == children.len())
+        });
+        if carry.is_some() {
             let empty = elidex_layout_block::source_progress::SourceProgress::default();
             let previous = match carry_break_token
                 .as_ref()
@@ -238,7 +243,7 @@ pub fn fill_columns_sequential(
             box_snapshots,
         });
 
-        carry_break_token = result.break_token;
+        carry_break_token = carry;
         if carry_break_token.is_none() || stalled {
             break;
         }

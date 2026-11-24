@@ -72,7 +72,7 @@ fn participates(dom: &elidex_ecs::EcsDom, child: Entity) -> bool {
 }
 
 /// Validate a caller-supplied Block continuation before publishing the next fragment.
-pub(super) fn validate_route(
+pub fn validate_route(
     dom: &elidex_ecs::EcsDom,
     owner: Entity,
     children: &[Entity],
