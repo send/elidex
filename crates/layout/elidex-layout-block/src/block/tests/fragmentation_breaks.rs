@@ -33,9 +33,8 @@ fn forced_break_before_produces_break_token() {
         "forced break-before should produce a break token"
     );
     let bt = outcome.break_token.unwrap();
-    assert!(bt.child_break_token.is_some());
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 1,
             "break should occur before 2nd child (index 1)"
@@ -70,8 +69,8 @@ fn forced_break_after_produces_break_token() {
         "forced break-after should produce a break token"
     );
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 1,
             "break should occur after 1st child (resume at index 1)"
@@ -236,8 +235,7 @@ fn monolithic_first_child_overflows_without_break() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     // First (and only) child is monolithic with no prior content → overflow allowed.
     if let Some(bt) = &outcome.break_token {
-        let child_bt = bt.child_break_token.as_ref().unwrap();
-        if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+        if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
             assert_eq!(*child_index, 1);
         }
     }

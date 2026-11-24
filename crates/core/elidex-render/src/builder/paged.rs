@@ -287,7 +287,11 @@ fn collect_continuation_entities(
     }
     while let Some(bt) = stack.pop() {
         set.insert(bt.entity);
-        if let Some(ref child_bt) = bt.child_break_token {
+        if let Some(elidex_layout_block::BreakTokenData::Block {
+            continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child_bt),
+            ..
+        }) = &bt.mode_data
+        {
             stack.push(child_bt);
         }
     }

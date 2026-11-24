@@ -9,7 +9,7 @@
 //!   moves a standalone box fragment too — else it would paint at its pre-shift
 //!   position once consumed.
 //! - **P3** precise mid-break signal: `col_children` membership (which drives the
-//!   column shift) uses the precise `child_break_token`, not the coarse positional
+//!   column shift) uses the precise `BlockContinuation::InterruptedChild`, not the coarse positional
 //!   proxy, so a `break-before: column` deferral is not misclassified as mid-break.
 
 use super::box_fragment::add_spanning_block;
@@ -389,13 +389,13 @@ fn p2_whole_nested_multicol_fragments_shift_with_outer_column() {
 #[test]
 fn p3_deferred_whole_child_is_positioned_once_not_double_shifted() {
     // P3 converges `col_children` (which drives the per-column LayoutBox/InlineFlow
-    // shift) onto the precise `child_break_token` signal the box capture already
+    // shift) onto the precise `BlockContinuation::InterruptedChild` signal the box capture already
     // uses. The coarse `break_token.is_some()` positional proxy it replaces could,
     // at a `next == prev` resume point with no actual child split, misclassify a
     // deferred-WHOLE child as mid-break and additively double-shift it. That exact
     // double-shift is currently UNREACHABLE (this engine defers a child to a clean
     // column boundary before ever splitting it, so coarse and precise coincide —
-    // the Z-1a `child_break_token` investigation), but the precise signal removes
+    // the Z-1a `BlockContinuation::InterruptedChild` investigation), but the precise signal removes
     // the latent risk and is the single source for both the shift membership and
     // the box snapshot. This pins the reachable guarantee: a whole sibling that
     // does not fit in the remaining space is deferred whole to the NEXT column and

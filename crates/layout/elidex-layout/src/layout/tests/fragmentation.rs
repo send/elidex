@@ -416,3 +416,38 @@ fn paged_two_pass_counter_pages() {
     assert!(total >= 2, "should have multiple pages");
     assert_eq!(pages.last().unwrap().page_number, total);
 }
+
+#[test]
+fn new_paged_run_starts_at_first_child_after_style_change() {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let style = |height| ComputedStyle {
+        display: Display::Block,
+        height,
+        ..Default::default()
+    };
+    dom.world_mut()
+        .insert_one(parent, style(Dimension::Auto))
+        .unwrap();
+    let mut children = Vec::new();
+    for _ in 0..3 {
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+        assert!(dom.append_child(parent, child));
+        dom.world_mut()
+            .insert_one(child, style(Dimension::Length(70.)))
+            .unwrap();
+        children.push(child);
+    }
+    let fonts = FontDatabase::new();
+    let pages = make_page_ctx(400., 200.);
+    assert_eq!(layout_paged(&mut dom, &pages, &fonts).len(), 3);
+    for child in children {
+        dom.world_mut()
+            .insert_one(child, style(Dimension::Length(20.)))
+            .unwrap();
+    }
+    let rerun = layout_paged(&mut dom, &pages, &fonts);
+    assert_eq!(rerun.len(), 1);
+    assert_eq!(rerun[0].page_number, 1);
+    assert_eq!(rerun[0].layout_box.content.size.height, 60.);
+}

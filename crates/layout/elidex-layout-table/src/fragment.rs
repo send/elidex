@@ -111,7 +111,6 @@ pub(crate) fn compute_table_fragmentation(
                     let bt = BreakToken {
                         entity,
                         consumed_block_size: consumed,
-                        child_break_token: None,
                         mode_data: Some(BreakTokenData::Table {
                             row_index: row_idx,
                             thead_entity,
@@ -132,7 +131,6 @@ pub(crate) fn compute_table_fragmentation(
                     let bt = BreakToken {
                         entity,
                         consumed_block_size: consumed,
-                        child_break_token: None,
                         mode_data: Some(BreakTokenData::Table {
                             row_index: row_idx,
                             thead_entity,
@@ -167,7 +165,6 @@ pub(crate) fn compute_table_fragmentation(
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed_at_break,
-                    child_break_token: None,
                     mode_data: Some(BreakTokenData::Table {
                         row_index: break_row,
                         thead_entity,

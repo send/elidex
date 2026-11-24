@@ -36,6 +36,9 @@ use elidex_text::FontDatabase;
 /// producer goes through, enforced by the D4 trip-wire's wire #5. So the phase rule is
 /// once again ONE sentence at ONE granularity: *any write to either geometry source
 /// invalidates; only `layout_tree` publishes, at completion.*
+///
+/// A continuation in `input.break_token` belongs to the same immutable input.
+/// Start a new run with empty progress after changing the DOM or computed style.
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,

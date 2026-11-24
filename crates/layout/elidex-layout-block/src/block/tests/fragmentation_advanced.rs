@@ -233,12 +233,12 @@ fn orphans_widows_unit_basic() {
         available_block: 100.0,
         orphans: 2,
         widows: 2,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Page,
     };
     assert_eq!(constraint.orphans, 2);
     assert_eq!(constraint.widows, 2);
-    assert_eq!(constraint.skip_lines, 0);
+    assert!(constraint.progress.is_none());
     assert!((constraint.available_block - 100.0).abs() < f32::EPSILON);
 }
 
@@ -249,7 +249,7 @@ fn orphans_widows_monolithic_when_exceeds_total() {
         available_block: 50.0,
         orphans: 5,
         widows: 5,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Page,
     };
     assert_eq!(constraint.orphans, 5);
@@ -309,7 +309,13 @@ fn nested_block_fragmentation_break_token_chain() {
     );
     let bt = outcome.break_token.unwrap();
     assert!(
-        bt.child_break_token.is_some(),
+        matches!(
+            bt.mode_data,
+            Some(crate::BreakTokenData::Block {
+                continuation: crate::BlockContinuation::InterruptedChild(_),
+                ..
+            })
+        ),
         "outer token should have child_break_token"
     );
 }
@@ -372,11 +378,11 @@ fn forced_break_before_first_child_produces_empty_fragment() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.unwrap();
+
     assert!(
-        child_bt.consumed_block_size < f32::EPSILON,
+        bt.consumed_block_size < f32::EPSILON,
         "empty fragment: consumed_block_size should be ~0, got {}",
-        child_bt.consumed_block_size
+        bt.consumed_block_size
     );
 }
 
@@ -408,8 +414,8 @@ fn best_break_selects_last_fitting_candidate() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 3,
             "should break before child 3 (after 90px of content)"
@@ -459,8 +465,8 @@ fn monolithic_non_first_child_breaks_before() {
         "should break before monolithic child that would overflow"
     );
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 1,
             "should break before the monolithic child (index 1)"
@@ -573,8 +579,8 @@ fn child_index_correct_with_display_none_children() {
     let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome1.break_token.is_some());
     let bt = outcome1.break_token.unwrap();
-    let child_bt = bt.child_break_token.as_ref().unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 3,
             "break should be at array index 3 (second block child, after display:none gaps)"
@@ -627,8 +633,8 @@ fn break_after_avoid_penalizes_candidate() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.as_ref().unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 3,
             "best break should prefer non-avoid candidate (break at child 3)"
@@ -738,8 +744,8 @@ fn monolithic_deferred_when_no_space_remaining() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.break_token.is_some());
     let bt = outcome.break_token.unwrap();
-    let child_bt = bt.child_break_token.as_ref().unwrap();
-    if let Some(BreakTokenData::Block { child_index, .. }) = &child_bt.mode_data {
+
+    if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
             *child_index, 1,
             "monolithic child should be deferred (break at index 1)"
@@ -747,4 +753,55 @@ fn monolithic_deferred_when_no_space_remaining() {
     } else {
         panic!("expected Block break token data");
     }
+}
+
+#[test]
+fn mixed_stack_routes_both_local_runs_to_their_source() {
+    let font_db = FontDatabase::from_fixture(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../core/elidex-render/tests/fixtures/digits.ttf"
+    )));
+    let (mut dom, parent) = make_dom_with_block_div(ComputedStyle {
+        orphans: 1,
+        widows: 1,
+        font_family: vec!["Elidex Test Digits".into()],
+        ..block_style()
+    });
+    let before = dom.create_text_ownerless_fixture("A B C");
+    dom.append_child(parent, before);
+    make_block_child(&mut dom, parent, 2.0);
+    let after = dom.create_text_ownerless_fixture("D E F");
+    dom.append_child(parent, after);
+    let frag = FragmentainerContext {
+        available_block_size: 1.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    let mut token = None;
+    let mut local_runs = Vec::new();
+    for _ in 0..10 {
+        let input = LayoutInput {
+            containing: elidex_plugin::CssSize::definite(1.0, 1.0),
+            containing_inline_size: 1.0,
+            fragmentainer: Some(&frag),
+            break_token: token.as_ref(),
+            ..base_input(&font_db)
+        };
+        token = crate::layout_block_only(&mut dom, parent, &input).break_token;
+        let Some(bt) = &token else { break };
+        if let Some(BreakTokenData::Block {
+            child_index,
+            continuation: crate::BlockContinuation::LocalRun { first, progress },
+        }) = &bt.mode_data
+        {
+            assert_eq!(*first, if *child_index == 0 { before } else { after });
+            assert!(progress.contains(
+                parent,
+                *first,
+                crate::source_progress::SourcePosition::byte(0)
+            ));
+            local_runs.push(*first);
+        }
+    }
+    assert!(token.is_none());
+    assert_eq!(local_runs, [before, before, after, after]);
 }

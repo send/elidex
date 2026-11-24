@@ -786,7 +786,6 @@ fn compute_grid_fragmentation(
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed,
-                    child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: row_idx,
                         child_break_tokens,
@@ -812,7 +811,6 @@ fn compute_grid_fragmentation(
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed,
-                    child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: row_idx,
                         child_break_tokens,
@@ -847,7 +845,6 @@ fn compute_grid_fragmentation(
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed_at_break,
-                    child_break_token: None,
                     mode_data: Some(BreakTokenData::Grid {
                         row_index: break_row,
                         child_break_tokens,
@@ -908,7 +905,6 @@ fn collect_spanning_item_breaks(
         let item_bt = BreakToken {
             entity: item.entity,
             consumed_block_size: consumed,
-            child_break_token: None,
             mode_data: None,
         };
         result.push((item.entity, Box::new(item_bt)));

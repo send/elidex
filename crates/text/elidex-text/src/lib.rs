@@ -10,7 +10,7 @@ pub use elidex_bidi::{
 pub use elidex_linebreak::{find_break_opportunities, BreakOpportunity};
 pub use elidex_shaping::{
     apply_text_transform, is_word_separator, measure_text, shape_text, shape_text_vertical,
-    shape_text_vertical_sideways, shape_text_with_fallback, to_fontdb_style, FontDatabase, FontId,
-    FontMetrics, FontStyle, ShapedGlyph, ShapedRun, ShapedText, ShapedTextWithFonts,
-    TextMeasureParams, TextMetrics,
+    shape_text_vertical_sideways, shape_text_with_fallback, to_fontdb_style, transform_with_source,
+    FontDatabase, FontId, FontMetrics, FontStyle, ShapedGlyph, ShapedRun, ShapedText,
+    ShapedTextWithFonts, TextMeasureParams, TextMetrics,
 };
