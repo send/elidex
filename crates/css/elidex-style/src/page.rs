@@ -104,7 +104,8 @@ fn prepare_geometry(
     }
     let resolved = resolve_in_context(&candidates, root, true);
     let winners = resolved.ordinary();
-    let font = resolve_font_size(&winners, root, &ctx);
+    let mut parent = crate::resolve::build_computed_style(&winners, root, &ctx);
+    let font = parent.font_size;
     let page_ctx = ctx.with_em_base(font);
     let sheet = sheet_size(winners.get("size"), device.sheet, &page_ctx);
     let margin = |name, base, default| {
@@ -119,11 +120,7 @@ fn prepare_geometry(
         left: margin("margin-left", sheet.width, device.margins.left),
         right: margin("margin-right", sheet.width, device.margins.right),
     };
-    let parent = ComputedStyle {
-        custom_properties: resolved.custom,
-        font_size: font,
-        ..ComputedStyle::default()
-    };
+    parent.custom_properties = resolved.custom;
     let boxes = elidex_css::page::MARGIN_BOX_NAMES
         .iter()
         .filter_map(|&name| boxes.remove(name).map(|entries| (name, entries)))
@@ -136,7 +133,13 @@ fn prepare_geometry(
                 .unwrap_or_default();
             let mut properties: Vec<_> = winners
                 .into_iter()
-                .map(|(k, v)| PropertyDeclaration::new(k, v.clone()))
+                .map(|(k, v)| {
+                    PropertyDeclaration::new(
+                        k,
+                        crate::resolve::helpers::resolve_keyword(k, v, &parent)
+                            .unwrap_or_else(|| v.clone()),
+                    )
+                })
                 .collect();
             properties.sort_by(|a, b| a.property.cmp(&b.property));
             (

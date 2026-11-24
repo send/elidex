@@ -268,3 +268,72 @@ fn box_font_keeps_zero_in_both_absolute_units() {
         assert_eq!(*value, CssValue::Length(px, LengthUnit::Px));
     }
 }
+
+#[test]
+fn compound_percentage_preserves_finite_quotient() {
+    let s = sheet(
+        "@page {size:200px; margin:0; margin-left:calc(50% * 1e37 / 1e37)}",
+        Origin::Author,
+    );
+    let pages = prepare(&[&s]);
+    let page = pages.select(1, false).geometry;
+    assert_eq!(page.margins.left, 100.);
+    assert_eq!(page.area().size.width, 100.);
+}
+
+#[test]
+fn opposing_margins_preserve_both_sheet_extents() {
+    let s = sheet(
+        "@page {size:3e38px; margin:-50% 50% 50% -50%}",
+        Origin::Author,
+    );
+    assert_eq!(
+        prepare(&[&s]).select(1, false).geometry.area().size,
+        Size::new(3e38, 3e38)
+    );
+}
+
+#[test]
+fn large_viewport_units_use_the_finite_selected_area() {
+    for unit in ["vw", "vh", "vmin", "vmax", "lvw", "lvh", "lvmin", "lvmax"] {
+        let s = sheet(
+            &format!("@page {{size:1e37px;margin:0}} @page :left {{margin-left:50{unit}}}"),
+            Origin::Author,
+        );
+        let pages = prepare(&[&s]);
+        let page = pages.select(2, false).geometry;
+        assert_eq!(page.margins.left, 5e36, "{unit}");
+        assert_eq!(page.area().size.width, 5e36);
+    }
+}
+
+#[test]
+fn margin_box_percentage_font_retains_its_finite_em_base() {
+    let s = sheet(
+        "@page {font-size:1e37px; @top-left {content:'x';font-size:50%;padding-left:1em}}",
+        Origin::Author,
+    );
+    let pages = prepare(&[&s]);
+    let props = &pages.select(1, false).boxes[0].1.properties;
+    for name in ["font-size", "padding-left"] {
+        assert_eq!(
+            props.iter().find(|d| d.property == name).unwrap().value,
+            CssValue::Length(5e36, LengthUnit::Px)
+        );
+    }
+}
+
+#[test]
+fn inherited_margin_box_padding_uses_computed_page_length() {
+    let s=sheet("@page {font-size:12px;padding-left:2em; @top-left {font-size:8px;content:'x';padding-left:inherit}}",Origin::Author);
+    let pages = prepare(&[&s]);
+    let props = &pages.select(1, false).boxes[0].1.properties;
+    assert_eq!(
+        props
+            .iter()
+            .find(|d| d.property == "padding-left")
+            .unwrap()
+            .value,
+        CssValue::Length(24., LengthUnit::Px)
+    );
+}

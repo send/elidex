@@ -59,23 +59,28 @@ fn resolve_css_length(val: &CssValue, ctx: &ResolveContext) -> CssValue {
 /// Non-finite results (NaN/Infinity from overflow) are clamped to `0.0`.
 #[must_use]
 pub fn resolve_length(value: f32, unit: LengthUnit, ctx: &ResolveContext) -> f32 {
-    let result = match unit {
-        LengthUnit::Em => value * ctx.em_base,
-        LengthUnit::Rem => value * ctx.root_font_size,
-        LengthUnit::Vw | LengthUnit::Lvw => value * ctx.viewport.width / 100.0,
-        LengthUnit::Vh | LengthUnit::Lvh => value * ctx.viewport.height / 100.0,
+    finite_length(resolve_length_wide(value, unit, ctx))
+}
+
+fn resolve_length_wide(value: f32, unit: LengthUnit, ctx: &ResolveContext) -> f64 {
+    match unit {
+        LengthUnit::Em => f64::from(value) * f64::from(ctx.em_base),
+        LengthUnit::Rem => f64::from(value) * f64::from(ctx.root_font_size),
+        LengthUnit::Vw | LengthUnit::Lvw => percentage_wide(ctx.viewport.width, value),
+        LengthUnit::Vh | LengthUnit::Lvh => percentage_wide(ctx.viewport.height, value),
         LengthUnit::Vmin | LengthUnit::Lvmin => {
-            value * ctx.viewport.width.min(ctx.viewport.height) / 100.0
+            percentage_wide(ctx.viewport.width.min(ctx.viewport.height), value)
         }
         LengthUnit::Vmax | LengthUnit::Lvmax => {
-            value * ctx.viewport.width.max(ctx.viewport.height) / 100.0
+            percentage_wide(ctx.viewport.width.max(ctx.viewport.height), value)
         }
-        // CSS Values 4 §6.2 fixed ratios. Canonical px and grid fractions pass through.
-        #[allow(clippy::cast_possible_truncation)]
-        _ => unit
-            .physical_px_ratio()
-            .map_or(value, |ratio| (f64::from(value) * ratio) as f32),
-    };
+        _ => f64::from(value) * unit.physical_px_ratio().unwrap_or(1.0),
+    }
+}
+
+#[allow(clippy::cast_possible_truncation)] // Narrow only the final used value.
+fn finite_length(value: f64) -> f32 {
+    let result = value as f32;
     if result.is_finite() {
         result
     } else {
@@ -118,7 +123,11 @@ pub fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
 #[must_use]
 #[allow(clippy::cast_possible_truncation)] // Only the final used length is stored as f32.
 pub fn percentage_of(base: f32, percent: f32) -> f32 {
-    (f64::from(base) * f64::from(percent) / 100.0) as f32
+    percentage_wide(base, percent) as f32
+}
+
+fn percentage_wide(base: f32, percent: f32) -> f64 {
+    f64::from(base) * f64::from(percent) / 100.0
 }
 
 /// Resolve a `calc()` expression tree to a pixel value.
@@ -132,25 +141,21 @@ pub fn resolve_calc_expr(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveCon
         CalcResolved::Length(l) => l,
         CalcResolved::Scalar(_) => 0.0,
     };
-    if result.is_finite() {
-        result
-    } else {
-        0.0
-    }
+    finite_length(result)
 }
 
 /// CSS Values 4 §§9.1, 10.12: apply the property range to the final scalar.
 #[must_use]
 pub fn resolve_flex_factor(value: &CssValue, ctx: &ResolveContext) -> Option<f32> {
     let n = match value {
-        CssValue::Number(n) => *n,
+        CssValue::Number(n) => f64::from(*n),
         CssValue::Calc(expr) => match resolve_calc_typed(expr, 0.0, ctx) {
             CalcResolved::Scalar(n) => n,
             CalcResolved::Length(_) => return None,
         },
         _ => return None,
     };
-    Some(if n.is_finite() { n.max(0.0) } else { 0.0 })
+    Some(finite_length(n).max(0.0))
 }
 
 /// Resolve a [`CssValue::Number`] to an `i32`.
@@ -365,20 +370,20 @@ pub fn resolve_color(value: &CssValue, current_color: CssColor) -> CssColor {
 // --- Internal helpers ---
 
 enum CalcResolved {
-    Length(f32),
-    Scalar(f32),
+    Length(f64),
+    Scalar(f64),
 }
 
 fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> CalcResolved {
     match expr {
-        CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length(*v, *unit, ctx)),
-        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_of(percentage_base, *p)),
-        CalcExpr::Number(n) => CalcResolved::Scalar(*n),
+        CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length_wide(*v, *unit, ctx)),
+        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_wide(percentage_base, *p)),
+        CalcExpr::Number(n) => CalcResolved::Scalar(f64::from(*n)),
         CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
             let is_sub = matches!(expr, CalcExpr::Sub(..));
             let left = resolve_calc_typed(a, percentage_base, ctx);
             let right = resolve_calc_typed(b, percentage_base, ctx);
-            let op: fn(f32, f32) -> f32 = if is_sub { |a, b| a - b } else { |a, b| a + b };
+            let op: fn(f64, f64) -> f64 = if is_sub { |a, b| a - b } else { |a, b| a + b };
             match (left, right) {
                 (CalcResolved::Length(l1), CalcResolved::Length(l2)) => {
                     CalcResolved::Length(op(l1, l2))

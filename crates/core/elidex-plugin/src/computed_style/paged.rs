@@ -124,11 +124,16 @@ pub struct PageGeometry {
 impl PageGeometry {
     #[must_use]
     pub fn area(self) -> crate::Rect {
+        #[allow(clippy::cast_possible_truncation)]
+        // Subtract both margins before narrowing the final extent.
+        let extent = |sheet: f32, start: f32, end: f32| {
+            (f64::from(sheet) - f64::from(start) - f64::from(end)).max(0.0) as f32
+        };
         crate::Rect::new(
             self.margins.left,
             self.margins.top,
-            (self.sheet.width - self.margins.left - self.margins.right).max(0.0),
-            (self.sheet.height - self.margins.top - self.margins.bottom).max(0.0),
+            extent(self.sheet.width, self.margins.left, self.margins.right),
+            extent(self.sheet.height, self.margins.top, self.margins.bottom),
         )
     }
 }
