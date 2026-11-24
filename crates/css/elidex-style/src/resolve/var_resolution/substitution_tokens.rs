@@ -83,3 +83,28 @@ fn shortening_eof_string_repair_uses_final_byte_length() {
         }
     }
 }
+
+#[test]
+fn numeric_source_and_typed_leaves_survive_substituted_reparse() {
+    for (property, source) in [
+        ("flex-grow", "001.2500"),
+        ("flex-basis", "002.54000cm"),
+        ("flex-basis", "012.5000%"),
+        ("flex-grow", "calc(001.2500 + 02)"),
+        ("flex-basis", "calc(002.54000cm + 012.5000%)"),
+    ] {
+        let inherited = HashMap::from([(
+            "--x".into(),
+            ComputedCustom::Value(ComponentValues::capture(source).unwrap()),
+        )]);
+        let seq = ComponentValues::capture("var(--x)").unwrap();
+        let expanded = Environment::new(&inherited, HashMap::new())
+            .ordinary(&seq)
+            .unwrap();
+        assert_eq!(expanded.source(), source);
+        let literal = elidex_css::parse_value_for_property(property, source, None).unwrap();
+        let substituted =
+            elidex_css::parse_value_for_property(property, expanded.source(), None).unwrap();
+        assert_eq!(literal[0].value, substituted[0].value);
+    }
+}

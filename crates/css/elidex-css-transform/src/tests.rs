@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::TransformFunction;
 
 fn parse(name: &str, css: &str) -> Vec<PropertyDeclaration> {
     let handler = TransformHandler;

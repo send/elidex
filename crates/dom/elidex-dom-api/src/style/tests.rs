@@ -630,3 +630,43 @@ fn css_text_invalid_clears() {
         .unwrap();
     assert_eq!(len, JsValue::Number(0.0));
 }
+
+#[test]
+fn flex_setter_and_inline_block_agree_on_members_and_priority() {
+    for use_setter in [false, true] {
+        let (mut dom, elem, mut session) = setup();
+        dom.set_attribute(elem, "style", "flex:10px 2 3 !important; width:5px");
+        if use_setter {
+            dom.set_attribute(elem, "style", "width:5px");
+            StyleSetProperty
+                .invoke(
+                    elem,
+                    &["flex", "10px 2 3", "important"].map(|v| JsValue::String(v.into())),
+                    &mut session,
+                    &mut dom,
+                )
+                .unwrap();
+        }
+        for (name, text) in [
+            ("flex-grow", "2"),
+            ("flex-shrink", "3"),
+            ("flex-basis", "10px"),
+            ("width", "5px"),
+        ] {
+            let args = [JsValue::String(name.into())];
+            assert_eq!(
+                StyleGetPropertyValue
+                    .invoke(elem, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(text.into())
+            );
+            let priority = if name == "width" { "" } else { "important" };
+            assert_eq!(
+                StyleGetPropertyPriority
+                    .invoke(elem, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(priority.into())
+            );
+        }
+    }
+}

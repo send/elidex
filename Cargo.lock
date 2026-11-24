@@ -2100,9 +2100,11 @@ dependencies = [
 name = "elidex-layout-flex"
 version = "0.1.0"
 dependencies = [
+ "elidex-css",
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
 ]
 

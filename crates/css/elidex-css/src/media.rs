@@ -745,3 +745,63 @@ mod tests {
         assert!(!matches("(max-height: 767px)", &env));
     }
 }
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    #[test]
+    fn absent_reference_units_do_not_become_pixel_thresholds() {
+        for unit in "ex rex cap rcap ch rch ic ric lh rlh vi vb lvi lvb svw svh svi svb svmin svmax dvw dvh dvi dvb dvmin dvmax".split_whitespace() {
+            for operand in [format!("1{unit}"), format!("calc(1{unit})")] {
+                let query = parse_media_query_list(&format!("(width >= {operand})"));
+                assert!(!evaluate(&query, &MediaEnvironment::default()), "{operand}");
+            }
+        }
+    }
+
+    #[test]
+    fn physical_and_exact_thresholds_keep_comparison_policy_after_serialization() {
+        for (operand, physical) in [
+            ("96px", false),
+            ("calc(96px)", false),
+            ("2.54cm", true),
+            ("calc(2.54cm)", true),
+        ] {
+            for width in [
+                96.0_f64.next_down(),
+                96.,
+                96.0_f64.next_up(),
+                95.99995,
+                96.00005,
+                95.9998,
+                96.0002,
+            ] {
+                let env = MediaEnvironment {
+                    viewport_width: width,
+                    ..MediaEnvironment::default()
+                };
+                let equal = if physical {
+                    (width - 96.).abs() <= 0.000_096
+                } else {
+                    width == 96.
+                };
+                for (op, expected) in [
+                    ("=", equal),
+                    (">", !equal && width > 96.),
+                    ("<", !equal && width < 96.),
+                    (">=", equal || width > 96.),
+                    ("<=", equal || width < 96.),
+                ] {
+                    let source = format!("(width {op} {operand})");
+                    let parsed = parse_media_query_list(&source);
+                    let serialized = parsed.to_string();
+                    assert!(serialized.contains(operand), "{source} -> {serialized}");
+                    for query in [parsed, parse_media_query_list(&serialized)] {
+                        assert_eq!(evaluate(&query, &env), expected, "{source} at {width}");
+                    }
+                }
+            }
+        }
+    }
+}

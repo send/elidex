@@ -550,7 +550,9 @@ fn destroy_assigned_node_leaves_no_dangling() {
             assigned_nodes: vec![light],
         },
     );
-    let _ = dom.world_mut().insert_one(light, crate::SlottedMarker);
+    let _ = dom
+        .world_mut()
+        .insert_one(light, crate::SlottedMarker { slot });
 
     dom.destroy_entity(light);
     assert!(!dom.contains(light));

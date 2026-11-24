@@ -892,6 +892,52 @@ mod tests {
     }
 
     #[test]
+    fn inserted_rule_flex_members_keep_priority_and_following_declaration() {
+        use super::{
+            DomApiHandler, EcsDom, InsertRule, JsValue, RuleStyleGetPropertyPriority,
+            RuleStyleGetPropertyValue, SessionCore,
+        };
+        let mut dom = EcsDom::new();
+        let sheet =
+            dom.create_element_ownerless_fixture("style", elidex_ecs::Attributes::default());
+        let mut session = SessionCore::new();
+        InsertRule
+            .invoke(
+                sheet,
+                &[
+                    JsValue::String("div {flex:10px 2 3 !important; width:5px}".into()),
+                    JsValue::Number(0.),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        #[allow(clippy::cast_precision_loss)]
+        let id = session.cssom_sheets[&sheet].parsed.rules[0].rule_id as f64;
+        for (name, value) in [
+            ("flex-grow", "2"),
+            ("flex-shrink", "3"),
+            ("flex-basis", "10px"),
+            ("width", "5px"),
+        ] {
+            let args = [JsValue::Number(id), JsValue::String(name.into())];
+            assert_eq!(
+                RuleStyleGetPropertyValue
+                    .invoke(sheet, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(value.into())
+            );
+            let priority = if name == "width" { "" } else { "important" };
+            assert_eq!(
+                RuleStyleGetPropertyPriority
+                    .invoke(sheet, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(priority.into())
+            );
+        }
+    }
+
+    #[test]
     fn visible_count_excludes_media_rules() {
         let ss = mixed();
         assert_eq!(ss.rules.len(), 3, "all three rules are in the cascade list");

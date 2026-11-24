@@ -107,7 +107,10 @@ pub fn parse_raw_token_value(raw: &str) -> CssValue {
     }
 
     // Try length/percentage/auto.
-    if let Ok(val) = try_parse_exhaustive(&mut parser, values::parse_length_percentage_or_auto) {
+    if let Ok(val) = try_parse_exhaustive(
+        &mut parser,
+        elidex_plugin::css_resolve::strict::parse_length_percentage_or_auto,
+    ) {
         return val;
     }
 

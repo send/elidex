@@ -22,7 +22,7 @@ use elidex_plugin::ViewportOverflow;
 
 use elidex_plugin::{EngineMode, Size, Vector};
 
-use crate::animation::{create_animation_engine, sync_css_animations};
+use crate::animation::sync_css_animations;
 use crate::{
     create_css_property_registry, resolve_with_mode, PipelineResult, DEFAULT_VIEWPORT_HEIGHT,
     DEFAULT_VIEWPORT_WIDTH,
@@ -610,7 +610,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -692,7 +692,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     );
 
     let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -787,7 +787,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     );
 
     let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -886,7 +886,7 @@ pub fn build_pipeline_from_loaded(
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -969,3 +969,6 @@ pub fn build_pipeline_from_url(
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }
+
+#[cfg(test)]
+mod page_unit_tests;

@@ -9,9 +9,9 @@ mod parse;
 mod tests;
 
 use elidex_plugin::{
-    css_resolve::resolve_length, BackfaceVisibility, ComputedStyle, CssPropertyHandler, CssValue,
-    Dimension, LengthUnit, ParseError, PropertyDeclaration, ResolveContext, TransformFunction,
-    TransformStyle,
+    css_resolve::{resolve_length, resolve_transform_func},
+    BackfaceVisibility, ComputedStyle, CssPropertyHandler, CssValue, Dimension, LengthUnit,
+    ParseError, PropertyDeclaration, ResolveContext, TransformStyle,
 };
 
 /// CSS Transforms L1/L2 + will-change property handler.
@@ -241,49 +241,6 @@ impl CssPropertyHandler for TransformHandler {
             }
             _ => CssValue::Initial,
         }
-    }
-}
-
-/// Resolve relative length units (em, rem, vw, etc.) inside a `TransformFunction`.
-///
-/// Translate arguments may contain `CssValue::Length` with relative units that
-/// must be resolved to px during style resolution. Other functions (rotate, scale,
-/// skew, matrix) use angles or numbers and need no resolution.
-fn resolve_transform_func(func: &TransformFunction, ctx: &ResolveContext) -> TransformFunction {
-    match func {
-        TransformFunction::Translate(x, y) => {
-            TransformFunction::Translate(resolve_css_length(x, ctx), resolve_css_length(y, ctx))
-        }
-        TransformFunction::TranslateX(x) => {
-            TransformFunction::TranslateX(resolve_css_length(x, ctx))
-        }
-        TransformFunction::TranslateY(y) => {
-            TransformFunction::TranslateY(resolve_css_length(y, ctx))
-        }
-        TransformFunction::TranslateZ(z) => {
-            TransformFunction::TranslateZ(resolve_css_length(z, ctx))
-        }
-        TransformFunction::Translate3d(x, y, z) => TransformFunction::Translate3d(
-            resolve_css_length(x, ctx),
-            resolve_css_length(y, ctx),
-            resolve_css_length(z, ctx),
-        ),
-        // All other functions use angles, numbers, or raw matrices — no resolution needed.
-        other => other.clone(),
-    }
-}
-
-/// Resolve a `CssValue::Length` with relative units to px.
-/// Percentages and already-px values pass through unchanged.
-fn resolve_css_length(val: &CssValue, ctx: &ResolveContext) -> CssValue {
-    match val {
-        CssValue::Length(v, unit) => {
-            let px = resolve_length(*v, *unit, ctx);
-            // Guard against NaN/Infinity from degenerate inputs (e.g. extreme em/vw values).
-            CssValue::Length(if px.is_finite() { px } else { 0.0 }, LengthUnit::Px)
-        }
-        // Percentages stay as-is (resolved against element's box at render time).
-        other => other.clone(),
     }
 }
 

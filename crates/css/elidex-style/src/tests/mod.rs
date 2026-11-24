@@ -6,6 +6,7 @@ use elidex_ecs::{Attributes, ElementState, PseudoElementMarker, ShadowRootMode, 
 use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Overflow, Position};
 
 mod cascade;
+mod flex_grammar;
 mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;

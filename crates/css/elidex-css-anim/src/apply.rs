@@ -110,6 +110,8 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
                 if v.is_finite() {
                     style.line_height = LineHeight::Number(*v);
                 }
+            } else if matches!(value, CssValue::Keyword(k) if k == "normal") {
+                style.line_height = LineHeight::Normal;
             }
         }
         "border-radius" => {
@@ -151,6 +153,8 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
                         style.z_index = Some(*v as i32);
                     }
                 }
+            } else if matches!(value, CssValue::Auto) {
+                style.z_index = None;
             }
         }
         "visibility" => {
@@ -184,6 +188,10 @@ pub fn apply_animated_value(style: &mut ComputedStyle, property: &str, value: &C
                 style.vertical_align = VerticalAlign::Length(*v);
             } else if let CssValue::Percentage(p) = value {
                 style.vertical_align = VerticalAlign::Percentage(*p);
+            } else if let CssValue::Keyword(k) = value {
+                if let Some(align) = VerticalAlign::from_keyword(k) {
+                    style.vertical_align = align;
+                }
             }
         }
         _ => {}
@@ -242,6 +250,8 @@ fn apply_optional_px(field: &mut Option<f32>, value: &CssValue) {
         if v.is_finite() {
             *field = Some(*v);
         }
+    } else if matches!(value, CssValue::Keyword(k) if k == "normal") {
+        *field = None;
     }
 }
 

@@ -2,7 +2,9 @@
 //! justify-content, align-items/self/content, flex-grow/shrink/basis, order).
 
 use elidex_plugin::{
-    css_resolve::{keyword_from, parse_length_or_percentage, resolve_length},
+    css_resolve::{
+        keyword_from, parse_flex_basis, parse_flex_factor, resolve_flex_factor, resolve_length,
+    },
     parse_css_keyword as parse_keyword, AlignContent, AlignItems, AlignSelf, AlignmentSafety,
     ComputedStyle, CssPropertyHandler, CssValue, FlexBasis, FlexDirection, FlexWrap,
     JustifyContent, LengthUnit, ParseError, PropertyDeclaration, ResolveContext,
@@ -40,58 +42,60 @@ impl CssPropertyHandler for FlexHandler {
         name: &str,
         input: &mut cssparser::Parser<'_, '_>,
     ) -> Result<Vec<PropertyDeclaration>, ParseError> {
-        let value = match name {
-            "flex-direction" => {
-                parse_keyword(input, &["row", "row-reverse", "column", "column-reverse"])?
-            }
-            "flex-wrap" => parse_keyword(input, &["nowrap", "wrap", "wrap-reverse"])?,
-            "justify-content" => parse_alignment_with_safety(
-                input,
-                &[
-                    "normal",
-                    "flex-start",
-                    "flex-end",
-                    "center",
-                    "space-between",
-                    "space-around",
-                    "space-evenly",
-                    "stretch",
-                ],
-            )?,
-            "align-items" => parse_alignment_with_safety(
-                input,
-                &["stretch", "flex-start", "flex-end", "center", "baseline"],
-            )?,
-            "align-content" => parse_alignment_with_safety(
-                input,
-                &[
-                    "normal",
-                    "stretch",
-                    "flex-start",
-                    "flex-end",
-                    "center",
-                    "space-between",
-                    "space-around",
-                    "space-evenly",
-                ],
-            )?,
-            "align-self" => parse_alignment_with_safety(
-                input,
-                &[
-                    "auto",
-                    "stretch",
-                    "flex-start",
-                    "flex-end",
-                    "center",
-                    "baseline",
-                ],
-            )?,
-            "flex-grow" => parse_non_negative_number(input, "flex-grow")?,
-            "flex-shrink" => parse_non_negative_number(input, "flex-shrink")?,
-            "flex-basis" => parse_flex_basis(input)?,
-            "order" => parse_order(input)?,
-            _ => return Ok(vec![]),
-        };
+        let value =
+            match name {
+                "flex-direction" => {
+                    parse_keyword(input, &["row", "row-reverse", "column", "column-reverse"])?
+                }
+                "flex-wrap" => parse_keyword(input, &["nowrap", "wrap", "wrap-reverse"])?,
+                "justify-content" => parse_alignment_with_safety(
+                    input,
+                    &[
+                        "normal",
+                        "flex-start",
+                        "flex-end",
+                        "center",
+                        "space-between",
+                        "space-around",
+                        "space-evenly",
+                        "stretch",
+                    ],
+                )?,
+                "align-items" => parse_alignment_with_safety(
+                    input,
+                    &["stretch", "flex-start", "flex-end", "center", "baseline"],
+                )?,
+                "align-content" => parse_alignment_with_safety(
+                    input,
+                    &[
+                        "normal",
+                        "stretch",
+                        "flex-start",
+                        "flex-end",
+                        "center",
+                        "space-between",
+                        "space-around",
+                        "space-evenly",
+                    ],
+                )?,
+                "align-self" => parse_alignment_with_safety(
+                    input,
+                    &[
+                        "auto",
+                        "stretch",
+                        "flex-start",
+                        "flex-end",
+                        "center",
+                        "baseline",
+                    ],
+                )?,
+                "flex-grow" | "flex-shrink" => parse_flex_factor(input)
+                    .map_err(|()| ParseError::simple("invalid flex factor"))?,
+                "flex-basis" => parse_flex_basis(input)
+                    .map_err(|()| ParseError::simple("invalid flex basis"))?,
+                "order" => parse_order(input)?,
+                _ => return Ok(vec![]),
+            };
         Ok(vec![PropertyDeclaration::new(name, value)])
     }
 
@@ -128,13 +132,13 @@ impl CssPropertyHandler for FlexHandler {
                 elidex_plugin::resolve_keyword!(kw, style.align_self, AlignSelf);
             }
             "flex-grow" => {
-                if let CssValue::Number(n) = value {
-                    style.flex_grow = n.max(0.0);
+                if let Some(n) = resolve_flex_factor(value, ctx) {
+                    style.flex_grow = n;
                 }
             }
             "flex-shrink" => {
-                if let CssValue::Number(n) = value {
-                    style.flex_shrink = n.max(0.0);
+                if let Some(n) = resolve_flex_factor(value, ctx) {
+                    style.flex_shrink = n;
                 }
             }
             "flex-basis" => {
@@ -163,7 +167,8 @@ impl CssPropertyHandler for FlexHandler {
             // respectively in flex containers.
             "justify-content" | "align-content" => CssValue::Keyword("normal".to_string()),
             "align-items" => CssValue::Keyword("stretch".to_string()),
-            "align-self" | "flex-basis" => CssValue::Keyword("auto".to_string()),
+            "flex-basis" => CssValue::Auto,
+            "align-self" => CssValue::Keyword("auto".to_string()),
             "flex-grow" | "order" => CssValue::Number(0.0),
             "flex-shrink" => CssValue::Number(1.0),
             _ => CssValue::Initial,
@@ -205,47 +210,6 @@ impl CssPropertyHandler for FlexHandler {
             _ => CssValue::Initial,
         }
     }
-}
-
-fn parse_non_negative_number(
-    input: &mut cssparser::Parser<'_, '_>,
-    prop: &str,
-) -> Result<CssValue, ParseError> {
-    let token = input.next().map_err(|_| ParseError {
-        property: prop.into(),
-        input: String::new(),
-        message: "expected number".into(),
-    })?;
-    match *token {
-        cssparser::Token::Number { value, .. } => Ok(CssValue::Number(value.max(0.0))),
-        _ => Err(ParseError {
-            property: prop.into(),
-            input: String::new(),
-            message: "expected number".into(),
-        }),
-    }
-}
-
-fn parse_flex_basis(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
-    // Try "auto" keyword
-    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
-        return Ok(CssValue::Keyword("auto".to_string()));
-    }
-
-    // Try "content" keyword (CSS Flexbox §7.3.2)
-    if input
-        .try_parse(|i| i.expect_ident_matching("content"))
-        .is_ok()
-    {
-        return Ok(CssValue::Keyword("content".to_string()));
-    }
-
-    // Try length/percentage/zero
-    parse_length_or_percentage(input).map_err(|mut e| {
-        e.property = "flex-basis".into();
-        e.message = "expected auto, content, length, or percentage".into();
-        e
-    })
 }
 
 /// Parse an alignment keyword with optional `safe`/`unsafe` modifier.
@@ -382,9 +346,40 @@ mod tests {
     }
 
     #[test]
-    fn parse_flex_grow_negative_clamped() {
-        let result = parse("flex-grow", "-1");
-        assert_eq!(result[0].value, CssValue::Number(0.0));
+    fn negative_flex_factor_is_rejected() {
+        let mut input = cssparser::ParserInput::new("-1");
+        assert!(FlexHandler
+            .parse("flex-grow", &mut cssparser::Parser::new(&mut input))
+            .is_err());
+    }
+
+    #[test]
+    fn typed_basis_and_factor_ranges() {
+        for value in ["-1px", "-5%", "2bogus"] {
+            let mut input = cssparser::ParserInput::new(value);
+            assert!(FlexHandler
+                .parse("flex-basis", &mut cssparser::Parser::new(&mut input))
+                .is_err());
+        }
+        for value in ["0em", "calc(10% + 2px)", "calc(-1px)"] {
+            assert_eq!(parse("flex-basis", value).len(), 1);
+        }
+        for (value, expected) in [
+            ("calc(1 + 1)", 2.),
+            ("calc(2 - 3 + 2)", 1.),
+            ("calc(-1)", 0.),
+        ] {
+            let mut style = ComputedStyle::default();
+            for name in ["flex-grow", "flex-shrink"] {
+                FlexHandler.resolve(
+                    name,
+                    &parse(name, value)[0].value,
+                    &ResolveContext::default(),
+                    &mut style,
+                );
+            }
+            assert_eq!((style.flex_grow, style.flex_shrink), (expected, expected));
+        }
     }
 
     #[test]
@@ -396,7 +391,7 @@ mod tests {
     #[test]
     fn parse_flex_basis_auto() {
         let result = parse("flex-basis", "auto");
-        assert_eq!(result[0].value, CssValue::Keyword("auto".to_string()));
+        assert_eq!(result[0].value, CssValue::Auto);
     }
 
     #[test]
@@ -482,10 +477,7 @@ mod tests {
         );
         assert_eq!(handler.initial_value("flex-grow"), CssValue::Number(0.0));
         assert_eq!(handler.initial_value("flex-shrink"), CssValue::Number(1.0));
-        assert_eq!(
-            handler.initial_value("flex-basis"),
-            CssValue::Keyword("auto".into())
-        );
+        assert_eq!(handler.initial_value("flex-basis"), CssValue::Auto);
         assert_eq!(handler.initial_value("order"), CssValue::Number(0.0));
     }
 

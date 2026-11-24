@@ -34,7 +34,7 @@ use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue, Size};
 
 pub use elidex_plugin::ViewportOverflow;
 pub use generated_content::resolve_generated_content;
-pub use resolve::{dimension_to_css_value, get_computed_with_registry};
+pub use resolve::{dimension_to_css_value, get_computed_initial, get_computed_with_registry};
 
 /// Build the CSS property registry with all standard property handlers.
 #[must_use]
