@@ -365,11 +365,9 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // source.
         ObjectKind::TypedArray { .. } => CloneKind::TypedArray,
         ObjectKind::DataView { .. } => CloneKind::DataView,
-        // D-9 events-modern-input — DataTransfer / Touch family
-        // are not structured-cloneable (slot
-        // `#11-events-modern-input`).  Match HTML §6.2 / Touch
-        // Events §5 (not [Serializable]); StructuredSerializeInternal is
-        // where these throw DataCloneError.
+        // HTML §6.11.3 and Touch Events §§3–4 declare these interfaces
+        // without [Serializable]. StructuredSerializeInternal (HTML §2.7.4)
+        // throws DataCloneError for these platform objects.
         ObjectKind::DataTransfer => CloneKind::Unclonable("DataTransfer"),
         ObjectKind::DataTransferItem { .. } => CloneKind::Unclonable("DataTransferItem"),
         ObjectKind::DataTransferItemList { .. } => CloneKind::Unclonable("DataTransferItemList"),

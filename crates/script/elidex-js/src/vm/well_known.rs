@@ -588,7 +588,7 @@ define_well_known_strings! {
         touches => "touches",
         target_touches => "targetTouches",
         changed_touches => "changedTouches",
-        // DataTransfer IDL members (HTML DnD §6.2).  `types` /
+        // DataTransfer IDL members (HTML §6.11.3).  `types` /
         // `items` / `files` (existing) are accessor names.
         drop_effect => "dropEffect",
         effect_allowed => "effectAllowed",
@@ -605,7 +605,7 @@ define_well_known_strings! {
         get_as_string => "getAsString",
         get_as_file => "getAsFile",
         // String literals returned by `DataTransferItem.kind` (per
-        // HTML §6.3 — exactly `"string"` or `"file"`).  Pre-interned
+        // HTML §6.11.3.2 — `"string"` or `"file"` for enabled items).  Pre-interned
         // so the kind getter avoids a per-call `strings.intern`.
         kind_string => "string",
         kind_file => "file",

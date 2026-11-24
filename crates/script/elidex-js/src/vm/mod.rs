@@ -1584,29 +1584,25 @@ pub(crate) struct VmInner {
     /// from [`Self::touch_list_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_list_prototype: Option<ObjectId>,
-    /// `DataTransfer.prototype` (HTML DnD §6.2).  Chains to
-    /// `Object.prototype`.  Holds the 4 enum-string accessors
-    /// (dropEffect / effectAllowed) + 3 `[SameObject]` accessors
-    /// (items / files / types) + 4 mutator methods (getData / setData
-    /// / clearData / setDragImage).  Mutable instance state in
+    /// `DataTransfer.prototype` (HTML §6.11.3). Instance state lives in
     /// [`Self::data_transfer_states`].
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_prototype: Option<ObjectId>,
-    /// `DataTransferItem.prototype` (HTML DnD §6.3).  Chains to
+    /// `DataTransferItem.prototype` (HTML §6.11.3.2).  Chains to
     /// `Object.prototype`.  Holds the `kind` / `type` accessors +
     /// `getAsString(cb)` / `getAsFile()` methods.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_item_prototype: Option<ObjectId>,
-    /// `DataTransferItemList.prototype` (HTML DnD §6.3).  Chains to
+    /// `DataTransferItemList.prototype` (HTML §6.11.3.1).  Chains to
     /// `Object.prototype`.  Holds the `length` accessor +
     /// `add(...)` / `remove(idx)` / `clear()` methods, plus an
     /// indexed exotic `[[GetOwnProperty]]` for `list[i]`.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_item_list_prototype: Option<ObjectId>,
-    /// Per-`DataTransfer` mutable state (HTML DnD §6.2).  Keyed by
+    /// Per-`DataTransfer` mutable state (HTML §6.11.3).  Keyed by
     /// the instance's `ObjectId`.  Holds the dropEffect / effectAllowed
     /// enum values (as `u8` indices), the ordered entry list, the
-    /// `[SameObject]` wrapper caches for `items` / `files`, and the
+    /// wrapper caches for `items` / `files`, and the
     /// optional drag-image (entity_bits + x/y offsets).
     ///
     /// GC contract: the trace step fans out via the wrappers and
