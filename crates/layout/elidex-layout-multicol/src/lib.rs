@@ -434,6 +434,7 @@ fn layout_normal_segment(
     position_column_fragments(
         dom,
         &batch.fragments,
+        children,
         env.geom,
         env.col_ctx.wm,
         env.input.is_probe,
@@ -447,6 +448,7 @@ fn layout_normal_segment(
 fn position_column_fragments(
     dom: &mut EcsDom,
     frags: &[fill::ColumnFragment],
+    children: &[Entity],
     geom: &ColumnGeometry,
     wm: WritingModeContext,
     is_probe: bool,
@@ -521,16 +523,21 @@ fn position_column_fragments(
     }
     let mut shift_roots = vec![Vec::new(); frags.len()];
     let mut exclude = atomic_exclude.clone();
-    for (&entity, &column) in &last_column {
-        let parent_column =
-            std::iter::successors(dom.get_parent(entity), |parent| dom.get_parent(*parent))
-                .find_map(|parent| last_column.get(&parent));
-        let repositioned = std::iter::successors(Some(entity), |e| dom.get_parent(*e))
-            .any(|e| atomic_exclude.contains(&e));
-        if parent_column != Some(&column) && !repositioned {
-            shift_roots[column].push(entity);
+    let mut pending: Vec<_> = children.iter().map(|&child| (child, None)).collect();
+    while let Some((entity, inherited_column)) = pending.pop() {
+        if atomic_exclude.contains(&entity) {
+            continue;
+        }
+        let column = last_column.get(&entity).copied().or(inherited_column);
+        if let Some(index) = column.filter(|&index| Some(index) != inherited_column) {
+            shift_roots[index].push(entity);
             exclude.insert(entity);
         }
+        pending.extend(
+            dom.composed_children(entity)
+                .into_iter()
+                .map(|child| (child, column)),
+        );
     }
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]

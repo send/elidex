@@ -485,27 +485,26 @@ fn committed_source(
     }
     // Source ranges may belong to a text node inside a direct inline child.
     // Report that child's membership to its parent regardless of nesting.
-    let direct: std::collections::HashSet<_> = children.iter().copied().collect();
+    let sources: std::collections::HashSet<_> = items.iter().map(|item| item.source().0).collect();
     let touched: std::collections::HashSet<_> = contribution
         .contributed_items()
         .map(|(_, item)| item)
         .collect();
-    let mut wrappers = HashMap::new();
-    for item in items {
-        let (source, _) = item.source();
-        if direct.contains(&source) {
+    for &wrapper in children {
+        if sources.contains(&wrapper) {
             continue;
         }
-        let ancestor = std::iter::successors(dom.get_parent(source), |node| dom.get_parent(*node))
-            .take_while(|node| *node != parent_entity)
-            .find(|node| direct.contains(node));
-        if let Some(wrapper) = ancestor {
-            let entry = wrappers.entry(wrapper).or_insert((false, true));
-            entry.0 |= touched.contains(&source);
-            entry.1 &= contribution.is_finished(parent_entity, source);
+        let mut pending = dom.composed_children(wrapper);
+        let mut advanced = false;
+        let mut finished = true;
+        while let Some(source) = pending.pop() {
+            if sources.contains(&source) {
+                advanced |= touched.contains(&source);
+                finished &= contribution.is_finished(parent_entity, source);
+            } else {
+                pending.extend(dom.composed_children(source));
+            }
         }
-    }
-    for (wrapper, (advanced, finished)) in wrappers {
         if advanced {
             if finished {
                 contribution.finish_item(parent_entity, wrapper);
