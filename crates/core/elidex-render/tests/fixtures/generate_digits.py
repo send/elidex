@@ -36,7 +36,7 @@ font.setupNameTable({
     "copyright": "Copyright 2026 elidex contributors",
     "licenseDescription": "MIT License (see the repository LICENSE).",
 })
-font.setupOS2(sTypoAscender=800, sTypoDescender=-200, usWinAscent=800, usWinDescent=200)
+font.setupOS2(fsType=0, sTypoAscender=800, sTypoDescender=-200, usWinAscent=800, usWinDescent=200)
 font.setupPost()
 font.font["head"].created = font.font["head"].modified = 3900000000
 font.font.recalcTimestamp = False
