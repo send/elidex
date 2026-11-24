@@ -123,6 +123,11 @@ pub enum BreakTokenData {
         /// Each entry is `(item_entity, child_break_token)` for resumption.
         child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
     },
+    /// Column cap reached inside a normal segment. Resume its Block stack.
+    Multicol {
+        segment_index: usize,
+        column: Box<BreakToken>,
+    },
     /// Table layout: row index and optional header/footer entities for
     /// repetition in continuation fragments.
     Table {

@@ -312,7 +312,7 @@ fn split_child_positions_its_two_fragments_in_nonzero_columns() {
                     wm,
                 },
             };
-            let (columns, _) = crate::layout_normal_segment(
+            let (batch, _) = crate::layout_normal_segment(
                 &mut dom,
                 &[first, before_split, span, last],
                 &env,
@@ -320,6 +320,7 @@ fn split_child_positions_its_two_fragments_in_nonzero_columns() {
                 Some(20.0),
                 &style,
             );
+            let columns = batch.fragments;
             assert_eq!(
                 columns
                     .iter()

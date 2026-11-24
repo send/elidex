@@ -36,6 +36,12 @@ pub struct ColumnFragment {
     pub box_snapshots: Vec<FragmentSnapshot>,
 }
 
+pub struct ColumnBatch {
+    pub fragments: Vec<ColumnFragment>,
+    pub carry: Option<BreakToken>,
+    pub stalled: bool,
+}
+
 /// One mid-break spanning child's per-column snapshot: its box-model geometry
 /// (committed to the standalone fragment-tree box store; render's fragment-walk
 /// consumes it per-column for a `consumable` direct-child IFC mid-break, terminal-Z
@@ -108,7 +114,7 @@ pub fn fill_columns_sequential(
     column_height: f32,
     max_columns: u32,
     probe: bool,
-) -> Vec<ColumnFragment> {
+) -> ColumnBatch {
     let order: std::collections::HashMap<_, _> = children
         .iter()
         .copied()
@@ -117,10 +123,17 @@ pub fn fill_columns_sequential(
         .collect();
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
-    let mut carry_break_token: Option<BreakToken> = None;
+    let mut carry_break_token = env.input.break_token.cloned();
+    let mut stalled = false;
     // Snapshot an incoming interrupted child even when it finishes in this column.
     // A clean child boundary has no incoming box fragment.
-    let mut carry_midbreak: Option<Entity> = None;
+    let mut carry_midbreak = carry_break_token.as_ref().and_then(|t| match &t.mode_data {
+        Some(BreakTokenData::Block {
+            continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
+            ..
+        }) => Some(child.entity),
+        _ => None,
+    });
 
     // Safety limit to prevent infinite loops.
     let total_limit = max_columns.min(MAX_OVERFLOW_COLUMNS);
@@ -213,6 +226,17 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
+        if result.break_token.is_some() {
+            let empty = elidex_layout_block::source_progress::SourceProgress::default();
+            let previous = match carry_break_token
+                .as_ref()
+                .and_then(|token| token.mode_data.as_ref())
+            {
+                Some(BreakTokenData::Block { coverage, .. }) => coverage,
+                _ => &empty,
+            };
+            stalled = !result.contribution.advances(previous);
+        }
         fragments.push(ColumnFragment {
             contribution: result.contribution,
             children: col_children,
@@ -220,14 +244,18 @@ pub fn fill_columns_sequential(
         });
 
         carry_break_token = result.break_token;
-        if carry_break_token.is_none() {
+        if carry_break_token.is_none() || stalled {
             break;
         }
 
         col_index += 1;
     }
 
-    fragments
+    ColumnBatch {
+        fragments,
+        carry: carry_break_token,
+        stalled,
+    }
 }
 
 /// Fill columns with balanced heights (column-fill: balance).
@@ -262,9 +290,16 @@ pub fn fill_columns_balanced(
     children: &[Entity],
     env: &ColumnFillEnv<'_>,
     max_height: Option<f32>,
-) -> (Vec<ColumnFragment>, f32) {
+) -> (ColumnBatch, f32) {
     if children.is_empty() {
-        return (Vec::new(), 0.0);
+        return (
+            ColumnBatch {
+                fragments: Vec::new(),
+                carry: None,
+                stalled: false,
+            },
+            0.0,
+        );
     }
 
     // Step 1: Unconstrained probe to get total content height.
@@ -317,9 +352,9 @@ pub fn fill_columns_balanced(
         let frags = fill_columns_sequential(dom, children, env, mid, probe_cap, true);
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let used_columns = frags.len() as u32;
+        let used_columns = frags.fragments.len() as u32;
 
-        if used_columns <= env.geom.count {
+        if frags.carry.is_none() && used_columns <= env.geom.count {
             high = mid;
         } else {
             low = mid;

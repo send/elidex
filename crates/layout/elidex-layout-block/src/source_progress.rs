@@ -139,6 +139,20 @@ impl SourceProgress {
         self.update((owner, item));
     }
 
+    /// Whether this fragment adds a terminal or source interval to the incoming state.
+    #[must_use]
+    pub fn advances(&self, previous: &Self) -> bool {
+        self.pages().any(|page| {
+            page.items.iter().any(|(&(owner, item), delta)| {
+                (delta.terminal && !previous.is_finished(owner, item))
+                    || delta
+                        .ranges
+                        .iter()
+                        .any(|range| !previous.covers(owner, item, range.clone()))
+            })
+        })
+    }
+
     pub fn contributed_items(&self) -> impl Iterator<Item = (Entity, Entity)> + '_ {
         self.pages().flat_map(|page| page.items.keys().copied())
     }
