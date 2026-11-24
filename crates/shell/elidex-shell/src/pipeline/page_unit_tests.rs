@@ -36,7 +36,21 @@ fn paint(list: &PagedDisplayList) -> BoxPaint {
 }
 
 fn printed_box(properties: &str) -> BoxPaint {
-    let css = format!("html {{font-size:16px}} @page {{font-size:20px; @top-left {{content:'X';background-color:red; border-style:solid; {properties} }} }}");
+    // Margin boxes resolve a single family. Choose an installed face so the
+    // geometry assertions exercise glyph painting on every CI platform.
+    let fonts = elidex_text::FontDatabase::new();
+    let normal = elidex_text::to_fontdb_style(elidex_plugin::FontStyle::Normal);
+    let family = [
+        "Arial",
+        "Liberation Sans",
+        "DejaVu Sans",
+        "Helvetica",
+        "Noto Sans",
+    ]
+    .into_iter()
+    .find(|name| fonts.query(&[name], 400, normal).is_some())
+    .expect("an installed test font");
+    let css = format!("html {{font-size:16px}} @page {{font-size:20px; @top-left {{content:'X';font-family:'{family}';background-color:red; border-style:solid; {properties} }} }}");
     let mut result = build_pipeline_interactive("<main></main>", &css);
     let context = PagedMediaContext {
         page_width: 600.,
