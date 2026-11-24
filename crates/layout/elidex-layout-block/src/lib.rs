@@ -178,12 +178,24 @@ pub struct SubgridContext {
 // ---------------------------------------------------------------------------
 
 /// Used content dimensions and margins established by the parent formatter.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UsedAssignment {
     /// Independently established physical content axes.
     pub content: Size<Option<f32>>,
     /// Used physical margins, measured from the margin-box origin.
     pub margin: EdgeSizes<Option<f32>>,
+}
+
+impl Default for UsedAssignment {
+    fn default() -> Self {
+        Self {
+            content: Size {
+                width: None,
+                height: None,
+            },
+            margin: EdgeSizes::default(),
+        }
+    }
 }
 
 impl UsedAssignment {

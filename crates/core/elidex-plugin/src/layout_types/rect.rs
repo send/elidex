@@ -15,12 +15,18 @@ pub struct Rect {
 }
 
 /// A 2D size (width and height).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Size<T = f32> {
     /// Width in pixels.
     pub width: T,
     /// Height in pixels.
     pub height: T,
+}
+
+impl Default for Size {
+    fn default() -> Self {
+        Self::ZERO
+    }
 }
 
 /// A CSS containing block size: width is always definite, height may be
