@@ -749,7 +749,7 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 
 /// Abstract equality (`==`). May need string/number coercions.  Returns
 /// `Err` when a user-defined `@@toPrimitive`/`valueOf`/`toString` throws
-/// (§7.2.13 `?` steps 10-12 require abrupt-completion propagation).
+/// (§7.2.13 steps 11–12 propagate abrupt completion from `ToPrimitive`).
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bool, VmError> {
     // Empty (sparse hole) is treated as Undefined in all coercions.
     let a = if a.is_empty() { JsValue::Undefined } else { a };
@@ -775,7 +775,8 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
         }
 
         // BigInt == BigInt handled by same_type above.
-        // BigInt == Number (§7.2.13 step 5/6)
+        // §7.2.13 steps 13–14 compare a finite Number by mathematical value.
+        // Non-finite Numbers fall through to false.
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
                 return Ok(false);
@@ -821,8 +822,8 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
         }
 
-        // Symbol == non-Symbol → false (symbols are unique; same-type
-        // comparison is handled by strict_eq above).
+        // VM defect: this arm also rejects Symbol/Object pairs. §7.2.13
+        // steps 11–12 require converting that object before comparison.
         (JsValue::Symbol(_), _) | (_, JsValue::Symbol(_)) => false,
 
         // Boolean == x → ToNumber(Boolean) == x
@@ -835,9 +836,9 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             abstract_eq(vm, a, JsValue::Number(n))?
         }
 
-        // Object == primitive → ? ToPrimitive (§7.2.13 steps 10, 12).
-        // Abrupt completion from a user-defined @@toPrimitive / valueOf /
-        // toString must propagate per spec `?` mark.
+        // §7.2.13 steps 11–12 convert the object when paired with a String,
+        // Number, BigInt or Symbol. VM defect: these arms also convert an
+        // ordinary object paired with null or undefined. Step 14 returns false.
         (JsValue::Object(_), _) => {
             let prim = vm.to_primitive(a, "default")?;
             abstract_eq(vm, prim, b)?
