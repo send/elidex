@@ -316,7 +316,7 @@ fn new_string_constructor_property() {
 
 #[test]
 fn string_proto_to_string_and_value_of_have_distinct_names() {
-    // ECMA-262 §18 gives each built-in method its property name.
+    // Under ECMA-262 §18, these two String methods take their names from their property keys.
     assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
     assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
 }
