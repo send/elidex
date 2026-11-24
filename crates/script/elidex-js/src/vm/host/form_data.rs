@@ -544,12 +544,12 @@ fn take_name_arg(
 /// argument tuple. This representation differs from HTML §4.10.22.4
 /// (`#create-an-entry`) in how it stores Blob values:
 /// - `name` is `ToString`-coerced.
-/// - `value` is a `Blob` instance ⇒ kept as `FormDataValue::Blob`,
+/// - A value with VM brand `ObjectKind::Blob` is kept as `FormDataValue::Blob`,
 ///   and `filename` (when supplied) is `ToString`-coerced.  The
 ///   default filename `"blob"` is supplied lazily by the multipart
 ///   encoder when no explicit filename was set.
-/// - Otherwise `value` is `ToString`-coerced into a string entry,
-///   and this implementation ignores `filename`.
+/// - All other values, including those with VM brand `ObjectKind::File`,
+///   are string-coerced. This branch ignores `filename`.
 fn build_entry(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
