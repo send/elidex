@@ -1,6 +1,6 @@
 # Carry Flex item size and margin decisions into child layout
 
-C1b.2 follows the computed-display prerequisite specified in [C1b.2-pre](2026-11-flex-item-blockification.md) at 352b0600 (#741). Implement that producer before retiring the Flex collector's adjustment. Use C1b.1’s shared child invocation and existing Dimension and FlexBasis variants. Flex supplies the first evidence for parent binding F1. C1b.3 completes it for Grid-produced assignments.
+PM 1087 leaves this residual C1b.2 after C1b.1. Its inputs are the earlier [joint writer removal](2026-11-flex-write-retirement.md), the landed style producer, and C1b.1's reference rectangle and phase-specific available space. Grid supplies its own producer in C1b.3.
 
 ## §1. Use one dispatch path for measurement and placement
 
@@ -8,13 +8,11 @@ Select the physical main axis once from the Flex container's writing mode and fl
 
 Give each callback only the assignments established by its phase. Basis and automatic-minimum probes use their own percentage references and algorithmic available space, with neither content axis assigned. Cross measurement uses the assigned physical main content axis while the cross axis is unresolved. Resolve an explicit cross size with the common item preferred-size resolver against the selected Flex content rectangle. Only its definite result bypasses cross measurement. Final placement supplies both content axes. The final main size is already content. Deduct padding and border once from the assigned outer cross extent. Keep the item's edge references and the definiteness passed to descendants separate from probe space.
 
-Extend the common box-size and used-edge receiver from C1b.1. Each specialized formatter must consume its result for its own box before computing tracks, cells, columns or descendant sizes. Inventory block, nested Flex, Grid, Table, Multicol, normal replaced elements and box-producing empty or early returns at the implementation head. Trace non-box branches separately: contents promotes its children, none is excluded from collection. Unassigned axes retain the existing preferred/intrinsic sizing rules. A final solved physical pair takes priority in the replaced reader. Carry baselines, generation, probe status and the entire fragment outcome through dispatch.
+The definitive receiver, signed margin distribution, stretch, specialized formatter and replaced/early-return controls and both writer deletions land in 3b.2-inputs. This child retains the physical reference and phase decisions in the first two paragraphs. Verify F3 using the distinct basis/minimum probe spaces, cross-axis assignment and definite cross-size bypass. Verify F5 for horizontal and orthogonal columns, zero and absent bases. Reuse the earlier receiver when C1b.1 changes its reference inputs.
 
-At line sizing, set the line cross size of a nowrap container with a definite cross size to its inner cross extent (Flexbox §9.4 step 2). Feed that line size to both stretch and margin distribution. For cross-axis auto margins, compute the signed residual at the Flex margin producer and select the §9.6 underflow or overflow branch before mapping the resulting margins to the four physical edges. Preserve a negative used end margin on overflow. Flex distributes margins and supplies the unshifted physical margin-box origin after line placement and alignment. Exclude the item's own margin displacement from that origin, including a cross-axis auto share. Pass each physical used margin, including a resolved zero. At the common receiver apply each edge once and publish the used edges on the LayoutBox. Preserve direction mapping, gaps and the sibling cursor's advance by the full outer size and shares. Keep computed margins intact.
+## §2. Crossing checks and evidence owners
 
-Remove the collection display reinsertion in helpers.rs and the width, height and four-margin reinsertion in algo.rs together. Use the prerequisite's style-published display in both measurement and dispatch. Migrate direct ECS fixtures to seed the proper computed display. Observe zero computed-style updates on actual Flex item paths, including probes and two placements without intervening restyle. Compare the entire item style before collection, after probes and after each placement. Include the prerequisite’s auto-width inline-flex promoted through contents and the percentage/auto-margin item below.
-
-## §2. Crossing checks
+3b.2-inputs owns the percentage/auto-margin rerun, stretch, nested Grid, signed used edges, and definitive replaced sizing rows below. Residual C1b.2 owns box sizing, orthogonal columns, and the probe-reference and bypass portions of the replaced row. Rerun the earlier controls on the new reference inputs. 3b.2f owns the interrupted row, including its paired 64px/48px resumed-room oracle.
 
 | Crossing | Producer → consumer | Required observation |
 |---|---|---|
