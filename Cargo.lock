@@ -2214,6 +2214,7 @@ dependencies = [
  "elidex-layout",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-style",
  "elidex-text",
  "fontdb",
