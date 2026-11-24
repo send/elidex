@@ -243,6 +243,7 @@ pub fn layout_multicol(
                 block_cursor += col_height;
                 if let Some(column) = batch.carry {
                     break_token = Some(elidex_layout_block::BreakToken {
+                        specified_size_fraction: None,
                         entity,
                         consumed_block_size: block_cursor,
                         mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {

@@ -94,6 +94,46 @@ fn interrupted_child(token: Option<&BreakToken>) -> Option<Entity> {
     }
 }
 
+/// Follow the same nested interruption through both column boundaries.
+fn specified_size_advanced(dom: &EcsDom, old: &BreakToken, new: &BreakToken) -> bool {
+    use elidex_layout_block::BlockContinuation;
+    if old.entity != new.entity {
+        return false;
+    }
+    match (&old.mode_data, &new.mode_data) {
+        (
+            Some(BreakTokenData::Block {
+                continuation: BlockContinuation::InterruptedChild(a),
+                ..
+            }),
+            Some(BreakTokenData::Block {
+                continuation: BlockContinuation::InterruptedChild(b),
+                ..
+            }),
+        ) => specified_size_advanced(dom, a, b),
+        (
+            Some(BreakTokenData::Block {
+                child_index: a,
+                continuation: BlockContinuation::ChildBoundary,
+                ..
+            }),
+            Some(BreakTokenData::Block {
+                child_index: b,
+                continuation: BlockContinuation::ChildBoundary,
+                ..
+            }),
+        ) => {
+            a == b
+                && old
+                    .specified_size_fraction
+                    .zip(new.specified_size_fraction)
+                    .is_some_and(|(before, after)| after > before)
+                && *b == elidex_layout_block::composed_children_flat(dom, new.entity).len()
+        }
+        _ => false,
+    }
+}
+
 /// Maximum number of binary search iterations for balanced fill.
 const MAX_BALANCE_ITERATIONS: u32 = 10;
 
@@ -221,7 +261,7 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
-        if result.break_token.is_some() {
+        if let Some(next) = &result.break_token {
             let empty = elidex_layout_block::source_progress::SourceProgress::default();
             let previous = match carry_break_token
                 .as_ref()
@@ -230,7 +270,10 @@ pub fn fill_columns_sequential(
                 Some(BreakTokenData::Block { coverage, .. }) => coverage,
                 _ => &empty,
             };
-            stalled = !result.contribution.advances(previous);
+            stalled = !result.contribution.advances(previous)
+                && !carry_break_token
+                    .as_ref()
+                    .is_some_and(|old| specified_size_advanced(dom, old, next));
         }
         fragments.push(ColumnFragment {
             contribution: result.contribution,

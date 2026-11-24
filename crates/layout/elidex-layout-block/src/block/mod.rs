@@ -462,6 +462,7 @@ pub fn layout_block_inner(
         }) if *child_index == children.len())
     });
     let content_block = if geometry_only {
+        children::validate_route(dom, entity, &children, input.break_token);
         0.0
     } else if let Some(intr) = intrinsic {
         if let Some(size) = assigned_block {
@@ -675,8 +676,8 @@ pub fn layout_block_inner(
     });
 
     let fragment_size = child_fragmentainer
-        .filter(|_| intrinsic.is_none())
-        .map(|frag| {
+        .filter(|_| !fragmentation::is_monolithic(&style, intrinsic.is_some()))
+        .and_then(|frag| {
             let target = assigned_block
                 .or(child_containing_block)
                 .map(|_| block_size);
@@ -694,15 +695,19 @@ pub fn layout_block_inner(
                 } else {
                     0.0
                 };
-            crate::FragmentSize::resolve(
+            let room = (frag.available_block_size - entry_margin - trailing_margin).max(0.0);
+            if is_first_fragment && !split && target.is_none_or(|target| target <= room) {
+                return None;
+            }
+            Some(crate::FragmentSize::resolve(
                 target,
                 input
                     .break_token
                     .and_then(|token| token.specified_size_fraction),
                 content_block,
-                frag.available_block_size - entry_margin - trailing_margin,
+                room,
                 split,
-            )
+            ))
         });
     let block_size = fragment_size.map_or(block_size, |size| size.extent);
     let size_fraction = fragment_size.and_then(|size| size.fraction);
@@ -710,11 +715,17 @@ pub fn layout_block_inner(
         && child_break_token.is_none()
         && fragment_size.is_some_and(|size| size.remaining)
     {
+        let mut coverage = match input.break_token.and_then(|token| token.mode_data.as_ref()) {
+            Some(crate::BreakTokenData::Block { coverage, .. }) => coverage.clone(),
+            _ => crate::source_progress::SourceProgress::default(),
+        };
+        coverage.include(&contribution);
         child_break_token = Some(crate::BreakToken {
             entity,
             specified_size_fraction: size_fraction,
             consumed_block_size: content_block,
             mode_data: Some(crate::BreakTokenData::Block {
+                coverage,
                 child_index: children.len(),
                 continuation: crate::BlockContinuation::ChildBoundary,
             }),

@@ -394,3 +394,32 @@ fn specified_block_size_counts_filled_fragment_room_through_replay() {
         }
     }
 }
+
+#[test]
+fn interrupted_child_uses_room_left_by_preceding_sibling() {
+    let fonts = FontDatabase::new();
+    let (mut dom, owner) = make_dom_with_block_div(block_style());
+    make_block_child(&mut dom, owner, 20.0);
+    let split = make_block_child(&mut dom, owner, 210.0);
+    make_block_child_with_break(&mut dom, split, 16.0, BreakValue::Auto, BreakValue::Page);
+    make_block_child(&mut dom, split, 16.0);
+    let frag = FragmentainerContext {
+        available_block_size: 95.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    let input = LayoutInput {
+        fragmentainer: Some(&frag),
+        ..base_input(&fonts)
+    };
+    let first = crate::layout_block_only(&mut dom, owner, &input);
+    assert!(first.break_token.is_some());
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::LayoutBox>(split)
+            .unwrap()
+            .content
+            .size
+            .height,
+        75.0
+    );
+}

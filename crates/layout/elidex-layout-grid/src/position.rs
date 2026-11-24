@@ -124,7 +124,9 @@ pub(crate) struct GridPlacement<'a> {
 // ---------------------------------------------------------------------------
 
 pub(super) struct ItemFragmentation<'a> {
-    pub room: &'a elidex_layout_block::FragmentainerContext,
+    pub owner: elidex_ecs::Entity,
+    pub contribution: elidex_layout_block::source_progress::SourceProgress,
+    pub room: Option<&'a elidex_layout_block::FragmentainerContext>,
     pub resume_row: usize,
     pub incoming: &'a [(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)],
     pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
@@ -140,7 +142,7 @@ pub(crate) fn position_items(
     items: &[GridItem],
     placement: &GridPlacement<'_>,
     env: &LayoutEnv<'_>,
-    mut fragments: Option<&mut ItemFragmentation<'_>>,
+    entry: &mut ItemFragmentation<'_>,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
@@ -407,26 +409,22 @@ pub(crate) fn position_items(
         } else {
             area_height
         };
-        let row_offset = fragments.as_ref().map_or(0.0, |entry| {
-            if item.row_start <= entry.resume_row {
-                0.0
-            } else {
-                row_positions[item.row_start] - row_positions[entry.resume_row]
-            }
-        });
-        let room = fragments
-            .as_ref()
-            .map(|entry| elidex_layout_block::FragmentainerContext {
-                available_block_size: (entry.room.available_block_size - row_offset).max(0.0),
-                ..*entry.room
+        let row_offset = if item.row_start <= entry.resume_row {
+            0.0
+        } else {
+            row_positions[item.row_start] - row_positions[entry.resume_row]
+        };
+        let room = entry
+            .room
+            .map(|room| elidex_layout_block::FragmentainerContext {
+                available_block_size: (room.available_block_size - row_offset).max(0.0),
+                ..*room
             });
-        let incoming_token = fragments.as_ref().and_then(|entry| {
-            entry
-                .incoming
-                .iter()
-                .find(|(id, _)| *id == item.entity)
-                .map(|(_, token)| token.as_ref())
-        });
+        let incoming_token = entry
+            .incoming
+            .iter()
+            .find(|(id, _)| *id == item.entity)
+            .map(|(_, token)| token.as_ref());
         let final_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
@@ -447,7 +445,14 @@ pub(crate) fn position_items(
         };
         let outcome = (env.layout_child)(dom, item.entity, &final_input);
         let final_lb = outcome.layout_box;
-        if let Some(entry) = fragments.as_deref_mut() {
+        entry.contribution.include(&outcome.contribution);
+        if let Some(token) = outcome.break_token {
+            entry.contribution.record_item(entry.owner, item.entity);
+            entry.outgoing.push((item.entity, Box::new(token)));
+        } else {
+            entry.contribution.finish_item(entry.owner, item.entity);
+        }
+        if room.is_some() {
             let margin_box = final_lb.margin_box();
             let extent = if is_horizontal_wm {
                 margin_box.size.height
@@ -455,9 +460,6 @@ pub(crate) fn position_items(
                 margin_box.size.width
             };
             entry.block_extent = entry.block_extent.max(row_offset + extent);
-            if let Some(token) = outcome.break_token {
-                entry.outgoing.push((item.entity, Box::new(token)));
-            }
             continue;
         }
 

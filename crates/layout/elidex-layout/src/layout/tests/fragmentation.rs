@@ -853,3 +853,80 @@ fn whole_spanners_and_floats_forward_nested_source() {
         );
     }
 }
+
+#[test]
+fn positive_room_for_an_unstarted_size_only_child_respects_class_a_avoid() {
+    use elidex_layout_block::{
+        BlockContinuation, BreakTokenData, FragmentainerContext, FragmentationType,
+    };
+    use elidex_plugin::BreakValue;
+    let fonts = FontDatabase::new();
+    let frag = FragmentainerContext {
+        available_block_size: 15.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    for avoid in [false, true] {
+        let mut dom = EcsDom::new();
+        let owner = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(
+            owner,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        let items = [10.0, 30.0].map(|height| {
+            let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+            dom.append_child(owner, child);
+            dom.world_mut().insert_one(
+                child,
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Dimension::Length(height),
+                    ..Default::default()
+                },
+            );
+            child
+        });
+        if avoid {
+            dom.world_mut()
+                .get::<&mut ComputedStyle>(items[1])
+                .unwrap()
+                .break_before = BreakValue::Avoid;
+        }
+        let input = contribution_input(&fonts, &frag);
+        let outcome = dispatch_layout_child(&mut dom, owner, &input);
+        let token = outcome.break_token.unwrap();
+        let Some(BreakTokenData::Block {
+            child_index: 1,
+            continuation,
+            ..
+        }) = token.mode_data
+        else {
+            panic!("expected second child route")
+        };
+        assert!(outcome.contribution.is_finished(owner, items[0]));
+        if avoid {
+            let BlockContinuation::InterruptedChild(child) = continuation else {
+                panic!("only an avoided class A boundary")
+            };
+            assert_eq!(child.entity, items[1]);
+            assert_eq!(child.specified_size_fraction, Some(5.0 / 30.0));
+            assert_eq!(
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(items[1])
+                    .unwrap()
+                    .content
+                    .size
+                    .height,
+                5.0
+            );
+        } else {
+            assert!(matches!(continuation, BlockContinuation::ChildBoundary));
+            assert!(!dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(items[1])
+                .is_ok_and(|lb| lb.layout_generation == input.layout_generation));
+        }
+    }
+}

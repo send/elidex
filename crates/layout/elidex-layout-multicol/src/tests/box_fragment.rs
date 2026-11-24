@@ -146,38 +146,58 @@ fn multicol_midbreak_block_spanning_three_columns_populates_three_fragments() {
 }
 
 #[test]
-fn multicol_spanning_child_after_whole_sibling_does_not_falsely_fragment() {
-    // A whole sibling A followed by a child B that does not fit in the remaining
-    // column space. This engine's fragmentation DEFERS B to a clean column boundary
-    // (it never splits a child *starting* after a whole sibling) — so B is laid
-    // WHOLE in column 1, not split. Assert B therefore gets NO box fragment (it uses
-    // the I-multicol shifted `LayoutBox`), pinning that the `BlockContinuation::InterruptedChild`
-    // capture signal does not false-positive on a deferred-then-whole child. (This is
-    // why the capture's "laid partially here" signal — `BlockContinuation::InterruptedChild`
-    // — coincides with `next == prev` in practice: a spanning child's first fragment
-    // always lands at a clean boundary where it then fills the column mid-stream.)
-    let mut dom = EcsDom::new();
-    let container = elem(&mut dom, "div");
-    let style = ComputedStyle {
-        display: Display::Block,
-        column_count: Some(2),
-        column_fill: ColumnFill::Auto,
-        height: Dimension::Length(50.0),
-        ..ComputedStyle::default()
-    };
-    let _ = dom.world_mut().insert_one(container, style);
-    let _a = add_block_child(&mut dom, container, 30.0); // whole in col 0
-    let b = add_spanning_block(&mut dom, container, 2, 15.0); // 30px → deferred whole to col 1
-
-    let font_db = make_font_db();
-    let input = make_input(&font_db);
-    layout_multicol(&mut dom, container, &input, layout_child_fn);
-
-    assert_eq!(
-        box_fragments(&dom, b).len(),
-        0,
-        "B is deferred whole to column 1 (not split) → no box fragment, only its shifted LayoutBox"
-    );
+fn multicol_splits_a_new_child_only_if_its_prefix_fits() {
+    use crate::fill::{fill_columns_sequential, ColumnFillEnv};
+    let fonts = make_font_db();
+    for (first_height, splits) in [(30.0, true), (50.0, false)] {
+        let mut dom = EcsDom::new();
+        let owner = elem(&mut dom, "div");
+        let style = ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        };
+        let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+        dom.world_mut().insert_one(owner, style);
+        let a = add_block_child(&mut dom, owner, first_height);
+        let b = add_spanning_block(&mut dom, owner, 2, 15.0);
+        let parts = dom.children(b);
+        let input = make_input(&fonts);
+        let env = ColumnFillEnv {
+            input: &input,
+            env: &elidex_layout_block::LayoutEnv::from_input(&input, layout_child_fn),
+            geom: &crate::algo::ColumnGeometry {
+                count: 2,
+                width: 300.0,
+                gap: 0.0,
+            },
+            parent_entity: owner,
+            col_ctx: &crate::ColumnLayoutCtx {
+                content_origin: Point::ZERO,
+                block_offset: 0.0,
+                wm,
+            },
+        };
+        let batch = fill_columns_sequential(&mut dom, &[a, b], &env, 50.0, 10, false);
+        assert!(batch.carry.is_none());
+        assert_eq!(batch.fragments.len(), 2);
+        for (i, fragment) in batch.fragments.iter().enumerate() {
+            assert_eq!(
+                fragment.contribution.is_finished(b, parts[0]),
+                if splits { i == 0 } else { i == 1 }
+            );
+            assert_eq!(fragment.contribution.is_finished(b, parts[1]), i == 1);
+        }
+        layout_multicol(&mut dom, owner, &input, layout_child_fn);
+        let stored = box_fragments(&dom, b);
+        if splits {
+            assert_eq!(stored, [(0, 0.0), (1, 300.0)]);
+        } else {
+            assert!(stored.is_empty());
+        }
+    }
 }
 
 #[test]

@@ -720,6 +720,7 @@ fn resume_with_child_break_tokens() {
         }
         dom.world_mut().insert_one(part, style).unwrap();
     }
+    let parts = dom.children(split);
     fn dispatch(
         dom: &mut EcsDom,
         child: elidex_ecs::Entity,
@@ -761,6 +762,10 @@ fn resume_with_child_break_tokens() {
         room(95.0),
         None,
     );
+    assert!(first.contribution.is_finished(split, parts[0]));
+    assert!(!first.contribution.is_finished(split, parts[1]));
+    assert!(!first.contribution.is_finished(grid, split));
+    assert!(first.contribution.is_finished(grid, items[1]));
     let token = first
         .break_token
         .expect("a nested break on the final row must continue");
@@ -779,6 +784,10 @@ fn resume_with_child_break_tokens() {
         room(120.0),
         Some(token),
     );
+    assert!(!last.contribution.is_finished(split, parts[0]));
+    assert!(last.contribution.is_finished(split, parts[1]));
+    assert!(last.contribution.is_finished(grid, split));
+    assert!(!last.contribution.is_finished(grid, items[1]));
     assert!(last.break_token.is_none(), "{:?}", last.break_token);
     assert_eq!(
         dom.world()

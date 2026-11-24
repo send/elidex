@@ -539,19 +539,21 @@ pub fn layout_grid(
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
     };
-    let mut fragmentation = input.fragmentainer.map(|room| position::ItemFragmentation {
-        room,
+    let mut fragment = position::ItemFragmentation {
+        owner: entity,
+        contribution: Default::default(),
+        room: input.fragmentainer,
         resume_row,
         incoming: &resume_child_bts,
         outgoing: Vec::new(),
         block_extent: 0.0,
-    });
-    let grid_baseline =
-        position::position_items(dom, &items, &placement, &grid_env, fragmentation.as_mut());
+    };
+    let grid_baseline = position::position_items(dom, &items, &placement, &grid_env, &mut fragment);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
     let mut final_block = block_available.unwrap_or(total_row_size);
     let mut result_break_token = None;
-    if let Some(fragment) = fragmentation {
+    let contribution = fragment.contribution;
+    if let Some(room) = fragment.room {
         let selected_rows = &row_tracks[resume_row.min(end_row)..end_row];
         let row_extent = row_break.map_or_else(
             || track::total_track_size(selected_rows, gap_row),
@@ -563,7 +565,7 @@ pub fn layout_grid(
             block_available,
             input.break_token.and_then(|t| t.specified_size_fraction),
             content,
-            fragment.room.available_block_size,
+            room.available_block_size,
             interrupted,
         );
         final_block = size.extent;
@@ -666,7 +668,7 @@ pub fn layout_grid(
     }
 
     elidex_layout_block::LayoutOutcome {
-        contribution: elidex_layout_block::source_progress::SourceProgress::default(),
+        contribution,
         layout_box: lb,
         break_token: result_break_token,
         propagated_break_before,

@@ -414,11 +414,18 @@ fn stack_fragment(
         } else {
             None
         };
+        let room = frag_ctx.map(|frag| crate::FragmentainerContext {
+            available_block_size: (frag.available_block_size
+                - (cursor_block - cursor_block_origin))
+                .max(0.0),
+            ..*frag
+        });
         let child_input = if is_horizontal {
             LayoutInput {
                 offset: elidex_plugin::Point::new(input.offset.x, cursor_block),
                 float_ctx: Some(float_ctx),
                 break_token: child_bt,
+                fragmentainer: room.as_ref(),
                 ..*input
             }
         } else {
@@ -426,10 +433,37 @@ fn stack_fragment(
                 offset: elidex_plugin::Point::new(cursor_block, input.offset.y),
                 float_ctx: Some(float_ctx),
                 break_token: child_bt,
+                fragmentainer: room.as_ref(),
                 ..*input
             }
         };
         let child_outcome = layout_child(dom, child, &child_input);
+        if let (None, Some(token), Some(room), Some(frag)) =
+            (child_bt, &child_outcome.break_token, room, frag_ctx)
+        {
+            let source_fits = room.available_block_size > 0.0
+                && token.consumed_block_size <= room.available_block_size
+                && child_outcome
+                    .contribution
+                    .advances(&crate::source_progress::SourceProgress::default());
+            if !source_fits {
+                if let Some(best_idx) =
+                    fragmentation::find_best_break(&break_candidates, frag.available_block_size)
+                {
+                    let best = &break_candidates[best_idx];
+                    if !best.violates_avoid && best.cursor_block <= frag.available_block_size {
+                        contribution = checkpoints.swap_remove(best_idx);
+                        result_break_token = Some(make_block_break_token(
+                            parent_entity,
+                            best.cursor_block,
+                            best.child_index,
+                            BlockContinuation::ChildBoundary,
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
         contribution.include(&child_outcome.contribution);
         if child_outcome.break_token.is_some() {
             contribution.record_item(parent_entity, child);
