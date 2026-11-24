@@ -77,10 +77,7 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
 /// `InlineStyle` is a string-backed CSSOM store (`InlineDeclaration { value:
 /// String }`) — the inline path can only surface serialized strings, never a
 /// `CssValue`. So the single property-agnostic gate must classify the common
-/// denominator (strings). That is robust here: CSS-wide keywords are globally
-/// reserved exact tokens and `var(` is the only CSS function spelled that way,
-/// so a standard serialized value never contains the literal substring `var(`
-/// except an actual `var()`.
+/// denominator (strings). Tokenization preserves function identity inside nested values.
 enum Kind {
     /// A concrete component value (`5px`, `hidden`, `red`).
     Physical,
@@ -97,13 +94,15 @@ enum Kind {
 
 /// Classify a serialized component value string into its [`Kind`].
 ///
-/// Substring-matches `var(` (the only such-spelled CSS function), else
+/// Recognizes decoded var functions in component values, then
 /// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` (no
 /// per-component allocation — the common all-physical read falls through here).
 fn value_kind(v: &str) -> Kind {
     const CSS_WIDE: [&str; 5] = ["initial", "inherit", "unset", "revert", "revert-layer"];
-    if v.contains("var(") {
-        Kind::Var // CssValue::Var or a RawTokens("…var(…")
+    if elidex_plugin::component_values::ComponentValues::capture(v)
+        .is_some_and(|seq| seq.contains_var())
+    {
+        Kind::Var
     } else if CSS_WIDE.iter().any(|kw| v.eq_ignore_ascii_case(kw)) {
         Kind::CssWide // css-cascade-4 §7.3 (revert-layer: css-cascade-5 §7.3.5)
     } else {

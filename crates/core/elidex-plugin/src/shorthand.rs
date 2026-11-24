@@ -87,6 +87,18 @@ pub fn serialize_omit_initial(components: &[(&str, &str)]) -> Option<String> {
     })
 }
 
+/// CSS Cascade §6.1: within one declaration block, compare importance, then
+/// declaration order. A shorthand member uses its originating position.
+#[must_use]
+pub fn declaration_wins(
+    important: bool,
+    position: usize,
+    previous_important: bool,
+    previous_position: usize,
+) -> bool {
+    (important, position) >= (previous_important, previous_position)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,8 +5,6 @@
 //! for each property based on origin, importance, specificity, and
 //! source order.
 
-use std::collections::HashMap;
-
 use elidex_css::media::{evaluate, MediaEnvironment};
 use elidex_css::{Declaration, Origin, PseudoElement, Specificity, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity};
@@ -20,9 +18,14 @@ fn media_conditions_match(rule: &elidex_css::CssRule, env: &MediaEnvironment) ->
 }
 
 /// A single declaration entry in the cascade, annotated with priority metadata.
-struct CascadeEntry<'a> {
-    property: &'a str,
-    value: &'a CssValue,
+#[derive(Clone, Copy)]
+pub(crate) struct CascadeEntry<'a> {
+    pub(crate) property: &'a str,
+    pub(crate) value: &'a CssValue,
+    pub(crate) registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
+    block: usize,
+    position: usize,
+    important: bool,
     priority: CascadePriority,
 }
 
@@ -94,7 +97,7 @@ fn importance_layer(origin: Origin, important: bool) -> u8 {
 /// Source location metadata for cascade ordering.
 ///
 /// Groups the cascade source fields that are invariant per-declaration within
-/// a rule, reducing the argument count of [`push_cascade_entry`].
+/// a rule, reducing the argument count of [`push_block`].
 struct CascadeSource {
     origin: Origin,
     is_outer_context: bool,
@@ -105,33 +108,46 @@ struct CascadeSource {
 }
 
 /// Push a cascade entry for a declaration with the given source metadata.
-fn push_cascade_entry<'a>(
+fn push_block<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
-    decl: &'a Declaration,
+    declarations: &'a [Declaration],
+    registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
     source: &CascadeSource,
 ) {
-    entries.push(CascadeEntry {
-        property: &decl.property,
-        value: &decl.value,
-        priority: CascadePriority {
-            importance_layer: importance_layer(source.origin, decl.important),
-            is_outer_context: source.is_outer_context,
-            is_inline: source.is_inline,
-            specificity: source.specificity,
-            stylesheet_index: source.stylesheet_index,
-            source_order: source.source_order,
-        },
-    });
+    let block = entries.len();
+    for (position, decl) in declarations.iter().enumerate() {
+        entries.push(CascadeEntry {
+            block,
+            position,
+            registry,
+            important: decl.important,
+            property: &decl.property,
+            value: &decl.value,
+            priority: CascadePriority {
+                importance_layer: importance_layer(source.origin, decl.important),
+                is_outer_context: source.is_outer_context,
+                is_inline: source.is_inline,
+                specificity: source.specificity,
+                stylesheet_index: source.stylesheet_index,
+                source_order: source.source_order,
+            },
+        });
+    }
 }
 
-/// Sort cascade entries by priority and return the last-wins per-property map.
-fn compute_winners<'a>(entries: &mut [CascadeEntry<'a>]) -> HashMap<&'a str, &'a CssValue> {
-    entries.sort_by_key(|e| e.priority);
-    let mut winners: HashMap<&str, &CssValue> = HashMap::with_capacity(entries.len());
-    for entry in entries.iter() {
-        winners.insert(entry.property, entry.value);
+impl CascadeEntry<'_> {
+    pub(crate) fn wins(self, other: Self) -> bool {
+        if self.block == other.block {
+            elidex_plugin::declaration_wins(
+                self.important,
+                self.position,
+                other.important,
+                other.position,
+            )
+        } else {
+            self.priority >= other.priority
+        }
     }
-    winners
 }
 
 /// Shadow cascade context for `:host` and `::slotted()` rule participation.
@@ -149,9 +165,9 @@ pub(crate) enum ShadowCascade<'a> {
     Slotted(&'a Stylesheet),
 }
 
-/// Collect matching declarations and cascade to determine winners.
+/// Collect matching declarations with their cascade priority and block position.
 ///
-/// Returns a map from property name to the winning `CssValue` reference.
+/// Keep every candidate until pending shorthands expand in the producer’s grammar.
 ///
 /// `extra_declarations` are presentational hints (e.g. HTML attributes mapped to CSS).
 /// They participate at author-origin, specificity (0,0,0), ordered before all author
@@ -167,7 +183,7 @@ pub(crate) fn collect_and_cascade<'a>(
     extra_declarations: &'a [Declaration],
     shadow_cascade: &ShadowCascade<'a>,
     env: &MediaEnvironment,
-) -> HashMap<&'a str, &'a CssValue> {
+) -> Vec<CascadeEntry<'a>> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
     // Collect presentational hints first — author origin, lowest specificity and
@@ -180,9 +196,7 @@ pub(crate) fn collect_and_cascade<'a>(
         stylesheet_index: 0,
         source_order: 0,
     };
-    for decl in extra_declarations {
-        push_cascade_entry(&mut entries, decl, &hint_source);
-    }
+    push_block(&mut entries, extra_declarations, None, &hint_source);
 
     // Collect from stylesheets (only selectors without pseudo-elements).
     collect_matching_rules(&mut entries, entity, dom, stylesheets, None, true, env);
@@ -225,11 +239,14 @@ pub(crate) fn collect_and_cascade<'a>(
         stylesheet_index: u32::MAX,
         source_order: u32::MAX,
     };
-    for decl in inline_declarations {
-        push_cascade_entry(&mut entries, decl, &inline_source);
-    }
+    push_block(
+        &mut entries,
+        inline_declarations,
+        Some(crate::default_css_property_registry()),
+        &inline_source,
+    );
 
-    compute_winners(&mut entries)
+    entries
 }
 
 /// Collect matching rules from stylesheets, filtered by pseudo-element.
@@ -284,9 +301,12 @@ fn collect_matching_rules<'a>(
                 stylesheet_index: sheet_index,
                 source_order: rule.source_order,
             };
-            for decl in &rule.declarations {
-                push_cascade_entry(entries, decl, &source);
-            }
+            push_block(
+                entries,
+                &rule.declarations,
+                stylesheet.grammar_registry.as_deref(),
+                &source,
+            );
         }
     }
 }
@@ -302,7 +322,7 @@ pub(crate) fn collect_and_cascade_pseudo<'a>(
     stylesheets: &'a [&'a Stylesheet],
     pseudo: PseudoElement,
     env: &MediaEnvironment,
-) -> HashMap<&'a str, &'a CssValue> {
+) -> Vec<CascadeEntry<'a>> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
     collect_matching_rules(
@@ -315,7 +335,7 @@ pub(crate) fn collect_and_cascade_pseudo<'a>(
         env,
     );
 
-    compute_winners(&mut entries)
+    entries
 }
 
 /// Collect shadow-internal rules matching a selector filter.
@@ -364,9 +384,12 @@ fn collect_shadow_rules<'a>(
             stylesheet_index: 0,
             source_order: rule.source_order,
         };
-        for decl in &rule.declarations {
-            push_cascade_entry(entries, decl, &source);
-        }
+        push_block(
+            entries,
+            &rule.declarations,
+            shadow_sheet.grammar_registry.as_deref(),
+            &source,
+        );
     }
 }
 

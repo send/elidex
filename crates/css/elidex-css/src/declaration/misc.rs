@@ -588,14 +588,18 @@ pub(super) fn parse_border_spacing(input: &mut Parser) -> Vec<Declaration> {
 
 // --- Background shorthand ---
 
-/// Parse the `background` shorthand, extracting `background-color`.
-///
-/// Currently extracts only the color layer from the shorthand (CSS Backgrounds
-/// Level 3 §3.10). Full multi-layer support (background-image, -position, -size,
-/// -repeat, -origin, -clip, -attachment) is not yet implemented — those layers
-/// are silently discarded when the value is parsed as a single color.
+/// CSS Backgrounds §3.10: a color-only background resets every omitted
+/// longhand to its initial value. Other layer grammars are handled separately.
 pub(super) fn parse_background_shorthand(input: &mut Parser) -> Vec<Declaration> {
-    parse_color_property(input, "background-color")
+    let mut declarations = parse_color_property(input, "background-color");
+    if !declarations.is_empty() {
+        for member in super::shorthand_longhands("background") {
+            if member != "background-color" {
+                declarations.push(Declaration::new(member, CssValue::Initial));
+            }
+        }
+    }
+    declarations
 }
 
 // --- Multi-column shorthands ---

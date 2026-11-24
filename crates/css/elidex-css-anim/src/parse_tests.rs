@@ -328,17 +328,17 @@ fn steps_jump_none_count_one_rejected() {
     );
 }
 
-// S4-1: !important in @keyframes should be stripped (CSS Animations §4.1).
 #[test]
-fn keyframes_important_stripped() {
-    let rule = parse_keyframes("test", "from { opacity: 0 !important; } to { opacity: 1; }");
-    assert_eq!(rule.keyframes.len(), 2);
-    // parse_raw_token_value treats bare `0` as a zero-length (CSS unitless zero).
-    assert_eq!(
-        rule.keyframes[0].declarations[0].value,
-        CssValue::Length(0.0, elidex_plugin::LengthUnit::Px),
-        "!important should be stripped, leaving just the value"
-    );
+fn keyframes_reject_important_declarations() {
+    for opacity in [".5 !important", "var(--a,.5) !ImPoRtAnT"] {
+        let rule = parse_keyframes(
+            "test",
+            &format!("from {{ opacity: {opacity}; width: 2px; }}"),
+        );
+        let frame = &rule.keyframes[0];
+        assert_eq!(frame.declarations.len(), 1);
+        assert_eq!(frame.declarations[0].property, "width");
+    }
 }
 
 // S4-2: Missing from/to keyframes should be auto-generated.
@@ -372,19 +372,13 @@ fn keyframes_no_duplicate_from_to() {
 }
 
 #[test]
-fn find_matching_brace_with_string_containing_brace() {
-    // content: "}" should not be treated as the closing brace.
-    let text = r#"content: "}"; opacity: 1; }"#;
-    let pos = find_matching_brace(text);
-    assert_eq!(pos, Some(text.len() - 1));
-}
-
-#[test]
-fn find_matching_brace_with_escaped_quote_in_string() {
-    // content: "\"}" should handle escaped quote correctly.
-    let text = r#"content: "\"}" ; }"#;
-    let pos = find_matching_brace(text);
-    assert_eq!(pos, Some(text.len() - 1));
+fn keyframes_preserve_quoted_and_commented_delimiters() {
+    let rule = parse_keyframes(
+        "test",
+        r#"from { content: "\"};!important"; width: 2px/*;}*/; } to { opacity: 1; }"#,
+    );
+    assert_eq!(rule.keyframes[0].declarations.len(), 2);
+    assert_eq!(rule.keyframes[1].declarations[0].property, "opacity");
 }
 
 #[test]
@@ -397,7 +391,7 @@ fn keyframes_with_content_brace_in_string() {
     assert!(!rule.keyframes[0].declarations.is_empty());
 }
 
-// Per-keyframe timing function (CSS Animations L1 §3.9.1).
+// Per-keyframe timing function (CSS Animations L1 §3.1).
 #[test]
 fn keyframes_per_keyframe_timing_function() {
     let rule = parse_keyframes(
@@ -408,7 +402,7 @@ fn keyframes_per_keyframe_timing_function() {
     // The from keyframe should have a per-keyframe timing function.
     assert_eq!(
         rule.keyframes[0].timing_function,
-        Some(TimingFunction::EASE_IN),
+        Some(IntervalTiming::Resolved(TimingFunction::EASE_IN)),
     );
     // animation-timing-function should be removed from declarations.
     assert!(
@@ -431,7 +425,10 @@ fn keyframes_per_keyframe_timing_steps() {
     );
     assert_eq!(
         rule.keyframes[0].timing_function,
-        Some(TimingFunction::Steps(4, StepPosition::JumpEnd)),
+        Some(IntervalTiming::Resolved(TimingFunction::Steps(
+            4,
+            StepPosition::JumpEnd
+        ))),
     );
 }
 
@@ -441,4 +438,33 @@ fn keyframes_no_per_keyframe_timing() {
     let rule = parse_keyframes("test", "from { opacity: 0; } to { opacity: 1; }");
     assert_eq!(rule.keyframes[0].timing_function, None);
     assert_eq!(rule.keyframes[1].timing_function, None);
+}
+
+#[test]
+fn keyframes_preserve_pending_timing_and_value_spans() {
+    for (source, fallback) in [("var(--ease,)", ""), ("var(--ease,linear)", "linear")] {
+        let rule = parse_keyframes("t", &format!(
+            "from {{ animation-timing-function: linear }} from {{ animation-timing-function: {source}; opacity:var(--alpha,.5/*;}}*/); width:2px; animation-timing-function:ease !IMPORTANT }} to {{ width: 4px }}"
+        ));
+        let frame = &rule.keyframes[0];
+        let Some(IntervalTiming::Pending(seq)) = &frame.timing_function else {
+            panic!("expected pending interval timing");
+        };
+        let range = seq.arguments(0).1.unwrap();
+        let text: String = seq.items()[range]
+            .iter()
+            .map(|c| &seq.source()[c.span.clone()])
+            .collect();
+        assert_eq!(text, fallback);
+        assert_eq!(frame.declarations.len(), 2);
+        assert_eq!(
+            frame.declarations[0].value.to_css_string(),
+            "var(--alpha,.5/*;}*/)"
+        );
+        assert_eq!(frame.declarations[1].property, "width");
+        assert_eq!(
+            rule.keyframes[1].declarations[0].value.to_css_string(),
+            "4px"
+        );
+    }
 }

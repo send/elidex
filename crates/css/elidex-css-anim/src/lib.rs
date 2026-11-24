@@ -45,23 +45,21 @@ pub(crate) const MAX_LIST_ITEMS: usize = 1024;
 /// at most 8 components per comma-separated entry.
 const MAX_ANIMATION_SHORTHAND_COMPONENTS: usize = 8;
 
-/// All transition/animation property names handled by this plugin.
-const PROPERTY_NAMES: &[&str] = &[
-    "transition",
-    "transition-property",
-    "transition-duration",
-    "transition-timing-function",
-    "transition-delay",
-    "animation",
-    "animation-name",
-    "animation-duration",
-    "animation-timing-function",
-    "animation-delay",
-    "animation-iteration-count",
-    "animation-direction",
-    "animation-fill-mode",
-    "animation-play-state",
-];
+/// Keep the registration names, affected members and expansion order together.
+macro_rules! animation_families {
+    ($transition:literal => [$($tr:literal),+], $animation:literal => [$($an:literal),+]) => {
+        const TRANSITION_MEMBERS: [&str; 4] = [$($tr),+];
+        const ANIMATION_MEMBERS: [&str; 8] = [$($an),+];
+        const PROPERTY_NAMES: &[&str] = &[$transition, $($tr),+, $animation, $($an),+];
+        const LONGHAND_NAMES: &[&str] = &[$($tr),+, $($an),+];
+    };
+}
+
+animation_families!(
+    "transition" => ["transition-property", "transition-duration", "transition-timing-function", "transition-delay"],
+    "animation" => ["animation-name", "animation-duration", "animation-timing-function", "animation-delay",
+                    "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state"]
+);
 
 /// CSS animation/transition property handler.
 #[derive(Clone)]
@@ -77,6 +75,14 @@ impl AnimHandler {
 impl CssPropertyHandler for AnimHandler {
     fn property_names(&self) -> &[&str] {
         PROPERTY_NAMES
+    }
+
+    fn declaration_members<'a>(&'a self, property: &'a str) -> Vec<&'a str> {
+        match property {
+            "transition" => TRANSITION_MEMBERS.to_vec(),
+            "animation" => ANIMATION_MEMBERS.to_vec(),
+            _ => vec![property],
+        }
     }
 
     fn parse(
@@ -185,19 +191,11 @@ fn parse_animation_shorthand(input: &mut cssparser::Parser<'_, '_>) -> Vec<Prope
         }
     }
 
-    let [names, durations, timing_fns, delays, iter_counts, directions, fill_modes, play_states] =
-        extract_animation_lists(&specs);
-
-    vec![
-        PropertyDeclaration::new("animation-name", names),
-        PropertyDeclaration::new("animation-duration", durations),
-        PropertyDeclaration::new("animation-timing-function", timing_fns),
-        PropertyDeclaration::new("animation-delay", delays),
-        PropertyDeclaration::new("animation-iteration-count", iter_counts),
-        PropertyDeclaration::new("animation-direction", directions),
-        PropertyDeclaration::new("animation-fill-mode", fill_modes),
-        PropertyDeclaration::new("animation-play-state", play_states),
-    ]
+    ANIMATION_MEMBERS
+        .into_iter()
+        .zip(extract_animation_lists(&specs))
+        .map(|(member, value)| PropertyDeclaration::new(member, value))
+        .collect()
 }
 
 /// Build a `CssValue` from a list of items (single → unwrapped, multiple → `List`).

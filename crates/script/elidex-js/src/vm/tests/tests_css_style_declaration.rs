@@ -685,3 +685,14 @@ fn set_attribute_then_remove_property_takes_effect() {
              ? 'removed' : s;");
     assert_eq!(out, "removed");
 }
+
+#[test]
+fn css_supports_requires_a_supported_property_and_valid_var_syntax() {
+    for (expression, expected) in [
+        ("CSS.supports('not-a-real-property','var(--x)')", "no"),
+        ("CSS.supports('width','var()')", "no"),
+        ("CSS.supports('width','var(123,5px)')", "yes"),
+    ] {
+        assert_eq!(run(&format!("{expression} ? 'yes' : 'no';")), expected);
+    }
+}

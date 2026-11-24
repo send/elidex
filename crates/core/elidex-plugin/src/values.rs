@@ -53,15 +53,13 @@ pub enum CssValue {
     Unset,
     /// A list of CSS values (e.g. `font-family: Arial, sans-serif`).
     List(Vec<CssValue>),
-    /// A `var()` function reference.
+    /// An admitted ordinary declaration awaiting computed-time substitution.
+    Pending(crate::component_values::ComponentValues),
+    /// Specified value of an unregistered custom property.
+    Custom(crate::component_values::ComponentValues),
+    /// Raw token string for grammar-specific values.
     ///
-    /// First argument is the custom property name (e.g. `--bg`),
-    /// second is an optional fallback value (e.g. `var(--bg, #000)`).
-    Var(String, Option<Box<CssValue>>),
-    /// Raw token string for custom property values.
-    ///
-    /// Custom properties (CSS Variables Level 1) accept arbitrary token
-    /// sequences that are not type-checked at parse time.
+    /// Some property grammars retain text, for example animation list values.
     RawTokens(String),
     /// A `calc()` expression (CSS Values Level 3 §8).
     Calc(Box<CalcExpr>),
@@ -608,10 +606,8 @@ impl CssValue {
                 .map(Self::to_css_string)
                 .collect::<Vec<_>>()
                 .join(", "),
-            Self::Var(name, fallback) => match fallback {
-                Some(fb) => format!("var({name}, {})", fb.to_css_string()),
-                None => format!("var({name})"),
-            },
+            Self::Custom(seq) if seq.items().is_empty() => " ".into(),
+            Self::Pending(seq) | Self::Custom(seq) => seq.source().to_owned(),
             Self::Calc(expr) => format!("calc({})", expr.to_css_string()),
             Self::Time(secs) => {
                 // CSS time values are stored in seconds; serialize to ms if

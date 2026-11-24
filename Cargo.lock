@@ -2318,6 +2318,7 @@ name = "elidex-style"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "cssparser",
  "elidex-css",
  "elidex-css-anim",
  "elidex-css-background",

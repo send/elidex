@@ -309,11 +309,28 @@ pub struct Keyframe {
     pub offset: f32,
     /// Property declarations at this keyframe.
     pub declarations: Vec<PropertyDeclaration>,
-    /// Per-keyframe timing function (CSS Animations L1 §3.9.1).
+    /// Per-keyframe timing function (CSS Animations L1 §3.1).
     ///
     /// If `Some`, this timing function is used for the interval starting at
     /// this keyframe. If `None`, the animation's overall timing function applies.
-    pub timing_function: Option<TimingFunction>,
+    pub timing_function: Option<IntervalTiming>,
+}
+
+/// CSS Animations §3.1 interval descriptor. Pending declarations keep their
+/// specified components until sampling has an element substitution context.
+#[derive(Clone, Debug, PartialEq)]
+pub enum IntervalTiming {
+    Resolved(TimingFunction),
+    Pending(elidex_plugin::component_values::ComponentValues),
+}
+
+impl IntervalTiming {
+    pub(crate) fn resolved(&self) -> Option<&TimingFunction> {
+        match self {
+            Self::Resolved(timing) => Some(timing),
+            Self::Pending(_) => None,
+        }
+    }
 }
 
 /// Parse `@keyframes <name> { ... }` rule body.
@@ -335,31 +352,14 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         };
     }
     let mut keyframes = Vec::new();
-    let mut remaining = block_text.trim();
-    let mut count = 0;
-
-    while !remaining.is_empty() {
-        count += 1;
-        if count > MAX_KEYFRAMES {
-            break;
-        }
-        // Parse selector (offset list)
-        let Some(brace_start) = remaining.find('{') else {
-            break;
-        };
-        let selector_text = remaining[..brace_start].trim();
-        let offsets = parse_keyframe_selectors(selector_text);
-
-        // Find matching closing brace (handles nested braces)
-        let after_brace = &remaining[brace_start + 1..];
-        let Some(brace_end) = find_matching_brace(after_brace) else {
-            break;
-        };
-        let decl_text = &after_brace[..brace_end];
-
-        // Parse declarations (simplified — just property: value pairs)
-        let (declarations, timing_function) = parse_keyframe_declarations_with_timing(decl_text);
-
+    let mut pi = cssparser::ParserInput::new(block_text);
+    let mut input = cssparser::Parser::new(&mut pi);
+    let mut reader = KeyframeReader;
+    for (offsets, (declarations, timing_function)) in
+        cssparser::StyleSheetParser::new(&mut input, &mut reader)
+            .take(MAX_KEYFRAMES)
+            .flatten()
+    {
         for offset in offsets {
             if keyframes.len() >= MAX_KEYFRAMES {
                 break;
@@ -374,8 +374,6 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
         if keyframes.len() >= MAX_KEYFRAMES {
             break;
         }
-
-        remaining = after_brace[brace_end + 1..].trim();
     }
 
     keyframes.sort_by(|a, b| {
@@ -444,122 +442,140 @@ pub fn parse_keyframes(name: &str, block_text: &str) -> KeyframesRule {
     }
 }
 
-/// Find the position of the matching `}` for an opening `{`, handling nesting.
-///
-/// Skips braces inside string literals (`"..."` and `'...'`) to handle cases
-/// like `content: "}"` correctly. Backslash escapes inside strings are handled.
-///
-/// Returns `None` if no matching brace is found or nesting exceeds 128 levels.
-fn find_matching_brace(text: &str) -> Option<usize> {
-    /// Maximum nesting depth for braces in `@keyframes` blocks.
-    const MAX_BRACE_DEPTH: u32 = 128;
-    let mut depth = 0u32;
-    let mut chars = text.char_indices();
-    while let Some((i, ch)) = chars.next() {
-        match ch {
-            '"' | '\'' => {
-                // Skip string literal contents (braces inside don't count).
-                let quote = ch;
-                loop {
-                    match chars.next() {
-                        Some((_, '\\')) => {
-                            // Skip the escaped character.
-                            chars.next();
-                        }
-                        Some((_, c)) if c == quote => break,
-                        Some(_) => {}
-                        None => break,
-                    }
-                }
-            }
-            '{' => {
-                depth += 1;
-                if depth > MAX_BRACE_DEPTH {
-                    return None;
-                }
-            }
-            '}' => {
-                if depth == 0 {
-                    return Some(i);
-                }
-                depth -= 1;
-            }
-            _ => {}
-        }
-    }
-    None
+type FrameDeclarations = (Vec<PropertyDeclaration>, Option<IntervalTiming>);
+type FrameBlock = (Vec<f32>, FrameDeclarations);
+
+struct KeyframeReader;
+
+impl cssparser::AtRuleParser<'_> for KeyframeReader {
+    type Prelude = ();
+    type AtRule = FrameBlock;
+    type Error = ();
 }
 
-fn parse_keyframe_selectors(text: &str) -> Vec<f32> {
-    text.split(',')
-        .take(MAX_KEYFRAMES)
-        .filter_map(|s| {
-            let s = s.trim();
-            if s.eq_ignore_ascii_case("from") {
-                Some(0.0)
-            } else if s.eq_ignore_ascii_case("to") {
-                Some(1.0)
-            } else if let Some(pct) = s.strip_suffix('%') {
-                // CSS Animations Level 1 §4.2: reject percentages outside [0%, 100%].
-                pct.trim().parse::<f32>().ok().and_then(|v| {
-                    if v.is_finite() && (0.0..=100.0).contains(&v) {
-                        Some(v / 100.0)
-                    } else {
-                        None
+impl<'i> cssparser::QualifiedRuleParser<'i> for KeyframeReader {
+    type Prelude = Vec<f32>;
+    type QualifiedRule = FrameBlock;
+    type Error = ();
+
+    fn parse_prelude<'t>(
+        &mut self,
+        input: &mut cssparser::Parser<'i, 't>,
+    ) -> Result<Vec<f32>, cssparser::ParseError<'i, ()>> {
+        let mut offsets = Vec::new();
+        loop {
+            let offset = input.parse_until_before(cssparser::Delimiter::Comma, |item| {
+                let offset = match item.next()? {
+                    cssparser::Token::Ident(name) if name.eq_ignore_ascii_case("from") => 0.0,
+                    cssparser::Token::Ident(name) if name.eq_ignore_ascii_case("to") => 1.0,
+                    cssparser::Token::Percentage { unit_value, .. }
+                        if (0.0..=1.0).contains(unit_value) =>
+                    {
+                        *unit_value
                     }
-                })
+                    _ => return Err(item.new_custom_error(())),
+                };
+                Ok(offset)
+            })?;
+            offsets.push(offset);
+            if offsets.len() == MAX_KEYFRAMES {
+                while input.next().is_ok() {}
+                break;
+            }
+            if input.is_exhausted() {
+                break;
+            }
+            input.expect_comma()?;
+        }
+        Ok(offsets)
+    }
+
+    fn parse_block<'t>(
+        &mut self,
+        offsets: Vec<f32>,
+        _: &cssparser::ParserState,
+        input: &mut cssparser::Parser<'i, 't>,
+    ) -> Result<FrameBlock, cssparser::ParseError<'i, ()>> {
+        const MAX_DECLARATIONS_PER_BLOCK: usize = 1024;
+        let mut declarations = Vec::new();
+        let mut timing = None;
+        for (property, source) in cssparser::RuleBodyParser::new(input, &mut FrameDeclarationReader)
+            .take(MAX_DECLARATIONS_PER_BLOCK)
+            .flatten()
+        {
+            let parsed_value = elidex_css::parse_raw_token_value(source);
+            if property.eq_ignore_ascii_case("animation-timing-function") {
+                if let CssValue::Pending(pending) = parsed_value {
+                    timing = Some(IntervalTiming::Pending(pending));
+                    continue;
+                }
+                let mut pi = cssparser::ParserInput::new(source);
+                let mut value = cssparser::Parser::new(&mut pi);
+                if let Ok(parsed) = parse_timing_function(&mut value) {
+                    if value.is_exhausted() {
+                        timing = Some(IntervalTiming::Resolved(parsed));
+                    }
+                }
             } else {
-                None
-            }
-        })
-        .collect()
-}
-
-/// Parse keyframe declarations and extract `animation-timing-function` if present.
-///
-/// Per CSS Animations L1 §3.9.1, `animation-timing-function` declared inside a
-/// keyframe block sets the timing function for the interval starting at that keyframe.
-/// It is removed from the regular declarations list and returned separately.
-fn parse_keyframe_declarations_with_timing(
-    text: &str,
-) -> (Vec<PropertyDeclaration>, Option<TimingFunction>) {
-    let mut decls = parse_keyframe_declarations(text);
-    let timing = decls
-        .iter()
-        .position(|d| d.property == "animation-timing-function")
-        .and_then(|idx| {
-            let decl = decls.remove(idx);
-            let val_str = match &decl.value {
-                CssValue::String(s) | CssValue::RawTokens(s) | CssValue::Keyword(s) => s.as_str(),
-                _ => return None,
-            };
-            let mut pi = cssparser::ParserInput::new(val_str);
-            let mut parser = cssparser::Parser::new(&mut pi);
-            parse_timing_function(&mut parser).ok()
-        });
-    (decls, timing)
-}
-
-fn parse_keyframe_declarations(text: &str) -> Vec<PropertyDeclaration> {
-    const MAX_DECLARATIONS_PER_BLOCK: usize = 1024;
-    let mut decls = Vec::new();
-    for part in text.split(';').take(MAX_DECLARATIONS_PER_BLOCK) {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        if let Some((prop, val)) = part.split_once(':') {
-            let property = prop.trim().to_ascii_lowercase();
-            // CSS Animations Level 1 §4.1: !important in @keyframes is ignored.
-            let value_str = val.trim().trim_end_matches("!important").trim();
-            let css_value = elidex_css::parse_raw_token_value(value_str);
-            // Skip empty/unparseable values
-            if !matches!(css_value, CssValue::RawTokens(ref s) if s.is_empty()) {
-                decls.push(PropertyDeclaration::new(property, css_value));
+                let value = parsed_value;
+                if !matches!(&value, CssValue::RawTokens(raw) if raw.is_empty()) {
+                    declarations.push(PropertyDeclaration::new(property, value));
+                }
             }
         }
+        Ok((offsets, (declarations, timing)))
     }
-    decls
+}
+
+/// CSS Syntax §5.5.6 and CSS Animations §3: consume the original value span
+/// and discard important declarations before interval timing extraction.
+struct FrameDeclarationReader;
+type FrameDeclaration<'i> = (String, &'i str);
+
+impl<'i> cssparser::DeclarationParser<'i> for FrameDeclarationReader {
+    type Declaration = FrameDeclaration<'i>;
+    type Error = ();
+
+    fn parse_value<'t>(
+        &mut self,
+        name: cssparser::CowRcStr<'i>,
+        input: &mut cssparser::Parser<'i, 't>,
+        _: &cssparser::ParserState,
+    ) -> Result<Self::Declaration, cssparser::ParseError<'i, ()>> {
+        let start = input.position();
+        while let Ok(token) = input.next_including_whitespace_and_comments() {
+            if matches!(token, cssparser::Token::Delim('!')) {
+                return Err(input.new_custom_error(()));
+            }
+        }
+        let property = if name.starts_with("--") {
+            name.to_string()
+        } else {
+            name.to_ascii_lowercase()
+        };
+        Ok((property, input.slice_from(start)))
+    }
+}
+
+impl<'i> cssparser::AtRuleParser<'i> for FrameDeclarationReader {
+    type Prelude = ();
+    type AtRule = FrameDeclaration<'i>;
+    type Error = ();
+}
+
+impl<'i> cssparser::QualifiedRuleParser<'i> for FrameDeclarationReader {
+    type Prelude = ();
+    type QualifiedRule = FrameDeclaration<'i>;
+    type Error = ();
+}
+
+impl<'i> cssparser::RuleBodyItemParser<'i, FrameDeclaration<'i>, ()> for FrameDeclarationReader {
+    fn parse_declarations(&self) -> bool {
+        true
+    }
+    fn parse_qualified(&self) -> bool {
+        false
+    }
 }
 
 fn parse_cubic_bezier_args(args: &mut cssparser::Parser<'_, '_>) -> Result<TimingFunction, ()> {
@@ -691,18 +707,17 @@ pub fn parse_transition_shorthand(
         }
     }
 
-    Ok(vec![
-        PropertyDeclaration::new(
-            "transition-property",
-            CssValue::RawTokens(properties.join(", ")),
-        ),
-        PropertyDeclaration::new("transition-duration", crate::time_list_value(&durations)),
-        PropertyDeclaration::new(
-            "transition-timing-function",
-            crate::display_list_value(&timing_fns),
-        ),
-        PropertyDeclaration::new("transition-delay", crate::time_list_value(&delays)),
-    ])
+    let values = [
+        CssValue::RawTokens(properties.join(", ")),
+        crate::time_list_value(&durations),
+        crate::display_list_value(&timing_fns),
+        crate::time_list_value(&delays),
+    ];
+    Ok(crate::TRANSITION_MEMBERS
+        .into_iter()
+        .zip(values)
+        .map(|(member, value)| PropertyDeclaration::new(member, value))
+        .collect())
 }
 
 // Time/timing-function parsing delegated to `TimeAndTiming::try_consume()`,

@@ -162,24 +162,36 @@ mod tests {
 
     #[test]
     fn get_computed_custom_property() {
+        use elidex_plugin::component_values::{ComponentValues, ComputedCustom};
         let mut dom = EcsDom::new();
         let elem = dom.create_element_ownerless_fixture("div", Attributes::default());
         let mut style = ComputedStyle::default();
-        style
-            .custom_properties
-            .insert("--bg".into(), "#0d1117".into());
+        for (name, value) in [
+            (
+                "--bg",
+                ComputedCustom::Value(ComponentValues::capture("#0d1117").unwrap()),
+            ),
+            (
+                "--empty",
+                ComputedCustom::Value(ComponentValues::capture("").unwrap()),
+            ),
+            ("--bad", ComputedCustom::Invalid),
+        ] {
+            style.custom_properties.insert(name.into(), value);
+        }
         let _ = dom.world_mut().insert_one(elem, style);
-
         let mut session = SessionCore::new();
-        let result = GetComputedStyle
-            .invoke(
-                elem,
-                &[JsValue::String("--bg".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("#0d1117".into()));
+        for (name, expected) in [("--bg", "#0d1117"), ("--empty", " "), ("--bad", "")] {
+            let result = GetComputedStyle
+                .invoke(
+                    elem,
+                    &[JsValue::String(name.into())],
+                    &mut session,
+                    &mut dom,
+                )
+                .unwrap();
+            assert_eq!(result, JsValue::String(expected.into()));
+        }
     }
 
     #[test]

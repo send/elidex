@@ -27,6 +27,7 @@ elidex-css-transform.workspace = true
 elidex-css-multicol.workspace = true
 
 [dev-dependencies]
+cssparser.workspace = true
 elidex-ecs = { workspace = true, features = ["fixtures"] }
 criterion.workspace = true
 
