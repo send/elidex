@@ -1350,3 +1350,73 @@ fn multicol_finishes_geometry_only_fragments_of_an_empty_grid() {
         6
     );
 }
+
+#[test]
+fn multicol_admits_grid_rows_before_judging_progress() {
+    use elidex_plugin::{ColumnFill, GridTrackList, TrackSection, TrackSize};
+    let mut dom = EcsDom::new();
+    let mut node = |parent, style| {
+        let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(id, style);
+        if let Some(parent) = parent {
+            dom.append_child(parent, id);
+        }
+        id
+    };
+    let block = ComputedStyle {
+        display: Display::Block,
+        ..Default::default()
+    };
+    let owner = node(
+        None,
+        ComputedStyle {
+            height: Dimension::Length(100.0),
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            ..block.clone()
+        },
+    );
+    let grid = node(
+        Some(owner),
+        ComputedStyle {
+            display: Display::Grid,
+            grid_template_columns: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Fr(1.0)],
+                line_names: Vec::new(),
+            }),
+            ..Default::default()
+        },
+    );
+    let items: Vec<_> = (0..3)
+        .map(|_| {
+            node(
+                Some(grid),
+                ComputedStyle {
+                    height: Dimension::Length(60.0),
+                    ..block.clone()
+                },
+            )
+        })
+        .collect();
+    let sibling = node(Some(owner), block);
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 100.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Column,
+    };
+    let input = elidex_layout_block::LayoutInput {
+        fragmentainer: None,
+        ..contribution_input(&fonts, &frag)
+    };
+    let outcome = dispatch_layout_child(&mut dom, owner, &input);
+    assert!(
+        outcome.end.is_complete(),
+        "column flow ended as {:?}",
+        outcome.end
+    );
+    for item in items {
+        assert!(outcome.contribution.is_finished(grid, item));
+    }
+    assert!(outcome.contribution.is_finished(owner, grid));
+    assert!(outcome.contribution.is_finished(owner, sibling));
+}
