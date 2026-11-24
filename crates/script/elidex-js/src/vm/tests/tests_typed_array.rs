@@ -561,7 +561,7 @@ fn float64_roundtrip_exact() {
 fn bigint64_write_number_throws_type_error() {
     let mut vm = Vm::new();
     // Writing a Number to BigInt64Array throws per strict ToBigInt
-    // (§7.1.13 / §10.4.5.16 step 1).
+    // (§7.1.15 Table 12 and §10.4.5.18 step 1).
     assert!(eval_bool(
         &mut vm,
         "var a = new BigInt64Array(1); var ok = false; \
@@ -588,7 +588,7 @@ fn bigint64_write_bigint_ok() {
 #[test]
 fn bigint64_write_string_coerces() {
     let mut vm = Vm::new();
-    // String "123" → ToBigInt → 123n (ECMA-262 §7.1.14 accepts strings).
+    // String "123" → ToBigInt → 123n (ECMA-262 §7.1.15 Table 12 calls StringToBigInt).
     assert_eq!(
         eval_string(
             &mut vm,

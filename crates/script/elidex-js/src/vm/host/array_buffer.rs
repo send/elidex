@@ -230,8 +230,9 @@ pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
 /// `body_data.remove(&id)`.  Subsequent
 /// [`array_buffer_byte_length`] then returns `0` naturally via the
 /// missing-entry path, while membership in `detached_buffers` lets
-/// the slice / DataView / TypedArray hot paths short-circuit with
-/// the spec-prescribed TypeError / undefined / silent-no-op.
+/// slice and DataView operations detect detachment. A TypedArray indexed read
+/// returns undefined. An indexed write converts the RHS first and can throw
+/// before the detached check skips the store (§10.4.5.18 steps 1–3).
 ///
 /// Idempotent — re-detaching is a no-op (the second
 /// `body_data.remove` is also a no-op).

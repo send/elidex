@@ -610,7 +610,7 @@ fn bigint_ctor_applies_to_primitive_on_object() {
 #[test]
 fn to_bigint_strict_honors_at_to_primitive_on_object() {
     let mut vm = Vm::new();
-    // ECMA-262 §7.1.14 ToBigInt step 1 runs ToPrimitive(argument, number).
+    // ECMA-262 §7.1.15 ToBigInt step 1 runs ToPrimitive(argument, number).
     // A `@@toPrimitive` method returning a BigInt must be accepted
     // by TypedArray BigInt element writes — readback verifies via
     // the BigInt64Array's own bit-width-preserving round-trip

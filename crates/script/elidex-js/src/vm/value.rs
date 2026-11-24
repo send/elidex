@@ -548,8 +548,7 @@ impl ElementKind {
 
     /// `true` when elements are BigInt (i.e. `BigInt64Array` /
     /// `BigUint64Array`).  Used at the indexed-write call site to route
-    /// coercion through `ToBigInt64` / `ToBigUint64` instead of `ToIntXx`
-    /// (ECMA-262 §7.1.16 / .17 vs §7.1.9-.13).
+    /// coercion through `ToBigInt64` (§7.1.17) or `ToBigUint64` (§7.1.18).
     #[inline]
     #[must_use]
     pub const fn is_bigint(self) -> bool {
