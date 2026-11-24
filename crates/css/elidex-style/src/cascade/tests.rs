@@ -24,7 +24,13 @@ fn ordinary_winners(
     media: &MediaEnvironment,
 ) -> std::collections::HashMap<String, CssValue> {
     resolved(&collect_and_cascade(
-        entity, dom, sheets, inline, hints, shadow, media,
+        entity,
+        dom,
+        ElementSheets::document(sheets),
+        inline,
+        hints,
+        shadow,
+        media,
     ))
 }
 
@@ -387,7 +393,7 @@ fn outer_context_beats_inner_context() {
         &mut entries,
         inner_div,
         &dom,
-        &inner_sheets,
+        ElementSheets::document(&inner_sheets),
         None,
         TreeContext::HostShadow,
         &test_env(),
@@ -396,7 +402,7 @@ fn outer_context_beats_inner_context() {
         &mut entries,
         inner_div,
         &dom,
-        &outer_sheets,
+        ElementSheets::document(&outer_sheets),
         None,
         TreeContext::Element,
         &test_env(),
@@ -481,7 +487,7 @@ fn shadow_cascade_slotted_participates() {
         &[],
         &[],
         &ShadowCascade {
-            slot: Some(&shadow_sheet),
+            slot: Some((host, &shadow_sheet)),
             host: None,
         },
         &test_env(),
@@ -524,7 +530,7 @@ fn outer_rule_beats_slotted_rule() {
         &[],
         &[],
         &ShadowCascade {
-            slot: Some(&shadow_sheet),
+            slot: Some((host, &shadow_sheet)),
             host: None,
         },
         &test_env(),
@@ -651,7 +657,7 @@ fn important_slotted_beats_normal_outer() {
         &[],
         &[],
         &ShadowCascade {
-            slot: Some(&shadow_sheet),
+            slot: Some((host, &shadow_sheet)),
             host: None,
         },
         &test_env(),

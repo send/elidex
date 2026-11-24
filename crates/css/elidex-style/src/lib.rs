@@ -396,7 +396,13 @@ fn apply_document_style(
     };
     for root in roots {
         state.depth = 0;
-        walk_tree(dom, root, all_sheets, &default_parent, &mut state);
+        walk_tree(
+            dom,
+            root,
+            cascade::ElementSheets::document(all_sheets),
+            &default_parent,
+            &mut state,
+        );
     }
 
     // Final phase: resolve CSS counters + generated content (pseudo `content`,

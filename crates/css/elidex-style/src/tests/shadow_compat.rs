@@ -267,17 +267,39 @@ fn nested_shadow_hosts_have_isolated_styles() {
 
 #[test]
 fn assigned_host_display_obeys_tree_context_before_specificity() {
-    for (slot_css, host_css, expected) in [
+    for (element_css, slot_css, host_css, expected) in [
         (
+            "",
             "::slotted(section) {display:grid}",
             ":host(#assigned) {display:flex}",
             Display::Grid,
         ),
         (
+            "",
             "::slotted(#assigned) {display:grid !important}",
             ":host {display:flex !important}",
             Display::Flex,
         ),
+        (
+            "section {display:table}",
+            "::slotted(section) {display:grid}",
+            ":host(#assigned) {display:flex}",
+            Display::Table,
+        ),
+        (
+            "#assigned {display:table !important}",
+            "::slotted(section) {display:grid !important}",
+            ":host {display:flex !important}",
+            Display::Flex,
+        ),
+        ("", "", ":host > section {display:none}", Display::Block),
+        (
+            "",
+            "::slotted(section) {display:grid !important}",
+            ":host > section {display:flex !important}",
+            Display::Grid,
+        ),
+        ("", "", ":host(#assigned) {display:flex}", Display::Flex),
     ] {
         let (mut dom, _, _, body) = build_simple_dom();
         let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
@@ -291,7 +313,8 @@ fn assigned_host_display_obeys_tree_context_before_specificity() {
         dom.append_child(outer, assigned);
         setup_shadow_with_style(&mut dom, assigned, host_css);
 
-        resolve_styles(&mut dom, &[], Size::new(200.0, 100.0));
+        let sheet = parse_stylesheet(element_css, Origin::Author);
+        resolve_styles(&mut dom, &[&sheet], Size::new(200.0, 100.0));
         assert_eq!(get_style(&dom, assigned).display, expected, "{slot_css}");
     }
 }

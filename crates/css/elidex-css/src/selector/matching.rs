@@ -1,8 +1,8 @@
 //! Selector matching: right-to-left component matching against the DOM.
 
 use elidex_ecs::{
-    Attributes, EcsDom, ElementState, Entity, NodeKind, ShadowHost, ShadowRoot, SlottedMarker,
-    TagType, TextContent,
+    Attributes, EcsDom, ElementState, Entity, NodeKind, ShadowRoot, SlottedMarker, TagType,
+    TextContent,
 };
 
 use super::traverse::{is_root_element, prev_element_sibling};
@@ -14,6 +14,7 @@ pub(super) fn match_components(
     idx: usize,
     entity: Entity,
     dom: &EcsDom,
+    host: Option<Entity>,
 ) -> bool {
     if idx >= components.len() {
         return true;
@@ -34,7 +35,7 @@ pub(super) fn match_components(
                 if dom.world().get::<&ShadowRoot>(ancestor).is_ok() {
                     return false;
                 }
-                if match_components(components, idx + 1, ancestor, dom) {
+                if match_components(components, idx + 1, ancestor, dom, host) {
                     return true;
                 }
                 current = dom.get_parent(ancestor);
@@ -49,14 +50,14 @@ pub(super) fn match_components(
             if dom.world().get::<&ShadowRoot>(parent).is_ok() {
                 return false;
             }
-            match_components(components, idx + 1, parent, dom)
+            match_components(components, idx + 1, parent, dom, host)
         }
         SelectorComponent::AdjacentSibling => prev_element_sibling(dom, entity)
-            .is_some_and(|prev| match_components(components, idx + 1, prev, dom)),
+            .is_some_and(|prev| match_components(components, idx + 1, prev, dom, host)),
         SelectorComponent::GeneralSibling => {
             let mut current = prev_element_sibling(dom, entity);
             while let Some(sib) = current {
-                if match_components(components, idx + 1, sib, dom) {
+                if match_components(components, idx + 1, sib, dom, host) {
                     return true;
                 }
                 current = prev_element_sibling(dom, sib);
@@ -64,29 +65,30 @@ pub(super) fn match_components(
             false
         }
         SelectorComponent::Not(ref inner) => {
-            let inner_matched = match_compound_forward(inner, entity, dom);
-            !inner_matched && match_components(components, idx + 1, entity, dom)
-        }
-        // :host / :host(selector) — delegate to match_simple() (single source of truth).
-        SelectorComponent::Host | SelectorComponent::HostFunction(_) => {
-            match_simple(&components[idx], entity, dom)
-                && match_components(components, idx + 1, entity, dom)
+            let inner_matched = match_compound_forward(inner, entity, dom, host);
+            !inner_matched && match_components(components, idx + 1, entity, dom, host)
         }
         // ::slotted(selector) — matches slotted light DOM elements that match inner selector.
         SelectorComponent::Slotted(ref inner) => {
             is_slotted(entity, dom)
-                && match_compound_forward(inner, entity, dom)
-                && match_components(components, idx + 1, entity, dom)
+                && match_compound_forward(inner, entity, dom, host)
+                && match_components(components, idx + 1, entity, dom, host)
         }
         // Simple selectors -- delegate to shared helper.
         other => {
-            match_simple(other, entity, dom) && match_components(components, idx + 1, entity, dom)
+            match_simple(other, entity, dom, host)
+                && match_components(components, idx + 1, entity, dom, host)
         }
     }
 }
 
 /// Match a single simple selector (non-combinator) against an entity.
-fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> bool {
+fn match_simple(
+    component: &SelectorComponent,
+    entity: Entity,
+    dom: &EcsDom,
+    host: Option<Entity>,
+) -> bool {
     match component {
         SelectorComponent::Universal => true,
         SelectorComponent::Tag(tag) => dom
@@ -108,10 +110,14 @@ fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> 
         SelectorComponent::Attribute { name, matcher } => {
             match_attr(name, matcher.as_ref(), entity, dom)
         }
-        SelectorComponent::Host => dom.world().get::<&ShadowHost>(entity).is_ok(),
-        SelectorComponent::HostFunction(ref inner) => {
-            dom.world().get::<&ShadowHost>(entity).is_ok()
-                && match_compound_forward(inner, entity, dom)
+        SelectorComponent::Host | SelectorComponent::HostFunction(_) => {
+            host == Some(entity)
+                && match component {
+                    SelectorComponent::HostFunction(inner) => {
+                        match_compound_forward(inner, entity, dom, host)
+                    }
+                    _ => true,
+                }
         }
         // Combinators and :not() handled in match_components.
         _ => false,
@@ -325,8 +331,15 @@ fn match_attr(
 ///
 /// Used for `:not()` inner selectors, which contain only simple selectors
 /// (no combinators) stored in parse order.
-fn match_compound_forward(components: &[SelectorComponent], entity: Entity, dom: &EcsDom) -> bool {
-    components.iter().all(|c| match_simple(c, entity, dom))
+fn match_compound_forward(
+    components: &[SelectorComponent],
+    entity: Entity,
+    dom: &EcsDom,
+    host: Option<Entity>,
+) -> bool {
+    components
+        .iter()
+        .all(|c| match_simple(c, entity, dom, host))
 }
 
 /// Map a dynamic pseudo-class name to its `ElementState` flag bit.

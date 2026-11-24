@@ -179,13 +179,29 @@ impl CascadeEntry<'_> {
     }
 }
 
+/// Ordinary sheets applicable to an element and the tree owning its author rules.
+#[derive(Clone, Copy)]
+pub(crate) struct ElementSheets<'a> {
+    pub(crate) list: &'a [&'a Stylesheet],
+    pub(crate) author_host: Option<Entity>,
+}
+
+impl<'a> ElementSheets<'a> {
+    pub(crate) fn document(list: &'a [&'a Stylesheet]) -> Self {
+        Self {
+            list,
+            author_host: None,
+        }
+    }
+}
+
 /// Shadow cascade context for `:host` and `::slotted()` rule participation.
 ///
 /// Determines how shadow-internal stylesheets participate in the cascade
 /// for a given element (CSS Scoping Module §3).
 #[derive(Default)]
 pub(crate) struct ShadowCascade<'a> {
-    pub(crate) slot: Option<&'a Stylesheet>,
+    pub(crate) slot: Option<(Entity, &'a Stylesheet)>,
     pub(crate) host: Option<&'a Stylesheet>,
 }
 
@@ -202,7 +218,7 @@ pub(crate) struct ShadowCascade<'a> {
 pub(crate) fn collect_and_cascade<'a>(
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     inline_declarations: &'a [Declaration],
     extra_declarations: &'a [Declaration],
     shadow_cascade: &ShadowCascade<'a>,
@@ -249,7 +265,7 @@ pub(crate) fn collect_and_cascade<'a>(
             &mut entries,
             entity,
             dom,
-            sheet,
+            (entity, sheet),
             TreeContext::HostShadow,
             elidex_css::Selector::has_host,
             env,
@@ -286,14 +302,19 @@ fn collect_matching_rules<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     pseudo: Option<&PseudoElement>,
     context: TreeContext,
     env: &MediaEnvironment,
 ) {
-    for (sheet_idx, stylesheet) in stylesheets.iter().enumerate() {
+    for (sheet_idx, stylesheet) in stylesheets.list.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)] // Stylesheet count won't exceed u32::MAX.
         let sheet_index = sheet_idx as u32;
+        let host = if stylesheet.origin == Origin::Author {
+            stylesheets.author_host
+        } else {
+            None
+        };
         for rule in &stylesheet.rules {
             // CSS Conditional §2: skip a rule whose `@media` condition chain is
             // not satisfied by the current environment (unconditional rules pass).
@@ -309,9 +330,8 @@ fn collect_matching_rules<'a>(
                 .iter()
                 .filter(|sel| {
                     sel.pseudo_element.as_ref() == pseudo
-                        && !(context == TreeContext::Element
-                            && (sel.has_host() || sel.has_slotted()))
-                        && sel.matches(entity, dom)
+                        && !(context == TreeContext::Element && sel.has_shadow_pseudo())
+                        && sel.matches_in_context(entity, dom, host)
                 })
                 .map(|sel| sel.specificity)
                 .max();
@@ -345,7 +365,7 @@ fn collect_matching_rules<'a>(
 pub(crate) fn collect_and_cascade_pseudo<'a>(
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     pseudo: PseudoElement,
     env: &MediaEnvironment,
 ) -> Vec<CascadeEntry<'a>> {
@@ -369,7 +389,7 @@ fn collect_shadow_rules<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
     entity: Entity,
     dom: &EcsDom,
-    shadow_sheet: &'a Stylesheet,
+    (host, shadow_sheet): (Entity, &'a Stylesheet),
     context: TreeContext,
     selector_filter: fn(&elidex_css::Selector) -> bool,
     env: &MediaEnvironment,
@@ -383,7 +403,9 @@ fn collect_shadow_rules<'a>(
             .selectors
             .iter()
             .filter(|sel| {
-                sel.pseudo_element.is_none() && selector_filter(sel) && sel.matches(entity, dom)
+                sel.pseudo_element.is_none()
+                    && selector_filter(sel)
+                    && sel.matches_in_context(entity, dom, Some(host))
             })
             .map(|sel| sel.specificity)
             .max();
