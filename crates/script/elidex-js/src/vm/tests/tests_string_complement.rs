@@ -491,7 +491,7 @@ fn bind_length_zero_for_non_number_property() {
 
 #[test]
 fn number_to_string_radix_hex() {
-    // §20.1.3.6: `(255).toString(16)` → "ff".  Regression: previously
+    // §21.1.3.6: `(255).toString(16)` → "ff".  Regression: previously
     // radix was ignored entirely.
     assert_eq!(eval_string("(255).toString(16);"), "ff");
     assert_eq!(eval_string("(10).toString(2);"), "1010");
@@ -506,7 +506,7 @@ fn number_to_string_radix_out_of_range() {
 
 #[test]
 fn number_to_string_radix_fractional_truncates() {
-    // §20.1.3.6 step 5-8: ToIntegerOrInfinity first, then range check.
+    // §21.1.3.6 step 3 calls SnapToInteger (§7.1.6) with truncation before the range check.
     // `36.1` truncates to `36`, which is in [2, 36] → accepted.
     assert_eq!(eval_string("(35).toString(36.1);"), "z");
     assert_eq!(eval_string("(255).toString(16.9);"), "ff");
