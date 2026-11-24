@@ -20,6 +20,14 @@ G′a-geo 3b.1, PM 1007/1008. This child follows T, G and the render builder spl
 
 3b.1 verifies both font selections at the style-to-layout handoff using supplied page identities. Carry the selected context with its entry in the 3b.3 page plan and with its corresponding fragment during replay. In 3b.4 run the PM 1067 two-page fixture through both public builders. Compare glyph x positions with explicit 40px and 20px padding controls at the same page-local origin and require exactly one top-left text command on each page. Replay the PM 1070 decoration and glyph assertions there as well.
 
+### Landing order (PM 1081)
+
+The prerequisite PR implements PM 1070 and verifies the painted background, borders and glyph commands through both public builders. The following PR preserves declaration provenance, evaluates style in two stages, migrates layout, both builders and their callers together, and publishes the matched selectors specified below.
+
+### Public input migration (PM 1079)
+
+The shell prepares the page snapshot from the source stylesheets and UA device settings. Both public render builders and the layout entry take the prepared snapshot. Migrate their workspace callers and replace hand-built page rules in their fixtures with authored stylesheets or one shared fixture preparation helper. Remove the raw-rule input when switching the callers: it has no declaration importance or originating grammar registry. PM 1080 keeps the public matched-selector vector in source order, deduplicated, and includes pseudo-classes only from wholly matching alternatives. On a right first page, `:first:left` contributes nothing and `:first:left, :right` contributes only Right. The per-page output record and its lifetime contract remain in 3b.4.
+
 ### Receiving grammars and controls
 
 - Size consumes one or two nonnegative lengths, auto, or supported named paper and optional orientation in either order. Keep bare portrait/landscape on the UA target. Require exhaustion. A square with calc(1in + 12pt) has side 112px. Compare a rectangle, an extra term, a trailing percentage, an unknown unit after a valid prefix, negative literals and both rejected length/orientation orders. Earlier valid declarations survive later invalid syntax. A negative calculation clamps to zero at evaluation. Use G’s category and range handling for direct and substituted input.
