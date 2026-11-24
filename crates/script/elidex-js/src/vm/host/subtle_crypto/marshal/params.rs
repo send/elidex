@@ -80,11 +80,8 @@ pub(in super::super) fn marshal_algorithm(
                 None => {}
                 // Registered name-only `Algorithm` (digest / sign / verify /
                 // AES importKey / HKDF + PBKDF2 importKey + get-key-length):
-                // step 6 still converts the object to the `Algorithm`
-                // `desiredType`, which re-reads the inherited required `name`
-                // member — so a `name` getter that throws / changes on the
-                // second read is observed (the step-5 name stays authoritative,
-                // step 7).  There are no further params members to read.
+                // Step 6 reads the required `name` member again. Step 7
+                // restores the canonical name selected at step 5.
                 Some(AlgorithmParams::NameOnly) => {
                     read_required_name(ctx, id, method)?;
                 }

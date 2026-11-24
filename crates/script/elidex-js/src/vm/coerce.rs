@@ -363,10 +363,10 @@ pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
     truncated.rem_euclid(modulus)
 }
 
-/// ToUint16 (ECMA-262 §7.1.10 / WebIDL §3.10.5).  Modular truncation
-/// to the `[0, 2^16)` range.  Used by WebIDL `unsigned short`
-/// coercion (`MouseEventInit.buttons`) and by `String.fromCharCode`
-/// ECMA-262 §22.1.2.1 step 3.
+/// Wraps a number to the unsigned 16-bit range for `ToUint16` (ECMA-262
+/// §7.1.11). `String.fromCharCode` applies it to each argument (§22.1.2.1
+/// step 2.a). WebIDL `unsigned short` conversion (§3.2.4.4) uses the same
+/// numeric conversion for `MouseEventInit.buttons`.
 ///
 /// NaN / ±Infinity / ±0 all map to `0`, matching the behaviour
 /// of the sibling `f64_to_int32` / `f64_to_uint32` helpers.
