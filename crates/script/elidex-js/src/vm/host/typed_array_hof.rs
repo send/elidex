@@ -588,11 +588,10 @@ pub(crate) fn native_typed_array_reduce_right(
 }
 
 /// Shared body of `reduce` / `reduceRight`.  Per spec
-/// §23.2.3.23/.24 the callback is invoked as `Call(callbackfn,
-/// undefined, ⟨acc, kValue, F(k), O⟩)` — `this` inside the
-/// callback is always `undefined` (no `thisArg` parameter).
+/// §23.2.3.23 and §23.2.3.24 step 10.b pass undefined as the callback's
+/// thisArgument and supply the accumulator, element value, index, and receiver.
 ///
-/// Initial-value handling per §23.2.3.23 step 4-7:
+/// Both algorithms select the initial accumulator in steps 5–9:
 /// - `initialValue` provided → `acc = initialValue`, scan all
 ///   elements (`[0..len)` forward / `[len-1..-1]` reverse).
 /// - `initialValue` absent + `len > 0` → `acc = O[start]`
