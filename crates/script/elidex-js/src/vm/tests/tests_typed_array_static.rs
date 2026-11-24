@@ -176,7 +176,7 @@ fn typed_array_from_with_map_fn_doubles_values() {
 fn typed_array_from_array_like_via_length() {
     let mut vm = Vm::new();
     // §23.2.2.1 array-like fallback — when `@@iterator` is absent,
-    // use `LengthOfArrayLike` + integer-indexed `[[Get]]`.
+    // obtain the length and read each index property from the object returned by ToObject.
     assert_eq!(
         eval_number(
             &mut vm,

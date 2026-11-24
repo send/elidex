@@ -442,8 +442,8 @@ pub(crate) fn native_typed_array_set(
         }
     }
 
-    // SetTypedArrayFromArrayLike step 3 boxes source. Null and undefined throw in ToObject.
-    // (SetTypedArrayFromArrayLike §23.2.3.26.1.)
+    // SetTypedArrayFromArrayLike (§23.2.3.26.1) step 3 calls ToObject (§7.1.20).
+    // It preserves an object source, throws for null or undefined, and boxes other primitives.
     let src_id = super::super::coerce::to_object(ctx.vm, source)?;
     let src_obj = JsValue::Object(src_id);
     let src_root = ctx.vm.stack.len();

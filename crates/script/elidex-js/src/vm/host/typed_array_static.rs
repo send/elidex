@@ -379,8 +379,8 @@ pub(crate) fn native_typed_array_from(
         );
     }
 
-    // For the array-like path, step 8 boxes, step 9 obtains length, step 10 creates the target
-    // and step 12 reads/maps/writes. This VM rejects nullish explicitly here; the spec fails
+    // Step 8 calls ToObject (§7.1.20), preserving an object source and boxing a non-nullish
+    // primitive. Step 9 obtains length, step 10 creates the target and step 12 reads/maps/writes. This VM rejects nullish explicitly here; the spec fails
     // earlier at GetMethod for nullish source. (%TypedArray%.from §23.2.2.1.)
     let source_obj = match source {
         JsValue::Object(id) => id,
@@ -574,8 +574,9 @@ fn drain_iterator_loop(
     Ok(())
 }
 
-/// From step 5 calls GetMethod(source, %Symbol.iterator%). GetV boxes for lookup and preserves
-/// the original receiver. This helper returns undefined for nullish sources and the caller
+/// From step 5 calls GetMethod(source, %Symbol.iterator%). GetV uses ToObject (§7.1.20)
+/// for lookup: an object keeps its identity and a non-nullish primitive is boxed.
+/// The original source is the receiver. This helper returns undefined for nullish sources and the caller
 /// reports TypeError later. (GetMethod §7.3.10.)
 fn lookup_iterator_method(
     ctx: &mut NativeContext<'_>,
