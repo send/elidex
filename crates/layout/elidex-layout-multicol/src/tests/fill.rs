@@ -312,30 +312,7 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             assert!(
                 matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
             );
-            let mut bad = token.clone();
-            if let Some(BreakTokenData::Multicol { segment_index, .. }) = &mut bad.mode_data {
-                *segment_index = 1;
-            }
-            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                layout_multicol(
-                    &mut dom,
-                    owner,
-                    &LayoutInput {
-                        break_token: Some(&bad),
-                        layout_generation: 5,
-                        ..input
-                    },
-                    layout_child_fn,
-                )
-            }))
-            .is_err());
-            assert_ne!(
-                dom.world()
-                    .get::<&LayoutBox>(owner)
-                    .unwrap()
-                    .layout_generation,
-                5
-            );
+            assert_invalid_segment_rejected(&mut dom, owner, &input, &token);
             let tail = layout_multicol(
                 &mut dom,
                 owner,
@@ -364,4 +341,38 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             );
         }
     }
+}
+
+fn assert_invalid_segment_rejected(
+    dom: &mut EcsDom,
+    owner: Entity,
+    input: &LayoutInput<'_>,
+    token: &elidex_layout_block::BreakToken,
+) {
+    let mut bad = token.clone();
+    if let Some(elidex_layout_block::BreakTokenData::Multicol { segment_index, .. }) =
+        &mut bad.mode_data
+    {
+        *segment_index = 1;
+    }
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        layout_multicol(
+            dom,
+            owner,
+            &LayoutInput {
+                break_token: Some(&bad),
+                layout_generation: 5,
+                ..*input
+            },
+            layout_child_fn,
+        )
+    }))
+    .is_err());
+    assert_ne!(
+        dom.world()
+            .get::<&LayoutBox>(owner)
+            .unwrap()
+            .layout_generation,
+        5
+    );
 }

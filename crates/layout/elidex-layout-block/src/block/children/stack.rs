@@ -441,17 +441,13 @@ fn stack_fragment(
             incomplete = true;
             break;
         }
-        if !child_outcome.end.is_complete() {
-            contribution.record_item(parent_entity, child);
-        } else {
-            contribution.finish_item(parent_entity, child);
-        }
         let child_box = child_outcome.layout_box;
 
         // --- Fragmentation: propagate child's break token upward ---
         // If the child itself was fragmented, produce a break at this child_index
         // wrapping the child's break token.
         if let crate::FragmentEnd::Continue(child_bt) = child_outcome.end {
+            contribution.record_item(parent_entity, child);
             // Track propagated break-before from first child.
             if idx == start_index {
                 if let Some(bp) = child_outcome.propagated_break_before {
@@ -468,6 +464,8 @@ fn stack_fragment(
             ));
             break;
         }
+
+        contribution.finish_item(parent_entity, child);
 
         // Capture baseline from first in-flow block child (CSS 2.1 §10.8.1).
         if first_baseline.is_none() {

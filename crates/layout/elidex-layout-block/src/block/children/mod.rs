@@ -35,7 +35,7 @@ pub struct StackResult {
     /// offset-adjusted to the parent's content area.
     /// For anonymous inline runs: the inline layout's first baseline.
     pub first_baseline: Option<f32>,
-    /// Break token if layout was interrupted by a fragmentainer break.
+    /// Completion state of the child stack.
     pub end: crate::FragmentEnd,
     /// Propagated forced break-before from first child (CSS Frag L3 §3.1.1).
     pub propagated_break_before: Option<BreakValue>,
