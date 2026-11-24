@@ -8,7 +8,7 @@
 //!
 //! ## Scope (C4a + C4b)
 //!
-//! - `fill(value, start?, end?)` (§23.2.3.11)
+//! - `fill(value, start?, end?)` (§23.2.3.9)
 //! - `subarray(begin?, end?)` (§23.2.3.30) — shares backing buffer
 //! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
