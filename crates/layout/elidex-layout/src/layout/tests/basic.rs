@@ -890,6 +890,7 @@ fn first_child_dispatch_uses_published_display_through_contents() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     for (inner, display, width) in [

@@ -281,8 +281,8 @@ pub fn fill_columns_sequential(
 /// the balanced path relies on — see `multicol_balanced_persists_one_fragment_per_run`).
 /// A child the definitive pass skipped is never overwritten, so its probe flow
 /// is stranded at column-0, which render paints as a ghost. The overwrite holds
-/// across capped fills. Paged layout returns the carry; continuous layout resumes
-/// it here in the same layout invocation while source coverage advances.
+/// across capped fills. Normal paged placement returns the carry. Continuous layout and
+/// whole placements resume it locally while source coverage advances.
 ///
 /// Returns `(fragments, resolved_column_height)`.
 pub fn fill_columns_balanced(
@@ -501,6 +501,7 @@ fn build_column_input<'a>(
         // Throwaway iff this is a search probe OR an ancestor is already probing
         // — so a nested multicol suppresses its store write (P1).
         medium: input.medium,
+        placement: input.placement,
         is_probe: probe || input.is_probe,
     }
 }

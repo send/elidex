@@ -246,6 +246,7 @@ pub fn layout_paged(
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Print,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
 
@@ -420,6 +421,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
 

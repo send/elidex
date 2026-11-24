@@ -480,6 +480,7 @@ fn relayout_item_at_position(
         subgrid: None,
         layout_generation: env.layout_generation,
         medium: env.medium,
+        placement: env.placement,
         is_probe: env.is_probe,
     };
     (env.layout_child)(dom, item.entity, &child_input)

@@ -104,6 +104,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     }
 }

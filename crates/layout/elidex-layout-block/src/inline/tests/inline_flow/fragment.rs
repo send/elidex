@@ -208,6 +208,7 @@ fn multicol_nested_in_paged_stamps_page_generation() {
         viewport: None,
         layout_generation: 2, // multicol on page 2
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let frag = InlineFragConstraint {

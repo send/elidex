@@ -61,6 +61,7 @@ pub(super) fn layout_atomic_items(
                 subgrid: None,
                 layout_generation,
                 medium,
+                placement: crate::FragmentPlacement::Whole,
                 is_probe,
             };
             let lb = layout_child(dom, *entity, &input).layout_box;

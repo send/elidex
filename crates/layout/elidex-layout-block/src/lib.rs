@@ -274,11 +274,22 @@ impl UsedAssignment {
     }
 }
 
+/// How the enclosing placement handles fragmentation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FragmentPlacement {
+    /// Use the output medium's ordinary continuation policy.
+    Normal,
+    /// Finish progressing column batches locally, including when printing.
+    Whole,
+}
+
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
     /// Consumer-selected output medium, preserved inside nested fragmentation contexts.
     pub medium: elidex_plugin::Medium,
+    /// Fragmentation constraint inherited from the enclosing placement.
+    pub placement: FragmentPlacement,
     /// Available physical height when the percentage reference in `containing.height` is indefinite.
     pub available_height_if_indefinite: Option<f32>,
     /// Whether the available physical width is a definite percentage reference.
@@ -371,6 +382,7 @@ impl<'a> LayoutInput<'a> {
             subgrid: None,
             layout_generation: 0,
             medium: env.medium,
+            placement: env.placement,
             is_probe: true,
         }
     }
@@ -383,6 +395,8 @@ impl<'a> LayoutInput<'a> {
 #[derive(Clone, Copy)]
 pub struct LayoutEnv<'a> {
     pub medium: elidex_plugin::Medium,
+    /// Fragmentation constraint inherited from the enclosing placement.
+    pub placement: FragmentPlacement,
     /// Font database for text measurement.
     pub font_db: &'a FontDatabase,
     /// Dispatch function for child layout by display type.
@@ -411,6 +425,7 @@ impl<'a> LayoutEnv<'a> {
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,
+            placement: input.placement,
             is_probe: input.is_probe,
         }
     }

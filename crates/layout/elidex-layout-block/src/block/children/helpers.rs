@@ -319,6 +319,7 @@ pub(super) fn layout_float(
         subgrid: None,
         layout_generation: input.layout_generation,
         medium: input.medium,
+        placement: crate::FragmentPlacement::Whole,
         is_probe: input.is_probe,
     };
     let outcome = layout_child(dom, child, &temp_input);

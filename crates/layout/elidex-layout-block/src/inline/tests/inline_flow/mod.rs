@@ -26,6 +26,7 @@ pub(super) fn env(font_db: &FontDatabase) -> crate::LayoutEnv<'_> {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     }
 }

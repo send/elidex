@@ -38,6 +38,7 @@ fn do_layout_table_fragmented(
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     layout_table(dom, entity, &input, layout_child)

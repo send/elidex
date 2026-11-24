@@ -336,7 +336,7 @@ fn stack_fragment(
                 layout_child,
             );
             contribution.include(&floated);
-            if !end.is_complete() {
+            if matches!(end, crate::FragmentEnd::Incomplete) {
                 incomplete = true;
                 break;
             }

@@ -34,6 +34,7 @@ fn inline_span_gets_layout_box() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _result = layout_inline_context(
@@ -101,6 +102,7 @@ fn whitespace_only_inline_span_gets_no_layout_box() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _ = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
@@ -142,6 +144,7 @@ fn multi_line_inline_box_unions_fragment_bounds() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _ = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
@@ -181,6 +184,7 @@ fn parent_entity_does_not_get_inline_layout_box() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);

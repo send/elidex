@@ -17,6 +17,7 @@ fn inline_baseline_from_text() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
@@ -62,6 +63,7 @@ fn inline_baseline_with_atomic_box() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
@@ -87,6 +89,7 @@ fn empty_inline_no_baseline() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env);
@@ -113,6 +116,7 @@ fn vertical_writing_mode_no_baseline() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
@@ -151,6 +155,7 @@ fn block_inline_text_baseline() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(
@@ -211,6 +216,7 @@ fn nested_block_baseline_propagation() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(
@@ -268,6 +274,7 @@ fn block_without_baseline_none() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(
@@ -330,6 +337,7 @@ fn mixed_block_inline_baseline() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(

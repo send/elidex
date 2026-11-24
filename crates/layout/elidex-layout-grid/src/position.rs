@@ -415,6 +415,7 @@ pub(crate) fn position_items(
             subgrid: child_subgrid_ctx.as_ref(),
             layout_generation: env.layout_generation,
             medium: env.medium,
+            placement: env.placement,
             is_probe: env.is_probe,
         };
         let final_lb = (env.layout_child)(dom, item.entity, &final_input).layout_box;
