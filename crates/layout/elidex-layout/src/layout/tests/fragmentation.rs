@@ -753,3 +753,40 @@ fn block_reports_only_rows_admitted_by_table_grid() {
         }
     }
 }
+
+#[test]
+fn balanced_multicol_reports_empty_block_to_its_parent() {
+    let mut dom = EcsDom::new();
+    let mut node = |parent, columns| {
+        let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(
+            id,
+            ComputedStyle {
+                display: Display::Block,
+                column_count: columns,
+                ..Default::default()
+            },
+        );
+        if let Some(owner) = parent {
+            dom.append_child(owner, id);
+        }
+        id
+    };
+    let owner = node(None, None);
+    let multi = node(Some(owner), Some(2));
+    let empty = node(Some(multi), None);
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 100.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+    let input = contribution_input(&fonts, &frag);
+    for entry in [multi, owner] {
+        let outcome = dispatch_layout_child(&mut dom, entry, &input);
+        assert!(outcome.break_token.is_none());
+        assert!(outcome.contribution.is_finished(multi, empty));
+        if entry == owner {
+            assert!(outcome.contribution.is_finished(owner, multi));
+        }
+    }
+}

@@ -118,11 +118,8 @@ pub fn fill_columns_sequential(
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
     let mut carry_break_token: Option<BreakToken> = None;
-    // The child the PREVIOUS column broke mid-way on — it continues into this
-    // column, so its per-column box fragment must be snapshotted here too (the
-    // `next == prev` mid-break test below only catches the column a child
-    // *breaks out of*, not the column it *resumes and finishes in*). `None`
-    // when the previous column ended at a clean child boundary.
+    // Snapshot an incoming interrupted child even when it finishes in this column.
+    // A clean child boundary has no incoming box fragment.
     let mut carry_midbreak: Option<Entity> = None;
 
     // Safety limit to prevent infinite loops.
@@ -274,7 +271,10 @@ pub fn fill_columns_balanced(
     let total_height = probe_total_height(dom, children, env);
 
     if total_height <= 0.0 {
-        return (Vec::new(), 0.0);
+        return (
+            fill_columns_sequential(dom, children, env, 0.0, u32::MAX, false),
+            0.0,
+        );
     }
 
     let tallest_monolithic = find_tallest_monolithic(dom, children, env.col_ctx.wm);
