@@ -712,7 +712,7 @@ pub struct AttrEntityCache {
     pub entries: std::collections::HashMap<String, Entity>,
 }
 
-/// Loading attribute for `<iframe>` and `<img>` elements (WHATWG HTML §4.8.5).
+/// Lazy loading attribute states used by `<iframe>` and `<img>` (HTML §2.5.7).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LoadingAttribute {
     /// Load immediately (default).
