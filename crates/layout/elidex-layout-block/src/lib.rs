@@ -173,24 +173,26 @@ impl FragmentSize {
         interrupted: bool,
     ) -> Self {
         let covered = incoming.unwrap_or_default();
-        let remaining = target.map_or(0.0, |size| f64::from(size) * (1.0 - covered));
-        let room = f64::from(room.max(0.0));
-        let content = f64::from(content.max(0.0));
+        // Compare the outstanding extent at layout precision so arithmetic on a
+        // saved fraction cannot manufacture an extra fragment at an exact fit.
+        #[allow(clippy::cast_possible_truncation)]
+        let remaining = target.map_or(0.0, |size| (f64::from(size) * (1.0 - covered)) as f32);
+        let room = room.max(0.0);
+        let content = content.max(0.0);
         let extent = if interrupted || remaining > room {
             content.max(room)
         } else {
             content.max(remaining)
         };
         let fraction = target.map(|size| {
-            if size > 0.0 {
-                (covered + extent / f64::from(size)).min(1.0)
+            if size > 0.0 && extent < remaining {
+                (covered + f64::from(extent) / f64::from(size)).min(1.0)
             } else {
                 1.0
             }
         });
-        #[allow(clippy::cast_possible_truncation)]
         Self {
-            extent: extent as f32,
+            extent,
             fraction,
             remaining: extent < remaining,
         }

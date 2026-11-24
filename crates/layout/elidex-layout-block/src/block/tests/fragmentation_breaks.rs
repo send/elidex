@@ -344,6 +344,7 @@ fn specified_block_size_counts_filled_fragment_room_through_replay() {
     let fonts = FontDatabase::new();
     for (rooms, heights, suffix_height, cloned) in [
         (vec![95.0, 120.0], vec![95.0, 115.0], 16.0, false),
+        (vec![57.0, 153.0], vec![57.0, 153.0], 16.0, false),
         (vec![115.0, 140.0], vec![95.0, 115.0], 16.0, true),
         (vec![95.0, 160.0], vec![95.0, 130.0], 130.0, false),
         (
