@@ -34,11 +34,10 @@
 //!
 //! ## Byte-order convention
 //!
-//! TypedArray indexed reads / writes use **spec-mandated little-endian
-//! byte order**: ECMA-262 §10.4.5.17 TypedArrayGetElement and §10.4.5.18
-//! TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
-//! SetValueInBuffer with `isLittleEndian = true`, so engines must use
-//! little-endian for TypedArray indexed access regardless of host platform.
+//! The VM uses little-endian byte order for TypedArray elements. ECMA-262
+//! §§10.4.5.17–18 pass `true` for `isTypedArray` and omit `isLittleEndian`.
+//! GetValueFromBuffer (§25.1.3.16) and SetValueInBuffer (§25.1.3.18)
+//! then use the agent's `[[LittleEndian]]` setting.
 //! `DataView` (PR5-typed-array §C5) exposes both
 //! endiannesses to JS via its `littleEndian` argument on the prototype
 //! getters / setters (ECMA-262 §25.3.4, default `false` = big-endian).
