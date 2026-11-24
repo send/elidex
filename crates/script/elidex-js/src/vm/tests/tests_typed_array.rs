@@ -198,9 +198,8 @@ fn ctor_bigint_from_bigint_array_ok() {
 #[test]
 fn ctor_string_primitive_goes_through_tonumber() {
     let mut vm = Vm::new();
-    // `new Uint8Array("abc")` — String primitive is NOT an Object,
-    // so takes the ToNumber branch.  ToNumber("abc") → NaN →
-    // ToIndex(NaN) → 0.  Spec §23.2.5.1 step 6.
+    // §23.2.5.1 steps 8–10 pass the primitive "abc" to ToIndex, then allocate
+    // with the resulting length. Its numeric conversion yields NaN, so the length is zero.
     assert_eq!(eval_number(&mut vm, "new Uint8Array(\"abc\").length;"), 0.0);
 }
 
