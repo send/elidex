@@ -329,6 +329,7 @@ pub fn layout_table(
     if !is_continuation {
         for &cap in &captions_top {
             let cap_input = LayoutInput {
+                containing_width_definite: true,
                 is_flex_item: false,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
@@ -547,6 +548,7 @@ pub fn layout_table(
         // Pass table explicit height as containing_height so cell percentage
         // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
+            containing_width_definite: true,
             is_flex_item: false,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize {
@@ -744,6 +746,7 @@ pub fn layout_table(
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
+            containing_width_definite: true,
             is_flex_item: false,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(cell_phys_w, cell_phys_h),
@@ -771,6 +774,7 @@ pub fn layout_table(
     if result_break_token.is_none() && !is_continuation {
         for &cap in &captions_bottom {
             let cap_input = LayoutInput {
+                containing_width_definite: true,
                 is_flex_item: false,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),

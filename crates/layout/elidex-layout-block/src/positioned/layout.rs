@@ -491,6 +491,7 @@ pub fn layout_absolutely_positioned(
         content_height
     };
     let child_input = LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::definite(content_width, content_height),

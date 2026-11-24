@@ -230,11 +230,13 @@ impl UsedAssignment {
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
+    /// Whether the available physical width is a definite percentage reference.
+    pub containing_width_definite: bool,
     /// Whether this box establishes an independent context as a flex item (Flexbox §4).
     pub is_flex_item: bool,
     /// Assignments for this box only.
     pub assigned: UsedAssignment,
-    /// Containing block size (width always definite, height may be indefinite).
+    /// Available containing dimensions. Width definiteness is recorded separately.
     pub containing: CssSize,
     /// Inline-axis size of the containing block (for margin/padding % resolution).
     ///
@@ -294,6 +296,7 @@ impl<'a> LayoutInput<'a> {
     #[must_use]
     pub fn probe(env: &LayoutEnv<'a>, containing_width: f32) -> Self {
         Self {
+            containing_width_definite: true,
             is_flex_item: false,
             assigned: UsedAssignment::default(),
             containing: CssSize::width_only(containing_width),

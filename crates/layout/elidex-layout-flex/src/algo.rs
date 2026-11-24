@@ -451,6 +451,7 @@ fn relayout_item_at_position(
         child_containing_height.unwrap_or(0.0)
     };
     let child_input = LayoutInput {
+        containing_width_definite: true,
         is_flex_item: true,
         assigned: elidex_layout_block::UsedAssignment {
             content: Size {

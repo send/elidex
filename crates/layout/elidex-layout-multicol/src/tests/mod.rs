@@ -27,6 +27,7 @@ fn make_font_db() -> FontDatabase {
 
 fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
     LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(600.0, 800.0),

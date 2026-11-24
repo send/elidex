@@ -157,6 +157,7 @@ pub fn build_paged_display_lists_interleaved(
     };
 
     let base_input = elidex_layout_block::LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::definite(content_width, content_height),

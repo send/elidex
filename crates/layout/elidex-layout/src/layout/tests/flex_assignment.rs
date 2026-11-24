@@ -49,6 +49,7 @@ fn run_at_generation(dom: &mut EcsDom, parent: Entity, width: f32, generation: u
     CALLS.with_borrow_mut(Vec::clear);
     let fonts = FontDatabase::new();
     let input = LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: UsedAssignment::default(),
         containing: CssSize::width_only(width),
@@ -352,6 +353,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
         let fonts = FontDatabase::new();
         for depth in [0, elidex_layout_block::MAX_LAYOUT_DEPTH] {
             let input = LayoutInput {
+                containing_width_definite: true,
                 is_flex_item: false,
                 assigned: UsedAssignment {
                     content: Size {
@@ -709,6 +711,7 @@ fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
         );
         let fonts = FontDatabase::new();
         let input = LayoutInput {
+            containing_width_definite: true,
             is_flex_item: false,
             assigned: UsedAssignment {
                 content: Size {
@@ -733,5 +736,66 @@ fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
         let result =
             elidex_layout_table::layout_table(&mut dom, table, &input, dispatch_layout_child);
         assert_eq!(result.layout_box.content.size, Size::new(expected, 80.0));
+    }
+}
+
+#[test]
+fn vertical_block_percentage_width_requires_a_definite_flex_cross_size() {
+    use elidex_plugin::{FlexDirection, WritingMode};
+    for (auto_margin, expected_width) in [(true, 0.0), (false, 50.0)] {
+        let mut dom = EcsDom::new();
+        let parent = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                flex_direction: FlexDirection::Column,
+                height: Dimension::Length(80.0),
+                width: Dimension::Length(100.0),
+                ..style(Display::Flex)
+            },
+        );
+        let edge = if auto_margin {
+            Dimension::Auto
+        } else {
+            Dimension::ZERO
+        };
+        let vertical = ComputedStyle {
+            writing_mode: WritingMode::VerticalRl,
+            ..style(Display::Block)
+        };
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                height: Dimension::Length(80.0),
+                margin_left: edge,
+                margin_right: edge,
+                ..vertical.clone()
+            },
+        );
+        node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                width: Dimension::Length(30.0),
+                ..vertical.clone()
+            },
+        );
+        let child = node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                width: Dimension::Percentage(50.0),
+                ..vertical
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        assert_eq!(get_layout(&dom, child).content.size.width, expected_width);
+        let lb = get_layout(&dom, item);
+        assert_eq!(
+            lb.content.size.width,
+            if auto_margin { 30.0 } else { 100.0 }
+        );
+        assert_eq!(lb.margin.left, if auto_margin { 35.0 } else { 0.0 });
     }
 }

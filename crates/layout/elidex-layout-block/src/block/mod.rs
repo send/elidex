@@ -82,6 +82,7 @@ pub fn layout_block(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize::width_only(containing_width),
@@ -113,6 +114,7 @@ pub fn layout_block_with_height(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize {
@@ -152,6 +154,7 @@ pub fn layout_block_inner(
     layout_child: crate::ChildLayoutFn,
 ) -> crate::LayoutOutcome {
     let containing_width = input.containing.width;
+    let width_reference = input.containing_width_definite.then_some(containing_width);
     let containing_height = input.containing.height;
     let offset_x = input.offset.x;
     let offset_y = input.offset.y;
@@ -171,7 +174,7 @@ pub fn layout_block_inner(
     let containing_block: Option<f32> = if is_horizontal {
         input.containing.height
     } else {
-        Some(input.containing.width)
+        width_reference
     };
     // Available inline space for auto inline-size resolution.
     // This is the containing block's dimension along **this element's** inline axis.
@@ -258,6 +261,15 @@ pub fn layout_block_inner(
     } else {
         style.height
     };
+    let inline_reference = if is_horizontal {
+        width_reference
+    } else {
+        containing_height
+    };
+    let inline_size_dim = match inline_size_dim {
+        Dimension::Percentage(_) if inline_reference.is_none() => Dimension::Auto,
+        dimension => dimension,
+    };
     let inline_extra = margin_inline_start_raw + margin_inline_end_raw + i_pb;
     let mut content_inline = if let Some(size) = assigned_inline {
         size
@@ -265,7 +277,7 @@ pub fn layout_block_inner(
         // Replaced element: resolve physical dimensions, then extract inline-axis.
         let phys_w = resolve_replaced_width(
             &style,
-            containing_width,
+            width_reference,
             intr,
             input.assigned.content,
             &padding,
@@ -390,16 +402,26 @@ pub fn layout_block_inner(
         }
     };
 
-    // Physical dimensions for child containing block.
-    let (child_phys_width, child_phys_height) = if is_horizontal {
-        (content_inline, child_containing_block)
+    // Keep available space for layout independent of the reference used by percentages.
+    let inline_definite = if assigned_inline.is_some() {
+        let definite = input.assigned.definite_for_percentages;
+        if is_horizontal {
+            definite.width
+        } else {
+            definite.height
+        }
     } else {
-        // Vertical: inline-size = physical height, block-size = physical width.
-        // content_inline is the inline-size (physical height).
-        // child_containing_block is the block-size (physical width) if known.
+        matches!(inline_size_dim, Dimension::Length(_)) || inline_reference.is_some()
+    };
+    let (child_phys_width, child_width_definite, child_phys_height) = if is_horizontal {
+        (content_inline, inline_definite, child_containing_block)
+    } else {
         (
-            child_containing_block.unwrap_or(containing_width),
-            Some(content_inline),
+            assigned_block
+                .or(child_containing_block)
+                .unwrap_or(containing_width),
+            child_containing_block.is_some(),
+            inline_definite.then_some(content_inline),
         )
     };
 
@@ -444,7 +466,7 @@ pub fn layout_block_inner(
         } else {
             resolve_replaced_width(
                 &style,
-                containing_width,
+                width_reference,
                 intr,
                 input.assigned.content,
                 &padding,
@@ -461,6 +483,7 @@ pub fn layout_block_inner(
         );
         let child_bt_for_stack = input.break_token;
         let child_input = LayoutInput {
+            containing_width_definite: child_width_definite,
             is_flex_item: false,
             assigned: crate::UsedAssignment::default(),
             containing: CssSize {

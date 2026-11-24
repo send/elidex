@@ -455,6 +455,7 @@ fn build_column_input<'a>(
 ) -> LayoutInput<'a> {
     let is_horizontal = wm.is_horizontal();
     LayoutInput {
+        containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {

@@ -13,7 +13,7 @@ thread_local! { pub(super) static SOLVE_COUNT: std::cell::Cell<usize> = const { 
 /// When only height is specified, width is computed from the aspect ratio.
 pub(super) fn resolve_replaced_width(
     style: &ComputedStyle,
-    containing_width: f32,
+    width_reference: Option<f32>,
     intrinsic: elidex_plugin::Size,
     assigned: elidex_plugin::Size<Option<f32>>,
     padding: &EdgeSizes,
@@ -28,7 +28,11 @@ pub(super) fn resolve_replaced_width(
     if let Some(width) = assigned.width {
         return width;
     }
-    if style.width == Dimension::Auto {
+    let width = match style.width {
+        Dimension::Percentage(_) if width_reference.is_none() => Dimension::Auto,
+        width => width,
+    };
+    if width == Dimension::Auto {
         if let Some(height) = assigned.height.filter(|_| ih > 0.0) {
             return height * iw / ih;
         }
@@ -45,7 +49,11 @@ pub(super) fn resolve_replaced_width(
             _ => iw, // Both auto or height auto: use intrinsic width.
         }
     } else {
-        let raw = sanitize(resolve_dimension_value(style.width, containing_width, iw));
+        let raw = sanitize(resolve_dimension_value(
+            width,
+            width_reference.unwrap_or_default(),
+            iw,
+        ));
         if style.box_sizing == BoxSizing::BorderBox {
             (raw - horizontal_pb(padding, border)).max(0.0)
         } else {
