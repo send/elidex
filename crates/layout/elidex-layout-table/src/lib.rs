@@ -398,23 +398,34 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let natural_height =
-            resolve_table_height(&style, containing_height, v_pb, caption_top_height);
-        let (width, height) = if is_horizontal_wm {
-            (content_width, assigned_block.unwrap_or(natural_height))
-        } else {
-            let inline = assigned_inline.unwrap_or(natural_height);
-            let block = assigned_block.unwrap_or_else(|| match style.width {
-                elidex_plugin::Dimension::Auto => 0.0,
-                _ => elidex_layout_block::resolve_content_width(
-                    &style,
-                    containing_width,
-                    h_pb,
-                    h_margin,
-                ),
-            });
-            (block, inline)
-        };
+        let width = input.assigned.content.width.unwrap_or_else(|| {
+            let natural = if is_horizontal_wm {
+                content_width
+            } else if style.width != elidex_plugin::Dimension::Auto {
+                elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin)
+            } else {
+                0.0
+            };
+            helpers::constrain_empty_extent(
+                natural,
+                style.min_width,
+                style.max_width,
+                containing_width,
+                h_pb,
+                style.box_sizing,
+            )
+        });
+        let height = input.assigned.content.height.unwrap_or_else(|| {
+            let natural = resolve_table_height(&style, containing_height, v_pb, caption_top_height);
+            helpers::constrain_empty_extent(
+                natural,
+                style.min_height,
+                style.max_height,
+                containing_height.unwrap_or(0.0),
+                v_pb,
+                style.box_sizing,
+            )
+        });
         let lb = build_table_layout_box(
             &padding,
             &border,

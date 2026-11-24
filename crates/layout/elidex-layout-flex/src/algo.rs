@@ -201,6 +201,7 @@ pub(crate) fn layout_items_cross(
         // Optimization: skip layout if the item has an explicit cross size.
         // The cross size is known without layout, avoiding a redundant pass.
         if let Some(explicit_cross) = resolve_explicit_cross(dom, item.entity, ctx) {
+            item.definite_preferred_cross = true;
             item.final_cross = explicit_cross + item.pb_cross;
             continue;
         }
@@ -455,6 +456,10 @@ fn relayout_item_at_position(
             content: Size {
                 width: Some(item_content_width),
                 height: Some(item_content_height),
+            },
+            definite_for_percentages: Size {
+                width: ctx.horizontal || stretched || item.definite_preferred_cross,
+                height: !ctx.horizontal || stretched || item.definite_preferred_cross,
             },
             margin,
         },

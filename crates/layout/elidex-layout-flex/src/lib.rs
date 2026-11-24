@@ -171,6 +171,8 @@ pub(crate) struct FlexItem {
     pub(crate) align: AlignItems,
     /// Whether the item's cross-size dimension is `auto` (stretch only applies when true).
     pub(crate) cross_size_auto: bool,
+    /// Whether the cross measurement resolved the preferred cross size.
+    pub(crate) definite_preferred_cross: bool,
     /// Minimum content size on the main axis (from min-width/min-height).
     pub(crate) min_main: f32,
     pub(crate) min_cross: f32,

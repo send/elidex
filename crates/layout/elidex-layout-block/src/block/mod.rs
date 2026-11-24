@@ -355,7 +355,14 @@ pub fn layout_block_inner(
     // Compute definite block-size for children's percentage resolution.
     // In horizontal: explicit height. In vertical: explicit width.
     let child_containing_block = if assigned_block.is_some() {
-        assigned_block
+        let definite = input.assigned.definite_for_percentages;
+        assigned_block.filter(|_| {
+            if is_horizontal {
+                definite.height
+            } else {
+                definite.width
+            }
+        })
     } else if is_horizontal {
         crate::resolve_explicit_height(&style, containing_height)
     } else {
@@ -658,6 +665,10 @@ pub fn layout_block_inner(
     };
 
     dom.set_layout_box(entity, lb.clone());
+
+    if intrinsic.is_some() {
+        return lb.into();
+    }
 
     // Layout positioned descendants owned by this containing block.
     let is_root = dom.get_parent(entity).is_none();

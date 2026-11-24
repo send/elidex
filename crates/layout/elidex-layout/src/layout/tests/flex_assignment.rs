@@ -358,6 +358,10 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
                         width: Some(0.0),
                         height: Some(20.0),
                     },
+                    definite_for_percentages: Size {
+                        width: true,
+                        height: true,
+                    },
                     margin: EdgeSizes {
                         left: Some(5.0),
                         right: Some(0.0),
@@ -502,8 +506,20 @@ fn stretch_respects_cross_margins_and_clamps_used_content() {
                 ..style(Display::Block)
             },
         );
+        let percentage_child = node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                height: Dimension::Percentage(50.0),
+                ..style(Display::Block)
+            },
+        );
         run(&mut dom, parent, 100.0);
         let lb = get_layout(&dom, item);
+        assert_eq!(
+            get_layout(&dom, percentage_child).content.size.height,
+            if auto { 0.0 } else { expected / 2.0 }
+        );
         assert_eq!(
             (lb.content.size.height, lb.margin.top, lb.margin.bottom),
             (expected, share, share)
@@ -513,29 +529,51 @@ fn stretch_respects_cross_margins_and_clamps_used_content() {
 
 #[test]
 fn fully_assigned_replaced_flex_item_skips_its_dom_children() {
-    let mut dom = EcsDom::new();
-    let parent = node(&mut dom, None, style(Display::Flex));
-    let item = node(
-        &mut dom,
-        Some(parent),
-        ComputedStyle {
-            width: Dimension::Length(60.0),
-            height: Dimension::Length(30.0),
-            ..style(Display::Block)
-        },
-    );
-    dom.world_mut().insert_one(
-        item,
-        elidex_ecs::ImageData {
-            width: 60,
-            height: 30,
-            pixels: std::sync::Arc::new(vec![0; 7200]),
-        },
-    );
-    let child = node(&mut dom, Some(item), style(Display::Block));
-    run(&mut dom, parent, 100.0);
-    assert!(dom.world().get::<&LayoutBox>(child).is_err());
-    assert_eq!(get_layout(&dom, item).content.size, Size::new(60.0, 30.0));
+    for position in [Position::Static, Position::Relative] {
+        let mut dom = EcsDom::new();
+        let parent = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                position: Position::Relative,
+                ..style(Display::Flex)
+            },
+        );
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                position,
+                width: Dimension::Length(60.0),
+                height: Dimension::Length(30.0),
+                ..style(Display::Block)
+            },
+        );
+        dom.world_mut().insert_one(
+            item,
+            elidex_ecs::ImageData {
+                width: 60,
+                height: 30,
+                pixels: std::sync::Arc::new(vec![0; 7200]),
+            },
+        );
+        let child = node(&mut dom, Some(item), style(Display::Block));
+        let abs = node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                position: Position::Absolute,
+                width: Dimension::Length(10.0),
+                height: Dimension::Length(10.0),
+                ..style(Display::Block)
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        for descendant in [child, abs] {
+            assert!(dom.world().get::<&LayoutBox>(descendant).is_err());
+        }
+        assert_eq!(get_layout(&dom, item).content.size, Size::new(60.0, 30.0));
+    }
 }
 
 #[test]
@@ -601,9 +639,10 @@ fn vertical_rl_receiver_uses_physical_left_and_top_once() {
 #[test]
 fn empty_vertical_table_keeps_each_main_only_assignment_on_its_axis() {
     use elidex_plugin::FlexDirection;
-    for (direction, width, height) in [
-        (FlexDirection::Row, 100.0, 0.0),
-        (FlexDirection::Column, 0.0, 80.0),
+    for (direction, width, height, minimum) in [
+        (FlexDirection::Row, 100.0, 0.0, 0.0),
+        (FlexDirection::Column, 0.0, 80.0, 0.0),
+        (FlexDirection::Column, 40.0, 80.0, 40.0),
     ] {
         let mut dom = EcsDom::new();
         let parent = node(
@@ -621,8 +660,12 @@ fn empty_vertical_table_keeps_each_main_only_assignment_on_its_axis() {
             Some(parent),
             ComputedStyle {
                 writing_mode: elidex_plugin::WritingMode::VerticalRl,
-                flex_basis: FlexBasis::Length(width + height),
-                min_width: Dimension::ZERO,
+                flex_basis: FlexBasis::Length(if direction == FlexDirection::Column {
+                    height
+                } else {
+                    width
+                }),
+                min_width: Dimension::Length(minimum),
                 min_height: Dimension::ZERO,
                 ..style(Display::Table)
             },
@@ -642,5 +685,53 @@ fn empty_vertical_table_keeps_each_main_only_assignment_on_its_axis() {
             get_layout(&dom, item).content.size,
             Size::new(width, height)
         );
+    }
+}
+
+#[test]
+fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
+    for (preferred, min, max, expected) in [
+        (Dimension::Auto, 40.0, 90.0, 40.0),
+        (Dimension::Length(100.0), 10.0, 60.0, 60.0),
+    ] {
+        let mut dom = EcsDom::new();
+        let table = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                writing_mode: elidex_plugin::WritingMode::VerticalRl,
+                width: preferred,
+                min_width: Dimension::Length(min),
+                max_width: Dimension::Length(max),
+                max_height: Dimension::Length(10.0),
+                ..style(Display::Table)
+            },
+        );
+        let fonts = FontDatabase::new();
+        let input = LayoutInput {
+            is_flex_item: false,
+            assigned: UsedAssignment {
+                content: Size {
+                    width: None,
+                    height: Some(80.0),
+                },
+                ..UsedAssignment::default()
+            },
+            containing: CssSize::width_only(200.0),
+            containing_inline_size: 200.0,
+            offset: Point::ZERO,
+            font_db: &fonts,
+            depth: 0,
+            float_ctx: None,
+            viewport: None,
+            fragmentainer: None,
+            break_token: None,
+            subgrid: None,
+            layout_generation: 0,
+            is_probe: false,
+        };
+        let result =
+            elidex_layout_table::layout_table(&mut dom, table, &input, dispatch_layout_child);
+        assert_eq!(result.layout_box.content.size, Size::new(expected, 80.0));
     }
 }

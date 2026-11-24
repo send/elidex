@@ -182,6 +182,8 @@ pub struct SubgridContext {
 pub struct UsedAssignment {
     /// Independently established physical content axes.
     pub content: Size<Option<f32>>,
+    /// Whether each assigned content axis is definite for descendant percentages.
+    pub definite_for_percentages: Size<bool>,
     /// Used physical margins, measured from the margin-box origin.
     pub margin: EdgeSizes<Option<f32>>,
 }
@@ -192,6 +194,10 @@ impl Default for UsedAssignment {
             content: Size {
                 width: None,
                 height: None,
+            },
+            definite_for_percentages: Size {
+                width: true,
+                height: true,
             },
             margin: EdgeSizes::default(),
         }

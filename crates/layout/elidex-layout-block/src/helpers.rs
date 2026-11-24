@@ -414,35 +414,47 @@ pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<Size> {
     replaced_size(dom, entity, None)
 }
 
-// Consult the component to identify replaced boxes even when both content axes are established.
+enum ReplacedContent<'a> {
+    Image(&'a ImageData),
+    Control(&'a elidex_form::FormControlState),
+    Iframe(&'a elidex_ecs::IframeData),
+}
+
+fn with_replaced_content<T>(
+    dom: &EcsDom,
+    entity: Entity,
+    read: impl FnOnce(ReplacedContent<'_>) -> T,
+) -> Option<T> {
+    if let Ok(img) = dom.world().get::<&ImageData>(entity) {
+        Some(read(ReplacedContent::Image(&img)))
+    } else if let Ok(control) = dom.world().get::<&elidex_form::FormControlState>(entity) {
+        Some(read(ReplacedContent::Control(&control)))
+    } else {
+        dom.world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .map(|frame| read(ReplacedContent::Iframe(&frame)))
+    }
+}
+
+pub(crate) fn is_replaced(dom: &EcsDom, entity: Entity) -> bool {
+    with_replaced_content(dom, entity, |_| ()).is_some()
+}
+
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn replaced_size(
     dom: &EcsDom,
     entity: Entity,
     established: Option<Size>,
 ) -> Option<Size> {
-    dom.world()
-        .get::<&ImageData>(entity)
-        .ok()
-        .map(|img| established.unwrap_or_else(|| Size::new(img.width as f32, img.height as f32)))
-        .or_else(|| {
-            dom.world()
-                .get::<&elidex_form::FormControlState>(entity)
-                .ok()
-                .map(|fcs| {
-                    established.unwrap_or_else(|| {
-                        let s = elidex_form::form_intrinsic_size(&fcs);
-                        Size::new(s.width.max(0.0), s.height.max(0.0))
-                    })
-                })
+    with_replaced_content(dom, entity, |content| {
+        established.unwrap_or_else(|| match content {
+            ReplacedContent::Image(img) => Size::new(img.width as f32, img.height as f32),
+            ReplacedContent::Iframe(frame) => Size::new(frame.width as f32, frame.height as f32),
+            ReplacedContent::Control(control) => {
+                let size = elidex_form::form_intrinsic_size(control);
+                Size::new(size.width.max(0.0), size.height.max(0.0))
+            }
         })
-        .or_else(|| {
-            dom.world()
-                .get::<&elidex_ecs::IframeData>(entity)
-                .ok()
-                .map(|iframe| {
-                    established
-                        .unwrap_or_else(|| Size::new(iframe.width as f32, iframe.height as f32))
-                })
-        })
+    })
 }

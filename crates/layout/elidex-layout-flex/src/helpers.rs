@@ -213,6 +213,7 @@ pub(crate) fn collect_flex_items(
             final_cross: 0.0,
             align: effective_align(child_style.align_self, ctx.align_items),
             cross_size_auto,
+            definite_preferred_cross: false,
             min_main,
             max_main,
             margin_main_start_auto,
