@@ -102,13 +102,13 @@ fn eval_string_char_code_at_low_surrogate() {
 
 #[test]
 fn eval_char_at_negative_index() {
-    // §21.1.3.1: if pos < 0, return ""
+    // ECMA-262 §22.1.3.2 step 6: charAt returns the empty string for a negative index.
     assert_eq!(eval_string("'abc'.charAt(-1);"), "");
 }
 
 #[test]
 fn eval_char_code_at_negative_index() {
-    // §21.1.3.2: if pos < 0, return NaN
+    // ECMA-262 §22.1.3.3 step 6: charCodeAt returns NaN for a negative index.
     assert!(eval_number("'abc'.charCodeAt(-1);").is_nan());
 }
 
