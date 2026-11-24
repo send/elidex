@@ -483,7 +483,8 @@ fn structured_clone_preserves_data_view_identity() {
 }
 
 // ---------------------------------------------------------------------------
-// TypedArray ctor / set ToObject + ToLength coercion (§23.2.5.1) +
+// Array-like source length in TypedArray construction (§23.2.5.1.4 step 3.b)
+// and set (§23.2.3.26.1 steps 3–4) +
 // DataView NaN/undefined offset bounds (§§25.3.1.5–6) +
 // BigInt element equality (pool-based compare, SP-coerce strict_eq)
 // ---------------------------------------------------------------------------
@@ -520,7 +521,7 @@ fn data_view_nan_offset_still_bounds_checks() {
 #[test]
 fn typed_array_set_accepts_primitive_source_via_to_object() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.26 TypedArraySetArrayElements step 3: `ToObject(source)`.
+    // ECMA-262 §23.2.3.26.1 SetTypedArrayFromArrayLike step 3: `ToObject(source)`.
     // Primitive strings become StringWrapper whose length + indexed
     // access drive the write loop (each 1-char string ToNumber's to
     // NaN → 0 for Uint8Array).
@@ -532,7 +533,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
         ),
         0.0
     );
-    // Null / undefined still TypeError (§7.1.19 ToObject).
+    // Null / undefined still TypeError (§7.1.20 ToObject step 1).
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array(1); var ok = false; \

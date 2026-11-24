@@ -13,7 +13,7 @@
 //! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
 //!   reuse `ObjectKind::ArrayIterator` infra
-//! - `set(source, offset?)` (§23.2.3.24)
+//! - `set(source, offset?)` (§23.2.3.26)
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
 //! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
@@ -444,7 +444,7 @@ pub(crate) fn native_typed_array_set(
             // performs the type conversion.  Source and destination
             // MAY share the backing buffer; read every source
             // element upfront so the write pass doesn't observe
-            // its own output (§23.2.3.24 step 26 same-buffer scratch).
+            // its own output (§23.2.3.26.2 step 17 clones a shared source range).
             let mut scratch: Vec<JsValue> = Vec::with_capacity(src_len as usize);
             for i in 0..src_len {
                 scratch.push(read_element_raw(ctx.vm, src_buf, src_off, i, src_ek));
@@ -458,7 +458,7 @@ pub(crate) fn native_typed_array_set(
         }
     }
 
-    // Array-like branch: §23.2.3.24 runs `ToObject(source)` so
+    // Array-like branch: §23.2.3.26.1 step 3 runs `ToObject(source)` so
     // primitives (strings, numbers, booleans) are wrapped and their
     // indexed/length access proceeds uniformly; only null/undefined
     // TypeError.  The fresh wrapper (primitive source) is only
@@ -502,7 +502,7 @@ fn set_array_like_body(
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
     let len_f = ctx.to_number(len_val)?;
-    // §23.2.3.24 step 11 runs `LengthOfArrayLike`/`ToLength`, which
+    // §23.2.3.26.1 step 4 runs `LengthOfArrayLike`/`ToLength`, which
     // clamps NaN and negative lengths to `0` (so `set({length: -1})`
     // is a no-op rather than a RangeError).  Only values larger than
     // `u32::MAX` exceed the engine's byte_length cap.
@@ -529,7 +529,7 @@ fn set_array_like_body(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
     }
-    // §23.2.3.24 step 13 reads `src[ToString(k)]` against the
+    // §23.2.3.26.1 step 8.b reads `src[ToString(k)]` against the
     // wrapper object returned by `ToObject(source)`, not the raw
     // primitive — receiver identity affects any prototype-installed
     // getter that observes `this`.
