@@ -191,9 +191,9 @@ pub fn layout_grid(
     )
     .max(0.0);
 
-    // --- Early return for empty containers ---
+    // An empty fragmented grid can still have outstanding specified block size.
     let children = elidex_layout_block::composed_children_flat(dom, entity);
-    if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
+    if (children.is_empty() && input.fragmentainer.is_none()) || depth >= MAX_LAYOUT_DEPTH {
         return elidex_layout_block::empty_container_box(
             dom,
             entity,

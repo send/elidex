@@ -799,3 +799,35 @@ fn resume_with_child_break_tokens() {
         115.0
     );
 }
+
+#[test]
+fn empty_grid_consumes_remaining_specified_size_without_item_contributions() {
+    let style = ComputedStyle {
+        height: Dimension::Length(95.0),
+        ..grid_container(1)
+    };
+    let (mut dom, entity, _) = make_grid_dom(style, &[]);
+    let fonts = FontDatabase::new();
+    let mut route = None;
+    for (room, extent, complete) in [(60.0, 60.0, false), (30.0, 30.0, false), (25.0, 5.0, true)] {
+        let outcome = do_layout_grid_fragmented(
+            &mut dom,
+            entity,
+            300.0,
+            None,
+            Point::ZERO,
+            &fonts,
+            0,
+            layout_block_only,
+            Some(FragmentainerContext {
+                available_block_size: room,
+                fragmentation_type: FragmentationType::Page,
+            }),
+            route,
+        );
+        assert_eq!(outcome.layout_box.content.size.height, extent);
+        assert_eq!(outcome.contribution.contributed_items().count(), 0);
+        route = outcome.break_token;
+        assert_eq!(route.is_none(), complete);
+    }
+}
