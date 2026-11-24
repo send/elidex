@@ -112,6 +112,24 @@ pub(crate) fn build_computed_style(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> ComputedStyle {
+    build_style_for_subject(winners, parent_style, ctx, StyleSubject::Element, None)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StyleSubject {
+    Element,
+    DocumentElement,
+    UnusualHtml,
+    Generated,
+}
+
+pub(crate) fn build_style_for_subject(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    subject: StyleSubject,
+    effective_parent: Option<Display>,
+) -> ComputedStyle {
     let mut style = ComputedStyle::default();
     // Phase 3: Font-size first (em units in all other properties depend on it).
     let element_font_size = resolve_font_size(winners, parent_style, ctx);
@@ -124,6 +142,9 @@ pub(crate) fn build_computed_style(
     resolve_background_color(&mut style, winners, parent_style);
 
     // Phase 5: Display, positioning, overflow.
+    if subject == StyleSubject::Generated {
+        style.display = Display::Inline;
+    }
     resolve_display(&mut style, winners, parent_style);
     resolve_position(&mut style, winners, parent_style);
     resolve_position_offsets(&mut style, winners, parent_style, &elem_ctx);
@@ -151,6 +172,8 @@ pub(crate) fn build_computed_style(
     // Phase 11: Float, clear, visibility, vertical-align.
     resolve_float_visibility_properties(&mut style, winners, parent_style, &elem_ctx);
 
+    adjust_display(&mut style, subject, effective_parent);
+
     // Phase 12: Background layers (CSS Backgrounds Level 3).
     resolve_background_layers(winners, &mut style);
 
@@ -158,6 +181,36 @@ pub(crate) fn build_computed_style(
     resolve_transform_properties(&mut style, winners, parent_style, &elem_ctx);
 
     style
+}
+
+fn adjust_display(
+    style: &mut ComputedStyle,
+    subject: StyleSubject,
+    effective_parent: Option<Display>,
+) {
+    // CSS Display §2.8 and Appendix B, before choosing the child box context.
+    if style.display == Display::Contents {
+        style.display = match subject {
+            StyleSubject::DocumentElement => Display::Block,
+            StyleSubject::UnusualHtml => Display::None,
+            _ => Display::Contents,
+        };
+    }
+    // CSS 2 §9.7; CSS Flexbox §4 and Grid §6.1.
+    let positioned = matches!(style.position, Position::Absolute | Position::Fixed);
+    if positioned {
+        style.float = Float::None;
+    }
+    if positioned
+        || style.float != Float::None
+        || subject == StyleSubject::DocumentElement
+        || matches!(
+            effective_parent,
+            Some(Display::Flex | Display::InlineFlex | Display::Grid | Display::InlineGrid)
+        )
+    {
+        style.display = blockify_display(style.display);
+    }
 }
 
 /// Resolve float, clear, visibility, and vertical-align properties.
@@ -183,16 +236,6 @@ fn resolve_float_visibility_properties(
     // float — non-inherited
     if let Some(f) = resolve_keyword_enum("float", winners, parent_style, Float::from_keyword) {
         style.float = f;
-    }
-
-    // CSS 2.1 §9.7 (applied in spec order):
-    // Step 2: position: absolute/fixed → blockify display AND force float to none.
-    // Step 3: float is not 'none' → blockify display.
-    if matches!(style.position, Position::Absolute | Position::Fixed) {
-        style.display = blockify_display(style.display);
-        style.float = Float::None;
-    } else if style.float != Float::None {
-        style.display = blockify_display(style.display);
     }
 
     // clear — non-inherited
@@ -542,6 +585,7 @@ mod tests {
             ..ComputedStyle::default()
         };
         resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
+        adjust_display(&mut style, StyleSubject::Element, None);
         assert_eq!(
             style.float,
             Float::None,

@@ -2076,6 +2076,7 @@ name = "elidex-layout"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "elidex-css",
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-layout-flex",

@@ -860,3 +860,64 @@ fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
         "multicol-in-table-cell span gets exactly 2 box fragments (height-probe suppressed, no duplicate), got {cols:?}"
     );
 }
+
+#[test]
+fn first_child_dispatch_uses_published_display_through_contents() {
+    let (mut dom, _, _, body) = build_styled_dom();
+    let mut parent = body;
+    for tag in ["section", "label", "span", "b", "i"] {
+        let node = dom.create_element_ownerless_fixture(tag, Attributes::default());
+        assert!(dom.append_child(parent, node));
+        parent = node;
+    }
+    let item = dom.get_parent(parent).unwrap();
+    let viewport = Size::new(200., 150.);
+    let font_db = FontDatabase::new();
+    let input = LayoutInput {
+        containing: CssSize::definite(200., 150.),
+        containing_inline_size: 200.,
+        offset: Point::ZERO,
+        font_db: &font_db,
+        depth: 0,
+        float_ctx: None,
+        viewport: Some(viewport),
+        fragmentainer: None,
+        break_token: None,
+        subgrid: None,
+        layout_generation: 0,
+        is_probe: false,
+    };
+    for (inner, display, width) in [
+        ("contents", Display::Flex, 200.),
+        ("block", Display::InlineFlex, 20.),
+    ] {
+        let sheet = elidex_css::parse_stylesheet(
+            &format!(
+                "body {{margin:0}} section {{display:flex;flex-direction:column;width:200px}}
+             label {{display:contents}} span {{display:{inner};color:red}}
+             b {{display:inline-flex}} i {{display:block;width:20px;height:10px}}"
+            ),
+            elidex_css::Origin::Author,
+        );
+        elidex_style::resolve_styles(&mut dom, &[&sheet], viewport);
+        {
+            let style = dom.world().get::<&ComputedStyle>(item).unwrap();
+            assert_eq!(style.display, display);
+            assert_eq!(style.width, Dimension::Auto);
+            assert_eq!(style.color, elidex_plugin::CssColor::RED);
+        }
+        // Enter the real dispatcher before any parent collection or placement override.
+        let first = dispatch_layout_child(&mut dom, item, &input);
+        assert!(
+            approx_eq(first.layout_box.content.size.width, width),
+            "first dispatch: {inner}, {:?}",
+            first.layout_box.content
+        );
+        layout_tree(&mut dom, viewport, &font_db);
+        assert!(
+            approx_eq(get_layout(&dom, item).content.size.width, width),
+            "final: {inner}, {:?}",
+            get_layout(&dom, item).content
+        );
+    }
+}

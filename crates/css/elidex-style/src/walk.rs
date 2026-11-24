@@ -12,7 +12,7 @@ use elidex_plugin::{ComputedStyle, CssValue, Display, Overflow, ViewportOverflow
 
 use crate::cascade::{collect_and_cascade, get_inline_declarations, ElementSheets, ShadowCascade};
 use crate::pseudo::{generate_pseudo_entity, remove_pseudo_entities};
-use crate::resolve::{build_computed_style, ResolveContext};
+use crate::resolve::{build_style_for_subject, ResolveContext, StyleSubject};
 use crate::slot::distribute_slots;
 
 /// Maximum recursion depth for style tree walks.
@@ -35,6 +35,8 @@ pub(crate) struct WalkState<'a> {
     pub media_env: MediaEnvironment,
     pub hint_generator: &'a dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     pub depth: usize,
+    pub effective_parent: Option<Display>,
+    pub document_element: Option<Entity>,
     pub total_shadow_css: &'a mut usize,
 }
 
@@ -91,27 +93,6 @@ fn should_skip_child(dom: &EcsDom, entity: Entity) -> bool {
     dom.world().get::<&PseudoElementMarker>(entity).is_ok()
 }
 
-/// Walk children of `parent`, resolving styles with `walk_tree`.
-///
-/// Filters out pseudo-element entities (see `should_skip_child`).
-fn walk_children(
-    dom: &mut EcsDom,
-    parent: Entity,
-    stylesheets: ElementSheets<'_>,
-    parent_style: &ComputedStyle,
-    state: &mut WalkState<'_>,
-) {
-    let children = dom.children(parent);
-    for child in children {
-        if should_skip_child(dom, child) {
-            continue;
-        }
-        state.depth += 1;
-        walk_tree(dom, child, stylesheets, parent_style, state);
-        state.depth -= 1;
-    }
-}
-
 /// Find root entities to start the tree walk.
 ///
 /// Uses the cached document root from `EcsDom` when available (O(1)),
@@ -130,6 +111,40 @@ pub(crate) fn find_roots(dom: &EcsDom) -> Vec<Entity> {
     roots
 }
 
+/// CSS Display §2.8 and Appendix B's HTML elements with suppressed contents.
+fn element_subject(dom: &EcsDom, entity: Entity, document_element: Option<Entity>) -> StyleSubject {
+    if Some(entity) == document_element {
+        StyleSubject::DocumentElement
+    } else if dom.is_html_namespace(entity)
+        && dom.with_tag_name(entity, |tag| {
+            matches!(
+                tag,
+                Some(
+                    "br" | "wbr"
+                        | "meter"
+                        | "progress"
+                        | "canvas"
+                        | "embed"
+                        | "object"
+                        | "audio"
+                        | "iframe"
+                        | "img"
+                        | "video"
+                        | "frame"
+                        | "frameset"
+                        | "input"
+                        | "textarea"
+                        | "select"
+                )
+            )
+        })
+    {
+        StyleSubject::UnusualHtml
+    } else {
+        StyleSubject::Element
+    }
+}
+
 /// Resolve style for a single entity and attach it as a `ComputedStyle` component.
 ///
 /// For element nodes: runs cascade (with shadow cascade context), resolves values,
@@ -137,24 +152,15 @@ pub(crate) fn find_roots(dom: &EcsDom) -> Vec<Entity> {
 /// For non-element nodes: inherits the parent style.
 ///
 /// Returns the resolved `ComputedStyle` for use as the parent of child elements.
-// The walk's core resolve entry threads the decomposed cascade inputs (varying
-// `ctx` per caller + the constant `media_env`/`hint_generator`) rather than the
-// whole `WalkState`, so the param count is intrinsic — matches the established
-// `too_many_arguments` allow used across the engine's walk/layout entries.
-#[allow(clippy::too_many_arguments)]
 fn resolve_and_attach_style(
     dom: &mut EcsDom,
     entity: Entity,
     stylesheets: ElementSheets<'_>,
     parent_style: &ComputedStyle,
-    ctx: &ResolveContext,
-    media_env: &MediaEnvironment,
-    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    state: &WalkState<'_>,
     shadow_cascade: &ShadowCascade<'_>,
 ) -> ComputedStyle {
-    let is_element = dom.world().get::<&TagType>(entity).is_ok();
-
-    if !is_element {
+    if !dom.is_element(entity) {
         return parent_style.clone();
     }
 
@@ -172,12 +178,14 @@ fn resolve_and_attach_style(
         entity,
         stylesheets,
         parent_style,
-        ctx,
-        media_env,
-        hint_generator,
+        &state.ctx,
+        &state.media_env,
+        state.hint_generator,
         shadow_cascade,
+        element_subject(dom, entity, state.document_element),
+        state.effective_parent,
     );
-    let element_ctx = ctx.with_em_base(parent_style.font_size);
+    let element_ctx = state.ctx.with_em_base(parent_style.font_size);
     // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
     crate::counter::apply_implicit_list_counters_from_dom(dom, entity, &mut style);
 
@@ -196,24 +204,18 @@ fn resolve_and_attach_style(
 
     // Only generate pseudo-elements for visible elements.
     if style.display != Display::None {
-        generate_pseudo_entity(
-            dom,
-            entity,
-            stylesheets,
-            &style,
-            &element_ctx,
-            media_env,
-            PseudoElement::Before,
-        );
-        generate_pseudo_entity(
-            dom,
-            entity,
-            stylesheets,
-            &style,
-            &element_ctx,
-            media_env,
-            PseudoElement::After,
-        );
+        for pseudo in [PseudoElement::Before, PseudoElement::After] {
+            generate_pseudo_entity(
+                dom,
+                entity,
+                stylesheets,
+                &style,
+                &element_ctx,
+                &state.media_env,
+                child_display(style.display, state.effective_parent),
+                pseudo,
+            );
+        }
     }
 
     style
@@ -229,6 +231,8 @@ fn compute_element_style(
     media_env: &MediaEnvironment,
     hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
     shadow_cascade: &ShadowCascade<'_>,
+    subject: StyleSubject,
+    effective_parent: Option<Display>,
 ) -> (ComputedStyle, Option<AnimStyle>) {
     // Collect inline style declarations.
     let inline_decls = get_inline_declarations(entity, dom);
@@ -254,7 +258,13 @@ fn compute_element_style(
     let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
     let custom = std::mem::take(&mut resolved.custom);
     let winners = resolved.ordinary();
-    let mut style = build_computed_style(&winners, parent_style, &element_ctx);
+    let mut style = build_style_for_subject(
+        &winners,
+        parent_style,
+        &element_ctx,
+        subject,
+        effective_parent,
+    );
 
     style.custom_properties = custom;
 
@@ -288,6 +298,8 @@ pub(crate) fn preliminary_root(
         media,
         hints,
         &shadow,
+        StyleSubject::DocumentElement,
+        None,
     )
     .0
 }
@@ -303,57 +315,87 @@ pub(crate) fn walk_tree(
     parent_style: &ComputedStyle,
     state: &mut WalkState<'_>,
 ) {
-    if state.depth > MAX_WALK_DEPTH {
+    walk_node(dom, entity, stylesheets, None, None, parent_style, state);
+}
+
+fn child_display(display: Display, incoming: Option<Display>) -> Option<Display> {
+    if display == Display::Contents {
+        incoming
+    } else {
+        Some(display)
+    }
+}
+
+/// Resolve a flat-tree node once, then choose its shadow, assigned or fallback children.
+fn walk_node(
+    dom: &mut EcsDom,
+    entity: Entity,
+    sheets: ElementSheets<'_>,
+    shadow: Option<&ShadowWalkContext<'_>>,
+    slot_sheet: Option<(Entity, &Stylesheet)>,
+    parent: &ComputedStyle,
+    state: &mut WalkState<'_>,
+) {
+    if state.depth > MAX_WALK_DEPTH
+        || should_skip_child(dom, entity)
+        || (shadow.is_some() && dom.has_tag(entity, "style"))
+    {
         return;
     }
-    // A2: If this entity is a shadow host, we need to resolve its style with
-    // the shadow stylesheet's :host rules participating in the cascade.
-    // H2: Parse shadow CSS once and reuse for both :host cascade and child walk.
-    let shadow_sheet_owned = host_stylesheet(dom, entity, state.total_shadow_css);
-    let entity_style = resolve_and_attach_style(
+    let own_sheet = host_stylesheet(dom, entity, state.total_shadow_css);
+    let style = resolve_and_attach_style(
         dom,
         entity,
-        stylesheets,
-        parent_style,
-        &state.ctx,
-        &state.media_env,
-        state.hint_generator,
+        sheets,
+        parent,
+        state,
         &ShadowCascade {
-            slot: None,
-            host: shadow_sheet_owned.as_ref(),
+            slot: slot_sheet,
+            host: own_sheet.as_ref(),
         },
     );
-
-    let child_ctx = child_context(dom, entity, &entity_style, &state.ctx);
-
-    // Shadow DOM: if this entity is a shadow host, distribute slots and
-    // walk the shadow tree with shadow-internal stylesheets.
-    if let Some(shadow_sheet) = shadow_sheet_owned {
-        distribute_slots(dom, entity);
-        let saved_ctx = state.ctx;
-        state.ctx = child_ctx;
-        walk_shadow_tree(
-            dom,
-            entity,
-            stylesheets,
-            &shadow_sheet,
-            &entity_style,
-            state,
-        );
-        state.ctx = saved_ctx;
-        return;
-    }
-
-    // Recurse into children (re-collect since pseudo entities may have been added).
     let saved_ctx = state.ctx;
-    state.ctx = child_ctx;
-    walk_children(dom, entity, stylesheets, &entity_style, state);
+    let saved_display = state.effective_parent;
+    if dom.is_element(entity) {
+        state.effective_parent = child_display(style.display, saved_display);
+    }
+    state.ctx = child_context(dom, entity, &style, &saved_ctx);
+    state.depth += 1;
+    if let Some(sheet) = own_sheet {
+        distribute_slots(dom, entity);
+        walk_shadow_tree(dom, entity, sheets, shadow, &sheet, &style, state);
+    } else {
+        let assignment = shadow.and_then(|scope| {
+            let assigned = dom.world().get::<&SlotAssignment>(entity).ok()?;
+            (!assigned.assigned_nodes.is_empty()).then(|| (scope, assigned.assigned_nodes.clone()))
+        });
+        if let Some((scope, nodes)) = assignment {
+            for node in nodes {
+                walk_node(
+                    dom,
+                    node,
+                    scope.outer_sheets,
+                    scope.outer_scope,
+                    Some((scope.host, scope.shadow_sheet)),
+                    &style,
+                    state,
+                );
+            }
+        } else {
+            for child in dom.children(entity) {
+                walk_node(dom, child, sheets, shadow, None, &style, state);
+            }
+        }
+    }
+    state.depth -= 1;
+    state.effective_parent = saved_display;
     state.ctx = saved_ctx;
 }
 
 /// Context for shadow tree walking, bundling stylesheet references.
 struct ShadowWalkContext<'a> {
     host: Entity,
+    outer_scope: Option<&'a ShadowWalkContext<'a>>,
     /// UA + shadow-internal stylesheets.
     shadow_sheets: ElementSheets<'a>,
     /// Outer (light DOM) stylesheets for slotted node cascade.
@@ -373,6 +415,7 @@ fn walk_shadow_tree(
     dom: &mut EcsDom,
     host: Entity,
     outer_stylesheets: ElementSheets<'_>,
+    outer_scope: Option<&ShadowWalkContext<'_>>,
     shadow_sheet: &Stylesheet,
     host_style: &ComputedStyle,
     state: &mut WalkState<'_>,
@@ -385,6 +428,7 @@ fn walk_shadow_tree(
     let ua = crate::ua::ua_stylesheet();
     let shadow_ctx = ShadowWalkContext {
         host,
+        outer_scope,
         shadow_sheets: ElementSheets {
             list: &[ua, shadow_sheet],
             author_host: Some(host),
@@ -396,139 +440,16 @@ fn walk_shadow_tree(
     // Walk shadow root's children with shadow stylesheets.
     let children = dom.children(shadow_root);
     for child in children {
-        state.depth += 1;
-        walk_shadow_child(dom, child, &shadow_ctx, host_style, state);
-        state.depth -= 1;
-    }
-}
-
-/// Recursively walk a child within a shadow tree.
-///
-/// A1: This function is fully recursive — nested `<slot>` elements and their
-/// descendants are all handled by recursive calls.
-///
-/// A3: For `<slot>` elements with assigned nodes, each slotted node is resolved
-/// with its element sheets and the assigning slot's sheet. An assigned host
-/// also contributes its own sheet's host rules.
-///
-/// Regular shadow tree children are resolved with shadow stylesheets only.
-fn walk_shadow_child(
-    dom: &mut EcsDom,
-    entity: Entity,
-    shadow_ctx: &ShadowWalkContext<'_>,
-    parent_style: &ComputedStyle,
-    state: &mut WalkState<'_>,
-) {
-    if state.depth > MAX_WALK_DEPTH {
-        return;
-    }
-
-    // Skip <style> elements in shadow tree (already collected).
-    if dom.has_tag(entity, "style") {
-        return;
-    }
-
-    if should_skip_child(dom, entity) {
-        return;
-    }
-
-    // Nested shadow host: resolve with its own :host rules and walk its shadow tree.
-    if let Some(inner_shadow_sheet) = host_stylesheet(dom, entity, state.total_shadow_css) {
-        // Resolve host style: shadow_sheets act as "outer" for this nested host,
-        // and the nested host contributes its own sheet's host rules.
-        let entity_style = resolve_and_attach_style(
+        walk_node(
             dom,
-            entity,
+            child,
             shadow_ctx.shadow_sheets,
-            parent_style,
-            &state.ctx,
-            &state.media_env,
-            state.hint_generator,
-            &ShadowCascade {
-                host: Some(&inner_shadow_sheet),
-                slot: None,
-            },
-        );
-
-        let child_ctx = state.ctx.with_em_base(entity_style.font_size);
-        distribute_slots(dom, entity);
-
-        let saved_ctx = state.ctx;
-        state.ctx = child_ctx;
-        walk_shadow_tree(
-            dom,
-            entity,
-            shadow_ctx.shadow_sheets,
-            &inner_shadow_sheet,
-            &entity_style,
+            Some(&shadow_ctx),
+            None,
+            host_style,
             state,
         );
-        state.ctx = saved_ctx;
-        return;
     }
-
-    // Resolve style for this shadow tree element using shadow stylesheets.
-    let entity_style = resolve_and_attach_style(
-        dom,
-        entity,
-        shadow_ctx.shadow_sheets,
-        parent_style,
-        &state.ctx,
-        &state.media_env,
-        state.hint_generator,
-        &ShadowCascade::default(),
-    );
-
-    let child_ctx = state.ctx.with_em_base(entity_style.font_size);
-
-    // A3: If this is a <slot>, resolve assigned (slotted) nodes with outer
-    // stylesheets, the slot sheet and the assigned host's sheet when present.
-    let assigned = dom
-        .world()
-        .get::<&SlotAssignment>(entity)
-        .ok()
-        .map(|sa| sa.assigned_nodes.clone());
-    if let Some(ref assigned) = assigned {
-        if !assigned.is_empty() {
-            for node in assigned {
-                let host_sheet = host_stylesheet(dom, *node, state.total_shadow_css);
-                let node_style = resolve_and_attach_style(
-                    dom,
-                    *node,
-                    shadow_ctx.outer_sheets,
-                    &entity_style,
-                    &child_ctx,
-                    &state.media_env,
-                    state.hint_generator,
-                    &ShadowCascade {
-                        slot: Some((shadow_ctx.host, shadow_ctx.shadow_sheet)),
-                        host: host_sheet.as_ref(),
-                    },
-                );
-                // Recurse into slotted node's children with outer stylesheets.
-                let node_ctx = child_ctx.with_em_base(node_style.font_size);
-                let saved_ctx = state.ctx;
-                state.ctx = node_ctx;
-                walk_children(dom, *node, shadow_ctx.outer_sheets, &node_style, state);
-                state.ctx = saved_ctx;
-            }
-            // L6: Skip fallback children when assigned nodes are present.
-            // Only walk shadow tree children (non-fallback) below.
-            return;
-        }
-    }
-
-    // A1: Recurse into shadow tree children (handles nested <slot> elements).
-    // For slots with no assigned nodes, this walks fallback content.
-    let children = dom.children(entity);
-    let saved_ctx = state.ctx;
-    state.ctx = child_ctx;
-    for child in children {
-        state.depth += 1;
-        walk_shadow_child(dom, child, shadow_ctx, &entity_style, state);
-        state.depth -= 1;
-    }
-    state.ctx = saved_ctx;
 }
 
 fn host_stylesheet(dom: &EcsDom, host: Entity, total_css: &mut usize) -> Option<Stylesheet> {
