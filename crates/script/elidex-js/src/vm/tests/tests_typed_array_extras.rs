@@ -349,7 +349,7 @@ fn non_canonical_string_keys_fall_through_to_ordinary() {
 #[test]
 fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.1 step 3: `ToIntegerOrInfinity(NaN) = 0`, so
+    // ECMA-262 §23.2.3.1 step 4 calls ToAbsoluteIndex, which converts NaN to zero, so
     // `ta.at(NaN)` resolves to index 0 (unless the receiver is
     // empty).  Used to return `undefined` via a premature NaN
     // short-circuit.
