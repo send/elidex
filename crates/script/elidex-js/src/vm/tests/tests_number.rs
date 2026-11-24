@@ -216,7 +216,8 @@ fn number_to_exponential_negative_zero() {
 
 #[test]
 fn number_to_precision_range_error_before_non_finite() {
-    // §20.1.3.5: RangeError for invalid precision even when this is Infinity
+    // This assertion records a known VM P4 defect: the VM throws RangeError.
+    // ECMA-262 §21.1.3.5 step 4 requires the string "Infinity".
     use super::eval_throws;
     eval_throws("(Infinity).toPrecision(0);");
 }
