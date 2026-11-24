@@ -9,8 +9,8 @@
 //! ## Scope (C4a + C4b)
 //!
 //! - `fill(value, start?, end?)` (§23.2.3.11)
-//! - `subarray(begin?, end?)` (§23.2.3.27) — shares backing buffer
-//! - `slice(begin?, end?)` (§23.2.3.25) — fresh buffer copy
+//! - `subarray(begin?, end?)` (§23.2.3.30) — shares backing buffer
+//! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
 //!   reuse `ObjectKind::ArrayIterator` infra
 //! - `set(source, offset?)` (§23.2.3.24)
