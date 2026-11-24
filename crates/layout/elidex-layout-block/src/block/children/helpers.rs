@@ -22,7 +22,7 @@ pub(super) struct InlineRunResult {
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
     /// If fragmentation was applied, the line index after which to break.
-    pub continuation: Option<crate::source_progress::SourceProgress>,
+    pub interrupted: bool,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
@@ -77,7 +77,7 @@ pub(super) fn flush_inline_run(
         }
     });
 
-    let result = crate::inline::layout_inline_context_fragmented(
+    let (result, interrupted) = crate::inline::layout_inline_fragment(
         dom,
         inline_children,
         inline_size,
@@ -104,7 +104,7 @@ pub(super) fn flush_inline_run(
     InlineRunResult {
         block_extent: result.height,
         first_baseline: result.first_baseline,
-        continuation: result.continuation,
+        interrupted,
         contribution: result.contribution,
     }
 }

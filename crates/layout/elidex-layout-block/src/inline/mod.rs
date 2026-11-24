@@ -148,6 +148,35 @@ pub fn layout_inline_context_fragmented(
     env: &crate::LayoutEnv<'_>,
     frag_constraint: Option<&InlineFragConstraint>,
 ) -> InlineLayoutResult {
+    let (mut result, interrupted) = layout_inline_fragment(
+        dom,
+        children,
+        containing_inline_size,
+        parent_entity,
+        content_origin,
+        env,
+        frag_constraint,
+    );
+    if interrupted {
+        let mut cumulative = frag_constraint
+            .and_then(|constraint| constraint.progress.clone())
+            .unwrap_or_default();
+        cumulative.include(&result.contribution);
+        result.continuation = Some(cumulative);
+    }
+    result
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn layout_inline_fragment(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    containing_inline_size: f32,
+    parent_entity: Entity,
+    content_origin: Point,
+    env: &crate::LayoutEnv<'_>,
+    frag_constraint: Option<&InlineFragConstraint>,
+) -> (InlineLayoutResult, bool) {
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
@@ -167,14 +196,17 @@ pub fn layout_inline_context_fragmented(
     if items.is_empty() {
         clear_inline_flows(dom, &candidate_keys, &no_persisted);
         let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
-        return InlineLayoutResult {
-            contribution: crate::source_progress::SourceProgress::default(),
-            height: 0.0,
-            static_positions: HashMap::new(),
-            first_baseline: None,
-            line_count: 0,
-            continuation: None,
-        };
+        return (
+            InlineLayoutResult {
+                contribution: crate::source_progress::SourceProgress::default(),
+                height: 0.0,
+                static_positions: HashMap::new(),
+                first_baseline: None,
+                line_count: 0,
+                continuation: None,
+            },
+            false,
+        );
     }
 
     let is_vertical = !parent_style.writing_mode.is_horizontal();
@@ -208,21 +240,24 @@ pub fn layout_inline_context_fragmented(
         if !any_font && !items.iter().any(|i| matches!(i, InlineItem::Atomic { .. })) {
             clear_inline_flows(dom, &candidate_keys, &no_persisted);
             let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
-            return InlineLayoutResult {
-                contribution: committed_source(
-                    dom,
-                    parent_entity,
-                    children,
-                    &items,
-                    source_index.as_ref(),
-                    None,
-                ),
-                height: 0.0,
-                static_positions: HashMap::new(),
-                first_baseline: None,
-                line_count: 0,
-                continuation: None,
-            };
+            return (
+                InlineLayoutResult {
+                    contribution: committed_source(
+                        dom,
+                        parent_entity,
+                        children,
+                        &items,
+                        source_index.as_ref(),
+                        None,
+                    ),
+                    height: 0.0,
+                    static_positions: HashMap::new(),
+                    first_baseline: None,
+                    line_count: 0,
+                    continuation: None,
+                },
+                false,
+            );
         }
     }
 
@@ -327,12 +362,6 @@ pub fn layout_inline_context_fragmented(
         source_index.as_ref(),
         cut.map(|(_, i, pos)| (*i, *pos)),
     );
-    let continuation = cut.map(|_| {
-        let mut cumulative = progress.cloned().unwrap_or_default();
-        cumulative.include(&contribution);
-        cumulative
-    });
-
     // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
     // the three text-feature gates that once forced render's legacy
     // collect/collapse/emit path — text-transform, bidi, and **justify** — have all
@@ -443,14 +472,17 @@ pub fn layout_inline_context_fragmented(
         &packer.relpos_atomic_placements,
     );
 
-    InlineLayoutResult {
-        contribution,
-        height: total_block,
-        static_positions,
-        first_baseline: packer.first_baseline,
-        line_count,
-        continuation,
-    }
+    (
+        InlineLayoutResult {
+            contribution,
+            height: total_block,
+            static_positions,
+            first_baseline: packer.first_baseline,
+            line_count,
+            continuation: None,
+        },
+        cut.is_some(),
+    )
 }
 
 fn committed_source(

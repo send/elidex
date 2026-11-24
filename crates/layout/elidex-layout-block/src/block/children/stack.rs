@@ -257,7 +257,7 @@ fn stack_fragment(
             last_child_margin_block_end = Some(0.0);
             // Handle inline fragmentation break.
             contribution.include(&run_result.contribution);
-            if run_result.continuation.is_some() {
+            if run_result.interrupted {
                 result_break_token = Some(make_block_break_token(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
@@ -576,7 +576,7 @@ fn stack_fragment(
         last_child_margin_block_end = Some(0.0);
         // Handle inline fragmentation break from trailing run.
         contribution.include(&run_result.contribution);
-        if run_result.continuation.is_some() {
+        if run_result.interrupted {
             result_break_token = Some(make_block_break_token(
                 parent_entity,
                 (cursor_block - cursor_block_origin).max(0.0),
