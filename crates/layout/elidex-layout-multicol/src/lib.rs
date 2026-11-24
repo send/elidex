@@ -175,6 +175,7 @@ pub fn layout_multicol(
 
     // --- Lay out segments ---
     let mut block_cursor: f32 = 0.0;
+    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let mut multicol_segments: Vec<(u32, f32, f32)> = Vec::new();
 
     for segment in &segments {
@@ -217,6 +218,9 @@ pub fn layout_multicol(
                     &style,
                 );
 
+                for fragment in &frags {
+                    contribution.include(&fragment.contribution);
+                }
                 // Position column fragments.
                 #[allow(clippy::cast_possible_truncation)]
                 let actual_count = frags.len().min(u32::MAX as usize) as u32;
@@ -262,6 +266,8 @@ pub fn layout_multicol(
                     is_probe: input.is_probe,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
+                contribution.include(&outcome.contribution);
+                contribution.finish_item(entity, *spanner_entity);
                 // Use margin_box() for spanner block extent.
                 let mb = outcome.layout_box.margin_box();
                 let spanner_block_extent = if is_horizontal {
@@ -353,7 +359,10 @@ pub fn layout_multicol(
         .world_mut()
         .remove_one::<elidex_ecs::ColumnFlowSlice>(entity);
 
-    lb.into()
+    elidex_layout_block::LayoutOutcome {
+        contribution,
+        ..lb.into()
+    }
 }
 
 /// Lay out a normal (non-spanner) segment across columns.
@@ -478,6 +487,27 @@ fn position_column_fragments(
     // born-absolute lines excluded from the column shift by construction (timing).
     let mut flows: std::collections::HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>> =
         std::collections::HashMap::new();
+    // Each live entity retains its last fragment. A descendant can finish in an
+    // earlier column than its parent. Move its subtree at its own column offset.
+    let mut last_column = std::collections::HashMap::new();
+    for (column, fragment) in frags.iter().enumerate() {
+        for (_, entity) in fragment.contribution.contributed_items() {
+            last_column.insert(entity, column);
+        }
+    }
+    let mut shift_roots = vec![Vec::new(); frags.len()];
+    let mut exclude = atomic_exclude.clone();
+    for (&entity, &column) in &last_column {
+        let parent_column =
+            std::iter::successors(dom.get_parent(entity), |parent| dom.get_parent(*parent))
+                .find_map(|parent| last_column.get(&parent));
+        let repositioned = std::iter::successors(Some(entity), |e| dom.get_parent(*e))
+            .any(|e| atomic_exclude.contains(&e));
+        if parent_column != Some(&column) && !repositioned {
+            shift_roots[column].push(entity);
+            exclude.insert(entity);
+        }
+    }
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
@@ -572,14 +602,18 @@ fn position_column_fragments(
         // rebuilt by the probe). This mirrors the `push_box` suppression above
         // (`if !is_probe`) — the col-shift now honors the same flag the col-commit
         // already does, so a probe neither pushes nor shifts persisted render state.
+        for root in &shift_roots[i] {
+            exclude.remove(root);
+        }
         elidex_layout_block::block::shift_descendants_excluding_own_fragments(
             dom,
-            &frag.children,
+            &shift_roots[i],
             delta,
             &own,
-            &atomic_exclude,
+            &exclude,
             is_probe,
         );
+        exclude.extend(shift_roots[i].iter().copied());
     }
 
     // Build the mid-break run-starts' `InlineFlow` AFTER the column loop (the

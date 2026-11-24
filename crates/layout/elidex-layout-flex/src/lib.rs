@@ -482,6 +482,7 @@ pub fn layout_flex(
     // --- Fragmentation (CSS Flexbox L1 §12) ---
     // If inside a fragmentainer, check whether flex lines overflow the available
     // block size and produce a break token to resume in the next fragment.
+    let mut admitted = Vec::new();
     let (result_break_token, propagated_break_before, propagated_break_after) =
         if let Some(&frag) = input.fragmentainer {
             fragment::compute_flex_fragmentation(
@@ -495,6 +496,7 @@ pub fn layout_flex(
                 resume_line,
                 resume_item,
                 resume_child_bt,
+                &mut admitted,
             )
         } else {
             (None, None, None)
@@ -584,7 +586,12 @@ pub fn layout_flex(
         );
     }
 
+    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
+    for item in admitted {
+        contribution.finish_item(entity, item);
+    }
     elidex_layout_block::LayoutOutcome {
+        contribution,
         layout_box: lb,
         break_token: result_break_token,
         propagated_break_before,

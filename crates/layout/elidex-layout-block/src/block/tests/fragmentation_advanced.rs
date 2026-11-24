@@ -719,7 +719,7 @@ fn monolithic_deferred_when_no_space_remaining() {
     let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    make_block_child(&mut dom, parent, 100.0);
+    let first = make_block_child(&mut dom, parent, 100.0);
     let child2 = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.append_child(parent, child2);
     dom.world_mut().insert_one(
@@ -742,6 +742,8 @@ fn monolithic_deferred_when_no_space_remaining() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
+    assert!(outcome.contribution.is_finished(parent, first));
+    assert!(!outcome.contribution.is_finished(parent, child2));
     assert!(outcome.break_token.is_some());
     let bt = outcome.break_token.unwrap();
 
@@ -790,7 +792,8 @@ fn mixed_stack_routes_both_local_runs_to_their_source() {
         let Some(bt) = &token else { break };
         if let Some(BreakTokenData::Block {
             child_index,
-            continuation: crate::BlockContinuation::LocalRun { first, progress },
+            continuation: crate::BlockContinuation::LocalRun { first },
+            coverage: progress,
         }) = &bt.mode_data
         {
             assert_eq!(*first, if *child_index == 0 { before } else { after });

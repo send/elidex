@@ -53,6 +53,7 @@ pub(in crate::inline) use whitespace::is_collapsible_space;
 
 /// Result of inline layout, including static positions for absolutely positioned descendants.
 pub struct InlineLayoutResult {
+    pub contribution: crate::source_progress::SourceProgress,
     /// Total block-axis dimension consumed by all line boxes.
     pub height: f32,
     /// Static positions for absolutely positioned placeholders
@@ -172,6 +173,7 @@ pub fn layout_inline_context_fragmented(
         clear_inline_flows(dom, &candidate_keys, &no_persisted);
         let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
         return InlineLayoutResult {
+            contribution: crate::source_progress::SourceProgress::default(),
             height: 0.0,
             static_positions: HashMap::new(),
             first_baseline: None,
@@ -212,6 +214,15 @@ pub fn layout_inline_context_fragmented(
             clear_inline_flows(dom, &candidate_keys, &no_persisted);
             let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
             return InlineLayoutResult {
+                contribution: committed_source(
+                    dom,
+                    parent_entity,
+                    children,
+                    &items,
+                    source_index.as_ref(),
+                    None,
+                    frag_constraint.is_some(),
+                ),
                 height: 0.0,
                 static_positions: HashMap::new(),
                 first_baseline: None,
@@ -308,36 +319,25 @@ pub fn layout_inline_context_fragmented(
 
     // Compute total block using only lines up to break point (if fragmented).
     let effective_line_count = break_after_line.unwrap_or(line_count);
-    let continuation = break_after_line.map(|line| {
-        // Each rendered line is flushed by a placed item. Verify forced and soft wraps:
-        // cargo test -p elidex-layout-block fragment_cursor
-        let (_, index, start) = placements
+    let cut = break_after_line.map(|line| {
+        placements
             .iter()
             .find(|(placed, ..)| *placed >= line)
-            .expect("break precedes a packed line");
-        let mut cursor = progress.cloned().unwrap_or_default();
-        let prefix = |entity| {
-            source_index
-                .as_ref()
-                .map_or_else(crate::source_progress::SourcePosition::default, |i| {
-                    i.prefix_end(parent_entity, entity)
-                })
-        };
-        for item in &items[..*index] {
-            let (entity, len) = item.source();
-            cursor.consume(
-                parent_entity,
-                entity,
-                prefix(entity)..crate::source_progress::SourcePosition::byte(len),
-            );
-            cursor.finish_item(parent_entity, entity);
-        }
-        cursor.consume(
-            parent_entity,
-            items[*index].source().0,
-            prefix(items[*index].source().0)..*start,
-        );
-        cursor
+            .expect("break precedes a packed line")
+    });
+    let contribution = committed_source(
+        dom,
+        parent_entity,
+        children,
+        &items,
+        source_index.as_ref(),
+        cut.map(|(_, i, pos)| (*i, *pos)),
+        frag_constraint.is_some(),
+    );
+    let continuation = cut.map(|_| {
+        let mut cumulative = progress.cloned().unwrap_or_default();
+        cumulative.include(&contribution);
+        cumulative
     });
 
     // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
@@ -451,12 +451,81 @@ pub fn layout_inline_context_fragmented(
     );
 
     InlineLayoutResult {
+        contribution,
         height: total_block,
         static_positions,
         first_baseline: packer.first_baseline,
         line_count,
         continuation,
     }
+}
+
+fn committed_source(
+    dom: &EcsDom,
+    parent_entity: Entity,
+    children: &[Entity],
+    items: &[InlineItem],
+    source_index: Option<&crate::source_progress::ProgressIndex>,
+    cut: Option<(usize, crate::source_progress::SourcePosition)>,
+    tracking: bool,
+) -> crate::source_progress::SourceProgress {
+    let mut contribution = crate::source_progress::SourceProgress::default();
+    if !tracking {
+        return contribution;
+    }
+    let prefix = |entity| {
+        source_index
+            .as_ref()
+            .map_or_else(crate::source_progress::SourcePosition::default, |index| {
+                index.prefix_end(parent_entity, entity)
+            })
+    };
+    let finished = cut.map_or(items.len(), |(index, _)| index);
+    for item in &items[..finished] {
+        let (entity, len) = item.source();
+        contribution.consume(
+            parent_entity,
+            entity,
+            prefix(entity)..crate::source_progress::SourcePosition::byte(len),
+        );
+        contribution.finish_item(parent_entity, entity);
+    }
+    if let Some((index, start)) = cut {
+        let entity = items[index].source().0;
+        contribution.consume(parent_entity, entity, prefix(entity)..start);
+    }
+    // Source ranges may belong to a text node inside a direct inline child.
+    // Report that child's membership to its parent regardless of nesting.
+    let direct: std::collections::HashSet<_> = children.iter().copied().collect();
+    let touched: std::collections::HashSet<_> = contribution
+        .contributed_items()
+        .map(|(_, item)| item)
+        .collect();
+    let mut wrappers = HashMap::new();
+    for item in items {
+        let (source, _) = item.source();
+        if direct.contains(&source) {
+            continue;
+        }
+        let ancestor = std::iter::successors(dom.get_parent(source), |node| dom.get_parent(*node))
+            .take_while(|node| *node != parent_entity)
+            .find(|node| direct.contains(node));
+        if let Some(wrapper) = ancestor {
+            let entry = wrappers.entry(wrapper).or_insert((false, true));
+            entry.0 |= touched.contains(&source);
+            entry.1 &= contribution.is_finished(parent_entity, source);
+        }
+    }
+    for (wrapper, (advanced, finished)) in wrappers {
+        if advanced {
+            if finished {
+                contribution.finish_item(parent_entity, wrapper);
+            } else {
+                contribution.record_item(parent_entity, wrapper);
+            }
+        }
+    }
+    contribution
 }
 
 /// Reposition an atomic inline's `LayoutBox` (and its descendants) from the

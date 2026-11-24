@@ -17,6 +17,7 @@ use super::shift::shift_descendants;
 
 /// Result of flushing an inline run.
 pub(super) struct InlineRunResult {
+    pub contribution: crate::source_progress::SourceProgress,
     /// Block-axis extent consumed by the inline run.
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
@@ -104,6 +105,7 @@ pub(super) fn flush_inline_run(
         block_extent: result.height,
         first_baseline: result.first_baseline,
         continuation: result.continuation,
+        contribution: result.contribution,
     }
 }
 

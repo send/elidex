@@ -24,6 +24,7 @@ pub struct ColumnFillEnv<'a> {
 /// Result of laying out content into a single column.
 #[derive(Clone, Debug)]
 pub struct ColumnFragment {
+    pub contribution: elidex_layout_block::source_progress::SourceProgress,
     /// Entities laid out in this column (direct children).
     pub children: Vec<Entity>,
     /// Per-column snapshots of the **spanning** (mid-break) children laid out in
@@ -83,16 +84,6 @@ const MAX_BALANCE_ITERATIONS: u32 = 10;
 /// Maximum number of overflow columns to prevent infinite loops.
 const MAX_OVERFLOW_COLUMNS: u32 = 1000;
 
-/// Extract `child_index` from a break token's mode data.
-fn extract_child_index(token: Option<&BreakToken>) -> Option<usize> {
-    token
-        .and_then(|bt| bt.mode_data.as_ref())
-        .and_then(|md| match md {
-            BreakTokenData::Block { child_index, .. } => Some(*child_index),
-            _ => None,
-        })
-}
-
 /// Fill columns sequentially (column-fill: auto).
 ///
 /// Each column is filled to `column_height` before overflowing to the next.
@@ -118,6 +109,12 @@ pub fn fill_columns_sequential(
     max_columns: u32,
     probe: bool,
 ) -> Vec<ColumnFragment> {
+    let order: std::collections::HashMap<_, _> = children
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, e)| (e, i))
+        .collect();
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
     let mut carry_break_token: Option<BreakToken> = None;
@@ -164,11 +161,6 @@ pub fn fill_columns_sequential(
             env.parent_entity,
         );
 
-        // Determine which children ended up in this column.
-        let next_child_idx =
-            extract_child_index(result.break_token.as_ref()).unwrap_or(children.len());
-        let prev_child_idx = extract_child_index(carry_break_token.as_ref()).unwrap_or(0);
-
         // Only a split inside a child snapshots that child's per-column box.
         let break_out_child = result
             .break_token
@@ -181,24 +173,15 @@ pub fn fill_columns_sequential(
                 _ => None,
             });
 
-        // Build the children list for this column fragment.
-        //
-        // Mid-child break (next == prev AND the child genuinely split here): the
-        // child is fragmented mid-way and only partially laid out in this column.
-        // Include it so that position_column_fragments shifts it with this column.
-        //
-        // When next > prev, children[prev..next] fit here; a child at `next` that
-        // broke out belongs to the NEXT column — the ECS model has one LayoutBox
-        // per entity, so the next column's layout overwrites it (G11).
-        let is_midbreak = next_child_idx == prev_child_idx && break_out_child.is_some();
-
-        let col_children = if is_midbreak {
-            // Mid-child break: only this partially-laid-out child.
-            vec![children[next_child_idx]]
-        } else {
-            children[prev_child_idx.min(children.len())..next_child_idx.min(children.len())]
-                .to_vec()
-        };
+        let mut col_children: Vec<_> = result
+            .contribution
+            .contributed_items()
+            .filter_map(|(owner, item)| {
+                (owner == env.parent_entity && order.contains_key(&item)).then_some(item)
+            })
+            .collect();
+        col_children.sort_unstable_by_key(|item| order[item]);
+        col_children.dedup();
 
         // Snapshot the per-column box fragments of this column's SPANNING children,
         // before the next column overwrites their `LayoutBox` (G11). This column's
@@ -234,6 +217,7 @@ pub fn fill_columns_sequential(
         carry_midbreak = break_out_child;
 
         fragments.push(ColumnFragment {
+            contribution: result.contribution,
             children: col_children,
             box_snapshots,
         });

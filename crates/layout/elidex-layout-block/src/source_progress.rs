@@ -24,7 +24,7 @@ struct ItemCoverage {
 
 /// Intervals already consumed by a formatting owner, keyed by source item. The
 /// terminal marker also represents completion of an empty item.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceProgress {
     page: Arc<PageCoverage>,
 }
@@ -35,6 +35,25 @@ pub struct SourceProgress {
 struct PageCoverage {
     previous: Option<Arc<PageCoverage>>,
     items: HashMap<(Entity, Entity), ItemCoverage>,
+}
+
+impl Drop for PageCoverage {
+    fn drop(&mut self) {
+        // A long block can retain a checkpoint at every sibling boundary.
+        let mut previous = self.previous.take();
+        while let Some(mut page) = previous.and_then(Arc::into_inner) {
+            previous = page.previous.take();
+        }
+    }
+}
+
+impl Default for SourceProgress {
+    fn default() -> Self {
+        static EMPTY: std::sync::OnceLock<Arc<PageCoverage>> = std::sync::OnceLock::new();
+        Self {
+            page: Arc::clone(EMPTY.get_or_init(Arc::default)),
+        }
+    }
 }
 
 impl SourceProgress {
@@ -69,6 +88,19 @@ impl SourceProgress {
         ProgressIndex { items }
     }
 
+    /// Incorporate only the source reported by the selected child fragment.
+    pub fn include(&mut self, contribution: &Self) {
+        for page in contribution.pages() {
+            for (&(owner, item), covered) in &page.items {
+                let entry = self.update((owner, item));
+                entry.terminal |= covered.terminal;
+                for range in &covered.ranges {
+                    entry.consume(range.clone());
+                }
+            }
+        }
+    }
+
     pub fn consume(&mut self, owner: Entity, item: Entity, range: Range<SourcePosition>) {
         if range.is_empty() {
             return;
@@ -100,6 +132,15 @@ impl SourceProgress {
                 .get(&(owner, item))
                 .is_some_and(|state| state.contains(position))
         })
+    }
+
+    /// Record that a child contributed a fragment while its content remains unfinished.
+    pub fn record_item(&mut self, owner: Entity, item: Entity) {
+        self.update((owner, item));
+    }
+
+    pub fn contributed_items(&self) -> impl Iterator<Item = (Entity, Entity)> + '_ {
+        self.pages().flat_map(|page| page.items.keys().copied())
     }
 
     pub fn finish_item(&mut self, owner: Entity, item: Entity) {

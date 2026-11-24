@@ -41,6 +41,7 @@ pub fn stack_block_children(
     is_bfc: bool,
     parent_entity: Entity,
 ) -> StackResult {
+    super::validate_route(dom, parent_entity, children, input.break_token);
     let env = crate::LayoutEnv::from_input(input, layout_child);
     let parent_style = crate::get_style(dom, parent_entity);
     let wm = WritingModeContext::new(parent_style.writing_mode, parent_style.direction);
@@ -81,22 +82,23 @@ pub fn stack_block_children(
     let mut first_baseline: Option<f32> = None;
 
     // --- Fragmentation: resume from break token ---
-    let (start_index, resume_child_break_token, resume_run) =
-        match input.break_token.and_then(|bt| bt.mode_data.as_ref()) {
-            Some(BreakTokenData::Block {
-                child_index,
-                continuation,
-            }) => match continuation {
-                BlockContinuation::LocalRun { first, progress } => {
-                    (*child_index, None, Some((*first, progress)))
-                }
-                BlockContinuation::InterruptedChild(token) => {
-                    (*child_index, Some(token.as_ref()), None)
-                }
-                BlockContinuation::ChildBoundary => (*child_index, None, None),
-            },
-            _ => (0, None, None),
-        };
+    let (start_index, resume_child_break_token, resume_run) = match input
+        .break_token
+        .and_then(|bt| bt.mode_data.as_ref())
+    {
+        Some(BreakTokenData::Block {
+            child_index,
+            continuation,
+            coverage,
+        }) => match continuation {
+            BlockContinuation::LocalRun { first } => (*child_index, None, Some((*first, coverage))),
+            BlockContinuation::InterruptedChild(token) => {
+                (*child_index, Some(token.as_ref()), None)
+            }
+            BlockContinuation::ChildBoundary => (*child_index, None, None),
+        },
+        _ => (0, None, None),
+    };
     let is_continuation = input.break_token.is_some();
     let frag_ctx = input.fragmentainer;
 
@@ -114,6 +116,8 @@ pub fn stack_block_children(
     );
 
     // Break candidates for overflow-based break selection.
+    let mut contribution = crate::source_progress::SourceProgress::default();
+    let mut checkpoints = Vec::new();
     let mut break_candidates: Vec<fragmentation::BreakCandidate> = Vec::new();
     let mut propagated_break_before: Option<BreakValue> = None;
     let mut propagated_break_after: Option<BreakValue> = None;
@@ -198,14 +202,14 @@ pub fn stack_block_children(
             prev_margin_block_end = Some(0.0);
             last_child_margin_block_end = Some(0.0);
             // Handle inline fragmentation break.
-            if let Some(progress) = run_result.continuation {
+            contribution.include(&run_result.contribution);
+            if run_result.continuation.is_some() {
                 result_break_token = Some(make_block_break_token(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
                     inline_run_start_idx.unwrap_or(idx),
                     BlockContinuation::LocalRun {
                         first: inline_run[0],
-                        progress,
                     },
                 ));
                 inline_run.clear();
@@ -223,7 +227,9 @@ pub fn stack_block_children(
         // --- Fragmentation: forced break-before (§3.1) ---
         if let Some(frag) = frag_ctx {
             let effective_break_before = child_style.break_before;
-            if fragmentation::is_forced_break(effective_break_before, frag.fragmentation_type) {
+            if fragmentation::is_forced_break(effective_break_before, frag.fragmentation_type)
+                && !(is_continuation && idx == start_index)
+            {
                 // First child's forced break-before propagates to parent (§3.1.1).
                 if idx == start_index {
                     propagated_break_before = Some(effective_break_before);
@@ -273,6 +279,9 @@ pub fn stack_block_children(
                 cursor_block,
                 layout_child,
             );
+            if frag_ctx.is_some() {
+                contribution.finish_item(parent_entity, child);
+            }
             prev_break_after = Some(child_style.break_after);
             continue;
         }
@@ -304,6 +313,7 @@ pub fn stack_block_children(
                 ) || prev_break_after.is_some_and(|ba| {
                     fragmentation::is_avoid_break_value(ba, frag.fragmentation_type)
                 });
+                checkpoints.push(contribution.clone());
                 break_candidates.push(fragmentation::BreakCandidate {
                     child_index: idx,
                     class: fragmentation::BreakClass::A,
@@ -357,6 +367,14 @@ pub fn stack_block_children(
             }
         };
         let child_outcome = layout_child(dom, child, &child_input);
+        if frag_ctx.is_some() {
+            contribution.include(&child_outcome.contribution);
+            if child_outcome.break_token.is_some() {
+                contribution.record_item(parent_entity, child);
+            } else {
+                contribution.finish_item(parent_entity, child);
+            }
+        }
         let child_box = child_outcome.layout_box;
 
         // --- Fragmentation: propagate child's break token upward ---
@@ -408,6 +426,7 @@ pub fn stack_block_children(
                 if let Some(best_idx) =
                     fragmentation::find_best_break(&break_candidates, frag.available_block_size)
                 {
+                    contribution = checkpoints.swap_remove(best_idx);
                     let best = &break_candidates[best_idx];
                     result_break_token = Some(make_block_break_token(
                         parent_entity,
@@ -495,17 +514,30 @@ pub fn stack_block_children(
         }
         last_child_margin_block_end = Some(0.0);
         // Handle inline fragmentation break from trailing run.
-        if let Some(progress) = run_result.continuation {
+        contribution.include(&run_result.contribution);
+        if run_result.continuation.is_some() {
             result_break_token = Some(make_block_break_token(
                 parent_entity,
                 (cursor_block - cursor_block_origin).max(0.0),
                 inline_run_start_idx.unwrap_or(children.len()),
                 BlockContinuation::LocalRun {
                     first: inline_run[0],
-                    progress,
                 },
             ));
         }
+    }
+
+    if let Some(BreakTokenData::Block { coverage, .. }) = result_break_token
+        .as_mut()
+        .and_then(|t| t.mode_data.as_mut())
+    {
+        if let Some(BreakTokenData::Block {
+            coverage: previous, ..
+        }) = input.break_token.and_then(|t| t.mode_data.as_ref())
+        {
+            *coverage = previous.clone();
+        }
+        coverage.include(&contribution);
     }
 
     // CSS Fragmentation L3 §5.2: margins not collapsed at fragment end.
@@ -538,6 +570,7 @@ pub fn stack_block_children(
     }
 
     StackResult {
+        contribution,
         height,
         first_child_margin_top: first_child_margin_block_start,
         last_child_margin_bottom: last_child_margin_block_end,

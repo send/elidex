@@ -39,6 +39,7 @@ pub(crate) fn compute_flex_fragmentation(
     resume_line: usize,
     resume_item: usize,
     _resume_child_bt: Option<Box<BreakToken>>,
+    admitted: &mut Vec<Entity>,
 ) -> (
     Option<BreakToken>,
     Option<elidex_plugin::BreakValue>,
@@ -81,10 +82,19 @@ pub(crate) fn compute_flex_fragmentation(
 
     let break_token = if ctx.horizontal {
         // Row flex: fragment between lines along cross axis (block direction).
-        fragment_row_flex(dom, entity, &line_info, ctx, frag, resume_line)
+        fragment_row_flex(dom, entity, &line_info, ctx, frag, resume_line, admitted)
     } else {
         // Column flex: fragment between items within lines along main axis (block direction).
-        fragment_column_flex(dom, entity, &line_info, ctx, frag, resume_line, resume_item)
+        fragment_column_flex(
+            dom,
+            entity,
+            &line_info,
+            ctx,
+            frag,
+            resume_line,
+            resume_item,
+            admitted,
+        )
     };
 
     (break_token, propagated_before, propagated_after)
@@ -99,6 +109,7 @@ fn fragment_row_flex(
     ctx: &FlexContext,
     frag: elidex_layout_block::FragmentainerContext,
     resume_line: usize,
+    admitted: &mut Vec<Entity>,
 ) -> Option<BreakToken> {
     let frag_type = frag.fragmentation_type;
     let available = frag.available_block_size;
@@ -117,6 +128,7 @@ fn fragment_row_flex(
     }
 
     let mut candidates: Vec<BreakCandidate> = Vec::new();
+    let mut checkpoints = Vec::new();
 
     for line_idx in resume_line..line_ranges.len() {
         let &(start, end) = &line_ranges[line_idx];
@@ -124,6 +136,7 @@ fn fragment_row_flex(
 
         // Skip zero-height lines — they don't consume space or create break opportunities.
         if line_cross <= 0.0 {
+            admitted.extend(items[start..end].iter().map(|item| item.entity));
             continue;
         }
 
@@ -173,6 +186,7 @@ fn fragment_row_flex(
         if line_idx > resume_line {
             let violates_avoid =
                 check_avoid_between_lines(dom, items, line_ranges, line_idx, frag_type);
+            checkpoints.push(admitted.len());
             candidates.push(BreakCandidate {
                 child_index: line_idx,
                 class: BreakClass::A,
@@ -183,6 +197,7 @@ fn fragment_row_flex(
         }
 
         // Add this line's cross size to consumed.
+        admitted.extend(items[start..end].iter().map(|item| item.entity));
         consumed += line_cross;
 
         // Check if consumed exceeds available space (need to break).
@@ -201,6 +216,7 @@ fn fragment_row_flex(
 
             if let Some(best_idx) = find_best_break(&candidates, available) {
                 let break_line = candidates[best_idx].child_index;
+                admitted.truncate(checkpoints[best_idx]);
                 let consumed_at_break = candidates[best_idx].cursor_block;
                 let bt = BreakToken {
                     entity,
@@ -231,7 +247,11 @@ fn fragment_row_flex(
 /// `horizontal-tb`). Each item in a line is like a block sibling — we accumulate
 /// `item.final_main` and break between items when the consumed size exceeds the
 /// available block size.
-#[allow(clippy::too_many_lines, clippy::needless_range_loop)]
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::needless_range_loop
+)]
 fn fragment_column_flex(
     dom: &EcsDom,
     entity: Entity,
@@ -240,6 +260,7 @@ fn fragment_column_flex(
     frag: elidex_layout_block::FragmentainerContext,
     resume_line: usize,
     resume_item: usize,
+    admitted: &mut Vec<Entity>,
 ) -> Option<BreakToken> {
     let frag_type = frag.fragmentation_type;
     let available = frag.available_block_size;
@@ -275,6 +296,7 @@ fn fragment_column_flex(
         }
 
         let mut candidates: Vec<BreakCandidate> = Vec::new();
+        let mut checkpoints = Vec::new();
 
         for item_rel in first_item_in_line..(end - start) {
             let item_abs = start + item_rel;
@@ -283,6 +305,7 @@ fn fragment_column_flex(
 
             // Skip zero-height items — they don't consume space.
             if item_size <= 0.0 {
+                admitted.push(item.entity);
                 continue;
             }
 
@@ -328,6 +351,7 @@ fn fragment_column_flex(
             if item_rel > first_item_in_line {
                 let violates_avoid =
                     check_avoid_between_column_items(dom, items, item_abs, frag_type);
+                checkpoints.push(admitted.len());
                 candidates.push(BreakCandidate {
                     child_index: item_rel,
                     class: BreakClass::A,
@@ -338,6 +362,7 @@ fn fragment_column_flex(
             }
 
             // Add this item's main-axis size to consumed.
+            admitted.push(item.entity);
             consumed += item_size;
 
             // Check if consumed exceeds available space.
@@ -353,6 +378,7 @@ fn fragment_column_flex(
 
                 if let Some(best_idx) = find_best_break(&candidates, available) {
                     let break_item = candidates[best_idx].child_index;
+                    admitted.truncate(checkpoints[best_idx]);
                     let consumed_at_break = candidates[best_idx].cursor_block;
                     let bt = BreakToken {
                         entity,

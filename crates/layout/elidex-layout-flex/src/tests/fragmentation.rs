@@ -166,7 +166,7 @@ fn resume_from_break_token() {
         flex_item(100.0, 60.0),
         flex_item(100.0, 60.0),
     ];
-    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let (mut dom, entity, children) = make_flex_dom(container, &items);
     let fdb = FontDatabase::new();
     let frag = Some(FragmentainerContext {
         available_block_size: 130.0,
@@ -186,6 +186,9 @@ fn resume_from_break_token() {
         frag,
         None,
     );
+    for (i, &child) in children.iter().enumerate() {
+        assert_eq!(outcome1.contribution.is_finished(entity, child), i < 2);
+    }
     let bt1 = outcome1.break_token.expect("first pass should break");
 
     // Second pass with break token: line 2 only (60px) fits in 130px.
@@ -206,6 +209,9 @@ fn resume_from_break_token() {
         outcome2.break_token.is_none(),
         "second pass should complete without break"
     );
+    for (i, &child) in children.iter().enumerate() {
+        assert_eq!(outcome2.contribution.is_finished(entity, child), i >= 2);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -622,7 +628,7 @@ fn column_flex_resume_from_break_token() {
         flex_item(100.0, 60.0),
         flex_item(100.0, 60.0),
     ];
-    let (mut dom, entity, _) = make_flex_dom(container, &items);
+    let (mut dom, entity, children) = make_flex_dom(container, &items);
     let fdb = FontDatabase::new();
     let frag = Some(FragmentainerContext {
         available_block_size: 130.0,
@@ -642,6 +648,9 @@ fn column_flex_resume_from_break_token() {
         frag,
         None,
     );
+    for (i, &child) in children.iter().enumerate() {
+        assert_eq!(outcome1.contribution.is_finished(entity, child), i < 2);
+    }
     let bt1 = outcome1.break_token.expect("first pass should break");
 
     // Second pass with break token: item 2 only (60px) fits in 130px.
@@ -661,6 +670,9 @@ fn column_flex_resume_from_break_token() {
         outcome2.break_token.is_none(),
         "second pass should complete without break"
     );
+    for (i, &child) in children.iter().enumerate() {
+        assert_eq!(outcome2.contribution.is_finished(entity, child), i >= 2);
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ pub use stack::stack_block_children;
 
 /// Result of stacking block children, including margin info for parent-child collapse.
 pub struct StackResult {
+    pub contribution: crate::source_progress::SourceProgress,
     /// Total content height consumed by stacked children.
     pub height: f32,
     /// Top margin of the first block child (for parent-child collapse).
@@ -56,8 +57,67 @@ fn make_block_break_token(
         entity: parent_entity,
         consumed_block_size,
         mode_data: Some(BreakTokenData::Block {
+            coverage: crate::source_progress::SourceProgress::default(),
             child_index,
             continuation,
         }),
+    }
+}
+
+fn participates(dom: &elidex_ecs::EcsDom, child: Entity) -> bool {
+    crate::try_get_style(dom, child).is_none_or(|style| {
+        style.display != elidex_plugin::Display::None
+            && !crate::positioned::is_absolutely_positioned(&style)
+    })
+}
+
+/// Validate a caller-supplied Block continuation before publishing the next fragment.
+pub(super) fn validate_route(
+    dom: &elidex_ecs::EcsDom,
+    owner: Entity,
+    children: &[Entity],
+    token: Option<&BreakToken>,
+) {
+    let Some(token) = token else { return };
+    let Some(BreakTokenData::Block {
+        child_index,
+        continuation,
+        coverage,
+    }) = &token.mode_data
+    else {
+        return;
+    };
+    assert_eq!(token.entity, owner, "Block continuation owner mismatch");
+    let (prefix, rest) = children.split_at(*child_index);
+    let index = coverage.index();
+    assert!(
+        prefix
+            .iter()
+            .all(|&c| !participates(dom, c) || index.is_finished(owner, c)),
+        "Block route skips unconsumed source"
+    );
+    match continuation {
+        crate::BlockContinuation::ChildBoundary => {
+            if let Some(&child) = rest.iter().find(|&&c| participates(dom, c)) {
+                assert!(
+                    !index.is_finished(owner, child),
+                    "Block route restarts consumed source"
+                );
+            }
+        }
+        crate::BlockContinuation::InterruptedChild(nested) => {
+            assert_eq!(
+                rest.first(),
+                Some(&nested.entity),
+                "interrupted child identity mismatch"
+            );
+            assert!(
+                !index.is_finished(owner, nested.entity),
+                "interrupted child already complete"
+            );
+        }
+        crate::BlockContinuation::LocalRun { first, .. } => {
+            assert_eq!(rest.first(), Some(first), "local run identity mismatch");
+        }
     }
 }

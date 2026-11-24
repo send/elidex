@@ -251,3 +251,100 @@ fn multicol_balanced_midbreak_no_probe_leftover() {
     assert_eq!(frags[0].0, 0);
     assert_eq!(frags[1].0, 1);
 }
+
+#[test]
+fn split_child_positions_its_two_fragments_in_nonzero_columns() {
+    use crate::fill::ColumnFillEnv;
+    use elidex_layout_block::LayoutEnv;
+    use elidex_plugin::BreakValue;
+
+    let font_db = make_font_db();
+    for column_fill in [ColumnFill::Auto, ColumnFill::Balance] {
+        let mut dom = EcsDom::new();
+        let owner = elem(&mut dom, "div");
+        let style = ComputedStyle {
+            display: Display::Block,
+            column_fill,
+            ..Default::default()
+        };
+        let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+        dom.world_mut().insert_one(owner, style.clone()).unwrap();
+        let first = add_block_child(&mut dom, owner, 20.0);
+        let before_split = add_block_child(&mut dom, owner, 10.0);
+        let span = elem(&mut dom, "div");
+        dom.append_child(owner, span);
+        dom.world_mut()
+            .insert_one(
+                span,
+                ComputedStyle {
+                    display: Display::Block,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let prefix = add_block_child(&mut dom, span, 10.0);
+        let suffix = add_block_child(&mut dom, span, 10.0);
+        let last = add_block_child(&mut dom, owner, 10.0);
+        for entity in [first, prefix] {
+            dom.world_mut()
+                .get::<&mut ComputedStyle>(entity)
+                .unwrap()
+                .break_after = BreakValue::Column;
+        }
+        let input = make_input(&font_db);
+        let env = ColumnFillEnv {
+            input: &input,
+            geom: &crate::algo::ColumnGeometry {
+                count: 3,
+                width: 80.0,
+                gap: 20.0,
+            },
+            env: &LayoutEnv::from_input(&input, layout_child_fn),
+            parent_entity: owner,
+            col_ctx: &crate::ColumnLayoutCtx {
+                content_origin: Point::ZERO,
+                block_offset: 0.0,
+                wm,
+            },
+        };
+        let (columns, _) = crate::layout_normal_segment(
+            &mut dom,
+            &[first, before_split, span, last],
+            &env,
+            Some(20.0),
+            Some(20.0),
+            &style,
+        );
+        assert_eq!(
+            columns
+                .iter()
+                .map(|col| col.children.as_slice())
+                .collect::<Vec<_>>(),
+            [&[first][..], &[before_split, span], &[span, last]]
+        );
+        assert_eq!(box_fragments(&dom, span), [(1, 100.0), (2, 200.0)]);
+        for (entity, x) in [
+            (first, 0.0),
+            (before_split, 100.0),
+            (prefix, 100.0),
+            (span, 200.0),
+            (suffix, 200.0),
+            (last, 200.0),
+        ] {
+            assert_eq!(
+                dom.world()
+                    .get::<&LayoutBox>(entity)
+                    .unwrap()
+                    .content
+                    .origin
+                    .x,
+                x
+            );
+        }
+        assert!(columns[1].contribution.is_finished(span, prefix));
+        assert!(!columns[1].contribution.is_finished(owner, span));
+        assert!(columns[2].contribution.is_finished(span, suffix));
+        assert!(columns[2].contribution.is_finished(owner, span));
+        assert!(!columns[2].contribution.is_finished(span, prefix));
+    }
+}

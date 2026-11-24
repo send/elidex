@@ -15,8 +15,9 @@ fn forced_break_before_produces_break_token() {
     let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    make_block_child(&mut dom, parent, 50.0);
-    make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
+    let admitted = make_block_child(&mut dom, parent, 0.0);
+    let deferred =
+        make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Page, BreakValue::Auto);
 
     let frag = FragmentainerContext {
         available_block_size: 500.0,
@@ -32,6 +33,8 @@ fn forced_break_before_produces_break_token() {
         outcome.break_token.is_some(),
         "forced break-before should produce a break token"
     );
+    assert!(outcome.contribution.is_finished(parent, admitted));
+    assert!(!outcome.contribution.is_finished(parent, deferred));
     let bt = outcome.break_token.unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
@@ -51,8 +54,9 @@ fn forced_break_after_produces_break_token() {
     let parent = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
     dom.world_mut().insert_one(parent, block_style());
 
-    make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
-    make_block_child(&mut dom, parent, 50.0);
+    let admitted =
+        make_block_child_with_break(&mut dom, parent, 50.0, BreakValue::Auto, BreakValue::Page);
+    let deferred = make_block_child(&mut dom, parent, 50.0);
 
     let frag = FragmentainerContext {
         available_block_size: 500.0,
@@ -68,6 +72,8 @@ fn forced_break_after_produces_break_token() {
         outcome.break_token.is_some(),
         "forced break-after should produce a break token"
     );
+    assert!(outcome.contribution.is_finished(parent, admitted));
+    assert!(!outcome.contribution.is_finished(parent, deferred));
     let bt = outcome.break_token.unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
@@ -233,6 +239,7 @@ fn monolithic_first_child_overflows_without_break() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
+    assert!(outcome.contribution.is_finished(parent, child));
     // First (and only) child is monolithic with no prior content → overflow allowed.
     if let Some(bt) = &outcome.break_token {
         if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
