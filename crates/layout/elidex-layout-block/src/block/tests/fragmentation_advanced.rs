@@ -859,3 +859,43 @@ fn direct_inline_rejects_changed_route_kind() {
     }));
     assert!(rejected.is_err());
 }
+
+#[test]
+fn direct_inline_source_is_not_replayed_while_filling_a_specified_size() {
+    let fonts = FontDatabase::from_fixture(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../core/elidex-render/tests/fixtures/digits.ttf"
+    )));
+    let (mut dom, owner) = make_dom_with_block_div(ComputedStyle {
+        height: Dimension::Length(210.0),
+        font_family: vec!["Elidex Test Digits".into()],
+        ..block_style()
+    });
+    let text = dom.create_text_ownerless_fixture("1");
+    dom.append_child(owner, text);
+    let mut route = None;
+    for (i, room) in [95.0, 60.0, 55.0].into_iter().enumerate() {
+        let fragmentainer = FragmentainerContext {
+            available_block_size: room,
+            fragmentation_type: FragmentationType::Page,
+        };
+        let input = LayoutInput {
+            fragmentainer: Some(&fragmentainer),
+            break_token: route.as_ref(),
+            ..base_input(&fonts)
+        };
+        let outcome = crate::layout_block_only(&mut dom, owner, &input);
+        assert_eq!(outcome.layout_box.content.size.height, room);
+        assert_eq!(outcome.contribution.is_finished(owner, text), i == 0);
+        if i > 0 {
+            assert_eq!(outcome.contribution.contributed_items().count(), 0);
+        }
+        assert_eq!(outcome.end.is_complete(), i == 2);
+        route = outcome.end.into_token();
+        if let Some(token) = &route {
+            assert!(matches!(&token.mode_data, Some(BreakTokenData::Block {
+                child_index: 1, continuation: crate::BlockContinuation::ChildBoundary, coverage
+            }) if coverage.is_finished(owner, text)));
+        }
+    }
+}

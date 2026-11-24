@@ -363,9 +363,7 @@ fn break_inside_avoid() {
 
 #[test]
 fn spanning_item_fragmentation() {
-    // Items spanning multiple rows: when break occurs at a row boundary,
-    // spanning items are noted in child_break_tokens.
-    // For now, verify the break token structure is correct.
+    // The first item finishes in the admitted row. Only the row cursor continues.
     let container = grid_container(1);
     let items = vec![grid_item(100.0), grid_item(100.0)];
     let (mut dom, entity, _) = make_grid_dom(container, &items);
@@ -394,7 +392,7 @@ fn spanning_item_fragmentation() {
             ..
         }) => {
             assert_eq!(*row_index, 1, "break before row 1");
-            // No spanning items in this test, so child_break_tokens should be empty.
+            // No admitted child returned a continuation.
             assert!(
                 child_break_tokens.is_empty(),
                 "no spanning items to fragment"
@@ -477,14 +475,14 @@ fn propagated_break_after() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. Spanning item produces child break token
+// 11. A completed item spans the row boundary
 // ---------------------------------------------------------------------------
 
 #[test]
 #[allow(clippy::too_many_lines)]
 fn completed_spanning_item_has_no_child_continuation() {
     // 2-column grid, 4 explicit rows (each 50px).
-    // Item A: col 0, rows 0-3 (spans all 4 rows), height 200px.
+    // Item A: col 0, rows 0-3 (spans all 4 rows), height 16px.
     // Item B: col 1, row 0 only, height 50px.
     // Item C: col 1, row 1 only, height 50px.
     // Item D: col 1, row 2 only, height 50px.
@@ -615,7 +613,7 @@ fn completed_spanning_item_has_no_child_continuation() {
 fn spanning_item_reports_content_and_specified_size_separately() {
     // 1-column grid, 4 explicit rows: 30px, 40px, 50px, 60px.
     // Item A: spans rows 0-3 (all 4 rows). row_gap = 10px.
-    // Break at row 2: consumed = row0(30) + gap(10) + row1(40) = 80px.
+    // Rows before the break occupy 80px. The child emits a 16px prefix into 95px of room.
     let row_tracks: Vec<TrackSize> = vec![
         TrackSize::Length(30.0),
         TrackSize::Length(40.0),
@@ -646,9 +644,6 @@ fn spanning_item_reports_content_and_specified_size_separately() {
         grid_row_end: GridLine::Line(5),
         ..Default::default()
     };
-
-    // Filler items in rows 0-3 so auto-placement doesn't interfere
-    // (not strictly needed since item_a has explicit placement, but keeps grid populated).
 
     let (mut dom, entity, entities) = make_grid_dom(container_style, &[item_a_style]);
     let fdb = FontDatabase::new();
@@ -695,7 +690,11 @@ fn spanning_item_reports_content_and_specified_size_separately() {
             ..
         }) => {
             assert_eq!(*row_index, 2, "should break before row 2");
-            assert_eq!(child_break_tokens.len(), 1, "item A spans the break");
+            assert_eq!(
+                child_break_tokens.len(),
+                1,
+                "item A returned a continuation for its suffix"
+            );
             let (ent, child_bt) = &child_break_tokens[0];
             assert_eq!(*ent, item_a_entity);
             assert_eq!(child_bt.consumed_block_size, 16.0);
