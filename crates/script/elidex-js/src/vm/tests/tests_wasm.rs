@@ -808,7 +808,7 @@ fn gc_retains_wasm_memory_via_buffer_alias() {
     vm.unbind();
 }
 
-/// I32 wasm param coerce uses ECMA-262 §7.1.7 ToInt32 (mod-2^32
+/// I32 wasm param coerce uses ECMA-262 §7.1.8 ToInt32 (mod-2^32
 /// wrap), not Rust `as` saturation.  `Infinity` / `NaN` → 0 per
 /// step 2; `2^32` and `-2^32` wrap to 0.
 #[test]

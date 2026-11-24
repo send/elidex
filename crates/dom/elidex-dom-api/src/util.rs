@@ -88,7 +88,7 @@ pub(crate) fn webidl_unsigned_long(n: f64) -> usize {
     (n.trunc().rem_euclid(4_294_967_296.0)) as usize
 }
 
-/// WebIDL `long` conversion (ECMAScript `ToInt32`, ECMA-262 §7.1.7) — the signed
+/// WebIDL `long` conversion (ECMAScript `ToInt32`, ECMA-262 §7.1.8) — the signed
 /// twin of [`webidl_unsigned_long`], for indexed handler args typed `long`
 /// (e.g. `HTMLOptionsCollection.add`'s `before` integer / `remove(index)`).
 ///

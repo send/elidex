@@ -251,7 +251,7 @@ fn js_value_to_wasm_value(
     }
     match expected {
         WasmValueType::I32 => {
-            // ECMA-262 §7.1.7 ToInt32 — mod-2^32 wrap via shared helper.
+            // ECMA-262 §7.1.8 ToInt32 — mod-2^32 wrap via shared helper.
             let n = ctx.to_number(val)?;
             Ok(WasmValue::I32(f64_to_int32(n)))
         }

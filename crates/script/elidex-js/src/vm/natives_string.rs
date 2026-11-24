@@ -361,7 +361,8 @@ pub(super) fn native_string_split(
         Some(val) => {
             let n = ctx.to_number(val)?;
             if n.is_finite() {
-                // This implementation takes the remainder before truncating.
+                // Taking the remainder before truncating gives incorrect limits for negative
+                // fractions: ToUint32(-0.5) is zero, while this path produces 4294967295.
                 let modded = n.rem_euclid(4_294_967_296.0);
                 modded.trunc() as usize
             } else {

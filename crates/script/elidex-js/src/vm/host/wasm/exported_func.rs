@@ -344,7 +344,7 @@ fn js_value_to_wasm_value(
     match expected {
         WasmValueType::I32 => {
             let n = ctx.to_number(val)?;
-            // ECMA-262 §7.1.7 ToInt32 — mod-2^32 wrap via shared helper.
+            // ECMA-262 §7.1.8 ToInt32 — mod-2^32 wrap via shared helper.
             // Direct `n as i64 as i32` would saturate per Rust RFC 2484
             // (Infinity → -1, NaN-handling diverges) instead of spec
             // mod-2^32 truncation.
