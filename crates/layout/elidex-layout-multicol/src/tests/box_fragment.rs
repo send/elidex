@@ -291,60 +291,66 @@ fn split_child_positions_its_two_fragments_in_nonzero_columns() {
                 .unwrap()
                 .break_after = BreakValue::Column;
         }
-        let input = make_input(&font_db);
-        let env = ColumnFillEnv {
-            input: &input,
-            geom: &crate::algo::ColumnGeometry {
-                count: 3,
-                width: 80.0,
-                gap: 20.0,
-            },
-            env: &LayoutEnv::from_input(&input, layout_child_fn),
-            parent_entity: owner,
-            col_ctx: &crate::ColumnLayoutCtx {
-                content_origin: Point::ZERO,
-                block_offset: 0.0,
-                wm,
-            },
-        };
-        let (columns, _) = crate::layout_normal_segment(
-            &mut dom,
-            &[first, before_split, span, last],
-            &env,
-            Some(20.0),
-            Some(20.0),
-            &style,
-        );
-        assert_eq!(
-            columns
-                .iter()
-                .map(|col| col.children.as_slice())
-                .collect::<Vec<_>>(),
-            [&[first][..], &[before_split, span], &[span, last]]
-        );
-        assert_eq!(box_fragments(&dom, span), [(1, 100.0), (2, 200.0)]);
-        for (entity, x) in [
-            (first, 0.0),
-            (before_split, 100.0),
-            (prefix, 100.0),
-            (span, 200.0),
-            (suffix, 200.0),
-            (last, 200.0),
-        ] {
-            assert_eq!(
-                dom.world()
-                    .get::<&LayoutBox>(entity)
-                    .unwrap()
-                    .content
-                    .origin
-                    .x,
-                x
+        let saved_input = make_input(&font_db);
+        for generation in [1, 2] {
+            let input = elidex_layout_block::LayoutInput {
+                layout_generation: generation,
+                ..saved_input
+            };
+            let env = ColumnFillEnv {
+                input: &input,
+                geom: &crate::algo::ColumnGeometry {
+                    count: 3,
+                    width: 80.0,
+                    gap: 20.0,
+                },
+                env: &LayoutEnv::from_input(&input, layout_child_fn),
+                parent_entity: owner,
+                col_ctx: &crate::ColumnLayoutCtx {
+                    content_origin: Point::ZERO,
+                    block_offset: 0.0,
+                    wm,
+                },
+            };
+            let (columns, _) = crate::layout_normal_segment(
+                &mut dom,
+                &[first, before_split, span, last],
+                &env,
+                Some(20.0),
+                Some(20.0),
+                &style,
             );
+            assert_eq!(
+                columns
+                    .iter()
+                    .map(|col| col.children.as_slice())
+                    .collect::<Vec<_>>(),
+                [&[first][..], &[before_split, span], &[span, last]]
+            );
+            assert_eq!(box_fragments(&dom, span), [(1, 100.0), (2, 200.0)]);
+            for (entity, x) in [
+                (first, 0.0),
+                (before_split, 100.0),
+                (prefix, 100.0),
+                (span, 200.0),
+                (suffix, 200.0),
+                (last, 200.0),
+            ] {
+                assert_eq!(
+                    dom.world()
+                        .get::<&LayoutBox>(entity)
+                        .unwrap()
+                        .content
+                        .origin
+                        .x,
+                    x
+                );
+            }
+            assert!(columns[1].contribution.is_finished(span, prefix));
+            assert!(!columns[1].contribution.is_finished(owner, span));
+            assert!(columns[2].contribution.is_finished(span, suffix));
+            assert!(columns[2].contribution.is_finished(owner, span));
+            assert!(!columns[2].contribution.is_finished(span, prefix));
         }
-        assert!(columns[1].contribution.is_finished(span, prefix));
-        assert!(!columns[1].contribution.is_finished(owner, span));
-        assert!(columns[2].contribution.is_finished(span, suffix));
-        assert!(columns[2].contribution.is_finished(owner, span));
-        assert!(!columns[2].contribution.is_finished(span, prefix));
     }
 }

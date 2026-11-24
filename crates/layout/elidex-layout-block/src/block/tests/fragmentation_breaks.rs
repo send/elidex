@@ -45,6 +45,30 @@ fn forced_break_before_produces_break_token() {
     } else {
         panic!("expected Block break token data");
     }
+    for (generation, width) in [(2, 120.0), (3, 260.0), (4, 120.0), (5, 260.0)] {
+        let resumed = crate::layout_block_only(
+            &mut dom,
+            parent,
+            &LayoutInput {
+                layout_generation: generation,
+                containing_inline_size: width,
+                containing: elidex_plugin::CssSize::definite(width, 500.0),
+                break_token: Some(&bt),
+                ..input
+            },
+        );
+        assert!(resumed.break_token.is_none());
+        assert_eq!(
+            resumed.contribution.contributed_items().collect::<Vec<_>>(),
+            [(parent, deferred)]
+        );
+        let child_box = dom
+            .world()
+            .get::<&elidex_plugin::LayoutBox>(deferred)
+            .unwrap();
+        assert_eq!(child_box.content.origin, input.offset);
+        assert_eq!(child_box.content.size.width, width);
+    }
 }
 
 #[test]
