@@ -7,6 +7,7 @@ use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Overflo
 
 mod cascade;
 mod flex_grammar;
+mod item_display;
 mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;

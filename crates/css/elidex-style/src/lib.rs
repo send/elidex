@@ -392,6 +392,10 @@ fn apply_document_style(
         media_env,
         hint_generator,
         depth: 0,
+        effective_parent: None,
+        document_element: dom
+            .document_root()
+            .and_then(|root| dom.first_element_child(root)),
         total_shadow_css: &mut total_shadow_css,
     };
     for root in roots {
