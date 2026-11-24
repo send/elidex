@@ -158,7 +158,8 @@ pub fn layout_inline_context_fragmented(
         frag_constraint.is_some(),
     );
     let progress = frag_constraint.and_then(|c| c.progress.as_ref());
-    if let Some(cursor) = progress {
+    let source_index = progress.map(crate::source_progress::SourceProgress::index);
+    if let Some(cursor) = &source_index {
         items.retain(|item| !cursor.is_finished(parent_entity, item.source().0));
     }
     // Staleness clear set: when nothing persists (here and the no-font return
@@ -244,7 +245,10 @@ pub fn layout_inline_context_fragmented(
     let mut placements = Vec::new();
     for pi in &pack_items {
         let (index, start) = pi.source();
-        if progress.is_some_and(|p| p.contains(parent_entity, items[index].source().0, start)) {
+        if source_index
+            .as_ref()
+            .is_some_and(|p| p.contains(parent_entity, items[index].source().0, start))
+        {
             continue;
         }
 
@@ -305,25 +309,33 @@ pub fn layout_inline_context_fragmented(
     // Compute total block using only lines up to break point (if fragmented).
     let effective_line_count = break_after_line.unwrap_or(line_count);
     let continuation = break_after_line.map(|line| {
+        // Each rendered line is flushed by a placed item. Verify forced and soft wraps:
+        // cargo test -p elidex-layout-block fragment_cursor
         let (_, index, start) = placements
             .iter()
             .find(|(placed, ..)| *placed >= line)
             .expect("break precedes a packed line");
         let mut cursor = progress.cloned().unwrap_or_default();
+        let prefix = |entity| {
+            source_index
+                .as_ref()
+                .map_or_else(crate::source_progress::SourcePosition::default, |i| {
+                    i.prefix_end(parent_entity, entity)
+                })
+        };
         for item in &items[..*index] {
             let (entity, len) = item.source();
             cursor.consume(
                 parent_entity,
                 entity,
-                crate::source_progress::SourcePosition::byte(0)
-                    ..crate::source_progress::SourcePosition::byte(len),
+                prefix(entity)..crate::source_progress::SourcePosition::byte(len),
             );
             cursor.finish_item(parent_entity, entity);
         }
         cursor.consume(
             parent_entity,
             items[*index].source().0,
-            crate::source_progress::SourcePosition::byte(0)..*start,
+            prefix(items[*index].source().0)..*start,
         );
         cursor
     });
@@ -404,7 +416,7 @@ pub fn layout_inline_context_fragmented(
     let static_positions: HashMap<Entity, Point> = packer
         .static_positions
         .into_iter()
-        .map(|(entity, logical_pos)| {
+        .map(|(entity, (_, logical_pos))| {
             if is_vertical {
                 (
                     entity,
@@ -545,14 +557,14 @@ fn static_atomic_reposition_records(
 /// shape as [`static_atomic_reposition_records`] so both atomic kinds reposition
 /// uniformly through the same sink (immediate or carried).
 fn relpos_atomic_reposition_records(
-    placements: &[(Entity, f32, f32)],
+    placements: &[(usize, Entity, f32, f32)],
     inline_origin: f32,
     block_origin: f32,
     unoffset_origins: &HashMap<Entity, Point>,
 ) -> Vec<(Entity, f32, f32, Point)> {
     placements
         .iter()
-        .filter_map(|&(atomic, inline_local, block_local)| {
+        .filter_map(|&(_, atomic, inline_local, block_local)| {
             unoffset_origins.get(&atomic).copied().map(|basis| {
                 (
                     atomic,

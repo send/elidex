@@ -44,6 +44,7 @@ pub(super) fn flush_inline_run(
     env: &crate::LayoutEnv<'_>,
     static_positions: &mut HashMap<Entity, Point>,
     progress: Option<crate::source_progress::SourceProgress>,
+    column_runs: &mut elidex_ecs::ColumnFlowSlice,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let is_horizontal = wm.is_horizontal();
@@ -84,6 +85,17 @@ pub(super) fn flush_inline_run(
         env,
         frag_constraint.as_ref(),
     );
+    // Collect each anonymous run's independently keyed groups before the next
+    // flush uses the same block owner for its transient carrier.
+    if let Ok(slice) = dom
+        .world_mut()
+        .remove_one::<elidex_ecs::ColumnFlowSlice>(parent_entity)
+    {
+        column_runs.flow_groups.extend(slice.flow_groups);
+        column_runs
+            .atomic_repositions
+            .extend(slice.atomic_repositions);
+    }
     static_positions.extend(result.static_positions);
 
     // In vertical modes, layout_inline_context returns the total column width

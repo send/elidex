@@ -194,6 +194,9 @@ fn apply_text_transforms(items: &mut [InlineItem]) {
                         &run.text,
                         run.text_transform,
                         |_, count| {
+                            // Collapse records one boundary per output scalar. Transform reports
+                            // each scalar once, including multi-scalar case expansions. Verify with
+                            // cargo test -p elidex-layout-block fragment_cursor
                             let pos = input
                                 .next()
                                 .expect("one source position per collapsed scalar");

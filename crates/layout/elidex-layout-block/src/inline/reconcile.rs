@@ -189,8 +189,8 @@ pub(super) fn reconcile_flows(
     persist_flow: bool,
     candidate_keys: &[Entity],
     unoffset_origins: &HashMap<Entity, Point>,
-    flow_lines: HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>>,
-    relpos_atomic_placements: &[(Entity, f32, f32)],
+    flow_lines: HashMap<Entity, Vec<(usize, elidex_ecs::InlineFlowLine)>>,
+    relpos_atomic_placements: &[(usize, Entity, f32, f32)],
 ) {
     // Reconcile InlineFlow across the IFC's render-run-groups every pass: persist
     // each group's lines on its run-start key (the top-level run-start + one per
@@ -237,7 +237,7 @@ pub(super) fn reconcile_flows(
         }
         let lines: Vec<elidex_ecs::InlineFlowLine> = group_lines
             .into_iter()
-            .map(|mut line| {
+            .map(|(_, mut line)| {
                 line.block_start += block_origin;
                 for run in &mut line.runs {
                     *run.inline_start_mut() += inline_origin;

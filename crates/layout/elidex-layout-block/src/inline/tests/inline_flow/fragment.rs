@@ -499,27 +499,26 @@ fn paged_fragment_drops_tail_after_break() {
 
 // --- slice 2: vertical writing modes now persist (the `!is_vertical` gate dropped) ---
 
-#[test]
-fn varying_width_pages_resume_at_source_on_count_and_replay() {
-    // The bundled face gives every glyph (including the fallback glyph) a fixed
-    // advance. A–D are distinct logical words even with these identical metrics.
+fn cursor_fixture(text: &str) -> (EcsDom, Entity, Entity, ComputedStyle, FontDatabase) {
     let font_db = FontDatabase::from_fixture(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../core/elidex-render/tests/fixtures/digits.ttf"
     )));
     let mut dom = EcsDom::new();
     let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
-    let text = dom.create_text_ownerless_fixture("A B C D");
-    assert!(dom.append_child(parent, text));
-    dom.world_mut()
-        .insert_one(
-            parent,
-            ComputedStyle {
-                font_family: vec!["Elidex Test Digits".into()],
-                ..Default::default()
-            },
-        )
-        .unwrap();
+    let item = dom.create_text_ownerless_fixture(text);
+    assert!(dom.append_child(parent, item));
+    let style = ComputedStyle {
+        font_family: vec!["Elidex Test Digits".into()],
+        ..Default::default()
+    };
+    dom.world_mut().insert_one(parent, style.clone()).unwrap();
+    (dom, parent, item, style, font_db)
+}
+
+#[test]
+fn varying_width_pages_resume_at_source_on_count_and_replay() {
+    let (mut dom, parent, _, _, font_db) = cursor_fixture("A B C D");
     let children = dom.composed_children(parent);
     let key = children[0];
     let params = TextMeasureParams {
@@ -602,12 +601,9 @@ fn varying_width_pages_resume_at_source_on_count_and_replay() {
 }
 
 #[test]
-fn cursor_keeps_original_nodes_across_collapse_transform_and_atomics() {
+fn fragment_cursor_keeps_original_nodes_across_collapse_transform_and_atomics() {
     use crate::source_progress::SourcePosition;
-    let Some((mut dom, parent, style, font_db)) = setup_inline_test("A   ") else {
-        return;
-    };
-    let first = dom.composed_children(parent)[0];
+    let (mut dom, parent, first, style, font_db) = cursor_fixture("A   ");
     let empty = dom.create_element_ownerless_fixture("span", Attributes::default());
     let nested = dom.create_element_ownerless_fixture("span", Attributes::default());
     let word = dom.create_text_ownerless_fixture("   ß  C ");
@@ -693,6 +689,115 @@ fn cursor_keeps_original_nodes_across_collapse_transform_and_atomics() {
             ));
             assert_eq!(cursor.is_finished(parent, atomic), i >= 3);
         }
+    }
+    assert!(progress.is_none());
+}
+
+#[test]
+fn fragment_cursor_keeps_zero_height_committed_line_and_geometry() {
+    let (mut dom, parent, _, style, font_db) = cursor_fixture("");
+    let mut nodes = Vec::new();
+    for (word, height) in [("A", 16.0), ("B", 0.0), ("C", 16.0)] {
+        let span = dom.create_element_ownerless_fixture("span", Attributes::default());
+        let text = dom.create_text_ownerless_fixture(word);
+        dom.append_child(parent, span);
+        dom.append_child(span, text);
+        dom.world_mut()
+            .insert_one(
+                span,
+                ComputedStyle {
+                    line_height: elidex_plugin::LineHeight::Px(height),
+                    ..style.clone()
+                },
+            )
+            .unwrap();
+        nodes.push((span, text));
+    }
+    let children = dom.composed_children(parent);
+    let key = children[0];
+    let mut progress = None;
+    for expected in ["AB", "C"] {
+        let frag = InlineFragConstraint {
+            available_block: 16.0,
+            orphans: 1,
+            widows: 1,
+            progress,
+            fragmentation_type: crate::FragmentationType::Page,
+        };
+        progress = layout_inline_context_fragmented(
+            &mut dom,
+            &children,
+            1.0,
+            parent,
+            Point::ZERO,
+            &env(&font_db),
+            Some(&frag),
+        )
+        .continuation;
+        let flow = dom.world().get::<&InlineFlow>(key).unwrap();
+        let lines = &flow.fragments[0].lines;
+        let words: String = lines
+            .iter()
+            .flat_map(|l| &l.runs)
+            .filter_map(|r| r.text())
+            .collect();
+        assert_eq!(words, expected);
+        if expected == "AB" {
+            let cursor = progress.as_ref().unwrap();
+            assert!(cursor.is_finished(parent, nodes[1].1));
+            assert!(!cursor.is_finished(parent, nodes[2].1));
+            assert_eq!((lines[1].block_start, lines[1].block_size), (16.0, 0.0));
+            assert_eq!(
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(nodes[1].0)
+                    .unwrap()
+                    .content
+                    .origin
+                    .y,
+                16.0
+            );
+            assert!(dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(nodes[2].0)
+                .is_err());
+        }
+    }
+    assert!(progress.is_none());
+}
+
+#[test]
+fn fragment_cursor_tracks_forced_then_soft_break() {
+    let (mut dom, parent, key, mut style, font_db) = cursor_fixture("a\nß c");
+    style.white_space = elidex_plugin::WhiteSpace::PreWrap;
+    style.text_transform = elidex_plugin::TextTransform::Uppercase;
+    dom.world_mut().insert_one(parent, style).unwrap();
+    let mut progress = None;
+    for expected in ["A", "SS", "C"] {
+        let frag = InlineFragConstraint {
+            available_block: 1.0,
+            orphans: 1,
+            widows: 1,
+            progress,
+            fragmentation_type: crate::FragmentationType::Page,
+        };
+        progress = layout_inline_context_fragmented(
+            &mut dom,
+            &[key],
+            1.0,
+            parent,
+            Point::ZERO,
+            &env(&font_db),
+            Some(&frag),
+        )
+        .continuation;
+        let flow = dom.world().get::<&InlineFlow>(key).unwrap();
+        let text: String = flow.fragments[0]
+            .lines
+            .iter()
+            .flat_map(|l| &l.runs)
+            .filter_map(|r| r.text())
+            .collect();
+        assert_eq!(text.trim_end(), expected);
     }
     assert!(progress.is_none());
 }

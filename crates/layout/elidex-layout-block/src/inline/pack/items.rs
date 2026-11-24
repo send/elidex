@@ -93,6 +93,8 @@ pub(in crate::inline) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem>
                     run.source_positions
                         .as_ref()
                         .map_or_else(Default::default, |positions| {
+                            // Break pieces partition the mapped run on UTF-8 boundaries.
+                            // cargo test -p elidex-layout-block fragment_cursor
                             let start = positions[scalar_index];
                             scalar_index += piece.chars().count();
                             start

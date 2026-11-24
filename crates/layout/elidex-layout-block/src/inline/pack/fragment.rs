@@ -3,29 +3,22 @@ use super::LinePacker;
 
 impl LinePacker {
     /// The resumed suffix was packed at this fragment's origin (CSS Break 3 §5.1).
-    /// Every recorded block coordinate comes from the same line-height accumulator.
+    /// Select by line ordinal: a zero-height line and its successor can share an offset.
     pub fn truncate_fragment(&mut self, effective_line_count: usize) {
-        let break_offset: f32 = self
-            .line_boxes
-            .iter()
-            .take(effective_line_count)
-            .map(|lb| lb.block_size)
-            .sum();
-        let keep = |block_start: f32| block_start < break_offset;
         for lines in self.flow_lines.values_mut() {
-            lines.retain(|line| keep(line.block_start));
+            lines.truncate(lines.partition_point(|(ordinal, _)| *ordinal < effective_line_count));
         }
         self.flow_lines.retain(|_, lines| !lines.is_empty());
 
         // Per-entity bounds (→ inline LayoutBox + InlineClientRects): retain kept
-        // per-line rects, rebase them, recompute the union from what's left; drop
+        // per-line rects, recompute their union and drop
         // entities with no rect on a kept line.
         self.entity_bounds.retain(|_, b| {
-            b.line_rects.retain(|r| keep(r.block_start));
+            b.line_rects.retain(|r| r.ordinal < effective_line_count);
             if b.line_rects.is_empty() {
                 return false;
             }
-            // Rebase the kept rects and recompute the union bounding box in one pass.
+            // Recompute the union bounding box of the committed rects.
             let (mut inline_start, mut inline_end) = (f32::INFINITY, f32::NEG_INFINITY);
             let (mut block_start, mut block_end) = (f32::INFINITY, f32::NEG_INFINITY);
             for r in &b.line_rects {
@@ -41,8 +34,9 @@ impl LinePacker {
             true
         });
 
-        self.static_positions.retain(|_, position| keep(position.y));
+        self.static_positions
+            .retain(|_, (ordinal, _)| *ordinal < effective_line_count);
         self.relpos_atomic_placements
-            .retain(|(_, _, block_local)| keep(*block_local));
+            .retain(|(ordinal, ..)| *ordinal < effective_line_count);
     }
 }

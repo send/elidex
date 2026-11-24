@@ -2127,6 +2127,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 

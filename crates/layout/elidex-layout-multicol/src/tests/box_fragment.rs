@@ -151,9 +151,9 @@ fn multicol_spanning_child_after_whole_sibling_does_not_falsely_fragment() {
     // column space. This engine's fragmentation DEFERS B to a clean column boundary
     // (it never splits a child *starting* after a whole sibling) — so B is laid
     // WHOLE in column 1, not split. Assert B therefore gets NO box fragment (it uses
-    // the I-multicol shifted `LayoutBox`), pinning that the `child_break_token`
+    // the I-multicol shifted `LayoutBox`), pinning that the `BlockContinuation::InterruptedChild`
     // capture signal does not false-positive on a deferred-then-whole child. (This is
-    // why the capture's "laid partially here" signal — `child_break_token.is_some()`
+    // why the capture's "laid partially here" signal — `BlockContinuation::InterruptedChild`
     // — coincides with `next == prev` in practice: a spanning child's first fragment
     // always lands at a clean boundary where it then fills the column mid-stream.)
     let mut dom = EcsDom::new();

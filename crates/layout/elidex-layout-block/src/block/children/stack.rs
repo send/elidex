@@ -75,6 +75,7 @@ pub fn stack_block_children(
     let mut inline_run: Vec<Entity> = Vec::new();
     // Array index of the first child in the current inline run.
     // Used for break token child_index when an inline run is fragmented.
+    let mut column_runs = elidex_ecs::ColumnFlowSlice::default();
     let mut inline_run_start_idx: Option<usize> = None;
     let mut static_positions: HashMap<Entity, Point> = HashMap::new();
     let mut first_baseline: Option<f32> = None;
@@ -182,6 +183,7 @@ pub fn stack_block_children(
                 &env,
                 &mut static_positions,
                 progress,
+                &mut column_runs,
             );
             if first_baseline.is_none() {
                 first_baseline = run_result
@@ -480,6 +482,7 @@ pub fn stack_block_children(
             &env,
             &mut static_positions,
             progress,
+            &mut column_runs,
         );
         if first_baseline.is_none() {
             first_baseline = run_result
@@ -529,6 +532,10 @@ pub fn stack_block_children(
     } else {
         normal_extent
     };
+
+    if !column_runs.flow_groups.is_empty() || !column_runs.atomic_repositions.is_empty() {
+        let _ = dom.world_mut().insert_one(parent_entity, column_runs);
+    }
 
     StackResult {
         height,
