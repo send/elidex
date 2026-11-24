@@ -808,9 +808,9 @@ fn gc_retains_wasm_memory_via_buffer_alias() {
     vm.unbind();
 }
 
-/// I32 wasm param coerce uses ECMA-262 §7.1.8 ToInt32 (mod-2^32
-/// wrap), not Rust `as` saturation.  `Infinity` / `NaN` → 0 per
-/// step 2; `2^32` and `-2^32` wrap to 0.
+/// WebAssembly i32 conversion uses ECMA-262 §7.1.8, ToInt32.
+/// ToIntegerOrInfinity maps NaN to zero. ToFixedSizeInteger maps
+/// infinity to zero and wraps finite integers modulo 2^32.
 #[test]
 fn i32_param_coerce_uses_to_int32() {
     let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();

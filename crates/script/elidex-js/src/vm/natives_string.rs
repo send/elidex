@@ -705,7 +705,7 @@ pub(super) fn native_string_search(
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }
 
-// -- String.prototype.valueOf / toString (§21.1.3.32 / §21.1.3.25) ----------
+// -- String.prototype.valueOf / toString (§22.1.3.35 / §22.1.3.29) ----------
 
 /// `String.prototype.valueOf()` — return the primitive string value.
 /// Works on both string primitives and StringWrapper objects.
@@ -730,9 +730,6 @@ pub(crate) fn native_string_value_of(
         )),
     }
 }
-
-// §21.1.3.25 String.prototype.toString shares the valueOf implementation —
-// registered twice in globals.rs with different `name` attributes.
 
 // -- String constructor (§22.1.1) -------------------------------------------
 
