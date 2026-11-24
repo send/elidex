@@ -21,7 +21,7 @@ pub(super) struct InlineRunResult {
     /// Block-axis extent consumed by the inline run.
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
-    /// If fragmentation was applied, the line index after which to break.
+    /// Whether the selected inline fragment has remaining source.
     pub interrupted: bool,
 }
 
@@ -218,7 +218,7 @@ pub(super) fn layout_float(
     wm: WritingModeContext,
     cursor_block: f32,
     layout_child: crate::ChildLayoutFn,
-) -> crate::source_progress::SourceProgress {
+) -> (crate::source_progress::SourceProgress, crate::FragmentEnd) {
     let child_style = crate::get_style(dom, child);
     let is_horizontal = wm.is_horizontal();
 
@@ -318,6 +318,7 @@ pub(super) fn layout_float(
         break_token: None,
         subgrid: None,
         layout_generation: input.layout_generation,
+        medium: input.medium,
         is_probe: input.is_probe,
     };
     let outcome = layout_child(dom, child, &temp_input);
@@ -388,7 +389,7 @@ pub(super) fn layout_float(
             input.is_probe,
         );
     }
-    outcome.contribution
+    (outcome.contribution, outcome.end)
 }
 
 /// Resolve the final block-axis size for a block element.

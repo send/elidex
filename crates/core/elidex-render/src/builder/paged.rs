@@ -172,6 +172,7 @@ pub fn build_paged_display_lists_interleaved(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Print,
         is_probe: false,
     };
 

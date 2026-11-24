@@ -312,21 +312,7 @@ pub enum ReducedMotion {
     Reduce,
 }
 
-/// The output medium the query is evaluated against — mediaqueries-4 §2.3. A
-/// real device is either continuous (`screen`) or paged (`print`); the
-/// `<media-type>` `screen`/`print` match depends on it, so the evaluator reads
-/// it from the [`MediaEnvironment`] rather than assuming `screen`. The consumer
-/// sets it: Slice 2 `matchMedia` is always `Screen` (a screen document); the
-/// Slice 3 `@media` cascade passes `Print` when formatting paged output, so
-/// `@media print` rules apply there and `@media screen` rules do not. (The
-/// deprecated paged/continuous subtypes — `tty`/`tv`/… — collapse to `Other` at
-/// parse and never match, so they need no `Medium` variant.)
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Medium {
-    #[default]
-    Screen,
-    Print,
-}
+pub use elidex_plugin::Medium;
 
 impl Default for MediaEnvironment {
     /// A screen UA at 1024×768, 1dppx, no user preference — lets Slice-1 unit

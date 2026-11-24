@@ -8,6 +8,14 @@ pub use boxes::{BoxModel, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext
 pub use rect::{CssSize, Rect, Size};
 pub use vectors::{Point, Vector};
 
+/// Output medium selected by the consumer for style resolution and layout (MQ4 §2.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Medium {
+    #[default]
+    Screen,
+    Print,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

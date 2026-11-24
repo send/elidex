@@ -178,14 +178,31 @@ pub fn layout_multicol(
     let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let mut multicol_segments: Vec<(u32, f32, f32)> = Vec::new();
 
-    let (start, incoming) = match input.break_token.and_then(|bt| bt.mode_data.as_ref()) {
-        Some(elidex_layout_block::BreakTokenData::Multicol {
+    let (start, incoming) = if let Some(token) = input.break_token {
+        assert_eq!(token.entity, entity, "Multicol continuation owner mismatch");
+        let Some(elidex_layout_block::BreakTokenData::Multicol {
             segment_index,
             column,
-        }) => (*segment_index, Some(column.as_ref())),
-        _ => (0, None),
+        }) = &token.mode_data
+        else {
+            panic!("Multicol continuation requires a segment and column route");
+        };
+        let Some(Segment::Normal(children)) = segments.get(*segment_index) else {
+            panic!("Multicol continuation must name a normal segment");
+        };
+        assert!(
+            matches!(
+                column.mode_data,
+                Some(elidex_layout_block::BreakTokenData::Block { .. })
+            ),
+            "invalid column route kind"
+        );
+        elidex_layout_block::block::validate_block_route(dom, entity, children, Some(column));
+        (*segment_index, Some(column.as_ref()))
+    } else {
+        (0, None)
     };
-    let mut break_token = None;
+    let mut end = elidex_layout_block::FragmentEnd::Complete;
     for (index, segment) in segments.iter().enumerate().skip(start) {
         match segment {
             Segment::Normal(seg_children) => {
@@ -208,6 +225,7 @@ pub fn layout_multicol(
                     depth,
                     viewport: input.viewport,
                     layout_generation: input.layout_generation,
+                    medium: input.medium,
                     is_probe: input.is_probe,
                 };
                 let segment_input = LayoutInput {
@@ -241,16 +259,22 @@ pub fn layout_multicol(
                     multicol_segments.push((actual_count, block_cursor, col_height));
                 }
                 block_cursor += col_height;
+                if batch.stalled {
+                    end = elidex_layout_block::FragmentEnd::Incomplete;
+                    break;
+                }
                 if let Some(column) = batch.carry {
-                    break_token = Some(elidex_layout_block::BreakToken {
-                        specified_size_fraction: None,
-                        entity,
-                        consumed_block_size: block_cursor,
-                        mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {
-                            segment_index: index,
-                            column: Box::new(column),
-                        }),
-                    });
+                    end = elidex_layout_block::FragmentEnd::Continue(
+                        elidex_layout_block::BreakToken {
+                            specified_size_fraction: None,
+                            entity,
+                            consumed_block_size: block_cursor,
+                            mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {
+                                segment_index: index,
+                                column: Box::new(column),
+                            }),
+                        },
+                    );
                     break;
                 }
             }
@@ -288,10 +312,15 @@ pub fn layout_multicol(
                     break_token: None,
                     subgrid: None,
                     layout_generation: input.layout_generation,
+                    medium: input.medium,
                     is_probe: input.is_probe,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
                 contribution.include(&outcome.contribution);
+                if !outcome.end.is_complete() {
+                    end = elidex_layout_block::FragmentEnd::Incomplete;
+                    break;
+                }
                 contribution.finish_item(entity, *spanner_entity);
                 // Use margin_box() for spanner block extent.
                 let mb = outcome.layout_box.margin_box();
@@ -356,6 +385,7 @@ pub fn layout_multicol(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
@@ -386,7 +416,7 @@ pub fn layout_multicol(
 
     elidex_layout_block::LayoutOutcome {
         contribution,
-        break_token,
+        end,
         ..lb.into()
     }
 }
@@ -415,7 +445,7 @@ fn layout_normal_segment(
         ),
         (None, _) => fill_columns_balanced(dom, children, env, balance_max_height),
     };
-    while env.input.fragmentainer.is_none() && !batch.stalled {
+    while env.input.medium == elidex_plugin::Medium::Screen && !batch.stalled {
         let Some(carry) = batch.carry.take() else {
             break;
         };

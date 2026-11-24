@@ -25,6 +25,7 @@ pub(super) fn env(font_db: &FontDatabase) -> crate::LayoutEnv<'_> {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     }
 }

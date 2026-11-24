@@ -216,7 +216,7 @@ pub fn fill_columns_sequential(
         );
 
         // Only a split inside a child snapshots that child's per-column box.
-        let break_out_child = interrupted_child(result.break_token.as_ref());
+        let break_out_child = interrupted_child(result.end.token());
 
         let mut col_children: Vec<_> = result
             .contribution
@@ -261,7 +261,13 @@ pub fn fill_columns_sequential(
         }
         carry_midbreak = break_out_child;
 
-        if let Some(next) = &result.break_token {
+        stalled = matches!(result.end, elidex_layout_block::FragmentEnd::Incomplete);
+        let carry = result.end.into_token().filter(|token| {
+            !matches!(&token.mode_data, Some(BreakTokenData::Block {
+            child_index, continuation: elidex_layout_block::BlockContinuation::ChildBoundary, ..
+        }) if *child_index == children.len() && !token.specified_size_fraction.is_some_and(|fraction| fraction < 1.0))
+        });
+        if let Some(next) = &carry {
             let empty = elidex_layout_block::source_progress::SourceProgress::default();
             let previous = match carry_break_token
                 .as_ref()
@@ -281,7 +287,7 @@ pub fn fill_columns_sequential(
             box_snapshots,
         });
 
-        carry_break_token = result.break_token;
+        carry_break_token = carry;
         if carry_break_token.is_none() || stalled {
             break;
         }
@@ -537,6 +543,7 @@ fn build_column_input<'a>(
         layout_generation: input.layout_generation,
         // Throwaway iff this is a search probe OR an ancestor is already probing
         // — so a nested multicol suppresses its store write (P1).
+        medium: input.medium,
         is_probe: probe || input.is_probe,
     }
 }

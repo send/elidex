@@ -27,6 +27,7 @@ use crate::{
     sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
+pub use children::validate_route as validate_block_route;
 pub use children::{
     resolve_block_height, shift_descendants, shift_descendants_excluding_own_fragments,
     stack_block_children, StackResult,
@@ -97,6 +98,7 @@ pub fn layout_block(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
@@ -133,6 +135,7 @@ pub fn layout_block_with_height(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
@@ -430,7 +433,7 @@ pub fn layout_block_inner(
     let mut static_positions_stash = std::collections::HashMap::new();
     let mut block_first_baseline: Option<f32> = None;
     let mut contribution = crate::source_progress::SourceProgress::default();
-    let mut child_break_token: Option<crate::BreakToken> = None;
+    let mut end = crate::FragmentEnd::Complete;
     let mut propagated_break_before: Option<elidex_plugin::BreakValue> = None;
     let mut propagated_break_after: Option<elidex_plugin::BreakValue> = None;
     // Direct inline layout can interrupt inside its single local run.
@@ -522,15 +525,16 @@ pub fn layout_block_inner(
             break_token: child_bt_for_stack,
             subgrid: None,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         let is_bfc = input.is_flex_item || establishes_bfc(&style);
-        let mut result =
+        let result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
         // Capture fragmentation results from stack_block_children.
         contribution = result.contribution;
-        child_break_token = result.break_token.take();
+        end = result.end;
         propagated_break_before = result.propagated_break_before;
         propagated_break_after = result.propagated_break_after;
 
@@ -681,7 +685,7 @@ pub fn layout_block_inner(
             let target = assigned_block
                 .or(child_containing_block)
                 .map(|_| block_size);
-            let split = child_break_token.is_some() || inline_progress.is_some();
+            let split = !end.is_complete() || inline_progress.is_some();
             let entry_margin = if is_first_fragment
                 || style.box_decoration_break == elidex_plugin::BoxDecorationBreak::Cloned
             {
@@ -712,7 +716,7 @@ pub fn layout_block_inner(
     let block_size = fragment_size.map_or(block_size, |size| size.extent);
     let size_fraction = fragment_size.and_then(|size| size.fraction);
     if inline_progress.is_none()
-        && child_break_token.is_none()
+        && end.is_complete()
         && fragment_size.is_some_and(|size| size.remaining)
     {
         let mut coverage = match input.break_token.and_then(|token| token.mode_data.as_ref()) {
@@ -720,7 +724,7 @@ pub fn layout_block_inner(
             _ => crate::source_progress::SourceProgress::default(),
         };
         coverage.include(&contribution);
-        child_break_token = Some(crate::BreakToken {
+        end = crate::FragmentEnd::Continue(crate::BreakToken {
             entity,
             specified_size_fraction: size_fraction,
             consumed_block_size: content_block,
@@ -793,6 +797,7 @@ pub fn layout_block_inner(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         crate::positioned::layout_positioned_children(
@@ -810,7 +815,7 @@ pub fn layout_block_inner(
         return crate::LayoutOutcome {
             contribution,
             layout_box: lb,
-            break_token: Some(crate::BreakToken {
+            end: crate::FragmentEnd::Continue(crate::BreakToken {
                 specified_size_fraction: size_fraction,
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
@@ -826,22 +831,15 @@ pub fn layout_block_inner(
     }
 
     // The stack token already belongs to this block. Include its leading decoration.
-    if let Some(mut child_bt) = child_break_token {
+    if let crate::FragmentEnd::Continue(child_bt) = &mut end {
         child_bt.specified_size_fraction = size_fraction;
         child_bt.consumed_block_size += block_start_pb;
-        return crate::LayoutOutcome {
-            contribution,
-            layout_box: lb,
-            break_token: Some(child_bt),
-            propagated_break_before,
-            propagated_break_after,
-        };
     }
 
     crate::LayoutOutcome {
         contribution,
         layout_box: lb,
-        break_token: None,
+        end,
         propagated_break_before,
         propagated_break_after,
     }

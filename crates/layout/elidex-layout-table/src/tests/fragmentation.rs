@@ -37,6 +37,7 @@ fn do_layout_table_fragmented(
         break_token: break_token.as_ref(),
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_table(dom, entity, &input, layout_child)
@@ -102,7 +103,7 @@ fn no_fragmentation_returns_none() {
         None, // no fragmentainer
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ fn rows_fit_no_break() {
         }),
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +160,10 @@ fn overflow_at_row_boundary() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     assert_eq!(bt.entity, table);
     match &bt.mode_data {
         Some(BreakTokenData::Table { row_index, .. }) => {
@@ -198,7 +202,7 @@ fn resume_from_break_token() {
         frag,
         None,
     );
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
 
     // Second pass with break token.
     let outcome2 = do_layout_table_fragmented(
@@ -218,7 +222,7 @@ fn resume_from_break_token() {
     );
     // Remaining rows should fit in 200px.
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "second pass should complete without break"
     );
 }
@@ -303,7 +307,7 @@ fn thead_repeated_in_continuation() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Table {
             thead_entity: te, ..
@@ -393,7 +397,7 @@ fn tfoot_repeated_in_continuation() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Table {
             tfoot_entity: te, ..
@@ -432,7 +436,7 @@ fn caption_only_in_first_fragment() {
         }),
         None,
     );
-    let bt1 = outcome1.break_token.expect("should break");
+    let bt1 = outcome1.end.into_token().expect("should break");
 
     // Second pass: continuation fragment.
     let outcome2 = do_layout_table_fragmented(
@@ -523,7 +527,8 @@ fn forced_break_before_row() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Table { row_index, .. }) => {
@@ -602,7 +607,8 @@ fn forced_break_after_row() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break-after should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Table { row_index, .. }) => {
@@ -663,7 +669,7 @@ fn break_inside_avoid() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Table { row_index, .. }) => {
             // Candidate after row 0 is non-avoid, after row 1 is avoid.
@@ -789,7 +795,7 @@ fn thead_tfoot_reduce_available_space() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Table {
             thead_entity: te,

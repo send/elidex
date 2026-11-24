@@ -131,6 +131,7 @@ pub(super) struct ItemFragmentation<'a> {
     pub incoming: &'a [(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)],
     pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
     pub block_extent: f32,
+    pub incomplete: bool,
 }
 
 /// Position each item within its grid area and perform final layout.
@@ -441,12 +442,17 @@ pub(crate) fn position_items(
             break_token: incoming_token,
             subgrid: child_subgrid_ctx.as_ref(),
             layout_generation: env.layout_generation,
+            medium: env.medium,
             is_probe: env.is_probe,
         };
         let outcome = (env.layout_child)(dom, item.entity, &final_input);
         let final_lb = outcome.layout_box;
         entry.contribution.include(&outcome.contribution);
-        if let Some(token) = outcome.break_token {
+        if matches!(outcome.end, elidex_layout_block::FragmentEnd::Incomplete) {
+            entry.incomplete = true;
+            break;
+        }
+        if let elidex_layout_block::FragmentEnd::Continue(token) = outcome.end {
             entry.contribution.record_item(entry.owner, item.entity);
             entry.outgoing.push((item.entity, Box::new(token)));
         } else {

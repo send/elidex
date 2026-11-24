@@ -35,7 +35,7 @@ pub(crate) fn compute_flex_fragmentation(
     line_ranges: &[(usize, usize)],
     line_cross_sizes: &[f32],
     ctx: &FlexContext,
-    frag: elidex_layout_block::FragmentainerContext,
+    frag: Option<elidex_layout_block::FragmentainerContext>,
     resume_line: usize,
     resume_item: usize,
     _resume_child_bt: Option<Box<BreakToken>>,
@@ -45,11 +45,10 @@ pub(crate) fn compute_flex_fragmentation(
     Option<elidex_plugin::BreakValue>,
     Option<elidex_plugin::BreakValue>,
 ) {
-    let frag_type = frag.fragmentation_type;
-
     // Propagated breaks from first/last items across all lines.
     let propagated_before = line_ranges.first().and_then(|&(s, e)| {
         if s < e {
+            let frag_type = frag?.fragmentation_type;
             let first_style = elidex_layout_block::try_get_style(dom, items[s].entity)?;
             if is_forced_break(first_style.break_before, frag_type) {
                 Some(first_style.break_before)
@@ -63,6 +62,7 @@ pub(crate) fn compute_flex_fragmentation(
 
     let propagated_after = line_ranges.last().and_then(|&(s, e)| {
         if s < e {
+            let frag_type = frag?.fragmentation_type;
             let last_style = elidex_layout_block::try_get_style(dom, items[e - 1].entity)?;
             if is_forced_break(last_style.break_after, frag_type) {
                 Some(last_style.break_after)
@@ -107,12 +107,10 @@ fn fragment_row_flex(
     entity: Entity,
     info: &FlexLineInfo<'_>,
     ctx: &FlexContext,
-    frag: elidex_layout_block::FragmentainerContext,
+    frag: Option<elidex_layout_block::FragmentainerContext>,
     resume_line: usize,
     admitted: &mut Vec<Entity>,
 ) -> Option<BreakToken> {
-    let frag_type = frag.fragmentation_type;
-    let available = frag.available_block_size;
     let items = info.items;
     let line_ranges = info.line_ranges;
     let line_cross_sizes = info.line_cross_sizes;
@@ -135,10 +133,12 @@ fn fragment_row_flex(
         let line_cross = line_cross_sizes.get(line_idx).copied().unwrap_or(0.0);
 
         // Skip zero-height lines — they don't consume space or create break opportunities.
-        if line_cross <= 0.0 {
+        let Some(frag) = frag.filter(|_| line_cross > 0.0) else {
             admitted.extend(items[start..end].iter().map(|item| item.entity));
             continue;
-        }
+        };
+        let frag_type = frag.fragmentation_type;
+        let available = frag.available_block_size;
 
         // Check forced break-before on the first item of this line (if not the first line).
         if line_idx > resume_line && start < end {
@@ -260,13 +260,11 @@ fn fragment_column_flex(
     entity: Entity,
     info: &FlexLineInfo<'_>,
     ctx: &FlexContext,
-    frag: elidex_layout_block::FragmentainerContext,
+    frag: Option<elidex_layout_block::FragmentainerContext>,
     resume_line: usize,
     resume_item: usize,
     admitted: &mut Vec<Entity>,
 ) -> Option<BreakToken> {
-    let frag_type = frag.fragmentation_type;
-    let available = frag.available_block_size;
     let items = info.items;
     let line_ranges = info.line_ranges;
 
@@ -307,10 +305,12 @@ fn fragment_column_flex(
             let item_size = item.final_main + item.margin_main;
 
             // Skip zero-height items — they don't consume space.
-            if item_size <= 0.0 {
+            let Some(frag) = frag.filter(|_| item_size > 0.0) else {
                 admitted.push(item.entity);
                 continue;
-            }
+            };
+            let frag_type = frag.fragmentation_type;
+            let available = frag.available_block_size;
 
             // Check forced break-before on this item (if not the first item).
             if item_rel > first_item_in_line {

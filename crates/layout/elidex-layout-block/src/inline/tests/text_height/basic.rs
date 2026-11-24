@@ -20,6 +20,7 @@ fn empty_text_zero_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -38,6 +39,7 @@ fn no_children_zero_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env).height;
@@ -58,6 +60,7 @@ fn single_line_text() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -80,6 +83,7 @@ fn normal_collapses_newline_to_space() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
@@ -107,6 +111,7 @@ fn pre_preserves_newline_as_break() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
@@ -134,6 +139,7 @@ fn pre_blank_line_keeps_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
@@ -163,6 +169,7 @@ fn pre_newline_only_keeps_line_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
@@ -191,6 +198,7 @@ fn pre_spaces_only_keeps_line_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
@@ -214,6 +222,7 @@ fn collapsible_whitespace_only_generates_no_line_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
@@ -245,6 +254,7 @@ fn nbsp_only_line_generates_a_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);

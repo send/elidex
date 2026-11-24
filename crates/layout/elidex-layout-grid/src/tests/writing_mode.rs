@@ -127,6 +127,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
@@ -292,6 +293,7 @@ fn vertical_rl_margin_pct_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let _outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);
@@ -350,6 +352,7 @@ fn vertical_lr_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let outcome = crate::layout_grid(&mut dom, grid, &input, layout_block_only);

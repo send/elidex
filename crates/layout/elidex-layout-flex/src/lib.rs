@@ -389,6 +389,7 @@ pub fn layout_flex(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        medium: input.medium,
         is_probe: input.is_probe,
     };
 
@@ -484,23 +485,19 @@ pub fn layout_flex(
     // block size and produce a break token to resume in the next fragment.
     let mut admitted = Vec::new();
     let (result_break_token, propagated_break_before, propagated_break_after) =
-        if let Some(&frag) = input.fragmentainer {
-            fragment::compute_flex_fragmentation(
-                dom,
-                entity,
-                &items,
-                &line_ranges,
-                &align_result.effective_line_sizes,
-                &ctx,
-                frag,
-                resume_line,
-                resume_item,
-                resume_child_bt,
-                &mut admitted,
-            )
-        } else {
-            (None, None, None)
-        };
+        fragment::compute_flex_fragmentation(
+            dom,
+            entity,
+            &items,
+            &line_ranges,
+            &align_result.effective_line_sizes,
+            &ctx,
+            input.fragmentainer.copied(),
+            resume_line,
+            resume_item,
+            resume_child_bt,
+            &mut admitted,
+        );
 
     // --- Container LayoutBox ---
     let content_height = input.assigned.content.height.unwrap_or_else(|| {
@@ -575,6 +572,7 @@ pub fn layout_flex(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
@@ -593,7 +591,7 @@ pub fn layout_flex(
     elidex_layout_block::LayoutOutcome {
         contribution,
         layout_box: lb,
-        break_token: result_break_token,
+        end: result_break_token.into(),
         propagated_break_before,
         propagated_break_after,
     }

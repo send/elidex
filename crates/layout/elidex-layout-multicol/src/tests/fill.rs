@@ -258,7 +258,12 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
         available_block_size: 100.0,
         fragmentation_type: FragmentationType::Page,
     };
-    for outer in [Some(&frag), None] {
+    for (outer, count) in [
+        (Some(&frag), 1000),
+        (None, 1000),
+        (Some(&frag), 1001),
+        (None, 1001),
+    ] {
         let mut dom = EcsDom::new();
         let owner = elem(&mut dom, "div");
         dom.world_mut().insert_one(
@@ -272,7 +277,7 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
                 ..Default::default()
             },
         );
-        let children: Vec<_> = (0..1001)
+        let children: Vec<_> = (0..count)
             .map(|i| {
                 let id = add_block_child(&mut dom, owner, 1.0);
                 if i < 1000 {
@@ -285,17 +290,29 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             })
             .collect();
         let input = LayoutInput {
+            medium: if outer.is_some() {
+                elidex_plugin::Medium::Print
+            } else {
+                elidex_plugin::Medium::Screen
+            },
             fragmentainer: outer,
             ..make_input(&fonts)
         };
         let first = layout_multicol(&mut dom, owner, &input, layout_child_fn);
         assert!(first.contribution.is_finished(owner, children[999]));
-        if outer.is_some() {
+        if count == 1000 {
+            assert!(first.end.is_complete());
+            assert_eq!(
+                dom.world().get::<&MulticolInfo>(owner).unwrap().segments[0].0,
+                1000
+            );
+        } else if outer.is_some() {
             assert!(!first.contribution.is_finished(owner, children[1000]));
-            let token = first.break_token.unwrap();
+            let token = first.end.into_token().unwrap();
             assert!(
                 matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
             );
+            assert_invalid_segment_rejected(&mut dom, owner, &input, &token);
             let tail = layout_multicol(
                 &mut dom,
                 owner,
@@ -309,10 +326,10 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
                 tail.contribution.contributed_items().collect::<Vec<_>>(),
                 [(owner, children[1000])]
             );
-            assert!(tail.break_token.is_none());
+            assert!(tail.end.is_complete());
         } else {
             assert!(first.contribution.is_finished(owner, children[1000]));
-            assert!(first.break_token.is_none());
+            assert!(first.end.is_complete());
             assert_eq!(
                 dom.world()
                     .get::<&LayoutBox>(children[1000])
@@ -324,6 +341,40 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             );
         }
     }
+}
+
+fn assert_invalid_segment_rejected(
+    dom: &mut EcsDom,
+    owner: Entity,
+    input: &LayoutInput<'_>,
+    token: &elidex_layout_block::BreakToken,
+) {
+    let mut bad = token.clone();
+    if let Some(elidex_layout_block::BreakTokenData::Multicol { segment_index, .. }) =
+        &mut bad.mode_data
+    {
+        *segment_index = 1;
+    }
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        layout_multicol(
+            dom,
+            owner,
+            &LayoutInput {
+                break_token: Some(&bad),
+                layout_generation: 5,
+                ..*input
+            },
+            layout_child_fn,
+        )
+    }))
+    .is_err());
+    assert_ne!(
+        dom.world()
+            .get::<&LayoutBox>(owner)
+            .unwrap()
+            .layout_generation,
+        5
+    );
 }
 
 #[test]

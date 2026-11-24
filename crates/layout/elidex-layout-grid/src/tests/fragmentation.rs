@@ -39,6 +39,7 @@ fn do_layout_grid_fragmented(
         break_token: break_token.as_ref(),
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Print,
         is_probe: false,
     };
     layout_grid(dom, entity, &input, layout_child)
@@ -105,7 +106,7 @@ fn no_fragmentation_returns_none() {
         None, // no fragmentainer
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +136,7 @@ fn rows_fit_no_break() {
         }),
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +167,10 @@ fn overflow_at_row_boundary() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     assert_eq!(bt.entity, entity);
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -204,7 +208,7 @@ fn resume_from_break_token() {
         frag,
         None,
     );
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
 
     // Second pass with break token: row 2 only (60px) fits in 130px.
     let outcome2 = do_layout_grid_fragmented(
@@ -220,7 +224,7 @@ fn resume_from_break_token() {
         Some(bt1),
     );
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "second pass should complete without break"
     );
 }
@@ -255,7 +259,8 @@ fn forced_break_before_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -295,7 +300,8 @@ fn forced_break_after_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break-after should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
@@ -337,7 +343,7 @@ fn break_inside_avoid() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Grid { row_index, .. }) => {
             // Break candidates: row 1 (at 60px), row 2 (at 120px).
@@ -379,7 +385,7 @@ fn spanning_item_fragmentation() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -579,7 +585,10 @@ fn completed_spanning_item_has_no_child_continuation() {
         None,
     );
 
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -672,7 +681,10 @@ fn spanning_item_reports_content_and_specified_size_separately() {
         None,
     );
 
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     match &bt.mode_data {
         Some(BreakTokenData::Grid {
             row_index,
@@ -767,7 +779,8 @@ fn resume_with_child_break_tokens() {
     assert!(!first.contribution.is_finished(grid, split));
     assert!(first.contribution.is_finished(grid, items[1]));
     let token = first
-        .break_token
+        .end
+        .into_token()
         .expect("a nested break on the final row must continue");
     assert!(
         matches!(&token.mode_data, Some(BreakTokenData::Grid { row_index: 1, child_break_tokens }) if child_break_tokens.len() == 1 && child_break_tokens[0].0 == split)
@@ -788,7 +801,7 @@ fn resume_with_child_break_tokens() {
     assert!(last.contribution.is_finished(split, parts[1]));
     assert!(last.contribution.is_finished(grid, split));
     assert!(!last.contribution.is_finished(grid, items[1]));
-    assert!(last.break_token.is_none(), "{:?}", last.break_token);
+    assert!(last.end.is_complete(), "{:?}", last.end);
     assert_eq!(
         dom.world()
             .get::<&LayoutBox>(split)
@@ -827,7 +840,7 @@ fn empty_grid_consumes_remaining_specified_size_without_item_contributions() {
         );
         assert_eq!(outcome.layout_box.content.size.height, extent);
         assert_eq!(outcome.contribution.contributed_items().count(), 0);
-        route = outcome.break_token;
+        route = outcome.end.into_token();
         assert_eq!(route.is_none(), complete);
     }
 }

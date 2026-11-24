@@ -245,6 +245,7 @@ pub fn layout_paged(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Print,
         is_probe: false,
     };
 
@@ -327,8 +328,8 @@ pub fn layout_fragmented_with_tokens(
             break_token: current_token.as_ref(),
             ..*input
         };
-        let mut outcome = dispatch_layout_child(dom, entity, &frag_input);
-        current_token = outcome.break_token.take();
+        let outcome = dispatch_layout_child(dom, entity, &frag_input);
+        current_token = outcome.end.token().cloned();
         let has_more = current_token.is_some();
         fragments.push(outcome);
 
@@ -418,6 +419,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
 

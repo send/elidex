@@ -379,6 +379,7 @@ fn fixed_uses_viewport() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -442,6 +443,7 @@ fn fixed_removed_from_flow() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -496,6 +498,7 @@ fn fixed_top_left_zero() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -550,6 +553,7 @@ fn fixed_percentage_against_viewport() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -618,6 +622,7 @@ fn fixed_inside_relative() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -692,6 +697,7 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);
@@ -766,6 +772,7 @@ fn fixed_no_transform_uses_viewport() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);

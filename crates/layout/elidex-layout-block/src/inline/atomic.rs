@@ -32,6 +32,7 @@ pub(super) fn layout_atomic_items(
     layout_child: crate::ChildLayoutFn,
     is_vertical: bool,
     layout_generation: u32,
+    medium: elidex_plugin::Medium,
     is_probe: bool,
 ) -> HashMap<Entity, Point> {
     let mut unoffset_origins = HashMap::new();
@@ -59,6 +60,7 @@ pub(super) fn layout_atomic_items(
                 break_token: None,
                 subgrid: None,
                 layout_generation,
+                medium,
                 is_probe,
             };
             let lb = layout_child(dom, *entity, &input).layout_box;

@@ -37,6 +37,7 @@ fn do_layout_flex_fragmented(
         break_token: break_token.as_ref(),
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_flex(dom, entity, &input, layout_child)
@@ -73,7 +74,7 @@ fn no_fragmentation_returns_none_break_token() {
         None, // no fragmentainer
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ fn lines_fit_no_break() {
         }),
         None,
     );
-    assert!(outcome.break_token.is_none());
+    assert!(outcome.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +142,10 @@ fn overflow_at_line_boundary() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should produce break token");
+    let bt = outcome
+        .end
+        .into_token()
+        .expect("should produce break token");
     assert_eq!(bt.entity, entity);
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
@@ -189,7 +193,7 @@ fn resume_from_break_token() {
     for (i, &child) in children.iter().enumerate() {
         assert_eq!(outcome1.contribution.is_finished(entity, child), i < 2);
     }
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
 
     // Second pass with break token: line 2 only (60px) fits in 130px.
     let outcome2 = do_layout_flex_fragmented(
@@ -206,7 +210,7 @@ fn resume_from_break_token() {
     );
     // Only 1 remaining line (60px) fits within 130px → no further break.
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "second pass should complete without break"
     );
     for (i, &child) in children.iter().enumerate() {
@@ -245,7 +249,8 @@ fn forced_break_before_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
@@ -286,7 +291,8 @@ fn forced_break_after_item() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break-after should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
@@ -337,7 +343,7 @@ fn break_inside_avoid() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     // find_best_break should prefer the non-avoid candidate (between line 0 and 1)
     // over the avoid candidate (between line 1 and 2).
     match &bt.mode_data {
@@ -389,7 +395,7 @@ fn single_line_no_break() {
     );
     // Single line → no break candidates → no break token.
     assert!(
-        outcome.break_token.is_none(),
+        outcome.end.is_complete(),
         "single line (nowrap) should not fragment"
     );
 }
@@ -428,7 +434,7 @@ fn multi_line_wrap_break() {
         }),
         None,
     );
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
             // 2 lines of 50px each = 100px fits in 120px.
@@ -549,7 +555,7 @@ fn item_with_fragmentable_content() {
     );
     // Two lines of 80px each. First line (80px) fits in 100px.
     // Second line would push to 160px > 100px → break at line 1.
-    let bt = outcome.break_token.expect("should break");
+    let bt = outcome.end.into_token().expect("should break");
     match &bt.mode_data {
         Some(BreakTokenData::Flex { line_index, .. }) => {
             assert_eq!(*line_index, 1, "break before second line");
@@ -599,7 +605,8 @@ fn column_flex_breaks_between_items() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("column flex should produce break token");
     match &bt.mode_data {
         Some(BreakTokenData::Flex {
@@ -651,7 +658,7 @@ fn column_flex_resume_from_break_token() {
     for (i, &child) in children.iter().enumerate() {
         assert_eq!(outcome1.contribution.is_finished(entity, child), i < 2);
     }
-    let bt1 = outcome1.break_token.expect("first pass should break");
+    let bt1 = outcome1.end.into_token().expect("first pass should break");
 
     // Second pass with break token: item 2 only (60px) fits in 130px.
     let outcome2 = do_layout_flex_fragmented(
@@ -667,7 +674,7 @@ fn column_flex_resume_from_break_token() {
         Some(bt1),
     );
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "second pass should complete without break"
     );
     for (i, &child) in children.iter().enumerate() {
@@ -705,7 +712,8 @@ fn column_flex_forced_break() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("forced break should produce token");
     match &bt.mode_data {
         Some(BreakTokenData::Flex {
@@ -758,7 +766,8 @@ fn column_no_wrap_breaks_within_single_line() {
         None,
     );
     let bt = outcome
-        .break_token
+        .end
+        .into_token()
         .expect("column nowrap should still fragment between items");
     match &bt.mode_data {
         Some(BreakTokenData::Flex {

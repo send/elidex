@@ -537,6 +537,7 @@ pub fn layout_grid(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        medium: input.medium,
         is_probe: input.is_probe,
     };
     let mut fragment = position::ItemFragmentation {
@@ -547,6 +548,7 @@ pub fn layout_grid(
         incoming: &resume_child_bts,
         outgoing: Vec::new(),
         block_extent: 0.0,
+        incomplete: false,
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env, &mut fragment);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
@@ -640,6 +642,7 @@ pub fn layout_grid(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         for child in abs_children {
@@ -670,7 +673,11 @@ pub fn layout_grid(
     elidex_layout_block::LayoutOutcome {
         contribution,
         layout_box: lb,
-        break_token: result_break_token,
+        end: if fragment.incomplete {
+            elidex_layout_block::FragmentEnd::Incomplete
+        } else {
+            result_break_token.into()
+        },
         propagated_break_before,
         propagated_break_after,
     }

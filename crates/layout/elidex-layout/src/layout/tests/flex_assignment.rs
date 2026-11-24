@@ -64,6 +64,7 @@ fn run_at_generation(dom: &mut EcsDom, parent: Entity, width: f32, generation: u
         break_token: None,
         subgrid: None,
         layout_generation: generation,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     elidex_layout_flex::layout_flex(dom, parent, &input, observe);
@@ -384,6 +385,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
                 break_token: None,
                 subgrid: None,
                 layout_generation: 3,
+                medium: elidex_plugin::Medium::Screen,
                 is_probe: false,
             };
             let result = dispatch_layout_child(&mut dom, item, &input);
@@ -734,6 +736,7 @@ fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
             break_token: None,
             subgrid: None,
             layout_generation: 0,
+            medium: elidex_plugin::Medium::Screen,
             is_probe: false,
         };
         let result =

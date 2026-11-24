@@ -42,6 +42,7 @@ fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     }
 }

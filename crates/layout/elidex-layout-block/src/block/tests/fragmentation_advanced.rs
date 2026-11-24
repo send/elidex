@@ -37,7 +37,7 @@ fn box_decoration_break_slice_first_fragment() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.layout_box.content.size.height >= 0.0);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn box_decoration_break_clone_first_fragment() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
 }
 
 // ---------------------------------------------------------------------------
@@ -115,10 +115,10 @@ fn margin_collapse_suppressed_at_fragment_start() {
     };
 
     let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome1.break_token.is_some());
+    assert!(outcome1.end.token().is_some());
 
     // Second layout: resume.
-    let bt = outcome1.break_token.unwrap();
+    let bt = outcome1.end.into_token().unwrap();
     let frag2 = FragmentainerContext {
         available_block_size: 200.0,
         fragmentation_type: FragmentationType::Page,
@@ -130,7 +130,7 @@ fn margin_collapse_suppressed_at_fragment_start() {
     };
 
     let outcome2 = crate::layout_block_only(&mut dom, parent, &input2);
-    assert!(outcome2.break_token.is_none());
+    assert!(outcome2.end.is_complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ fn break_propagation_first_child_break_before() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
     assert_eq!(outcome.propagated_break_before, Some(BreakValue::Page));
 }
 
@@ -181,7 +181,7 @@ fn break_propagation_last_child_break_after() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
     assert_eq!(outcome.propagated_break_after, Some(BreakValue::Page));
 }
 
@@ -217,7 +217,7 @@ fn break_inside_avoid_penalizes_candidates() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "overflow still breaks even with avoid"
     );
 }
@@ -269,7 +269,7 @@ fn inline_fragmentation_no_fragmentainer_no_break() {
     let input = base_input(&font_db);
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_none(),
+        outcome.end.is_complete(),
         "no fragmentainer → no break from inline content"
     );
 }
@@ -304,10 +304,10 @@ fn nested_block_fragmentation_break_token_chain() {
 
     let outcome = crate::layout_block_only(&mut dom, outer, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "nested overflow should produce break token"
     );
-    let bt = outcome.break_token.unwrap();
+    let bt = outcome.end.into_token().unwrap();
     assert!(
         matches!(
             bt.mode_data,
@@ -349,7 +349,7 @@ fn three_level_nested_break_propagation() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, outer, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
     assert_eq!(outcome.propagated_break_before, Some(BreakValue::Page));
 }
 
@@ -376,8 +376,8 @@ fn forced_break_before_first_child_produces_empty_fragment() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
-    let bt = outcome.break_token.unwrap();
+    assert!(outcome.end.token().is_some());
+    let bt = outcome.end.into_token().unwrap();
 
     assert!(
         bt.consumed_block_size < f32::EPSILON,
@@ -412,8 +412,8 @@ fn best_break_selects_last_fitting_candidate() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
-    let bt = outcome.break_token.unwrap();
+    assert!(outcome.end.token().is_some());
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -461,10 +461,10 @@ fn monolithic_non_first_child_breaks_before() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "should break before monolithic child that would overflow"
     );
-    let bt = outcome.break_token.unwrap();
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -530,7 +530,7 @@ fn vertical_rl_block_fragmentation() {
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(
-        outcome.break_token.is_some(),
+        outcome.end.token().is_some(),
         "vertical-rl block fragmentation should produce break"
     );
 }
@@ -577,8 +577,8 @@ fn child_index_correct_with_display_none_children() {
     };
 
     let outcome1 = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome1.break_token.is_some());
-    let bt = outcome1.break_token.unwrap();
+    assert!(outcome1.end.token().is_some());
+    let bt = outcome1.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -600,7 +600,7 @@ fn child_index_correct_with_display_none_children() {
     };
     let outcome2 = crate::layout_block_only(&mut dom, parent, &input2);
     assert!(
-        outcome2.break_token.is_none(),
+        outcome2.end.is_complete(),
         "remaining child B should fit in 200px"
     );
 }
@@ -631,8 +631,8 @@ fn break_after_avoid_penalizes_candidate() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
-    let bt = outcome.break_token.unwrap();
+    assert!(outcome.end.token().is_some());
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -668,7 +668,7 @@ fn propagated_break_after_not_set_for_non_last_child() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
     assert_eq!(
         outcome.propagated_break_after, None,
         "break-after should not propagate from non-last child"
@@ -700,7 +700,7 @@ fn fragment_height_clamped_to_break_point() {
     };
 
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
-    assert!(outcome.break_token.is_some());
+    assert!(outcome.end.token().is_some());
     assert!(
         outcome.layout_box.content.size.height <= 80.0,
         "fragment height ({}) should not exceed fragmentainer (80px)",
@@ -744,8 +744,8 @@ fn monolithic_deferred_when_no_space_remaining() {
     let outcome = crate::layout_block_only(&mut dom, parent, &input);
     assert!(outcome.contribution.is_finished(parent, first));
     assert!(!outcome.contribution.is_finished(parent, child2));
-    assert!(outcome.break_token.is_some());
-    let bt = outcome.break_token.unwrap();
+    assert!(outcome.end.token().is_some());
+    let bt = outcome.end.into_token().unwrap();
 
     if let Some(BreakTokenData::Block { child_index, .. }) = &bt.mode_data {
         assert_eq!(
@@ -788,7 +788,9 @@ fn mixed_stack_routes_both_local_runs_to_their_source() {
             break_token: token.as_ref(),
             ..base_input(&font_db)
         };
-        token = crate::layout_block_only(&mut dom, parent, &input).break_token;
+        token = crate::layout_block_only(&mut dom, parent, &input)
+            .end
+            .into_token();
         let Some(bt) = &token else { break };
         if let Some(BreakTokenData::Block {
             child_index,
@@ -834,7 +836,8 @@ fn direct_inline_rejects_changed_route_kind() {
         ..base_input(&fonts)
     };
     let mut token = crate::layout_block_only(&mut dom, owner, &input)
-        .break_token
+        .end
+        .into_token()
         .unwrap();
     let Some(BreakTokenData::Block { continuation, .. }) = &mut token.mode_data else {
         panic!("expected Block token");

@@ -63,7 +63,8 @@ pub fn stack_block_children(
                 None,
             );
             selection
-                .break_token
+                .end
+                .into_token()
                 .and_then(|token| match token.mode_data {
                     Some(BreakTokenData::Block {
                         child_index,
@@ -175,6 +176,7 @@ fn stack_fragment(
     let mut break_candidates: Vec<fragmentation::BreakCandidate> = Vec::new();
     let mut propagated_break_before: Option<BreakValue> = None;
     let mut propagated_break_after: Option<BreakValue> = None;
+    let mut incomplete = false;
     let mut result_break_token: Option<BreakToken> = None;
 
     // Track previous block child's break-after for avoid penalty (CSS Frag §4.5).
@@ -323,7 +325,7 @@ fn stack_fragment(
         // TODO(G9): Float fragmentation — push float to next fragmentainer if it
         // overflows. Requires fragmentainer-aware float placement (CSS Frag §4.1).
         if child_float != Float::None {
-            let floated = layout_float(
+            let (floated, end) = layout_float(
                 dom,
                 child,
                 child_float,
@@ -334,6 +336,10 @@ fn stack_fragment(
                 layout_child,
             );
             contribution.include(&floated);
+            if !end.is_complete() {
+                incomplete = true;
+                break;
+            }
             contribution.finish_item(parent_entity, child);
             prev_break_after = Some(child_style.break_after);
             continue;
@@ -439,7 +445,7 @@ fn stack_fragment(
         };
         let child_outcome = layout_child(dom, child, &child_input);
         if let (None, Some(token), Some(room), Some(frag)) =
-            (child_bt, &child_outcome.break_token, room, frag_ctx)
+            (child_bt, child_outcome.end.token(), room, frag_ctx)
         {
             let source_fits = room.available_block_size > 0.0
                 && token.consumed_block_size <= room.available_block_size
@@ -465,17 +471,17 @@ fn stack_fragment(
             }
         }
         contribution.include(&child_outcome.contribution);
-        if child_outcome.break_token.is_some() {
-            contribution.record_item(parent_entity, child);
-        } else {
-            contribution.finish_item(parent_entity, child);
+        if matches!(child_outcome.end, crate::FragmentEnd::Incomplete) {
+            incomplete = true;
+            break;
         }
         let child_box = child_outcome.layout_box;
 
         // --- Fragmentation: propagate child's break token upward ---
         // If the child itself was fragmented, produce a break at this child_index
         // wrapping the child's break token.
-        if let Some(child_bt) = child_outcome.break_token {
+        if let crate::FragmentEnd::Continue(child_bt) = child_outcome.end {
+            contribution.record_item(parent_entity, child);
             // Track propagated break-before from first child.
             if idx == start_index {
                 if let Some(bp) = child_outcome.propagated_break_before {
@@ -492,6 +498,8 @@ fn stack_fragment(
             ));
             break;
         }
+
+        contribution.finish_item(parent_entity, child);
 
         // Capture baseline from first in-flow block child (CSS 2.1 §10.8.1).
         if first_baseline.is_none() {
@@ -581,7 +589,7 @@ fn stack_fragment(
     }
 
     // Flush trailing inline run (CSS 2.1 §9.2.1.1) — only if no break was produced.
-    if result_break_token.is_none() && !inline_run.is_empty() {
+    if !incomplete && result_break_token.is_none() && !inline_run.is_empty() {
         let progress = resume_run
             .filter(|(first, _)| Some(first) == inline_run.first())
             .map(|(_, p)| p.clone());
@@ -671,7 +679,11 @@ fn stack_fragment(
         last_child_margin_bottom: last_child_margin_block_end,
         static_positions,
         first_baseline,
-        break_token: result_break_token,
+        end: if incomplete {
+            crate::FragmentEnd::Incomplete
+        } else {
+            result_break_token.into()
+        },
         propagated_break_before,
         propagated_break_after,
     }
