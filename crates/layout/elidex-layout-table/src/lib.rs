@@ -399,6 +399,38 @@ pub fn layout_table(
         .iter()
         .all(|c| c.col < num_cols.max(1) && c.row < num_rows.max(1)));
 
+    let spacing_v = if is_collapse {
+        0.0
+    } else {
+        style.border_spacing_v
+    };
+
+    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
+    let select_rows =
+        |dom: &EcsDom,
+         heights: &[f32],
+         progress: &mut elidex_layout_block::source_progress::SourceProgress| {
+            if let Some(&frag) = input.fragmentainer {
+                compute_table_fragmentation(
+                    dom,
+                    entity,
+                    &all_rows,
+                    heights,
+                    spacing_v,
+                    frag,
+                    resume_row,
+                    thead_entity,
+                    tfoot_entity,
+                    progress,
+                )
+            } else {
+                for row in &all_rows {
+                    progress.finish_item(entity, row.entity);
+                }
+                (None, None, None)
+            }
+        };
+
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
         let width = input.assigned.content.width.unwrap_or_else(|| {
@@ -439,11 +471,15 @@ pub fn layout_table(
             None,
         );
         dom.set_layout_box(entity, lb.clone());
-        let mut outcome = elidex_layout_block::LayoutOutcome::from(lb);
-        for row in all_rows.iter().skip(resume_row) {
-            outcome.contribution.finish_item(entity, row.entity);
-        }
-        return outcome;
+        let (break_token, propagated_break_before, propagated_break_after) =
+            select_rows(dom, &vec![0.0; num_rows], &mut contribution);
+        return elidex_layout_block::LayoutOutcome {
+            layout_box: lb,
+            contribution,
+            break_token,
+            propagated_break_before,
+            propagated_break_after,
+        };
     }
 
     let spacing_h = if is_collapse {
@@ -451,12 +487,6 @@ pub fn layout_table(
     } else {
         style.border_spacing_h
     };
-    let spacing_v = if is_collapse {
-        0.0
-    } else {
-        style.border_spacing_v
-    };
-
     // Calculate spacing overhead.
     let spacing_overhead_h = spacing_h * (num_cols + 1) as f32;
     let available_for_cols = (content_width - spacing_overhead_h).max(0.0);
@@ -664,27 +694,8 @@ pub fn layout_table(
     // CSS Fragmentation L3 §4: counter-increment should only happen on the first
     // fragment. CSS counters are not yet implemented (planned for G11), so this
     // constraint is currently satisfied by default.
-    let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let (result_break_token, propagated_break_before, propagated_break_after) =
-        if let Some(&frag) = input.fragmentainer {
-            compute_table_fragmentation(
-                dom,
-                entity,
-                &all_rows,
-                &row_heights,
-                spacing_v,
-                frag,
-                resume_row,
-                thead_entity,
-                tfoot_entity,
-                &mut contribution,
-            )
-        } else {
-            for row in &all_rows {
-                contribution.finish_item(entity, row.entity);
-            }
-            (None, None, None)
-        };
+        select_rows(dom, &row_heights, &mut contribution);
 
     // Position cells.
     // Compute column x offsets.

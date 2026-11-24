@@ -475,86 +475,92 @@ fn block_preserves_table_row_contributions_at_a_forced_break() {
     };
     use elidex_plugin::BreakValue;
 
-    let mut dom = EcsDom::new();
-    let mut node = |tag, display, parent, break_before| {
-        let id = dom.create_element_ownerless_fixture(tag, Attributes::default());
-        dom.world_mut().insert_one(
-            id,
-            ComputedStyle {
-                display,
-                break_before,
-                height: if display == Display::TableCell {
-                    Dimension::Length(10.0)
-                } else {
-                    Dimension::Auto
+    for with_cells in [false, true] {
+        let mut dom = EcsDom::new();
+        let mut node = |tag, display, parent, break_before| {
+            let id = dom.create_element_ownerless_fixture(tag, Attributes::default());
+            dom.world_mut().insert_one(
+                id,
+                ComputedStyle {
+                    display,
+                    break_before,
+                    height: if display == Display::TableCell {
+                        Dimension::Length(10.0)
+                    } else {
+                        Dimension::Auto
+                    },
+                    ..Default::default()
                 },
-                ..Default::default()
-            },
-        );
-        if let Some(owner) = parent {
-            dom.append_child(owner, id);
+            );
+            if let Some(owner) = parent {
+                dom.append_child(owner, id);
+            }
+            id
+        };
+        let block = node("div", Display::Block, None, BreakValue::Auto);
+        let table = node("table", Display::Table, Some(block), BreakValue::Auto);
+        let p = node("tr", Display::TableRow, Some(table), BreakValue::Auto);
+        if with_cells {
+            node("td", Display::TableCell, Some(p), BreakValue::Auto);
         }
-        id
-    };
-    let block = node("div", Display::Block, None, BreakValue::Auto);
-    let table = node("table", Display::Table, Some(block), BreakValue::Auto);
-    let p = node("tr", Display::TableRow, Some(table), BreakValue::Auto);
-    node("td", Display::TableCell, Some(p), BreakValue::Auto);
-    let q = node("tr", Display::TableRow, Some(table), BreakValue::Page);
-    node("td", Display::TableCell, Some(q), BreakValue::Auto);
-    let font_db = FontDatabase::new();
-    let frag = FragmentainerContext {
-        available_block_size: 100.0,
-        fragmentation_type: FragmentationType::Page,
-    };
-    let input = contribution_input(&font_db, &frag);
-    let first = dispatch_layout_child(&mut dom, block, &input);
-    assert!(first.contribution.is_finished(table, p));
-    assert!(!first.contribution.is_finished(table, q));
-    assert!(!first.contribution.is_finished(block, table));
-    let token = first.break_token.expect("Table interrupted after P");
-    let Some(BreakTokenData::Block {
-        continuation: BlockContinuation::InterruptedChild(child),
-        ..
-    }) = &token.mode_data
-    else {
-        panic!("expected interrupted Table");
-    };
-    assert_eq!(child.entity, table);
-    assert!(matches!(
-        child.mode_data,
-        Some(BreakTokenData::Table { row_index: 1, .. })
-    ));
-    let mut corrupt = token.clone();
-    if let Some(BreakTokenData::Block {
-        continuation: BlockContinuation::InterruptedChild(child),
-        ..
-    }) = &mut corrupt.mode_data
-    {
-        child.entity = q;
-    }
-    assert_rejected_before_publication(&mut dom, block, &input, &corrupt);
-    let mut wrong_route = token.clone();
-    if let Some(BreakTokenData::Block { continuation, .. }) = &mut wrong_route.mode_data {
-        *continuation = BlockContinuation::ChildBoundary;
-    }
-    assert_rejected_before_publication(&mut dom, block, &input, &wrong_route);
-    for width in [120.0, 260.0] {
-        let next = dispatch_layout_child(
-            &mut dom,
-            block,
-            &LayoutInput {
-                containing: CssSize::definite(width, 100.0),
-                containing_inline_size: width,
-                break_token: Some(&token),
-                layout_generation: 2,
-                ..input
-            },
-        );
-        assert!(!next.contribution.is_finished(table, p));
-        assert!(next.contribution.is_finished(table, q));
-        assert!(next.contribution.is_finished(block, table));
-        assert!(next.break_token.is_none());
+        let q = node("tr", Display::TableRow, Some(table), BreakValue::Page);
+        if with_cells {
+            node("td", Display::TableCell, Some(q), BreakValue::Auto);
+        }
+        let font_db = FontDatabase::new();
+        let frag = FragmentainerContext {
+            available_block_size: 100.0,
+            fragmentation_type: FragmentationType::Page,
+        };
+        let input = contribution_input(&font_db, &frag);
+        let first = dispatch_layout_child(&mut dom, block, &input);
+        assert!(first.contribution.is_finished(table, p));
+        assert!(!first.contribution.is_finished(table, q));
+        assert!(!first.contribution.is_finished(block, table));
+        let token = first.break_token.expect("Table interrupted after P");
+        let Some(BreakTokenData::Block {
+            continuation: BlockContinuation::InterruptedChild(child),
+            ..
+        }) = &token.mode_data
+        else {
+            panic!("expected interrupted Table");
+        };
+        assert_eq!(child.entity, table);
+        assert!(matches!(
+            child.mode_data,
+            Some(BreakTokenData::Table { row_index: 1, .. })
+        ));
+        let mut corrupt = token.clone();
+        if let Some(BreakTokenData::Block {
+            continuation: BlockContinuation::InterruptedChild(child),
+            ..
+        }) = &mut corrupt.mode_data
+        {
+            child.entity = q;
+        }
+        assert_rejected_before_publication(&mut dom, block, &input, &corrupt);
+        let mut wrong_route = token.clone();
+        if let Some(BreakTokenData::Block { continuation, .. }) = &mut wrong_route.mode_data {
+            *continuation = BlockContinuation::ChildBoundary;
+        }
+        assert_rejected_before_publication(&mut dom, block, &input, &wrong_route);
+        for width in [120.0, 260.0] {
+            let next = dispatch_layout_child(
+                &mut dom,
+                block,
+                &LayoutInput {
+                    containing: CssSize::definite(width, 100.0),
+                    containing_inline_size: width,
+                    break_token: Some(&token),
+                    layout_generation: 2,
+                    ..input
+                },
+            );
+            assert!(!next.contribution.is_finished(table, p));
+            assert!(next.contribution.is_finished(table, q));
+            assert!(next.contribution.is_finished(block, table));
+            assert!(next.break_token.is_none());
+        }
     }
 }
 
