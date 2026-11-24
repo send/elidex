@@ -56,6 +56,21 @@ pub(crate) fn is_reversed(dir: FlexDirection) -> bool {
     )
 }
 
+impl FlexContext {
+    fn reversed_main(&self) -> bool {
+        let row = matches!(
+            self.direction,
+            FlexDirection::Row | FlexDirection::RowReverse
+        );
+        let reversed_flow = if row {
+            self.css_direction == Direction::Rtl
+        } else {
+            self.writing_mode == WritingMode::VerticalRl
+        };
+        is_reversed(self.direction) ^ reversed_flow
+    }
+}
+
 /// Resolve a percentage dimension against the containing main-axis size.
 ///
 /// Returns `None` if the container is indefinite (percentage cannot be resolved).
@@ -158,6 +173,8 @@ pub(crate) struct FlexItem {
     pub(crate) cross_size_auto: bool,
     /// Minimum content size on the main axis (from min-width/min-height).
     pub(crate) min_main: f32,
+    pub(crate) min_cross: f32,
+    pub(crate) max_cross: f32,
     /// Maximum content size on the main axis (from max-width/max-height).
     pub(crate) max_main: f32,
     /// Flex §8.1: auto margin flags for free-space distribution.
@@ -179,6 +196,13 @@ pub(crate) struct FlexItem {
 }
 
 impl FlexItem {
+    fn stretches(&self) -> bool {
+        self.align == AlignItems::Stretch
+            && self.cross_size_auto
+            && !self.margin_cross_start_auto
+            && !self.margin_cross_end_auto
+    }
+
     /// Returns the item's baseline for alignment, or a synthesized baseline
     /// at the border-box bottom (CSS Flexbox §9.4) when no intrinsic baseline exists.
     pub(crate) fn baseline_or_synthesized(&self) -> f32 {
@@ -420,7 +444,7 @@ pub fn layout_flex(
     let container_cross = input.assigned.axes(horizontal).1.unwrap_or_else(|| {
         algo::resolve_container_cross(&style, &ctx, containing_width, total_line_cross)
     });
-    // CSS Flexbox §9.4 step 8: a single line takes the definite container cross size.
+    // CSS Flexbox §9.4 (#cross-sizing): a single line takes the definite container cross size.
     if ctx.wrap == FlexWrap::Nowrap && line_cross_sizes.len() == 1 {
         line_cross_sizes[0] = container_cross;
     }

@@ -82,6 +82,7 @@ pub fn layout_block(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize::width_only(containing_width),
         containing_inline_size: containing_width,
@@ -112,6 +113,7 @@ pub fn layout_block_with_height(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
@@ -240,11 +242,13 @@ pub fn layout_block_inner(
     };
 
     // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
-    let intrinsic = if assigned_inline.is_some() && assigned_block.is_some() {
-        None
-    } else {
-        crate::get_intrinsic_size(dom, entity)
-    };
+    let established = input
+        .assigned
+        .content
+        .width
+        .zip(input.assigned.content.height)
+        .map(|(w, h)| elidex_plugin::Size::new(w, h));
+    let intrinsic = crate::helpers::replaced_size(dom, entity, established);
 
     // --- Resolve inline-size ---
     // CSS: `width` and `height` are physical properties. In vertical modes,
@@ -330,15 +334,18 @@ pub fn layout_block_inner(
     // --- Compute physical content position ---
     // Inline position: offset along inline axis + inline-start margin/border/padding.
     // Block position: offset along block axis + block-start margin/border/padding.
-    let (content_x, content_y);
-    if is_horizontal {
-        content_x = offset_x + margin_inline_start + border.left + padding.left;
-        content_y = offset_y + margin_block_start + border.top + padding.top;
+    let left = if is_horizontal {
+        margin_inline_start
     } else {
-        // Vertical: inline axis = Y, block axis = X.
-        content_x = offset_x + margin_block_start + l_border.block_start + l_padding.block_start;
-        content_y = offset_y + margin_inline_start + l_border.inline_start + l_padding.inline_start;
-    }
+        margin_left_raw
+    };
+    let top = if is_horizontal {
+        margin_top
+    } else {
+        margin_inline_start
+    };
+    let content_x = offset_x + left + border.left + padding.left;
+    let content_y = offset_y + top + border.top + padding.top;
 
     // --- Layout children (stop recursion at depth limit) ---
     let children = crate::composed_children_flat(dom, entity);
@@ -447,6 +454,7 @@ pub fn layout_block_inner(
         );
         let child_bt_for_stack = input.break_token;
         let child_input = LayoutInput {
+            is_flex_item: false,
             assigned: crate::UsedAssignment::default(),
             containing: CssSize {
                 width: child_phys_width,
@@ -464,7 +472,7 @@ pub fn layout_block_inner(
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,
         };
-        let is_bfc = input.assigned.margin != EdgeSizes::default() || establishes_bfc(&style);
+        let is_bfc = input.is_flex_item || establishes_bfc(&style);
         let mut result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
@@ -613,18 +621,6 @@ pub fn layout_block_inner(
         (block_size, content_inline)
     };
 
-    // Recompute content position using collapsed block-start margin.
-    let (final_x, final_y) = if is_horizontal {
-        let fx = offset_x + margin_inline_start + border.left + padding.left;
-        let fy = offset_y + collapsed_margin_block_start + border.top + padding.top;
-        (fx, fy)
-    } else {
-        let fx =
-            offset_x + collapsed_margin_block_start + l_border.block_start + l_padding.block_start;
-        let fy = offset_y + margin_inline_start + l_border.inline_start + l_padding.inline_start;
-        (fx, fy)
-    };
-
     // Build physical margin EdgeSizes. Block-axis margins may have been collapsed.
     let margin = if is_horizontal {
         EdgeSizes::new(
@@ -650,6 +646,8 @@ pub fn layout_block_inner(
         )
     };
 
+    let final_x = offset_x + margin.left + border.left + padding.left;
+    let final_y = offset_y + margin.top + border.top + padding.top;
     let lb = LayoutBox {
         content: Rect::new(final_x, final_y, phys_width, phys_height),
         padding,

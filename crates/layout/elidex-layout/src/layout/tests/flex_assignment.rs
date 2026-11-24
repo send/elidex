@@ -6,6 +6,8 @@ use std::cell::RefCell;
 struct Call {
     entity: Entity,
     probe: bool,
+    returned_origin: Point,
+    generation: u32,
     assigned: UsedAssignment,
     origin: Point,
     size: Size,
@@ -21,12 +23,15 @@ fn observe(
     entity: Entity,
     input: &LayoutInput<'_>,
 ) -> elidex_layout_block::LayoutOutcome {
+    assert!(input.is_flex_item);
     let style = elidex_layout_block::get_style(dom, entity);
     let result = dispatch_layout_child(dom, entity, input);
     CALLS.with_borrow_mut(|calls| {
         calls.push(Call {
             entity,
             probe: input.is_probe,
+            returned_origin: result.layout_box.content.origin,
+            generation: result.layout_box.layout_generation,
             assigned: input.assigned,
             origin: input.offset,
             size: result.layout_box.content.size,
@@ -37,9 +42,14 @@ fn observe(
 }
 
 fn run(dom: &mut EcsDom, parent: Entity, width: f32) {
+    run_at_generation(dom, parent, width, 0);
+}
+
+fn run_at_generation(dom: &mut EcsDom, parent: Entity, width: f32, generation: u32) {
     CALLS.with_borrow_mut(Vec::clear);
     let fonts = FontDatabase::new();
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: UsedAssignment::default(),
         containing: CssSize::width_only(width),
         containing_inline_size: width,
@@ -51,7 +61,7 @@ fn run(dom: &mut EcsDom, parent: Entity, width: f32) {
         fragmentainer: None,
         break_token: None,
         subgrid: None,
-        layout_generation: 0,
+        layout_generation: generation,
         is_probe: false,
     };
     elidex_layout_flex::layout_flex(dom, parent, &input, observe);
@@ -342,6 +352,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
         let fonts = FontDatabase::new();
         for depth in [0, elidex_layout_block::MAX_LAYOUT_DEPTH] {
             let input = LayoutInput {
+                is_flex_item: false,
                 assigned: UsedAssignment {
                     content: Size {
                         width: Some(0.0),
@@ -374,5 +385,262 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
             assert_eq!(lb.margin, EdgeSizes::new(2.0, 0.0, -3.0, 5.0));
             assert_eq!(lb.layout_generation, 3);
         }
+    }
+}
+
+#[test]
+fn relative_flex_item_preserves_paged_generation_and_flow_origin() {
+    for left in [0.0, 5.0] {
+        let mut dom = EcsDom::new();
+        let parent = node(&mut dom, None, style(Display::Flex));
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                position: Position::Relative,
+                left: Dimension::Length(left),
+                width: Dimension::Length(40.0),
+                ..style(Display::Block)
+            },
+        );
+        run_at_generation(&mut dom, parent, 100.0, 3);
+        let published = get_layout(&dom, item);
+        assert_eq!(
+            (published.content.origin.x, published.layout_generation),
+            (left, 3)
+        );
+        CALLS.with_borrow(|calls| {
+            let last = calls.last().unwrap();
+            assert_eq!((last.returned_origin.x, last.generation), (0.0, 3));
+        });
+    }
+}
+
+#[test]
+fn rtl_rows_preserve_the_physical_auto_margin_side() {
+    use elidex_plugin::{Direction, FlexDirection};
+    for direction in [FlexDirection::Row, FlexDirection::RowReverse] {
+        for left in [false, true] {
+            let mut dom = EcsDom::new();
+            let parent = node(
+                &mut dom,
+                None,
+                ComputedStyle {
+                    flex_direction: direction,
+                    direction: Direction::Rtl,
+                    ..style(Display::Flex)
+                },
+            );
+            let item = node(
+                &mut dom,
+                Some(parent),
+                ComputedStyle {
+                    width: Dimension::Length(40.0),
+                    margin_left: if left {
+                        Dimension::Auto
+                    } else {
+                        Dimension::ZERO
+                    },
+                    margin_right: if left {
+                        Dimension::ZERO
+                    } else {
+                        Dimension::Auto
+                    },
+                    ..style(Display::Block)
+                },
+            );
+            run(&mut dom, parent, 200.0);
+            let lb = get_layout(&dom, item);
+            let expected = if left { 160.0 } else { 0.0 };
+            assert_eq!(
+                (lb.margin.left, lb.margin.right, lb.content.origin.x),
+                (expected, 160.0 - expected, expected)
+            );
+        }
+    }
+}
+
+#[test]
+fn stretch_respects_cross_margins_and_clamps_used_content() {
+    for (child_height, auto, max, min, expected, share) in [
+        (30.0, true, Dimension::Auto, 0.0, 30.0, 20.0),
+        (30.0, false, Dimension::Length(40.0), 0.0, 40.0, 0.0),
+        (90.0, false, Dimension::Auto, 0.0, 70.0, 0.0),
+        (30.0, false, Dimension::Auto, 80.0, 80.0, 0.0),
+    ] {
+        let mut dom = EcsDom::new();
+        let parent = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                height: Dimension::Length(70.0),
+                ..style(Display::Flex)
+            },
+        );
+        let edge = if auto {
+            Dimension::Auto
+        } else {
+            Dimension::ZERO
+        };
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                width: Dimension::Length(40.0),
+                min_height: Dimension::Length(min),
+                max_height: max,
+                margin_top: edge,
+                margin_bottom: edge,
+                ..style(Display::Block)
+            },
+        );
+        node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                height: Dimension::Length(child_height),
+                ..style(Display::Block)
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        let lb = get_layout(&dom, item);
+        assert_eq!(
+            (lb.content.size.height, lb.margin.top, lb.margin.bottom),
+            (expected, share, share)
+        );
+    }
+}
+
+#[test]
+fn fully_assigned_replaced_flex_item_skips_its_dom_children() {
+    let mut dom = EcsDom::new();
+    let parent = node(&mut dom, None, style(Display::Flex));
+    let item = node(
+        &mut dom,
+        Some(parent),
+        ComputedStyle {
+            width: Dimension::Length(60.0),
+            height: Dimension::Length(30.0),
+            ..style(Display::Block)
+        },
+    );
+    dom.world_mut().insert_one(
+        item,
+        elidex_ecs::ImageData {
+            width: 60,
+            height: 30,
+            pixels: std::sync::Arc::new(vec![0; 7200]),
+        },
+    );
+    let child = node(&mut dom, Some(item), style(Display::Block));
+    run(&mut dom, parent, 100.0);
+    assert!(dom.world().get::<&LayoutBox>(child).is_err());
+    assert_eq!(get_layout(&dom, item).content.size, Size::new(60.0, 30.0));
+}
+
+#[test]
+fn floated_child_contributes_to_flex_item_cross_measurement() {
+    let mut dom = EcsDom::new();
+    let parent = node(&mut dom, None, style(Display::Flex));
+    let item = node(&mut dom, Some(parent), style(Display::Block));
+    node(
+        &mut dom,
+        Some(item),
+        ComputedStyle {
+            float: elidex_plugin::Float::Left,
+            width: Dimension::Length(10.0),
+            height: Dimension::Length(30.0),
+            ..style(Display::Block)
+        },
+    );
+    run(&mut dom, parent, 100.0);
+    assert_eq!(get_layout(&dom, item).content.size.height, 30.0);
+    assert_eq!(get_layout(&dom, parent).content.size.height, 30.0);
+}
+
+#[test]
+fn vertical_rl_receiver_uses_physical_left_and_top_once() {
+    for multicol in [false, true] {
+        let mut dom = EcsDom::new();
+        let parent = node(&mut dom, None, style(Display::Flex));
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                writing_mode: elidex_plugin::WritingMode::VerticalRl,
+                width: Dimension::Length(40.0),
+                height: Dimension::Length(70.0),
+                column_count: multicol.then_some(1),
+                margin_left: Dimension::Auto,
+                margin_top: Dimension::Length(3.0),
+                padding: EdgeSizes {
+                    left: Dimension::Length(5.0),
+                    right: Dimension::Length(1.0),
+                    ..Default::default()
+                },
+                ..style(Display::Block)
+            },
+        );
+        let child = node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                width: Dimension::Length(10.0),
+                height: Dimension::Length(10.0),
+                ..style(Display::Block)
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        let lb = get_layout(&dom, item);
+        assert_eq!(lb.margin_box().origin.x, 0.0);
+        assert_eq!(lb.content.origin, Point::new(59.0, 3.0));
+        assert!(get_layout(&dom, child).content.origin.x >= lb.content.origin.x);
+    }
+}
+
+#[test]
+fn empty_vertical_table_keeps_each_main_only_assignment_on_its_axis() {
+    use elidex_plugin::FlexDirection;
+    for (direction, width, height) in [
+        (FlexDirection::Row, 100.0, 0.0),
+        (FlexDirection::Column, 0.0, 80.0),
+    ] {
+        let mut dom = EcsDom::new();
+        let parent = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                flex_direction: direction,
+                align_items: elidex_plugin::AlignItems::FlexStart,
+                height: Dimension::Length(80.0),
+                ..style(Display::Flex)
+            },
+        );
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                writing_mode: elidex_plugin::WritingMode::VerticalRl,
+                flex_basis: FlexBasis::Length(width + height),
+                min_width: Dimension::ZERO,
+                min_height: Dimension::ZERO,
+                ..style(Display::Table)
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        CALLS.with_borrow(|calls| {
+            let cross = calls
+                .iter()
+                .find(|c| {
+                    c.probe
+                        && c.assigned.content.width.is_some() != c.assigned.content.height.is_some()
+                })
+                .unwrap();
+            assert_eq!(cross.size, Size::new(width, height));
+        });
+        assert_eq!(
+            get_layout(&dom, item).content.size,
+            Size::new(width, height)
+        );
     }
 }

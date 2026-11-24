@@ -329,6 +329,7 @@ pub fn layout_table(
     if !is_continuation {
         for &cap in &captions_top {
             let cap_input = LayoutInput {
+                is_flex_item: false,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,
@@ -397,16 +398,30 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let content_height = assigned_block.unwrap_or_else(|| {
-            resolve_table_height(&style, containing_height, v_pb, caption_top_height)
-        });
+        let natural_height =
+            resolve_table_height(&style, containing_height, v_pb, caption_top_height);
+        let (width, height) = if is_horizontal_wm {
+            (content_width, assigned_block.unwrap_or(natural_height))
+        } else {
+            let inline = assigned_inline.unwrap_or(natural_height);
+            let block = assigned_block.unwrap_or_else(|| match style.width {
+                elidex_plugin::Dimension::Auto => 0.0,
+                _ => elidex_layout_block::resolve_content_width(
+                    &style,
+                    containing_width,
+                    h_pb,
+                    h_margin,
+                ),
+            });
+            (block, inline)
+        };
         let lb = build_table_layout_box(
             &padding,
             &border,
             &margin,
             Point::new(content_x, offset_y + margin.top + border.top + padding.top),
-            input.assigned.content.width.unwrap_or(content_width),
-            input.assigned.content.height.unwrap_or(content_height),
+            width,
+            height,
             None,
         );
         dom.set_layout_box(entity, lb.clone());
@@ -521,6 +536,7 @@ pub fn layout_table(
         // Pass table explicit height as containing_height so cell percentage
         // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
+            is_flex_item: false,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize {
                 width: effective_width,
@@ -717,6 +733,7 @@ pub fn layout_table(
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
+            is_flex_item: false,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(cell_phys_w, cell_phys_h),
             containing_inline_size: child_inline_containing,
@@ -743,6 +760,7 @@ pub fn layout_table(
     if result_break_token.is_none() && !is_continuation {
         for &cap in &captions_bottom {
             let cap_input = LayoutInput {
+                is_flex_item: false,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,

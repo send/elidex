@@ -47,6 +47,7 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -94,6 +95,7 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -147,6 +149,7 @@ fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -184,6 +187,7 @@ fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -237,6 +241,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,

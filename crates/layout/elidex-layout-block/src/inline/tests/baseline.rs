@@ -131,6 +131,7 @@ fn block_inline_text_baseline() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -187,6 +188,7 @@ fn nested_block_baseline_propagation() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -240,6 +242,7 @@ fn block_without_baseline_none() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -298,6 +301,7 @@ fn mixed_block_inline_baseline() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,

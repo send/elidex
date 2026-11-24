@@ -7,7 +7,7 @@ use elidex_layout_block::{
 };
 use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Display, FlexBasis, Visibility};
 
-use super::{is_reversed, resolve_flex_basis, FlexContext, FlexItem};
+use super::{resolve_flex_basis, FlexContext, FlexItem};
 
 /// Compute padding+border on main and cross axes.
 pub(crate) fn compute_pb(
@@ -56,7 +56,7 @@ pub(crate) fn collect_flex_items(
             margin_cross_start_auto,
             margin_cross_end_auto,
         ) = if ctx.horizontal {
-            let (ms, me) = if is_reversed(ctx.direction) {
+            let (ms, me) = if ctx.reversed_main() {
                 (
                     child_style.margin_right == Dimension::Auto,
                     child_style.margin_left == Dimension::Auto,
@@ -74,7 +74,7 @@ pub(crate) fn collect_flex_items(
                 child_style.margin_bottom == Dimension::Auto,
             )
         } else {
-            let (ms, me) = if is_reversed(ctx.direction) {
+            let (ms, me) = if ctx.reversed_main() {
                 (
                     child_style.margin_bottom == Dimension::Auto,
                     child_style.margin_top == Dimension::Auto,
@@ -133,6 +133,7 @@ pub(crate) fn collect_flex_items(
                 ctx.content_width
             };
             let child_input = LayoutInput {
+                is_flex_item: true,
                 viewport: env.viewport,
                 ..LayoutInput::probe(env, probe_width)
             };
@@ -175,7 +176,27 @@ pub(crate) fn collect_flex_items(
         // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
         let hypo_main = clamp_min_max(hypo_main, min_main, max_main);
 
+        let (cross_min, cross_max, cross_basis) = if ctx.horizontal {
+            (
+                child_style.min_height,
+                child_style.max_height,
+                ctx.resolved_height.unwrap_or(0.0),
+            )
+        } else {
+            (
+                child_style.min_width,
+                child_style.max_width,
+                ctx.content_width,
+            )
+        };
+        let mut min_cross = resolve_min_max(cross_min, cross_basis, 0.0);
+        let mut max_cross = resolve_min_max(cross_max, cross_basis, f32::INFINITY);
+        if child_style.box_sizing == BoxSizing::BorderBox {
+            adjust_min_max_for_border_box(&mut min_cross, &mut max_cross, pb_cross);
+        }
         items.push(FlexItem {
+            min_cross,
+            max_cross,
             entity: child,
             source_order,
             order: child_style.order,
@@ -234,6 +255,7 @@ fn compute_automatic_minimum(
 
     // Content-based minimum: probe layout at near-zero width.
     let probe_input = LayoutInput {
+        is_flex_item: true,
         viewport: env.viewport,
         ..LayoutInput::probe(env, 1.0)
     };

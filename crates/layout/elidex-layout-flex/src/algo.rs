@@ -6,13 +6,12 @@ use elidex_layout_block::{
     clamp_min_max, resolve_explicit_height, sanitize, total_gap, LayoutInput,
 };
 use elidex_plugin::{
-    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, Direction, EdgeSizes, FlexWrap,
-    Point, Size,
+    AlignItems, BoxSizing, ComputedStyle, CssSize, Dimension, EdgeSizes, FlexWrap, Point, Size,
 };
 
 use super::align::{apply_justify_safety, compute_justify_offsets};
 
-use super::{is_reversed, FlexContext, FlexItem};
+use super::{FlexContext, FlexItem};
 
 /// Re-export shared layout environment from block crate.
 pub(crate) use elidex_layout_block::LayoutEnv;
@@ -218,6 +217,7 @@ pub(crate) fn layout_items_cross(
             ctx.resolved_height.unwrap_or(0.0)
         };
         let child_input = LayoutInput {
+            is_flex_item: true,
             assigned: elidex_layout_block::UsedAssignment {
                 content: Size {
                     width: ctx.horizontal.then_some(item.final_main),
@@ -340,12 +340,10 @@ pub(crate) fn stretch_items(
     for (idx, &(start, end)) in line_ranges.iter().enumerate() {
         let line_cross = line_cross_sizes[idx];
         for item in &mut items[start..end] {
-            // CSS spec: stretch only applies when align is Stretch AND cross-size is auto.
-            if item.align == AlignItems::Stretch && item.cross_size_auto {
-                let available = line_cross - item.margin_cross;
-                if available > item.final_cross {
-                    item.final_cross = available;
-                }
+            if item.stretches() {
+                let content = (line_cross - item.margin_cross - item.pb_cross).max(0.0);
+                item.final_cross =
+                    clamp_min_max(content, item.min_cross, item.max_cross) + item.pb_cross;
             }
         }
     }
@@ -430,7 +428,7 @@ fn relayout_item_at_position(
     // for their children's percentage-height resolution. Pass the resolved cross
     // size as the containing height (for row flex) or containing width (for
     // column flex).
-    let stretched = item.align == AlignItems::Stretch && item.cross_size_auto;
+    let stretched = item.stretches();
     let child_containing_width = if !ctx.horizontal && stretched {
         item_content_width
     } else {
@@ -452,6 +450,7 @@ fn relayout_item_at_position(
         child_containing_height.unwrap_or(0.0)
     };
     let child_input = LayoutInput {
+        is_flex_item: true,
         assigned: elidex_layout_block::UsedAssignment {
             content: Size {
                 width: Some(item_content_width),
@@ -492,11 +491,7 @@ pub(crate) fn position_items(
     let container_cross = lines.container_cross;
     // CSS Flexbox §4.2: RTL flips the main-axis direction for row layouts.
     // Row + RTL → reversed, RowReverse + RTL → not reversed (double reversal).
-    let reversed_main = if ctx.horizontal && ctx.css_direction == Direction::Rtl {
-        !is_reversed(ctx.direction)
-    } else {
-        is_reversed(ctx.direction)
-    };
+    let reversed_main = ctx.reversed_main();
     let reversed_cross = matches!(ctx.wrap, FlexWrap::WrapReverse);
 
     for (line_idx, &(start, end)) in line_ranges.iter().enumerate() {

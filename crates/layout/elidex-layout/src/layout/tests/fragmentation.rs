@@ -22,6 +22,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -71,6 +72,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -138,6 +140,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -174,6 +177,7 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
         fragmentation_type: elidex_layout_block::FragmentationType::Column,
     };
     let input = elidex_layout_block::LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,

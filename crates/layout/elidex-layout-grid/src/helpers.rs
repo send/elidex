@@ -597,3 +597,58 @@ pub fn compute_grid_intrinsic(
         max_content: max + gap_total,
     }
 }
+
+/// Extract inherited parent track sizes for a subgridded axis, if applicable.
+///
+/// Returns `Some(tracks)` when `track_list` is `Subgrid` and the parent
+/// provided sizes for this axis; `None` otherwise.
+pub(super) fn inherited_parent_tracks(
+    track_list: &elidex_plugin::GridTrackList,
+    subgrid: Option<&elidex_layout_block::SubgridContext>,
+    is_col: bool,
+) -> Option<Vec<track::ResolvedTrack>> {
+    if !track_list.is_subgrid() {
+        return None;
+    }
+    let sg = subgrid?;
+    let sizes = if is_col {
+        sg.col_sizes.as_ref()?
+    } else {
+        sg.row_sizes.as_ref()?
+    };
+    Some(
+        sizes
+            .iter()
+            .map(|&size| track::ResolvedTrack::from_fixed_size(size))
+            .collect(),
+    )
+}
+
+/// Add a subgrid's margin/border/padding contribution to the first and last
+/// tracks it spans on one axis (CSS Grid L2 §2.5).
+///
+/// `contribs` are the per-track intrinsic size contributions;
+/// `start` and `span` identify the spanned tracks; `mbp_start`/`mbp_end`
+/// are the axis-start/end m/b/p values already mapped through writing mode.
+pub(super) fn add_subgrid_axis_mbp(
+    contribs: &mut [track::TrackContribution],
+    start: usize,
+    span: usize,
+    mbp_start: f32,
+    mbp_end: f32,
+) {
+    let span = span.max(1);
+    if start < contribs.len() {
+        contribs[start].min_content += mbp_start;
+        contribs[start].max_content += mbp_start;
+    }
+    let last = start.saturating_add(span - 1);
+    if last < contribs.len() && last != start {
+        contribs[last].min_content += mbp_end;
+        contribs[last].max_content += mbp_end;
+    } else if start < contribs.len() && span == 1 {
+        // Single-track span: add end m/b/p to the same track.
+        contribs[start].min_content += mbp_end;
+        contribs[start].max_content += mbp_end;
+    }
+}

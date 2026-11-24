@@ -91,7 +91,7 @@ pub fn dispatch_layout_child(
     if !input.is_probe && tests::TRACK_CHILD.get() == Some(entity) {
         tests::TRACK_WIDTH.set(Some(input.containing.width));
     }
-    let outcome = match style.display {
+    let mut outcome = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
@@ -141,6 +141,7 @@ pub fn dispatch_layout_child(
     // paged media rendering. The walk skips entities whose generation
     // doesn't match the current page. Non-paged paths use generation=0.
     if input.layout_generation > 0 {
+        outcome.layout_box.layout_generation = input.layout_generation;
         if let Some(mut lb) = dom.layout_box_mut(entity) {
             lb.layout_generation = input.layout_generation;
         }
@@ -223,6 +224,7 @@ pub fn layout_paged(
     };
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
@@ -393,6 +395,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         .ok();
 
     let root_input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(viewport.width, viewport.height),
         containing_inline_size: viewport.width,

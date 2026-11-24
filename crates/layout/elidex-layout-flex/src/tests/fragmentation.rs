@@ -19,6 +19,7 @@ fn do_layout_flex_fragmented(
     break_token: Option<elidex_layout_block::BreakToken>,
 ) -> LayoutOutcome {
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,

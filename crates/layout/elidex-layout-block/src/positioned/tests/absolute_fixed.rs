@@ -364,6 +364,7 @@ fn fixed_uses_viewport() {
 
     // Layout with viewport 800x600
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -424,6 +425,7 @@ fn fixed_removed_from_flow() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -475,6 +477,7 @@ fn fixed_top_left_zero() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -526,6 +529,7 @@ fn fixed_percentage_against_viewport() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -591,6 +595,7 @@ fn fixed_inside_relative() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -662,6 +667,7 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -733,6 +739,7 @@ fn fixed_no_transform_uses_viewport() {
     );
 
     let input = LayoutInput {
+        is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,

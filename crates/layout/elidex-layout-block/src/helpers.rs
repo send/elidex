@@ -409,26 +409,40 @@ pub fn try_get_style(dom: &EcsDom, entity: Entity) -> Option<ComputedStyle> {
 ///
 /// Returns `Some(Size)` for replaced elements (images, form controls, iframes),
 /// `None` otherwise.
-#[allow(clippy::cast_precision_loss)]
 #[must_use]
 pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<Size> {
+    replaced_size(dom, entity, None)
+}
+
+// Consult the component to identify replaced boxes even when both content axes are established.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn replaced_size(
+    dom: &EcsDom,
+    entity: Entity,
+    established: Option<Size>,
+) -> Option<Size> {
     dom.world()
         .get::<&ImageData>(entity)
         .ok()
-        .map(|img| Size::new(img.width as f32, img.height as f32))
+        .map(|img| established.unwrap_or_else(|| Size::new(img.width as f32, img.height as f32)))
         .or_else(|| {
             dom.world()
                 .get::<&elidex_form::FormControlState>(entity)
                 .ok()
                 .map(|fcs| {
-                    let s = elidex_form::form_intrinsic_size(&fcs);
-                    Size::new(s.width.max(0.0), s.height.max(0.0))
+                    established.unwrap_or_else(|| {
+                        let s = elidex_form::form_intrinsic_size(&fcs);
+                        Size::new(s.width.max(0.0), s.height.max(0.0))
+                    })
                 })
         })
         .or_else(|| {
             dom.world()
                 .get::<&elidex_ecs::IframeData>(entity)
                 .ok()
-                .map(|iframe| Size::new(iframe.width as f32, iframe.height as f32))
+                .map(|iframe| {
+                    established
+                        .unwrap_or_else(|| Size::new(iframe.width as f32, iframe.height as f32))
+                })
         })
 }
