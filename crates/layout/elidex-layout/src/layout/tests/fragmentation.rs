@@ -824,11 +824,19 @@ fn whole_spanners_and_floats_forward_nested_source() {
     let inner = node("div", Display::Block, Some(block));
     let float = node("div", Display::Block, Some(owner));
     let floated = node("div", Display::Block, Some(float));
+    let flex_span = node("div", Display::Flex, Some(multi));
+    let span_item = node("div", Display::Block, Some(flex_span));
+    let flex_float = node("div", Display::Flex, Some(owner));
+    let float_item = node("div", Display::Block, Some(flex_float));
+    dom.world_mut()
+        .get::<&mut ComputedStyle>(flex_float)
+        .unwrap()
+        .float = Float::Left;
     dom.world_mut()
         .get::<&mut ComputedStyle>(multi)
         .unwrap()
         .column_count = Some(2);
-    for spanner in [table, block] {
+    for spanner in [table, block, flex_span] {
         dom.world_mut()
             .get::<&mut ComputedStyle>(spanner)
             .unwrap()
@@ -846,6 +854,8 @@ fn whole_spanners_and_floats_forward_nested_source() {
     let outcome = dispatch_layout_child(&mut dom, owner, &contribution_input(&fonts, &frag));
     for (parent, child) in [
         (owner, multi),
+        (flex_span, span_item),
+        (flex_float, float_item),
         (multi, table),
         (table, row),
         (multi, block),
