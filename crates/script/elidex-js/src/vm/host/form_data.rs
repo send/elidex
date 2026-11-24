@@ -83,8 +83,8 @@ pub(crate) struct FormDataEntry {
     pub(crate) value: FormDataValue,
     /// Optional filename — only meaningful for [`FormDataValue::Blob`]
     /// entries.  When `None` for a Blob entry, the multipart encoder
-    /// substitutes the well-known `"blob"` default per WHATWG XHR
-    /// §4.3 step "create an entry".
+    /// supplies `"blob"`. HTML §4.10.22.4 (`#create-an-entry`) gives a
+    /// non-File Blob that name when wrapping it in a File.
     pub(crate) filename: Option<StringId>,
 }
 
@@ -541,15 +541,15 @@ fn take_name_arg(
 }
 
 /// Build a `FormDataEntry` from an `(name, value, filename?)`
-/// argument tuple, applying WHATWG XHR §4.3 "create an entry":
+/// argument tuple. This representation differs from HTML §4.10.22.4
+/// (`#create-an-entry`) in how it stores Blob values:
 /// - `name` is `ToString`-coerced.
 /// - `value` is a `Blob` instance ⇒ kept as `FormDataValue::Blob`,
 ///   and `filename` (when supplied) is `ToString`-coerced.  The
 ///   default filename `"blob"` is supplied lazily by the multipart
 ///   encoder when no explicit filename was set.
 /// - Otherwise `value` is `ToString`-coerced into a string entry,
-///   and `filename` is ignored (spec: filename is only meaningful
-///   for Blob/File values).
+///   and this implementation ignores `filename`.
 fn build_entry(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -573,8 +573,6 @@ fn build_entry(
             (FormDataValue::Blob(obj_id), filename)
         }
         _ => {
-            // Per spec, filename is silently dropped for non-Blob
-            // values — matches Chromium / Firefox.
             let sid = super::super::coerce::to_string(ctx.vm, value_arg)?;
             (FormDataValue::String(sid), None)
         }
