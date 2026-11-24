@@ -588,11 +588,10 @@ pub(crate) fn native_typed_array_reduce_right(
 }
 
 /// Shared body of `reduce` / `reduceRight`.  Per spec
-/// §23.2.3.23/.24 the callback is invoked as `Call(callbackfn,
-/// undefined, ⟨acc, kValue, F(k), O⟩)` — `this` inside the
-/// callback is always `undefined` (no `thisArg` parameter).
+/// §23.2.3.23 and §23.2.3.24 step 10.b pass undefined as the callback's
+/// thisArgument and supply the accumulator, element value, index, and receiver.
 ///
-/// Initial-value handling per §23.2.3.23 step 4-7:
+/// Both algorithms select the initial accumulator in steps 5–9:
 /// - `initialValue` provided → `acc = initialValue`, scan all
 ///   elements (`[0..len)` forward / `[len-1..-1]` reverse).
 /// - `initialValue` absent + `len > 0` → `acc = O[start]`
@@ -711,7 +710,7 @@ fn reduce_impl(
 /// or `undefined` — anything else surfaces TypeError per spec
 /// §23.2.3.29 step 1.  Default ordering (no `compareFn`) is
 /// ascending numeric for non-`BigInt` element kinds with `NaN`
-/// sorted to the end (per spec `TypedArrayElementSortCompare`),
+/// sorted to the end (CompareTypedArrayElements, §23.2.4.8 steps 3–5),
 /// or ascending `BigInt::cmp` for `BigInt64Array` /
 /// `BigUint64Array` (no NaN concern).
 ///
@@ -801,14 +800,11 @@ pub(crate) fn native_typed_array_sort(
 }
 
 /// Default ascending sort comparator for the no-`compareFn`
-/// branch of [`native_typed_array_sort`].  Matches spec
-/// `TypedArrayElementSortCompare` (§23.2.4.7 / .8):
+/// branch of [`native_typed_array_sort`]. CompareTypedArrayElements
+/// (§23.2.4.8 steps 3–10) places NaNs last and orders -0 before +0.
+/// Known VM P4 defect: the Number branch compares signed zeros as equal.
 ///
-/// - `Number / Number` → `<` ordering with `NaN` sorted to the
-///   end (`partial_cmp` is `None` for any NaN comparison; the
-///   fallback `Equal` only fires for the unreachable
-///   `NaN.cmp(NaN)` case which is already handled by the
-///   `is_nan` arms above).
+/// - `Number / Number` → handle NaNs first, then compare numerically.
 /// - `BigInt / BigInt` → `BigInt::cmp` ordering via the canonical
 ///   `BigIntPool` lookup.  BigInt values are permanent (per
 ///   `BigIntPool`'s "not garbage-collected" contract), so the
