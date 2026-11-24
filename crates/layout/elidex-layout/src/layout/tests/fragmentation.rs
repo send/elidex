@@ -1099,9 +1099,7 @@ fn positive_room_for_an_unstarted_size_only_child_respects_class_a_avoid() {
     }
 }
 
-#[test]
-fn grid_replays_two_parallel_child_routes_by_identity() {
-    use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType};
+fn make_parallel_grid() -> (EcsDom, Entity, Vec<(Entity, Entity, Entity)>, Entity) {
     use elidex_plugin::{BreakValue, GridTrackList, TrackSection, TrackSize};
     let mut dom = EcsDom::new();
     let mut node = |style, parent| {
@@ -1133,7 +1131,7 @@ fn grid_replays_two_parallel_child_routes_by_identity() {
         ..Default::default()
     };
     let mut interrupted = Vec::new();
-    for height in [140.0, 150.0] {
+    for height in [140.0, 210.0] {
         let child = node(block(height), Some(grid));
         let prefix = node(block(12.0), Some(child));
         let suffix = node(
@@ -1146,17 +1144,24 @@ fn grid_replays_two_parallel_child_routes_by_identity() {
         interrupted.push((child, prefix, suffix));
     }
     let whole = node(block(10.0), Some(grid));
+    (dom, grid, interrupted, whole)
+}
+
+#[test]
+fn grid_replays_two_parallel_child_routes_by_identity() {
+    use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType};
+    let (mut dom, grid, interrupted, whole) = make_parallel_grid();
     let fonts = FontDatabase::new();
-    let mut saved = None;
+    let mut saved = vec![None];
     for replay in [false, true] {
-        for resume in [false, true] {
+        for (page, room) in [95.0, 60.0, 30.0, 30.0].into_iter().enumerate() {
             let frag = FragmentainerContext {
-                available_block_size: 95.0,
+                available_block_size: room,
                 fragmentation_type: FragmentationType::Page,
             };
-            let generation = 1 + u32::from(replay) * 2 + u32::from(resume);
+            let generation = 1 + u32::from(replay) * 4 + u32::try_from(page).unwrap();
             let input = elidex_layout_block::LayoutInput {
-                break_token: if resume { saved.as_ref() } else { None },
+                break_token: saved[page].as_ref(),
                 layout_generation: generation,
                 medium: elidex_plugin::Medium::Print,
                 ..contribution_input(&fonts, &frag)
@@ -1167,17 +1172,30 @@ fn grid_replays_two_parallel_child_routes_by_identity() {
                     .get::<&elidex_plugin::LayoutBox>(id)
                     .is_ok_and(|lb| lb.layout_generation == generation)
             };
-            assert_eq!(visible(whole), !resume);
-            assert_eq!(outcome.contribution.is_finished(grid, whole), !resume);
-            for &(child, prefix, suffix) in &interrupted {
-                assert!(visible(child));
-                assert_eq!(visible(prefix), !resume);
-                assert_eq!(visible(suffix), resume);
-                assert_eq!(outcome.contribution.is_finished(child, prefix), !resume);
-                assert_eq!(outcome.contribution.is_finished(child, suffix), resume);
-                assert_eq!(outcome.contribution.is_finished(grid, child), resume);
+            assert_eq!(visible(whole), page == 0);
+            assert_eq!(outcome.contribution.is_finished(grid, whole), page == 0);
+            for (i, &(child, prefix, suffix)) in interrupted.iter().enumerate() {
+                let last = if i == 0 { 1 } else { 3 };
+                assert_eq!(visible(child), page <= last);
+                if page <= last {
+                    let expected = [[95.0, 45.0, 0.0, 0.0], [95.0, 60.0, 30.0, 25.0]][i][page];
+                    assert_eq!(
+                        dom.world()
+                            .get::<&elidex_plugin::LayoutBox>(child)
+                            .unwrap()
+                            .content
+                            .size
+                            .height,
+                        expected
+                    );
+                }
+                assert_eq!(visible(prefix), page == 0);
+                assert_eq!(visible(suffix), page == 1);
+                assert_eq!(outcome.contribution.is_finished(child, prefix), page == 0);
+                assert_eq!(outcome.contribution.is_finished(child, suffix), page == 1);
+                assert_eq!(outcome.contribution.is_finished(grid, child), page == last);
             }
-            if resume {
+            if page == 3 {
                 assert!(outcome.end.is_complete());
             } else {
                 let token = outcome.end.into_token().unwrap();
@@ -1187,15 +1205,19 @@ fn grid_replays_two_parallel_child_routes_by_identity() {
                 else {
                     panic!("expected Grid continuation")
                 };
-                assert_eq!(child_break_tokens.len(), 2);
-                for ((child, token), (expected, _, _)) in
-                    child_break_tokens.iter().zip(&interrupted)
+                let unresolved = if page == 0 {
+                    &interrupted[..]
+                } else {
+                    &interrupted[1..]
+                };
+                assert_eq!(child_break_tokens.len(), unresolved.len());
+                for ((child, token), (expected, _, _)) in child_break_tokens.iter().zip(unresolved)
                 {
                     assert_eq!(child, expected);
                     assert_eq!(token.entity, *expected);
                 }
                 if !replay {
-                    saved = Some(token);
+                    saved.push(Some(token));
                 }
             }
         }
