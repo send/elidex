@@ -483,13 +483,27 @@ pub fn layout_grid(
             Some(BreakTokenData::Grid {
                 row_index,
                 child_break_tokens,
+                ..
             }) => (*row_index, child_break_tokens.clone()),
             _ => (0, Vec::new()),
         },
         None => (0, Vec::new()),
     };
+    let content_room = input.fragmentainer.map(|room| {
+        let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+        let logical = |edges| elidex_plugin::LogicalEdges::from_physical(edges, wm);
+        let padding = logical(padding);
+        let border = logical(border);
+        let margin = logical(margin);
+        room.content_room(
+            input.break_token.is_none(),
+            style.box_decoration_break,
+            padding.block_start + border.block_start + margin.block_start,
+            padding.block_end + border.block_end + margin.block_end,
+        )
+    });
     let (row_break, propagated_break_before, propagated_break_after) =
-        if let Some(&frag) = input.fragmentainer {
+        if let Some(frag) = content_room {
             select_grid_rows(dom, &items, &row_tracks, gap_row, frag, resume_row)
         } else {
             (None, None, None)
@@ -542,8 +556,8 @@ pub fn layout_grid(
     };
     let mut fragment = position::ItemFragmentation {
         owner: entity,
-        contribution: Default::default(),
-        room: input.fragmentainer,
+        contribution: elidex_layout_block::source_progress::SourceProgress::default(),
+        room: content_room.as_ref(),
         resume_row,
         incoming: &resume_child_bts,
         outgoing: Vec::new(),
@@ -578,6 +592,7 @@ pub fn layout_grid(
                 consumed_block_size: content,
                 mode_data: Some(BreakTokenData::Grid {
                     row_index: end_row,
+                    rows_exhausted: row_break.is_none(),
                     child_break_tokens: fragment.outgoing,
                 }),
             });

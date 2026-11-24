@@ -95,40 +95,72 @@ fn interrupted_child(token: Option<&BreakToken>) -> Option<Entity> {
 }
 
 /// Follow the same nested interruption through both column boundaries.
-fn specified_size_advanced(dom: &EcsDom, old: &BreakToken, new: &BreakToken) -> bool {
+fn specified_size_advanced(dom: &EcsDom, old: Option<&BreakToken>, new: &BreakToken) -> bool {
     use elidex_layout_block::BlockContinuation;
-    if old.entity != new.entity {
+    if old.is_some_and(|old| old.entity != new.entity) {
         return false;
     }
-    match (&old.mode_data, &new.mode_data) {
-        (
-            Some(BreakTokenData::Block {
-                continuation: BlockContinuation::InterruptedChild(a),
-                ..
-            }),
-            Some(BreakTokenData::Block {
-                continuation: BlockContinuation::InterruptedChild(b),
-                ..
-            }),
-        ) => specified_size_advanced(dom, a, b),
-        (
-            Some(BreakTokenData::Block {
-                child_index: a,
-                continuation: BlockContinuation::ChildBoundary,
-                ..
-            }),
-            Some(BreakTokenData::Block {
-                child_index: b,
-                continuation: BlockContinuation::ChildBoundary,
-                ..
-            }),
-        ) => {
-            a == b
-                && old
-                    .specified_size_fraction
-                    .zip(new.specified_size_fraction)
-                    .is_some_and(|(before, after)| after > before)
-                && *b == elidex_layout_block::composed_children_flat(dom, new.entity).len()
+    let before = old.and_then(|token| token.mode_data.as_ref());
+    let previous_fraction = old
+        .and_then(|token| token.specified_size_fraction)
+        .unwrap_or(0.0);
+    let advanced = new
+        .specified_size_fraction
+        .is_some_and(|after| after > previous_fraction);
+    match new.mode_data.as_ref() {
+        Some(BreakTokenData::Block {
+            continuation: BlockContinuation::InterruptedChild(child),
+            ..
+        }) => {
+            let previous = match before {
+                Some(BreakTokenData::Block {
+                    continuation: BlockContinuation::InterruptedChild(child),
+                    ..
+                }) => Some(child.as_ref()),
+                None => None,
+                _ => return false,
+            };
+            specified_size_advanced(dom, previous, child)
+        }
+        Some(BreakTokenData::Block {
+            child_index,
+            continuation: BlockContinuation::ChildBoundary,
+            ..
+        }) => {
+            advanced
+                && *child_index
+                    == elidex_layout_block::composed_children_flat(dom, new.entity).len()
+                && (before.is_none()
+                    || matches!(before, Some(BreakTokenData::Block {child_index: prior, continuation: BlockContinuation::ChildBoundary, ..}) if prior == child_index))
+        }
+        Some(BreakTokenData::Grid {
+            row_index,
+            rows_exhausted,
+            child_break_tokens,
+        }) => {
+            let (same_end, children) = match before {
+                Some(BreakTokenData::Grid {
+                    row_index: prior,
+                    rows_exhausted,
+                    child_break_tokens,
+                }) => (
+                    prior == row_index && *rows_exhausted && child_break_tokens.is_empty(),
+                    child_break_tokens.as_slice(),
+                ),
+                None => (true, &[][..]),
+                _ => return false,
+            };
+            if *rows_exhausted && child_break_tokens.is_empty() {
+                return same_end && advanced;
+            }
+            child_break_tokens.iter().any(|(entity, next)| {
+                let previous = children
+                    .iter()
+                    .find(|(id, _)| id == entity)
+                    .map(|(_, token)| token.as_ref());
+                (before.is_none() || previous.is_some())
+                    && specified_size_advanced(dom, previous, next)
+            })
         }
         _ => false,
     }
@@ -277,9 +309,7 @@ pub fn fill_columns_sequential(
                 _ => &empty,
             };
             stalled = !result.contribution.advances(previous)
-                && !carry_break_token
-                    .as_ref()
-                    .is_some_and(|old| specified_size_advanced(dom, old, next));
+                && !specified_size_advanced(dom, carry_break_token.as_ref(), next);
         }
         fragments.push(ColumnFragment {
             contribution: result.contribution,

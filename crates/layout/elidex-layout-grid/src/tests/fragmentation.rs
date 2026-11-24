@@ -390,6 +390,7 @@ fn spanning_item_fragmentation() {
         Some(BreakTokenData::Grid {
             row_index,
             child_break_tokens,
+            ..
         }) => {
             assert_eq!(*row_index, 1, "break before row 1");
             // No spanning items in this test, so child_break_tokens should be empty.
@@ -593,6 +594,7 @@ fn completed_spanning_item_has_no_child_continuation() {
         Some(BreakTokenData::Grid {
             row_index,
             child_break_tokens,
+            ..
         }) => {
             assert_eq!(*row_index, 2, "should break before row 2");
             assert!(
@@ -689,6 +691,7 @@ fn spanning_item_reports_content_and_specified_size_separately() {
         Some(BreakTokenData::Grid {
             row_index,
             child_break_tokens,
+            ..
         }) => {
             assert_eq!(*row_index, 2, "should break before row 2");
             assert_eq!(child_break_tokens.len(), 1, "item A spans the break");
@@ -716,23 +719,6 @@ fn spanning_item_reports_content_and_specified_size_separately() {
 
 #[test]
 fn resume_with_child_break_tokens() {
-    let mut container = grid_container(2);
-    container.grid_template_rows = GridTrackList::Explicit(TrackSection {
-        tracks: vec![TrackSize::Length(60.0)],
-        line_names: Vec::new(),
-    });
-    let (mut dom, grid, items) = make_grid_dom(container, &[grid_item(210.0), grid_item(10.0)]);
-    let split = items[0];
-    for is_suffix in [false, true] {
-        let part = dom.create_element_ownerless_fixture("div", Attributes::default());
-        let _ = dom.append_child(split, part);
-        let mut style = grid_item(16.0);
-        if is_suffix {
-            style.break_before = BreakValue::Column;
-        }
-        dom.world_mut().insert_one(part, style).unwrap();
-    }
-    let parts = dom.children(split);
     fn dispatch(
         dom: &mut EcsDom,
         child: elidex_ecs::Entity,
@@ -755,6 +741,23 @@ fn resume_with_child_break_tokens() {
         }
         layout_block_only(dom, child, input)
     }
+    let mut container = grid_container(2);
+    container.grid_template_rows = GridTrackList::Explicit(TrackSection {
+        tracks: vec![TrackSize::Length(60.0)],
+        line_names: Vec::new(),
+    });
+    let (mut dom, grid, items) = make_grid_dom(container, &[grid_item(210.0), grid_item(10.0)]);
+    let split = items[0];
+    for is_suffix in [false, true] {
+        let part = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let _ = dom.append_child(split, part);
+        let mut style = grid_item(16.0);
+        if is_suffix {
+            style.break_before = BreakValue::Column;
+        }
+        dom.world_mut().insert_one(part, style).unwrap();
+    }
+    let parts = dom.children(split);
     let fonts = FontDatabase::new();
     let room = |size| {
         Some(FragmentainerContext {
@@ -783,7 +786,7 @@ fn resume_with_child_break_tokens() {
         .into_token()
         .expect("a nested break on the final row must continue");
     assert!(
-        matches!(&token.mode_data, Some(BreakTokenData::Grid { row_index: 1, child_break_tokens }) if child_break_tokens.len() == 1 && child_break_tokens[0].0 == split)
+        matches!(&token.mode_data, Some(BreakTokenData::Grid { row_index: 1, child_break_tokens, .. }) if child_break_tokens.len() == 1 && child_break_tokens[0].0 == split)
     );
     let last = do_layout_grid_fragmented(
         &mut dom,
@@ -842,5 +845,55 @@ fn empty_grid_consumes_remaining_specified_size_without_item_contributions() {
         assert_eq!(outcome.contribution.contributed_items().count(), 0);
         route = outcome.end.into_token();
         assert_eq!(route.is_none(), complete);
+    }
+}
+
+#[test]
+fn cloned_grid_edges_reserve_logical_block_room_once() {
+    use elidex_plugin::{BoxDecorationBreak, WritingMode};
+    let fonts = FontDatabase::new();
+    for writing_mode in [WritingMode::HorizontalTb, WritingMode::VerticalRl] {
+        let horizontal = writing_mode.is_horizontal();
+        let mut style = ComputedStyle {
+            width: Dimension::Length(210.0),
+            height: Dimension::Length(210.0),
+            writing_mode,
+            box_decoration_break: BoxDecorationBreak::Cloned,
+            ..grid_container(1)
+        };
+        if horizontal {
+            style.padding.top = Dimension::Length(7.0);
+            style.padding.bottom = Dimension::Length(3.0);
+            style.margin_top = Dimension::Length(4.0);
+            style.margin_bottom = Dimension::Length(6.0);
+        } else {
+            style.padding.right = Dimension::Length(7.0);
+            style.padding.left = Dimension::Length(3.0);
+            style.margin_right = Dimension::Length(4.0);
+            style.margin_left = Dimension::Length(6.0);
+        }
+        let (mut dom, grid, _) = make_grid_dom(style, &[]);
+        let mut route = None;
+        for (room, expected, done) in [(115.0, 95.0, false), (140.0, 115.0, true)] {
+            let outcome = do_layout_grid_fragmented(
+                &mut dom,
+                grid,
+                300.0,
+                Some(300.0),
+                Point::ZERO,
+                &fonts,
+                0,
+                layout_block_only,
+                Some(FragmentainerContext {
+                    available_block_size: room,
+                    fragmentation_type: FragmentationType::Page,
+                }),
+                route,
+            );
+            let size = outcome.layout_box.content.size;
+            assert_eq!(if horizontal { size.height } else { size.width }, expected);
+            assert_eq!(outcome.end.is_complete(), done);
+            route = outcome.end.into_token();
+        }
     }
 }

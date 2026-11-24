@@ -342,21 +342,32 @@ fn hidden_inline_descendant_leaves_only_its_wrapper_terminal() {
 #[test]
 fn specified_block_size_counts_filled_fragment_room_through_replay() {
     let fonts = FontDatabase::new();
-    for (rooms, heights, suffix_height) in [
-        (vec![95.0, 120.0], vec![95.0, 115.0], 16.0),
-        (vec![95.0, 160.0], vec![95.0, 130.0], 130.0),
+    for (rooms, heights, suffix_height, cloned) in [
+        (vec![95.0, 120.0], vec![95.0, 115.0], 16.0, false),
+        (vec![115.0, 140.0], vec![95.0, 115.0], 16.0, true),
+        (vec![95.0, 160.0], vec![95.0, 130.0], 130.0, false),
         (
             vec![95.0, 60.0, 30.0, 30.0],
             vec![95.0, 60.0, 30.0, 25.0],
             16.0,
+            false,
         ),
     ] {
-        let (mut dom, owner) = make_dom_with_block_div(ComputedStyle {
+        let mut style = ComputedStyle {
             height: Dimension::Length(210.0),
             ..block_style()
-        });
-        make_block_child_with_break(&mut dom, owner, 16.0, BreakValue::Auto, BreakValue::Page);
-        make_block_child(&mut dom, owner, suffix_height);
+        };
+        if cloned {
+            style.box_decoration_break = elidex_plugin::BoxDecorationBreak::Cloned;
+            style.padding.top = Dimension::Length(3.0);
+            style.padding.bottom = Dimension::Length(7.0);
+            style.margin_top = Dimension::Length(4.0);
+            style.margin_bottom = Dimension::Length(6.0);
+        }
+        let (mut dom, owner) = make_dom_with_block_div(style);
+        let prefix =
+            make_block_child_with_break(&mut dom, owner, 16.0, BreakValue::Auto, BreakValue::Page);
+        let suffix = make_block_child(&mut dom, owner, suffix_height);
         let mut saved = Vec::new();
         for replay in [false, true] {
             let mut carry = None;
@@ -372,10 +383,13 @@ fn specified_block_size_counts_filled_fragment_room_through_replay() {
                 let input = LayoutInput {
                     break_token: saved[index].as_ref(),
                     fragmentainer: Some(&frag),
+                    layout_generation: 1 + u32::from(replay) * 10 + u32::try_from(index).unwrap(),
                     ..base_input(&fonts)
                 };
                 let outcome = crate::layout_block_only(&mut dom, owner, &input);
                 assert_eq!(outcome.layout_box.content.size.height, expected);
+                assert_eq!(outcome.contribution.is_finished(owner, prefix), index == 0);
+                assert_eq!(outcome.contribution.is_finished(owner, suffix), index == 1);
                 total += expected;
                 carry = outcome.end.into_token();
                 if index + 1 == rooms.len() {

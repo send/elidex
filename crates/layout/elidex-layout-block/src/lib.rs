@@ -52,6 +52,28 @@ pub struct FragmentainerContext {
     pub fragmentation_type: FragmentationType,
 }
 
+impl FragmentainerContext {
+    /// Content-box room at entry after the applicable logical edges (CSS Break 3 §§5.1, 5.4).
+    #[must_use]
+    pub fn content_room(
+        self,
+        first: bool,
+        decoration: elidex_plugin::BoxDecorationBreak,
+        start: f32,
+        end: f32,
+    ) -> Self {
+        let reserved = match decoration {
+            elidex_plugin::BoxDecorationBreak::Cloned => start + end,
+            elidex_plugin::BoxDecorationBreak::Slice if first => start,
+            elidex_plugin::BoxDecorationBreak::Slice => 0.0,
+        };
+        Self {
+            available_block_size: (self.available_block_size - reserved).max(0.0),
+            ..self
+        }
+    }
+}
+
 /// How a formatter ended the current fragment.
 #[derive(Clone, Debug, Default)]
 pub enum FragmentEnd {
@@ -204,7 +226,9 @@ pub enum BreakTokenData {
     /// Grid layout: row index and spanning item break tokens.
     Grid {
         row_index: usize,
-        /// Spanning items that were fragmented at this break row.
+        /// The grid selected its last row, including the empty grid case.
+        rows_exhausted: bool,
+        /// Items with actual child continuations.
         /// Each entry is `(item_entity, child_break_token)` for resumption.
         child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
     },
@@ -684,6 +708,7 @@ mod tests {
             child_break_token: None,
         };
         let grid = BreakTokenData::Grid {
+            rows_exhausted: false,
             row_index: 3,
             child_break_tokens: Vec::new(),
         };

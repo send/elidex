@@ -1098,3 +1098,148 @@ fn positive_room_for_an_unstarted_size_only_child_respects_class_a_avoid() {
         }
     }
 }
+
+#[test]
+fn grid_replays_two_parallel_child_routes_by_identity() {
+    use elidex_layout_block::{BreakTokenData, FragmentainerContext, FragmentationType};
+    use elidex_plugin::{BreakValue, GridTrackList, TrackSection, TrackSize};
+    let mut dom = EcsDom::new();
+    let mut node = |style, parent| {
+        let entity = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(entity, style);
+        if let Some(parent) = parent {
+            dom.append_child(parent, entity);
+        }
+        entity
+    };
+    let grid = node(
+        ComputedStyle {
+            display: Display::Grid,
+            grid_template_columns: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Fr(1.0); 3],
+                line_names: Vec::new(),
+            }),
+            grid_template_rows: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Length(60.0)],
+                line_names: Vec::new(),
+            }),
+            ..Default::default()
+        },
+        None,
+    );
+    let block = |height| ComputedStyle {
+        display: Display::Block,
+        height: Dimension::Length(height),
+        ..Default::default()
+    };
+    let mut interrupted = Vec::new();
+    for height in [140.0, 150.0] {
+        let child = node(block(height), Some(grid));
+        let prefix = node(block(12.0), Some(child));
+        let suffix = node(
+            ComputedStyle {
+                break_before: BreakValue::Page,
+                ..block(14.0)
+            },
+            Some(child),
+        );
+        interrupted.push((child, prefix, suffix));
+    }
+    let whole = node(block(10.0), Some(grid));
+    let fonts = FontDatabase::new();
+    let mut saved = None;
+    for replay in [false, true] {
+        for resume in [false, true] {
+            let frag = FragmentainerContext {
+                available_block_size: 95.0,
+                fragmentation_type: FragmentationType::Page,
+            };
+            let generation = 1 + u32::from(replay) * 2 + u32::from(resume);
+            let input = elidex_layout_block::LayoutInput {
+                break_token: if resume { saved.as_ref() } else { None },
+                layout_generation: generation,
+                medium: elidex_plugin::Medium::Print,
+                ..contribution_input(&fonts, &frag)
+            };
+            let outcome = dispatch_layout_child(&mut dom, grid, &input);
+            let visible = |id| {
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(id)
+                    .is_ok_and(|lb| lb.layout_generation == generation)
+            };
+            assert_eq!(visible(whole), !resume);
+            assert_eq!(outcome.contribution.is_finished(grid, whole), !resume);
+            for &(child, prefix, suffix) in &interrupted {
+                assert!(visible(child));
+                assert_eq!(visible(prefix), !resume);
+                assert_eq!(visible(suffix), resume);
+                assert_eq!(outcome.contribution.is_finished(child, prefix), !resume);
+                assert_eq!(outcome.contribution.is_finished(child, suffix), resume);
+                assert_eq!(outcome.contribution.is_finished(grid, child), resume);
+            }
+            if resume {
+                assert!(outcome.end.is_complete());
+            } else {
+                let token = outcome.end.into_token().unwrap();
+                let Some(BreakTokenData::Grid {
+                    child_break_tokens, ..
+                }) = &token.mode_data
+                else {
+                    panic!("expected Grid continuation")
+                };
+                assert_eq!(child_break_tokens.len(), 2);
+                for ((child, token), (expected, _, _)) in
+                    child_break_tokens.iter().zip(&interrupted)
+                {
+                    assert_eq!(child, expected);
+                    assert_eq!(token.entity, *expected);
+                }
+                if !replay {
+                    saved = Some(token);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn multicol_finishes_geometry_only_fragments_of_an_empty_grid() {
+    let mut dom = EcsDom::new();
+    let multi = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let grid = dom.create_element_ownerless_fixture("div", Attributes::default());
+    dom.append_child(multi, grid);
+    dom.world_mut().insert_one(
+        multi,
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(40.0),
+            column_count: Some(2),
+            column_fill: elidex_plugin::ColumnFill::Auto,
+            ..Default::default()
+        },
+    );
+    dom.world_mut().insert_one(
+        grid,
+        ComputedStyle {
+            display: Display::Grid,
+            height: Dimension::Length(210.0),
+            ..Default::default()
+        },
+    );
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 200.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+    let outcome = dispatch_layout_child(&mut dom, multi, &contribution_input(&fonts, &frag));
+    assert!(outcome.end.is_complete());
+    assert!(outcome.contribution.is_finished(multi, grid));
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::MulticolInfo>(multi)
+            .unwrap()
+            .segments[0]
+            .0,
+        6
+    );
+}

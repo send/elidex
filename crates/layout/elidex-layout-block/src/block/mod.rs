@@ -446,15 +446,12 @@ pub fn layout_block_inner(
     let block_end_pb = l_border.block_end + l_padding.block_end;
 
     let child_fragmentainer = input.fragmentainer.map(|frag| {
-        let pb_consumed = match style.box_decoration_break {
-            elidex_plugin::BoxDecorationBreak::Slice if is_first_fragment => block_start_pb,
-            elidex_plugin::BoxDecorationBreak::Slice => 0.0,
-            elidex_plugin::BoxDecorationBreak::Cloned => block_start_pb + block_end_pb,
-        };
-        crate::FragmentainerContext {
-            available_block_size: (frag.available_block_size - pb_consumed).max(0.0),
-            fragmentation_type: frag.fragmentation_type,
-        }
+        frag.content_room(
+            is_first_fragment,
+            style.box_decoration_break,
+            block_start_pb + margin_block_start,
+            block_end_pb + margin_block_end,
+        )
     });
 
     let geometry_only = input.break_token.is_some_and(|token| {
@@ -686,20 +683,7 @@ pub fn layout_block_inner(
                 .or(child_containing_block)
                 .map(|_| block_size);
             let split = !end.is_complete() || inline_progress.is_some();
-            let entry_margin = if is_first_fragment
-                || style.box_decoration_break == elidex_plugin::BoxDecorationBreak::Cloned
-            {
-                margin_block_start
-            } else {
-                0.0
-            };
-            let trailing_margin =
-                if style.box_decoration_break == elidex_plugin::BoxDecorationBreak::Cloned {
-                    margin_block_end
-                } else {
-                    0.0
-                };
-            let room = (frag.available_block_size - entry_margin - trailing_margin).max(0.0);
+            let room = frag.available_block_size;
             if is_first_fragment && !split && target.is_none_or(|target| target <= room) {
                 return None;
             }
