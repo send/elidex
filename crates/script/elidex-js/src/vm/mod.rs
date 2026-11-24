@@ -1491,8 +1491,7 @@ pub(crate) struct VmInner {
     /// UA-dispatch `transition` shape).
     #[cfg(feature = "engine")]
     pub(crate) transition_event_prototype: Option<ObjectId>,
-    /// `CloseEvent.prototype` (WHATWG HTML §10.4 — paired with
-    /// WebSocket / EventSource close).  Chains to
+    /// `CloseEvent.prototype` (WebSockets §6). Chains to
     /// [`event_prototype`].  Adds `code` / `reason` / `wasClean`
     /// own-data slots (reuses the UA-dispatch `close_event` shape).
     #[cfg(feature = "engine")]
