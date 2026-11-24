@@ -269,24 +269,24 @@ fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt32 / ToUint32 (ECMA-262 §7.1.7, §7.1.8)
+// ToInt32 / ToUint32 (ECMA-262 §§7.1.8–7.1.9)
 // ---------------------------------------------------------------------------
 
-/// ToInt32 (ECMA-262 §7.1.7). Used by bitwise operators.
+/// ToInt32 (ECMA-262 §7.1.8). Used by bitwise operators.
 #[inline]
 pub(crate) fn to_int32(vm: &mut VmInner, val: JsValue) -> Result<i32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_int32(n))
 }
 
-/// ToUint32 (ECMA-262 §7.1.8). Used by `>>>`.
+/// ToUint32 (ECMA-262 §7.1.9). Used by `>>>`.
 #[inline]
 pub(crate) fn to_uint32(vm: &mut VmInner, val: JsValue) -> Result<u32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint32(n))
 }
 
-/// The modulo-2^32 conversion from f64 to i32 (ECMA-262 §7.1.7 step 5-6).
+/// The modulo-2^32 conversion from f64 to i32 (ECMA-262 §7.1.8, ToInt32).
 pub(crate) fn f64_to_int32(n: f64) -> i32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
@@ -300,7 +300,7 @@ pub(crate) fn f64_to_int32(n: f64) -> i32 {
     }
 }
 
-/// The modulo-2^32 conversion from f64 to u32 (ECMA-262 §7.1.8 step 5-6).
+/// The modulo-2^32 conversion from f64 to u32 (ECMA-262 §7.1.9, ToUint32).
 pub(super) fn f64_to_uint32(n: f64) -> u32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;

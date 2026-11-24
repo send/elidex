@@ -316,7 +316,7 @@ fn new_string_constructor_property() {
 
 #[test]
 fn string_proto_to_string_and_value_of_have_distinct_names() {
-    // ECMA-262 §18 gives each built-in method its property name.
+    // Under ECMA-262 §18, these two String methods take their names from their property keys.
     assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
     assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
 }
@@ -407,7 +407,7 @@ fn new_string_length_descriptor() {
 
 #[test]
 fn new_on_bound_function_returns_instance() {
-    // §9.4.1.2: `new boundFn()` constructs via target, prepends bound_args.
+    // §10.4.1.2: `new boundFn()` constructs via target, prepends bound_args.
     assert_eq!(
         eval_string(
             "function F(a, b) { this.sum = a + b; }
@@ -434,7 +434,7 @@ fn new_on_nested_bound_chain() {
 
 #[test]
 fn bind_honors_defineproperty_name() {
-    // §20.2.3.2 step 11: bind reads target's current `.name` property via Get,
+    // §20.2.3.2 step 8: bind reads target's current `.name` property via Get,
     // not the internal slot, so defineProperty overrides propagate.
     assert_eq!(
         eval_string(
@@ -448,7 +448,7 @@ fn bind_honors_defineproperty_name() {
 
 #[test]
 fn bind_honors_defineproperty_length() {
-    // §20.2.3.2 steps 4-5: bind reads target's current `.length` property.
+    // §20.2.3.2 step 6 reads the target's own `length` property.
     assert_eq!(
         eval_number(
             "function f(a, b, c) {}
@@ -477,7 +477,7 @@ fn new_error_undefined_skips_message_property() {
 
 #[test]
 fn bind_length_zero_for_non_number_property() {
-    // §20.2.3.2 step 4-5: non-Number `.length` → 0.
+    // §20.2.3.2 steps 4–6: non-Number `.length` → 0.
     assert_eq!(
         eval_number(
             "function f(a, b, c) {}
@@ -540,8 +540,7 @@ fn string_split_limit_non_finite_is_zero() {
 
 #[test]
 fn bind_length_propagates_infinity() {
-    // §20.2.3.2 step 5 (ToIntegerOrInfinity): +Infinity length propagates.
-    // max(0, Infinity - argCount) = Infinity.
+    // §20.2.3.2 step 6.2 keeps a positive infinite target length.
     assert_eq!(
         eval_number(
             "function f() {}
@@ -599,8 +598,8 @@ fn to_primitive_honors_at_to_primitive_on_wrapper() {
 
 #[test]
 fn bind_name_coerces_non_string_via_to_string() {
-    // §20.2.3.2 step 11-13: Get(target, "name") returns arbitrary JsValue;
-    // non-Symbol values must be ToString-coerced before the "bound " prefix.
+    // The VM stringifies this numeric name. ECMA-262 §20.2.3.2 steps 8–10
+    // specify an empty target name for every non-String value.
     assert_eq!(
         eval_string(
             "function foo() {}
@@ -613,7 +612,7 @@ fn bind_name_coerces_non_string_via_to_string() {
 
 #[test]
 fn bind_name_symbol_falls_back_to_empty() {
-    // §20.2.3.2 step 13: non-String `name` → targetName = "".
+    // §20.2.3.2 step 9: non-String `name` → targetName = "".
     // (Symbol would otherwise throw in ToString; spec says treat as empty.)
     assert_eq!(
         eval_string(
@@ -639,7 +638,7 @@ fn abstract_eq_propagates_to_primitive_throw() {
 
 #[test]
 fn bind_propagates_name_getter_throw() {
-    // §20.2.3.2 step 11: `Get(target, "name")` is an abrupt completion
+    // §20.2.3.2 step 8: `Get(target, "name")` is an abrupt completion
     // point.  If the getter throws, bind must propagate the exception
     // rather than silently falling back to the internal name.
     eval_throws(
