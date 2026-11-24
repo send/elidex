@@ -251,19 +251,10 @@ fn require_data_view_parts(
     }
 }
 
-/// Brand-check + IsViewOutOfBounds detach check.  Wraps
-/// [`require_data_view_parts`] with the ECMA-262 §25.3.1.4
-/// `IsViewOutOfBounds` step 3 detach branch and throws TypeError if
-/// the view's backing buffer is detached — the spec hot path for
-/// DataView `getInt8` / `setInt8` / `byteLength` / `byteOffset`
-/// (called via §25.3.1.5 step 8 `GetViewValue` / §25.3.1.6 step 10
-/// `SetViewValue` / §25.3.1.2 `MakeDataViewWithBufferWitnessRecord`).
-///
-/// Not consumed by `DataView.prototype.buffer` (§25.3.4.1), which
-/// the spec defines as a bare `[[ViewedArrayBuffer]]` read with no
-/// detach branch — JS code uses `.buffer` to discover that a
-/// DataView's backing buffer became detached, so throwing there
-/// would be observably wrong.
+/// Checks the DataView brand and throws TypeError for a detached buffer.
+/// GetViewValue (§25.3.1.5 step 8) and SetViewValue (§25.3.1.6 step 10)
+/// throw when IsViewOutOfBounds returns true (§25.3.1.4 step 3 for detachment).
+/// The buffer getter (§25.3.4.1) reads [[ViewedArrayBuffer]] directly.
 fn data_view_require_attached(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -296,12 +287,8 @@ fn native_data_view_get_byte_offset(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // ECMA-262 §25.3.4.3 `get DataView.prototype.byteOffset` →
-    // step 5 calls `MakeDataViewWithBufferWitnessRecord` (§25.3.1.2)
-    // → step 6 checks `IsViewOutOfBounds` (§25.3.1.4) which throws
-    // TypeError when the backing buffer is detached.  Differs from
-    // the TypedArray `byteOffset` getter, which returns `+0𝔽`
-    // instead of throwing (different witness AO).
+    // Known VM P4 defect: this helper throws on detachment. ECMA-262
+    // §25.3.4.3 step 5 returns +0 for an out-of-bounds view.
     let (_, byte_offset, _) = data_view_require_attached(ctx, this, "byteOffset")?;
     Ok(JsValue::Number(f64::from(byte_offset)))
 }
@@ -311,8 +298,8 @@ fn native_data_view_get_byte_length(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // ECMA-262 §25.3.4.2 — same `IsViewOutOfBounds` detach branch
-    // as `byteOffset` above.
+    // Known VM P4 defect: this helper throws on detachment. ECMA-262
+    // §25.3.4.2 step 5 returns +0 for an out-of-bounds view.
     let (_, _, byte_length) = data_view_require_attached(ctx, this, "byteLength")?;
     Ok(JsValue::Number(f64::from(byte_length)))
 }
