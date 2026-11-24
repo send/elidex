@@ -841,7 +841,7 @@ impl FormControlState {
 
     /// Parse `<input>` element attributes into form control state.
     fn from_input_element(attrs: &Attributes) -> Self {
-        // HTML spec §2.5.2: enumerated attributes are ASCII case-insensitive.
+        // HTML §2.3.3 matches enumerated attribute keywords ASCII case-insensitively.
         let kind = FormControlKind::from_tag_and_type_attr("input", attrs.get("type"))
             .unwrap_or(FormControlKind::TextInput);
         let raw_value = attrs.get("value").unwrap_or("").to_string();
