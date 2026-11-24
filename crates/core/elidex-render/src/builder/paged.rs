@@ -26,7 +26,7 @@ pub fn build_paged_display_lists(
     dom: &EcsDom,
     font_db: &FontDatabase,
     page_fragments: &[elidex_layout::PageFragment],
-    page_ctx: &elidex_plugin::PagedMediaContext,
+    page_ctx: &elidex_plugin::PreparedPages,
 ) -> crate::display_list::PagedDisplayList {
     use crate::display_list::{DisplayList, PagedDisplayList};
 
@@ -34,9 +34,10 @@ pub fn build_paged_display_lists(
     let mut pages = Vec::with_capacity(total_pages);
 
     for fragment in page_fragments {
-        let (page_width, page_height) =
-            page_ctx.effective_page_size(fragment.page_number, fragment.is_blank);
-        let margins = page_ctx.effective_margins(fragment.page_number, fragment.is_blank);
+        let page = page_ctx.select(fragment.page_number, fragment.is_blank);
+        let page_width = page.geometry.sheet.width;
+        let page_height = page.geometry.sheet.height;
+        let margins = page.geometry.margins;
 
         let mut dl = DisplayList::default();
         let mut font_cache = FontCache::new();
@@ -87,8 +88,7 @@ pub fn build_paged_display_lists(
             &mut dl,
             font_db,
             &mut font_cache,
-            &page_ctx.page_rules,
-            fragment,
+            &page.boxes,
             page_width,
             page_height,
             &margins,
@@ -100,7 +100,7 @@ pub fn build_paged_display_lists(
 
     PagedDisplayList {
         pages,
-        page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+        page_size: page_ctx.select(1, false).geometry.sheet,
     }
 }
 
@@ -129,7 +129,7 @@ pub fn build_paged_display_lists(
 pub fn build_paged_display_lists_interleaved(
     dom: &mut EcsDom,
     font_db: &FontDatabase,
-    page_ctx: &elidex_plugin::PagedMediaContext,
+    page_ctx: &elidex_plugin::PreparedPages,
 ) -> crate::display_list::PagedDisplayList {
     use crate::display_list::{DisplayList, PagedDisplayList};
 
@@ -137,16 +137,17 @@ pub fn build_paged_display_lists_interleaved(
     let Some(root) = roots.first().copied() else {
         return PagedDisplayList {
             pages: Vec::new(),
-            page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+            page_size: page_ctx.select(1, false).geometry.sheet,
         };
     };
 
-    let content_width = page_ctx.content_width();
-    let content_height = page_ctx.content_height();
+    let area = page_ctx.select(1, false).geometry.area();
+    let content_width = area.size.width;
+    let content_height = area.size.height;
     if content_height <= 0.0 || content_width <= 0.0 {
         return PagedDisplayList {
             pages: Vec::new(),
-            page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+            page_size: page_ctx.select(1, false).geometry.sheet,
         };
     }
 
@@ -158,14 +159,11 @@ pub fn build_paged_display_lists_interleaved(
     let base_input = elidex_layout_block::LayoutInput {
         containing: elidex_plugin::CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
-        offset: elidex_plugin::Point::new(page_ctx.page_margins.left, page_ctx.page_margins.top),
+        offset: area.origin,
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some(elidex_plugin::Size::new(
-            page_ctx.page_width,
-            page_ctx.page_height,
-        )),
+        viewport: Some(area.size),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -200,20 +198,10 @@ pub fn build_paged_display_lists_interleaved(
         let is_blank = outcome.layout_box.content.size.height < 0.5
             && outcome.layout_box.content.size.width < 0.5;
 
-        // Build PageFragment metadata for margin box rendering.
-        let fragment = elidex_layout::PageFragment {
-            layout_box: outcome.layout_box,
-            page_number: page_num,
-            matched_selectors: elidex_layout::match_page_selectors(
-                &page_ctx.page_rules,
-                page_num,
-                is_blank,
-            ),
-            is_blank,
-        };
-
-        let (page_width, page_height) = page_ctx.effective_page_size(page_num, is_blank);
-        let margins = page_ctx.effective_margins(page_num, is_blank);
+        let page = page_ctx.select(page_num, is_blank);
+        let page_width = page.geometry.sheet.width;
+        let page_height = page.geometry.sheet.height;
+        let margins = page.geometry.margins;
 
         // Set page/pages counters.
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -265,8 +253,7 @@ pub fn build_paged_display_lists_interleaved(
             &mut dl,
             font_db,
             &mut font_cache,
-            &page_ctx.page_rules,
-            &fragment,
+            &page.boxes,
             page_width,
             page_height,
             &margins,
@@ -281,7 +268,7 @@ pub fn build_paged_display_lists_interleaved(
 
     PagedDisplayList {
         pages,
-        page_size: elidex_plugin::Size::new(page_ctx.page_width, page_ctx.page_height),
+        page_size: page_ctx.select(1, false).geometry.sheet,
     }
 }
 
@@ -312,79 +299,37 @@ const MARGIN_BOX_FONT_SIZE: f32 = 12.0;
 
 /// Emit margin box content items (text strings, counter values) for a page.
 ///
-/// Iterates over `@page` rules matching this page's selectors and renders
-/// margin box content as shaped text items positioned in the 16 margin areas
+/// Renders the selected margin boxes for this page. Each box produces
+/// shaped text positioned in one of the 16 margin areas
 /// defined by CSS Paged Media L3 §5, Table 1.
 #[allow(clippy::too_many_arguments)]
 fn emit_margin_boxes(
     dl: &mut crate::display_list::DisplayList,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
-    page_rules: &[elidex_plugin::PageRule],
-    fragment: &elidex_layout::PageFragment,
+    boxes: &[(String, elidex_plugin::MarginBoxContent)],
     page_width: f32,
     page_height: f32,
     margins: &elidex_plugin::EdgeSizes,
     counter_state: &elidex_style::counter::CounterState,
 ) {
-    for rule in page_rules {
-        // Check if this rule matches the current page.
-        if !elidex_plugin::selectors_match(&rule.selectors, fragment.page_number, fragment.is_blank)
-        {
+    for (position, margin_box) in boxes {
+        let text = evaluate_content_value(&margin_box.content, counter_state);
+        if text.is_empty() {
             continue;
         }
 
-        // All 16 margin box types (CSS Paged Media L3 §5, Table 1).
-        let margin_boxes: Vec<(&str, Option<&elidex_plugin::MarginBoxContent>)> = vec![
-            // Top edge + corners
-            ("top-left-corner", rule.margins.top_left_corner.as_ref()),
-            ("top-left", rule.margins.top_left.as_ref()),
-            ("top-center", rule.margins.top_center.as_ref()),
-            ("top-right", rule.margins.top_right.as_ref()),
-            ("top-right-corner", rule.margins.top_right_corner.as_ref()),
-            // Right edge
-            ("right-top", rule.margins.right_top.as_ref()),
-            ("right-middle", rule.margins.right_middle.as_ref()),
-            ("right-bottom", rule.margins.right_bottom.as_ref()),
-            // Bottom edge + corners
-            (
-                "bottom-right-corner",
-                rule.margins.bottom_right_corner.as_ref(),
-            ),
-            ("bottom-right", rule.margins.bottom_right.as_ref()),
-            ("bottom-center", rule.margins.bottom_center.as_ref()),
-            ("bottom-left", rule.margins.bottom_left.as_ref()),
-            (
-                "bottom-left-corner",
-                rule.margins.bottom_left_corner.as_ref(),
-            ),
-            // Left edge
-            ("left-bottom", rule.margins.left_bottom.as_ref()),
-            ("left-middle", rule.margins.left_middle.as_ref()),
-            ("left-top", rule.margins.left_top.as_ref()),
-        ];
-
-        for (position, maybe_content) in margin_boxes {
-            let Some(margin_box) = maybe_content else {
-                continue;
-            };
-            let text = evaluate_content_value(&margin_box.content, counter_state);
-            if text.is_empty() {
-                continue;
-            }
-
-            emit_margin_box_text(
-                dl,
-                font_db,
-                font_cache,
-                position,
-                &text,
-                margin_box,
-                page_width,
-                page_height,
-                margins,
-            );
-        }
+        emit_margin_box_text(
+            dl,
+            font_db,
+            font_cache,
+            position,
+            &text,
+            margin_box,
+            page_width,
+            page_height,
+            margins,
+        );
     }
 }
 

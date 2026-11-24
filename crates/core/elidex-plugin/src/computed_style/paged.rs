@@ -5,19 +5,6 @@
 
 use crate::{ContentValue, EdgeSizes, PropertyDeclaration};
 
-/// CSS Paged Media L3 `@page` rule.
-#[derive(Clone, Debug, Default)]
-pub struct PageRule {
-    /// Page pseudo-class selectors (`:first`, `:left`, `:right`, `:blank`).
-    pub selectors: Vec<PageSelector>,
-    /// The `size` property value.
-    pub size: Option<PageSize>,
-    /// Page margin box definitions (CSS Paged Media L3 §4.2).
-    pub margins: PageMargins,
-    /// Other property declarations inside `@page`.
-    pub properties: Vec<PropertyDeclaration>,
-}
-
 /// CSS Paged Media L3 §4.1 page pseudo-classes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageSelector {
@@ -57,25 +44,6 @@ impl PageSelector {
             Self::Blank => is_blank,
         }
     }
-}
-
-/// CSS Paged Media L3 §7 `size` property value.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PageSize {
-    /// `size: auto` — UA default page size.
-    Auto,
-    /// `size: <width> <height>` — explicit dimensions in px.
-    Explicit(f32, f32),
-    /// `size: <named>` — named page size (portrait orientation).
-    Named(NamedPageSize),
-    /// `size: <named> landscape` — named page size with landscape orientation.
-    LandscapeNamed(NamedPageSize),
-    /// `size: <width> <height>` with explicit landscape dimensions.
-    LandscapeExplicit(f32, f32),
-    /// `size: <named> portrait` — named page size with explicit portrait orientation.
-    PortraitNamed(NamedPageSize),
-    /// `size: <width> <height>` with explicit portrait dimensions.
-    PortraitExplicit(f32, f32),
 }
 
 /// Named page sizes (CSS Paged Media L3 §7.1).
@@ -137,43 +105,6 @@ impl NamedPageSize {
     }
 }
 
-/// 16 page-margin box types (CSS Paged Media L3 §4.2).
-#[derive(Clone, Debug, Default)]
-pub struct PageMargins {
-    /// `@top-left-corner`
-    pub top_left_corner: Option<MarginBoxContent>,
-    /// `@top-left`
-    pub top_left: Option<MarginBoxContent>,
-    /// `@top-center`
-    pub top_center: Option<MarginBoxContent>,
-    /// `@top-right`
-    pub top_right: Option<MarginBoxContent>,
-    /// `@top-right-corner`
-    pub top_right_corner: Option<MarginBoxContent>,
-    /// `@right-top`
-    pub right_top: Option<MarginBoxContent>,
-    /// `@right-middle`
-    pub right_middle: Option<MarginBoxContent>,
-    /// `@right-bottom`
-    pub right_bottom: Option<MarginBoxContent>,
-    /// `@bottom-right-corner`
-    pub bottom_right_corner: Option<MarginBoxContent>,
-    /// `@bottom-right`
-    pub bottom_right: Option<MarginBoxContent>,
-    /// `@bottom-center`
-    pub bottom_center: Option<MarginBoxContent>,
-    /// `@bottom-left`
-    pub bottom_left: Option<MarginBoxContent>,
-    /// `@bottom-left-corner`
-    pub bottom_left_corner: Option<MarginBoxContent>,
-    /// `@left-bottom`
-    pub left_bottom: Option<MarginBoxContent>,
-    /// `@left-middle`
-    pub left_middle: Option<MarginBoxContent>,
-    /// `@left-top`
-    pub left_top: Option<MarginBoxContent>,
-}
-
 /// Content and style for a single page-margin box.
 #[derive(Clone, Debug)]
 pub struct MarginBoxContent {
@@ -183,129 +114,53 @@ pub struct MarginBoxContent {
     pub properties: Vec<PropertyDeclaration>,
 }
 
-/// Context for paged media layout.
+/// Device sheet and default margins, also used to represent selected sheet geometry.
+#[derive(Clone, Copy, Debug)]
+pub struct PageGeometry {
+    pub sheet: crate::Size,
+    pub margins: EdgeSizes,
+}
+
+impl PageGeometry {
+    #[must_use]
+    pub fn area(self) -> crate::Rect {
+        crate::Rect::new(
+            self.margins.left,
+            self.margins.top,
+            (self.sheet.width - self.margins.left - self.margins.right).max(0.0),
+            (self.sheet.height - self.margins.top - self.margins.bottom).max(0.0),
+        )
+    }
+}
+
+/// Selected page properties, prepared before paginated layout.
 #[derive(Clone, Debug)]
-pub struct PagedMediaContext {
-    /// Page width in px.
-    pub page_width: f32,
-    /// Page height in px.
-    pub page_height: f32,
-    /// Page margins (top, right, bottom, left) in px.
-    pub page_margins: EdgeSizes,
-    /// `@page` rules from stylesheets.
-    pub page_rules: Vec<PageRule>,
+pub struct PreparedPage {
+    pub geometry: PageGeometry,
+    pub matched_selectors: Vec<PageSelector>,
+    pub boxes: Vec<(String, MarginBoxContent)>,
 }
 
-impl PagedMediaContext {
-    /// Compute the content area dimensions (page size minus margins).
+#[derive(Clone, Debug)]
+pub struct PreparedPages([PreparedPage; 6]);
+
+impl PreparedPages {
+    /// Page-number classes 1, 2 (even), and 3 (later odd), each ordinary then blank.
     #[must_use]
-    pub fn content_width(&self) -> f32 {
-        (self.page_width - self.page_margins.left - self.page_margins.right).max(0.0)
+    pub fn new(pages: [PreparedPage; 6]) -> Self {
+        Self(pages)
     }
 
-    /// Compute the content area height (page height minus margins).
     #[must_use]
-    pub fn content_height(&self) -> f32 {
-        (self.page_height - self.page_margins.top - self.page_margins.bottom).max(0.0)
-    }
-
-    /// Resolve the effective page size for a given page, considering `@page`
-    /// rules with matching selectors. Returns `(width, height)` in px.
-    ///
-    /// Rules are applied in specificity order per CSS Paged Media L3 §4.1:
-    /// fewer selectors first, more selectors later (higher specificity wins).
-    /// Rules with equal specificity use source order (last wins).
-    #[must_use]
-    pub fn effective_page_size(&self, page_number: usize, is_blank: bool) -> (f32, f32) {
-        let mut width = self.page_width;
-        let mut height = self.page_height;
-
-        let mut sorted: Vec<(usize, &PageRule)> = self
-            .page_rules
-            .iter()
-            .enumerate()
-            .filter(|(_, rule)| selectors_match(&rule.selectors, page_number, is_blank))
-            .collect();
-        // Sort by (selector count, source order) — lower specificity first.
-        sorted.sort_by_key(|(idx, rule)| (rule.selectors.len(), *idx));
-
-        for (_, rule) in sorted {
-            if let Some(size) = &rule.size {
-                let (w, h) = resolve_page_size_dimensions(size);
-                width = w;
-                height = h;
-            }
-        }
-        (width, height)
-    }
-
-    /// Resolve the effective page margins for a given page, considering `@page`
-    /// rules with matching selectors.
-    ///
-    /// Rules are applied in specificity order per CSS Paged Media L3 §4.1:
-    /// fewer selectors first, more selectors later (higher specificity wins).
-    /// Rules with equal specificity use source order (last wins).
-    #[must_use]
-    pub fn effective_margins(&self, page_number: usize, is_blank: bool) -> EdgeSizes {
-        let mut margins = self.page_margins;
-
-        let mut sorted: Vec<(usize, &PageRule)> = self
-            .page_rules
-            .iter()
-            .enumerate()
-            .filter(|(_, rule)| selectors_match(&rule.selectors, page_number, is_blank))
-            .collect();
-        // Sort by (selector count, source order) — lower specificity first.
-        sorted.sort_by_key(|(idx, rule)| (rule.selectors.len(), *idx));
-
-        for (_, rule) in sorted {
-            // Apply margin declarations from the rule.
-            for decl in &rule.properties {
-                apply_margin_declaration(&mut margins, decl);
-            }
-        }
-        margins
-    }
-}
-
-/// Check whether page selectors match a given page.
-///
-/// Empty selectors match all pages (`.all()` on an empty iterator returns
-/// `true`). Combined selectors use AND semantics per CSS Paged Media L3 §4.1.
-#[must_use]
-pub fn selectors_match(selectors: &[PageSelector], page_number: usize, is_blank: bool) -> bool {
-    selectors.iter().all(|s| s.matches(page_number, is_blank))
-}
-
-/// Resolve a `PageSize` to `(width, height)` in px.
-#[must_use]
-fn resolve_page_size_dimensions(size: &PageSize) -> (f32, f32) {
-    match *size {
-        PageSize::Auto => (816.0, 1056.0), // Letter default
-        PageSize::Explicit(w, h) | PageSize::PortraitExplicit(w, h) => (w, h),
-        PageSize::Named(named) | PageSize::PortraitNamed(named) => named.dimensions(),
-        PageSize::LandscapeNamed(named) => {
-            let (w, h) = named.dimensions();
-            (h, w)
-        }
-        PageSize::LandscapeExplicit(w, h) => (h, w),
-    }
-}
-
-/// Apply a margin-related property declaration to `EdgeSizes`.
-fn apply_margin_declaration(margins: &mut EdgeSizes, decl: &PropertyDeclaration) {
-    use crate::CssValue;
-    let px = match &decl.value {
-        CssValue::Length(v, _unit) => *v,
-        CssValue::Number(v) if *v == 0.0 => 0.0,
-        _ => return,
-    };
-    match decl.property.as_str() {
-        "margin-top" => margins.top = px,
-        "margin-right" => margins.right = px,
-        "margin-bottom" => margins.bottom = px,
-        "margin-left" => margins.left = px,
-        _ => {}
+    pub fn select(&self, number: usize, blank: bool) -> &PreparedPage {
+        let spread = if number == 1 {
+            0
+        } else if number.is_multiple_of(2) {
+            1
+        } else {
+            2
+        };
+        &self.0[2 * spread + usize::from(blank)]
     }
 }
 
@@ -354,94 +209,6 @@ mod tests {
             Some(PageSelector::Blank)
         );
         assert_eq!(PageSelector::from_keyword("other"), None);
-    }
-
-    #[test]
-    fn page_rule_default() {
-        let rule = PageRule::default();
-        assert!(rule.selectors.is_empty());
-        assert!(rule.size.is_none());
-        assert!(rule.properties.is_empty());
-    }
-
-    #[test]
-    fn effective_page_size_specificity_order() {
-        // More specific selectors (more pseudo-classes) should win over
-        // less specific ones, regardless of source order.
-
-        let ctx = PagedMediaContext {
-            page_width: 816.0,
-            page_height: 1056.0,
-            page_margins: EdgeSizes {
-                top: 72.0,
-                right: 72.0,
-                bottom: 72.0,
-                left: 72.0,
-            },
-            page_rules: vec![
-                // More specific rule (:first:right) — listed first in source.
-                PageRule {
-                    selectors: vec![PageSelector::First, PageSelector::Right],
-                    size: Some(PageSize::Explicit(500.0, 700.0)),
-                    ..PageRule::default()
-                },
-                // Less specific rule (:first) — listed second in source.
-                PageRule {
-                    selectors: vec![PageSelector::First],
-                    size: Some(PageSize::Explicit(600.0, 800.0)),
-                    ..PageRule::default()
-                },
-            ],
-        };
-
-        // Page 1 is :first and :right. The :first:right rule (2 selectors)
-        // has higher specificity and should win, even though :first appears
-        // later in source order.
-        let (w, h) = ctx.effective_page_size(1, false);
-        assert_eq!(w, 500.0);
-        assert_eq!(h, 700.0);
-    }
-
-    #[test]
-    fn effective_margins_specificity_order() {
-        use crate::{CssValue, LengthUnit};
-
-        let ctx = PagedMediaContext {
-            page_width: 816.0,
-            page_height: 1056.0,
-            page_margins: EdgeSizes {
-                top: 72.0,
-                right: 72.0,
-                bottom: 72.0,
-                left: 72.0,
-            },
-            page_rules: vec![
-                // More specific: :first:right sets margin-top to 50.
-                PageRule {
-                    selectors: vec![PageSelector::First, PageSelector::Right],
-                    size: None,
-                    margins: PageMargins::default(),
-                    properties: vec![PropertyDeclaration::new(
-                        "margin-top",
-                        CssValue::Length(50.0, LengthUnit::Px),
-                    )],
-                },
-                // Less specific: :first sets margin-top to 100.
-                PageRule {
-                    selectors: vec![PageSelector::First],
-                    size: None,
-                    margins: PageMargins::default(),
-                    properties: vec![PropertyDeclaration::new(
-                        "margin-top",
-                        CssValue::Length(100.0, LengthUnit::Px),
-                    )],
-                },
-            ],
-        };
-
-        // :first:right (2 selectors) is more specific, applied last → wins.
-        let margins = ctx.effective_margins(1, false);
-        assert_eq!(margins.top, 50.0);
     }
 
     #[test]

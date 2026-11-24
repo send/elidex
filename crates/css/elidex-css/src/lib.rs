@@ -24,7 +24,7 @@ pub use declaration::{
     Origin,
 };
 pub use escape::escape_ident;
-pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
+pub use page::{parse_page_size, PageAlternative, PageRule};
 pub use parser::{
     parse_single_rule, parse_single_rule_with_registry, parse_stylesheet,
     parse_stylesheet_with_registry, CssRule, Stylesheet,

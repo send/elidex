@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["browser-engine", "css", "cascade"]
 categories = ["web-programming"]
 
+[features]
+fixtures = []
+
 [dependencies]
 elidex-ecs.workspace = true
 elidex-css.workspace = true

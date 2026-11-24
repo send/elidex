@@ -192,18 +192,8 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
 // Paged media layout tests (CSS Paged Media Level 3)
 // ---------------------------------------------------------------------------
 
-fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PagedMediaContext {
-    elidex_plugin::PagedMediaContext {
-        page_width: width,
-        page_height: height,
-        page_margins: elidex_plugin::EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: Vec::new(),
-    }
+fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PreparedPages {
+    elidex_style::page::fixture(width, height, 50.0, "")
 }
 
 #[test]
@@ -269,7 +259,7 @@ fn paged_multi_page_break() {
 
 #[test]
 fn paged_selector_first() {
-    use elidex_plugin::{PageRule, PageSelector as PS};
+    use elidex_plugin::PageSelector as PS;
 
     let mut dom = EcsDom::new();
     let div = dom.create_element_ownerless_fixture("div", Attributes::default());
@@ -283,15 +273,7 @@ fn paged_selector_first() {
     );
 
     let font_db = FontDatabase::new();
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: elidex_plugin::EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: vec![PS::First],
-            ..PageRule::default()
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page :first {}");
     let pages = layout_paged(&mut dom, &page_ctx, &font_db);
 
     assert!(!pages.is_empty());
@@ -359,20 +341,12 @@ fn paged_blank_page_from_forced_break() {
 
 #[test]
 fn paged_size_from_rule() {
-    use elidex_plugin::{NamedPageSize, PageRule, PageSize};
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page {size:A4}");
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: elidex_plugin::EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: Vec::new(), // matches all pages
-            size: Some(PageSize::Named(NamedPageSize::A4)),
-            ..PageRule::default()
-        }],
-    };
-
-    let (w, h) = page_ctx.effective_page_size(1, false);
+    let elidex_plugin::Size {
+        width: w,
+        height: h,
+    } = page_ctx.select(1, false).geometry.sheet;
     assert!(approx_eq(w, 794.0), "A4 width = 794, got {w}");
     assert!(approx_eq(h, 1123.0), "A4 height = 1123, got {h}");
 }

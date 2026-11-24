@@ -105,7 +105,7 @@ pub(super) fn resolve_font_and_text_properties(
     );
 }
 
-pub(super) fn resolve_font_size(
+pub(crate) fn resolve_font_size(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,

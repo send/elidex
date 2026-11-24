@@ -6,18 +6,8 @@ use super::*;
 // Step 6: Multi-page Rendering tests
 // ---------------------------------------------------------------------------
 
-fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PagedMediaContext {
-    elidex_plugin::PagedMediaContext {
-        page_width: width,
-        page_height: height,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: Vec::new(),
-    }
+fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PreparedPages {
+    elidex_style::page::fixture(width, height, 50.0, "")
 }
 
 #[test]
@@ -105,8 +95,6 @@ fn multi_page_display_list_count() {
 
 #[test]
 fn page_margin_box_items() {
-    use elidex_plugin::{ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule};
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox {
             content: Rect::new(50.0, 50.0, 716.0, 100.0),
@@ -120,28 +108,8 @@ fn page_margin_box_items() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Header".to_string())]),
-                    properties: Vec::new(),
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx =
+        elidex_style::page::fixture(816., 1056., 50., "@page {@top-center {content:'Header'}}");
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -171,8 +139,8 @@ fn page_margin_box_items() {
 fn content_offset_to_page_area() {
     let page_ctx = make_page_ctx(816.0, 1056.0);
     // Content area: 716 x 956, starting at (50, 50).
-    assert!((page_ctx.content_width() - 716.0).abs() < f32::EPSILON);
-    assert!((page_ctx.content_height() - 956.0).abs() < f32::EPSILON);
+    assert!((page_ctx.select(1, false).geometry.area().size.width - 716.0).abs() < f32::EPSILON);
+    assert!((page_ctx.select(1, false).geometry.area().size.height - 956.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -200,20 +168,12 @@ fn empty_page_handled() {
 
 #[test]
 fn page_size_matches_rule() {
-    use elidex_plugin::{NamedPageSize, PageRule, PageSize};
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page {size:A4}");
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: Some(PageSize::Named(NamedPageSize::A4)),
-            ..PageRule::default()
-        }],
-    };
-
-    let (w, h) = page_ctx.effective_page_size(1, false);
+    let elidex_plugin::Size {
+        width: w,
+        height: h,
+    } = page_ctx.select(1, false).geometry.sheet;
     assert!((w - 794.0).abs() < 1.0, "A4 width = 794, got {w}");
     assert!((h - 1123.0).abs() < 1.0, "A4 height = 1123, got {h}");
 }
@@ -224,13 +184,6 @@ fn page_size_matches_rule() {
 
 #[test]
 fn margin_box_all_16_positions_render() {
-    use elidex_plugin::{ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule};
-
-    let make_content = |s: &str| MarginBoxContent {
-        content: ContentValue::Items(vec![ContentItem::String(s.to_string())]),
-        properties: Vec::new(),
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -241,39 +194,7 @@ fn margin_box_all_16_positions_render() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_left_corner: Some(make_content("TLC")),
-                top_left: Some(make_content("TL")),
-                top_center: Some(make_content("TC")),
-                top_right: Some(make_content("TR")),
-                top_right_corner: Some(make_content("TRC")),
-                right_top: Some(make_content("RT")),
-                right_middle: Some(make_content("RM")),
-                right_bottom: Some(make_content("RB")),
-                bottom_right_corner: Some(make_content("BRC")),
-                bottom_right: Some(make_content("BR")),
-                bottom_center: Some(make_content("BC")),
-                bottom_left: Some(make_content("BL")),
-                bottom_left_corner: Some(make_content("BLC")),
-                left_bottom: Some(make_content("LB")),
-                left_middle: Some(make_content("LM")),
-                left_top: Some(make_content("LT")),
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(816.,1056.,50., "@page {@top-left-corner{content:'TLC'} @top-left{content:'TL'} @top-center{content:'TC'} @top-right{content:'TR'} @top-right-corner{content:'TRC'} @right-top{content:'RT'} @right-middle{content:'RM'} @right-bottom{content:'RB'} @bottom-right-corner{content:'BRC'} @bottom-right{content:'BR'} @bottom-center{content:'BC'} @bottom-left{content:'BL'} @bottom-left-corner{content:'BLC'} @left-bottom{content:'LB'} @left-middle{content:'LM'} @left-top{content:'LT'}}");
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -289,11 +210,6 @@ fn margin_box_all_16_positions_render() {
 
 #[test]
 fn margin_box_with_background_color() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssColor, CssValue, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -304,31 +220,12 @@ fn margin_box_with_background_color() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Title".to_string())]),
-                    properties: vec![PropertyDeclaration::new(
-                        "background-color",
-                        CssValue::Color(CssColor::new(200, 200, 200, 255)),
-                    )],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'Title';background-color:#c8c8c8}}",
+    );
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -345,11 +242,6 @@ fn margin_box_with_background_color() {
 
 #[test]
 fn margin_box_with_border() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -360,31 +252,12 @@ fn margin_box_with_border() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Header".to_string())]),
-                    properties: vec![PropertyDeclaration::new(
-                        "border-bottom-width",
-                        CssValue::Length(1.0, LengthUnit::Px),
-                    )],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'Header';border-bottom:1px solid black}}",
+    );
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -401,11 +274,6 @@ fn margin_box_with_border() {
 
 #[test]
 fn margin_box_with_explicit_width_height() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -416,31 +284,12 @@ fn margin_box_with_explicit_width_height() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("W".to_string())]),
-                    properties: vec![
-                        PropertyDeclaration::new("width", CssValue::Length(100.0, LengthUnit::Px)),
-                        PropertyDeclaration::new("height", CssValue::Length(30.0, LengthUnit::Px)),
-                    ],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'W';width:100px;height:30px}}",
+    );
 
     // Should not panic with explicit width/height constraints.
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
@@ -449,10 +298,7 @@ fn margin_box_with_explicit_width_height() {
 
 #[test]
 fn continued_block_paints_each_child_and_page_counter_once() {
-    use elidex_plugin::{
-        ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Dimension, Display,
-        ListStyleType, MarginBoxContent, PageMargins, PageRule, PropertyDeclaration,
-    };
+    use elidex_plugin::{ComputedStyle, CssColor, Dimension, Display};
 
     let font_db = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
         "../../../tests/fixtures/digits.ttf"
@@ -482,25 +328,12 @@ fn continued_block_paints_each_child_and_page_counter_once() {
             )
             .unwrap();
     }
-    let mut ctx = make_page_ctx(220., 160.);
-    ctx.page_rules.push(PageRule {
-        margins: PageMargins {
-            top_left: Some(MarginBoxContent {
-                content: ContentValue::Items(vec![ContentItem::Counter {
-                    name: "page".into(),
-                    style: ListStyleType::Decimal,
-                }]),
-                properties: vec![PropertyDeclaration::new(
-                    "font-family",
-                    CssValue::String("Elidex Test Digits".into()),
-                )],
-            }),
-            ..Default::default()
-        },
-        selectors: vec![],
-        size: None,
-        properties: vec![],
-    });
+    let ctx = elidex_style::page::fixture(
+        220.,
+        160.,
+        50.,
+        "@page {@top-left {content:counter(page);font-family:'Elidex Test Digits'}}",
+    );
     let printed = crate::build_paged_display_lists_interleaved(&mut dom, &font_db, &ctx);
     assert_eq!(printed.pages.len(), 2);
     let box_rect = Rect::new(50., 50., 120., 60.);
@@ -531,10 +364,7 @@ fn continued_block_paints_each_child_and_page_counter_once() {
 
 #[test]
 fn precomputed_blank_page_paints_only_its_number() {
-    use elidex_plugin::{
-        ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Display, LayoutBox,
-        ListStyleType, MarginBoxContent, PageMargins, PageRule, Point, PropertyDeclaration,
-    };
+    use elidex_plugin::{ComputedStyle, CssColor, Display, LayoutBox, Point};
 
     let body = Rect::new(50., 50., 120., 40.);
     let (dom, _) = setup_block_element(
@@ -551,25 +381,12 @@ fn precomputed_blank_page_paints_only_its_number() {
     let font_db = elidex_text::FontDatabase::from_fixture(include_bytes!(
         "../../../tests/fixtures/digits.ttf"
     ));
-    let mut ctx = make_page_ctx(220., 160.);
-    ctx.page_rules.push(PageRule {
-        margins: PageMargins {
-            top_left: Some(MarginBoxContent {
-                content: ContentValue::Items(vec![ContentItem::Counter {
-                    name: "page".into(),
-                    style: ListStyleType::Decimal,
-                }]),
-                properties: vec![PropertyDeclaration::new(
-                    "font-family",
-                    CssValue::String("Elidex Test Digits".into()),
-                )],
-            }),
-            ..Default::default()
-        },
-        selectors: vec![],
-        size: None,
-        properties: vec![],
-    });
+    let ctx = elidex_style::page::fixture(
+        220.,
+        160.,
+        50.,
+        "@page {@top-left {content:counter(page);font-family:'Elidex Test Digits'}}",
+    );
 
     let fragments = [1, 2].map(|page_number| elidex_layout::PageFragment {
         page_number,

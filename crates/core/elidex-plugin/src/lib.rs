@@ -32,14 +32,14 @@ pub use channel::{channel_pair, LocalChannel};
 /// CSS (`elidex-css`) and form (`elidex-form`) share one parse home.
 pub use color::parse_color;
 pub use computed_style::{
-    is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
-    AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
-    BoxSizing, BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan,
-    ComputedStyle, ContentItem, ContentValue, CounterResetEntry, Dimension, Direction, Display,
-    EmptyCells, FlexBasis, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine,
+    is_multicol, validate_area_rectangles, AlignContent, AlignItems, AlignSelf, AlignmentSafety,
+    AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak, BoxSizing,
+    BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan, ComputedStyle,
+    ContentItem, ContentValue, CounterResetEntry, Dimension, Direction, Display, EmptyCells,
+    FlexBasis, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine,
     GridTemplateAreas, GridTrackList, JustifyContent, JustifyItems, JustifySelf, LineHeight,
-    ListStyleType, MarginBoxContent, MulticolInfo, NamedPageSize, Overflow, PageMargins, PageRule,
-    PageSelector, PageSize, PagedMediaContext, Position, TableLayout, TextAlign,
+    ListStyleType, MarginBoxContent, MulticolInfo, NamedPageSize, Overflow, PageGeometry,
+    PageSelector, Position, PreparedPage, PreparedPages, TableLayout, TextAlign,
     TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth,
     TrackSection, TrackSize, UnicodeBidi, VerticalAlign, ViewportOverflow, Visibility, WhiteSpace,
     WritingMode,
