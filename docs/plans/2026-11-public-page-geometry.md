@@ -14,6 +14,8 @@ Under PM 1016 F2, Block, Flex and Grid feed the shared chooser ordered boundary 
 
 Own the geometry for the lifetime of each returned result. A subsequent invocation with a changed stylesheet and a shorter page sequence may reuse local indices. Both the retained first result and the new result must continue to resolve every page to its own geometry after the context and plan have been dropped.
 
+PM 1091 assigns the interleaved visible-overflow paint regression to 3b.4. In a 60px-high page area, stack two 40px blocks with distinct solid backgrounds and visible overflow. At 01217c90 the second block emits a full 40px rectangle on page 1 at local y=40 and another full 40px rectangle on page 2 at local y=0. Check the painted commands against each committed fragment’s source extent so replay paints each portion once and the two pages together account for exactly 40px of the second background. Keep the existing hidden-overflow, page-filling control.
+
 ## §2. Crossing checks
 
 | Crossing | Fixture through public entry points | Observation |

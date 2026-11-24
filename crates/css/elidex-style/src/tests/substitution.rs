@@ -186,7 +186,7 @@ fn literal_and_substituted_background_reset_the_prior_image() {
             &sheets,
             &[],
             &[],
-            &super::super::cascade::ShadowCascade::Outer,
+            &super::super::cascade::ShadowCascade::default(),
             &MediaEnvironment::default(),
         );
         if declaration.contains("--bad") {

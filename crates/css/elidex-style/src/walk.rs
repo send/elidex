@@ -5,8 +5,8 @@ use elidex_css::{parse_stylesheet, Declaration, Origin, PseudoElement, Styleshee
 use elidex_css_anim::resolve::{resolve_anim_property, ANIM_LONGHAND_NAMES};
 use elidex_css_anim::style::AnimStyle;
 use elidex_ecs::{
-    Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowHost, ShadowRoot,
-    SlotAssignment, TagType, TextContent, MAX_ANCESTOR_DEPTH,
+    Attributes, EcsDom, ElementState, Entity, PseudoElementMarker, ShadowRoot, SlotAssignment,
+    TagType, TextContent, MAX_ANCESTOR_DEPTH,
 };
 use elidex_plugin::{ComputedStyle, CssValue, Display, Overflow, ViewportOverflow};
 
@@ -274,16 +274,11 @@ pub(crate) fn preliminary_root(
     };
     set_link_state(dom, root);
     remove_pseudo_entities(dom, root);
-    let shadow_root = dom
-        .world()
-        .get::<&ShadowHost>(root)
-        .ok()
-        .map(|host| host.shadow_root);
-    let sheet = shadow_root
-        .map(|r| parse_stylesheet(&collect_shadow_styles(dom, r, &mut 0), Origin::Author));
-    let shadow = sheet
-        .as_ref()
-        .map_or(ShadowCascade::Outer, ShadowCascade::Host);
+    let sheet = host_stylesheet(dom, root, &mut 0);
+    let shadow = ShadowCascade {
+        host: sheet.as_ref(),
+        slot: None,
+    };
     compute_element_style(dom, root, sheets, &parent, ctx, media, hints, &shadow).0
 }
 
@@ -304,40 +299,20 @@ pub(crate) fn walk_tree(
     // A2: If this entity is a shadow host, we need to resolve its style with
     // the shadow stylesheet's :host rules participating in the cascade.
     // H2: Parse shadow CSS once and reuse for both :host cascade and child walk.
-    // Extract shadow_root Entity before dropping the Ref to release the borrow.
-    let shadow_root_entity = dom
-        .world()
-        .get::<&ShadowHost>(entity)
-        .ok()
-        .map(|sh| sh.shadow_root);
-    let shadow_sheet_owned = shadow_root_entity.map(|sr| {
-        let shadow_css = collect_shadow_styles(dom, sr, state.total_shadow_css);
-        parse_stylesheet(&shadow_css, Origin::Author)
-    });
-
-    let entity_style = if let Some(ref shadow_sheet) = shadow_sheet_owned {
-        resolve_and_attach_style(
-            dom,
-            entity,
-            stylesheets,
-            parent_style,
-            &state.ctx,
-            &state.media_env,
-            state.hint_generator,
-            &ShadowCascade::Host(shadow_sheet),
-        )
-    } else {
-        resolve_and_attach_style(
-            dom,
-            entity,
-            stylesheets,
-            parent_style,
-            &state.ctx,
-            &state.media_env,
-            state.hint_generator,
-            &ShadowCascade::Outer,
-        )
-    };
+    let shadow_sheet_owned = host_stylesheet(dom, entity, state.total_shadow_css);
+    let entity_style = resolve_and_attach_style(
+        dom,
+        entity,
+        stylesheets,
+        parent_style,
+        &state.ctx,
+        &state.media_env,
+        state.hint_generator,
+        &ShadowCascade {
+            slot: None,
+            host: shadow_sheet_owned.as_ref(),
+        },
+    );
 
     let child_ctx = child_context(dom, entity, &entity_style, &state.ctx);
 
@@ -418,7 +393,7 @@ fn walk_shadow_tree(
 /// descendants are all handled by recursive calls.
 ///
 /// A3: For `<slot>` elements with assigned nodes, each slotted node is resolved
-/// with the outer stylesheets + `ShadowCascade::Slotted(&shadow_sheet)` so that
+/// with the outer stylesheets + `ShadowCascade { slot: Some(&shadow_sheet), host: None }` so that
 /// `::slotted()` rules from the shadow stylesheet participate in the cascade.
 ///
 /// Regular shadow tree children are resolved with shadow stylesheets only.
@@ -443,16 +418,7 @@ fn walk_shadow_child(
     }
 
     // Nested shadow host: resolve with its own :host rules and walk its shadow tree.
-    let nested_shadow_root = dom
-        .world()
-        .get::<&ShadowHost>(entity)
-        .ok()
-        .map(|sh| sh.shadow_root);
-    if let Some(inner_sr) = nested_shadow_root {
-        // Parse the nested shadow's stylesheet for :host cascade.
-        let inner_shadow_css = collect_shadow_styles(dom, inner_sr, state.total_shadow_css);
-        let inner_shadow_sheet = parse_stylesheet(&inner_shadow_css, Origin::Author);
-
+    if let Some(inner_shadow_sheet) = host_stylesheet(dom, entity, state.total_shadow_css) {
         // Resolve host style: shadow_sheets act as "outer" for this nested host,
         // and the inner shadow's :host rules participate via ShadowCascade::Host.
         let entity_style = resolve_and_attach_style(
@@ -463,7 +429,10 @@ fn walk_shadow_child(
             &state.ctx,
             &state.media_env,
             state.hint_generator,
-            &ShadowCascade::Host(&inner_shadow_sheet),
+            &ShadowCascade {
+                host: Some(&inner_shadow_sheet),
+                slot: None,
+            },
         );
 
         let child_ctx = state.ctx.with_em_base(entity_style.font_size);
@@ -492,7 +461,7 @@ fn walk_shadow_child(
         &state.ctx,
         &state.media_env,
         state.hint_generator,
-        &ShadowCascade::Outer,
+        &ShadowCascade::default(),
     );
 
     let child_ctx = state.ctx.with_em_base(entity_style.font_size);
@@ -507,6 +476,7 @@ fn walk_shadow_child(
     if let Some(ref assigned) = assigned {
         if !assigned.is_empty() {
             for node in assigned {
+                let host_sheet = host_stylesheet(dom, *node, state.total_shadow_css);
                 let node_style = resolve_and_attach_style(
                     dom,
                     *node,
@@ -515,7 +485,10 @@ fn walk_shadow_child(
                     &child_ctx,
                     &state.media_env,
                     state.hint_generator,
-                    &ShadowCascade::Slotted(shadow_ctx.shadow_sheet),
+                    &ShadowCascade {
+                        slot: Some(shadow_ctx.shadow_sheet),
+                        host: host_sheet.as_ref(),
+                    },
                 );
                 // Recurse into slotted node's children with outer stylesheets.
                 let node_ctx = child_ctx.with_em_base(node_style.font_size);
@@ -541,6 +514,14 @@ fn walk_shadow_child(
         state.depth -= 1;
     }
     state.ctx = saved_ctx;
+}
+
+fn host_stylesheet(dom: &EcsDom, host: Entity, total_css: &mut usize) -> Option<Stylesheet> {
+    let root = dom.get_shadow_root(host)?;
+    Some(parse_stylesheet(
+        &collect_shadow_styles(dom, root, total_css),
+        Origin::Author,
+    ))
 }
 
 /// Maximum total CSS text size collected across all shadow roots (1 MB).
