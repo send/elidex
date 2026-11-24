@@ -129,9 +129,18 @@ fn zero_margin_font_preserves_background_and_borders_without_text() {
     assert_eq!(positive.text.len(), 1);
     assert_eq!(positive.rectangles.len(), 5);
     assert_eq!(positive.rectangles[0].1, CssColor::RED);
-    assert!(positive.rectangles[1..]
-        .iter()
-        .all(|(_, color)| *color == CssColor::BLACK));
+    let background = positive.rectangles[0].0;
+    let Point { x, y } = background.origin;
+    let width = background.size.width;
+    let height = background.size.height;
+    for edge in [
+        Rect::new(x, y, width, 2.0),
+        Rect::new(x, y + height - 2.0, width, 2.0),
+        Rect::new(x, y + 2.0, 2.0, height - 4.0),
+        Rect::new(x + width - 2.0, y + 2.0, 2.0, height - 4.0),
+    ] {
+        assert!(positive.rectangles.contains(&(edge, CssColor::BLACK)));
+    }
     for size in ["0in", "0px"] {
         let zero = sample(size);
         assert!(zero.text.is_empty());
