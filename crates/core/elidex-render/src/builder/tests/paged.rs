@@ -6,18 +6,8 @@ use super::*;
 // Step 6: Multi-page Rendering tests
 // ---------------------------------------------------------------------------
 
-fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PagedMediaContext {
-    elidex_plugin::PagedMediaContext {
-        page_width: width,
-        page_height: height,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: Vec::new(),
-    }
+fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PreparedPages {
+    elidex_style::page::fixture(width, height, 50.0, "")
 }
 
 #[test]
@@ -105,8 +95,6 @@ fn multi_page_display_list_count() {
 
 #[test]
 fn page_margin_box_items() {
-    use elidex_plugin::{ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule};
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox {
             content: Rect::new(50.0, 50.0, 716.0, 100.0),
@@ -120,28 +108,8 @@ fn page_margin_box_items() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Header".to_string())]),
-                    properties: Vec::new(),
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx =
+        elidex_style::page::fixture(816., 1056., 50., "@page {@top-center {content:'Header'}}");
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -168,75 +136,11 @@ fn page_margin_box_items() {
 }
 
 #[test]
-fn page_counter_text_rendered() {
-    use elidex_plugin::{ContentItem, ListStyleType};
-
-    let mut cs = elidex_style::counter::CounterState::new();
-    cs.set_counter("page", 3);
-    cs.set_counter("pages", 10);
-
-    // Evaluate content value directly to verify counter(page) resolves.
-    let text = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "page".to_string(),
-            style: ListStyleType::Decimal,
-        }]),
-        &cs,
-    );
-    assert_eq!(text, "3", "counter(page) should resolve to page number");
-
-    let text_pages = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "pages".to_string(),
-            style: ListStyleType::Decimal,
-        }]),
-        &cs,
-    );
-    assert_eq!(text_pages, "10", "counter(pages) should resolve to total");
-}
-
-#[test]
-fn custom_counter_in_margin_box() {
-    use elidex_plugin::{ContentItem, ListStyleType};
-
-    let mut cs = elidex_style::counter::CounterState::new();
-    cs.set_counter("page", 1);
-    cs.set_counter("pages", 5);
-    // Simulate a document-defined counter.
-    cs.set_counter("chapter", 3);
-
-    let text = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![
-            ContentItem::String("Chapter ".to_string()),
-            ContentItem::Counter {
-                name: "chapter".to_string(),
-                style: ListStyleType::Decimal,
-            },
-        ]),
-        &cs,
-    );
-    assert_eq!(text, "Chapter 3", "custom counter should resolve");
-
-    // Upper-roman style.
-    let text_roman = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "chapter".to_string(),
-            style: ListStyleType::UpperRoman,
-        }]),
-        &cs,
-    );
-    assert_eq!(
-        text_roman, "III",
-        "upper-roman style should format correctly"
-    );
-}
-
-#[test]
 fn content_offset_to_page_area() {
     let page_ctx = make_page_ctx(816.0, 1056.0);
     // Content area: 716 x 956, starting at (50, 50).
-    assert!((page_ctx.content_width() - 716.0).abs() < f32::EPSILON);
-    assert!((page_ctx.content_height() - 956.0).abs() < f32::EPSILON);
+    assert!((page_ctx.select(1, false).geometry.area().size.width - 716.0).abs() < f32::EPSILON);
+    assert!((page_ctx.select(1, false).geometry.area().size.height - 956.0).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -264,20 +168,12 @@ fn empty_page_handled() {
 
 #[test]
 fn page_size_matches_rule() {
-    use elidex_plugin::{NamedPageSize, PageRule, PageSize};
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page {size:A4}");
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: Some(PageSize::Named(NamedPageSize::A4)),
-            ..PageRule::default()
-        }],
-    };
-
-    let (w, h) = page_ctx.effective_page_size(1, false);
+    let elidex_plugin::Size {
+        width: w,
+        height: h,
+    } = page_ctx.select(1, false).geometry.sheet;
     assert!((w - 794.0).abs() < 1.0, "A4 width = 794, got {w}");
     assert!((h - 1123.0).abs() < 1.0, "A4 height = 1123, got {h}");
 }
@@ -287,130 +183,7 @@ fn page_size_matches_rule() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn margin_box_area_top_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_w = pw - margins.left - margins.right; // 730
-    let third = content_w / 3.0;
-
-    let (x, y, w, h) = super::super::margin_box_area("top-left", pw, ph, &margins);
-    assert!((x - margins.left).abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - third).abs() < 0.01);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    let (x, _y, w, _h) = super::super::margin_box_area("top-center", pw, ph, &margins);
-    assert!((x - (margins.left + third)).abs() < 0.01);
-    assert!((w - third).abs() < 0.01);
-
-    let (x, _y, w, _h) = super::super::margin_box_area("top-right", pw, ph, &margins);
-    assert!((x - (margins.left + 2.0 * third)).abs() < 0.01);
-    assert!((w - third).abs() < 0.01);
-}
-
-#[test]
-fn margin_box_area_bottom_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_y = margins.top;
-    let content_h = ph - margins.top - margins.bottom;
-
-    let (_x, y, _w, h) = super::super::margin_box_area("bottom-center", pw, ph, &margins);
-    assert!((y - (content_y + content_h)).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-}
-
-#[test]
-fn margin_box_area_left_right_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_h = ph - margins.top - margins.bottom; // 890
-    let third_h = content_h / 3.0;
-
-    // left-middle
-    let (x, y, w, h) = super::super::margin_box_area("left-middle", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!((y - (margins.top + third_h)).abs() < 0.01);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - third_h).abs() < 0.01);
-
-    // right-top
-    let (x, y, w, h) = super::super::margin_box_area("right-top", pw, ph, &margins);
-    assert!((x - (pw - margins.right)).abs() < f32::EPSILON);
-    assert!((y - margins.top).abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - third_h).abs() < 0.01);
-}
-
-#[test]
-fn margin_box_area_corners() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_w = pw - margins.left - margins.right;
-    let content_h = ph - margins.top - margins.bottom;
-
-    // top-left-corner
-    let (x, y, w, h) = super::super::margin_box_area("top-left-corner", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    // top-right-corner
-    let (x, y, w, h) = super::super::margin_box_area("top-right-corner", pw, ph, &margins);
-    assert!((x - (margins.left + content_w)).abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    // bottom-left-corner
-    let (x, y, w, h) = super::super::margin_box_area("bottom-left-corner", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!((y - (margins.top + content_h)).abs() < f32::EPSILON);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-
-    // bottom-right-corner
-    let (x, y, w, h) = super::super::margin_box_area("bottom-right-corner", pw, ph, &margins);
-    assert!((x - (margins.left + content_w)).abs() < f32::EPSILON);
-    assert!((y - (margins.top + content_h)).abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-}
-
-#[test]
 fn margin_box_all_16_positions_render() {
-    use elidex_plugin::{ContentItem, ContentValue, MarginBoxContent, PageMargins, PageRule};
-
-    let make_content = |s: &str| MarginBoxContent {
-        content: ContentValue::Items(vec![ContentItem::String(s.to_string())]),
-        properties: Vec::new(),
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -421,39 +194,7 @@ fn margin_box_all_16_positions_render() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_left_corner: Some(make_content("TLC")),
-                top_left: Some(make_content("TL")),
-                top_center: Some(make_content("TC")),
-                top_right: Some(make_content("TR")),
-                top_right_corner: Some(make_content("TRC")),
-                right_top: Some(make_content("RT")),
-                right_middle: Some(make_content("RM")),
-                right_bottom: Some(make_content("RB")),
-                bottom_right_corner: Some(make_content("BRC")),
-                bottom_right: Some(make_content("BR")),
-                bottom_center: Some(make_content("BC")),
-                bottom_left: Some(make_content("BL")),
-                bottom_left_corner: Some(make_content("BLC")),
-                left_bottom: Some(make_content("LB")),
-                left_middle: Some(make_content("LM")),
-                left_top: Some(make_content("LT")),
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(816.,1056.,50., "@page {@top-left-corner{content:'TLC'} @top-left{content:'TL'} @top-center{content:'TC'} @top-right{content:'TR'} @top-right-corner{content:'TRC'} @right-top{content:'RT'} @right-middle{content:'RM'} @right-bottom{content:'RB'} @bottom-right-corner{content:'BRC'} @bottom-right{content:'BR'} @bottom-center{content:'BC'} @bottom-left{content:'BL'} @bottom-left-corner{content:'BLC'} @left-bottom{content:'LB'} @left-middle{content:'LM'} @left-top{content:'LT'}}");
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -469,11 +210,6 @@ fn margin_box_all_16_positions_render() {
 
 #[test]
 fn margin_box_with_background_color() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssColor, CssValue, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -484,31 +220,12 @@ fn margin_box_with_background_color() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Title".to_string())]),
-                    properties: vec![PropertyDeclaration::new(
-                        "background-color",
-                        CssValue::Color(CssColor::new(200, 200, 200, 255)),
-                    )],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'Title';background-color:#c8c8c8}}",
+    );
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -525,11 +242,6 @@ fn margin_box_with_background_color() {
 
 #[test]
 fn margin_box_with_border() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -540,31 +252,12 @@ fn margin_box_with_border() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("Header".to_string())]),
-                    properties: vec![PropertyDeclaration::new(
-                        "border-bottom-width",
-                        CssValue::Length(1.0, LengthUnit::Px),
-                    )],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'Header';border-bottom:1px solid black}}",
+    );
 
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
 
@@ -581,11 +274,6 @@ fn margin_box_with_border() {
 
 #[test]
 fn margin_box_with_explicit_width_height() {
-    use elidex_plugin::{
-        ContentItem, ContentValue, CssValue, LengthUnit, MarginBoxContent, PageMargins, PageRule,
-        PropertyDeclaration,
-    };
-
     let page_fragment = elidex_layout::PageFragment {
         layout_box: elidex_plugin::LayoutBox::default(),
         page_number: 1,
@@ -596,31 +284,12 @@ fn margin_box_with_explicit_width_height() {
     let dom = elidex_ecs::EcsDom::new();
     let font_db = elidex_text::FontDatabase::new();
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: vec![PageRule {
-            selectors: Vec::new(),
-            size: None,
-            margins: PageMargins {
-                top_center: Some(MarginBoxContent {
-                    content: ContentValue::Items(vec![ContentItem::String("W".to_string())]),
-                    properties: vec![
-                        PropertyDeclaration::new("width", CssValue::Length(100.0, LengthUnit::Px)),
-                        PropertyDeclaration::new("height", CssValue::Length(30.0, LengthUnit::Px)),
-                    ],
-                }),
-                ..PageMargins::default()
-            },
-            properties: Vec::new(),
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(
+        816.,
+        1056.,
+        50.,
+        "@page {@top-center {content:'W';width:100px;height:30px}}",
+    );
 
     // Should not panic with explicit width/height constraints.
     let paged_dl = build_paged_display_lists(&dom, &font_db, &[page_fragment], &page_ctx);
@@ -628,19 +297,122 @@ fn margin_box_with_explicit_width_height() {
 }
 
 #[test]
-fn resolve_margin_box_style_defaults() {
-    use elidex_plugin::{ContentValue, MarginBoxContent};
+fn continued_block_paints_each_child_and_page_counter_once() {
+    use elidex_plugin::{ComputedStyle, CssColor, Dimension, Display};
 
-    let mb = MarginBoxContent {
-        content: ContentValue::Normal,
-        properties: Vec::new(),
-    };
-    let style = super::super::resolve_margin_box_style(&mb);
-    assert!((style.font_size - 12.0).abs() < f32::EPSILON);
-    assert_eq!(style.weight, 400);
-    assert!(style.background_color.is_none());
-    assert!(style.explicit_width.is_none());
-    assert!(style.explicit_height.is_none());
-    assert!((style.padding.top).abs() < f32::EPSILON);
-    assert!((style.border_widths.top).abs() < f32::EPSILON);
+    let font_db = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, block) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            counter_increment: vec![("page".into(), 10)],
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox::default(),
+    );
+    // Each indivisible child fills the 60px page area. Their parent continues.
+    for color in [CssColor::RED, CssColor::BLUE] {
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+        assert!(dom.append_child(block, child));
+        dom.world_mut()
+            .insert_one(
+                child,
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Dimension::Length(60.),
+                    overflow_y: elidex_plugin::Overflow::Hidden,
+                    background_color: color,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+    let ctx = elidex_style::page::fixture(
+        220.,
+        160.,
+        50.,
+        "@page {@top-left {content:counter(page);font-family:'Elidex Test Digits'}}",
+    );
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &font_db, &ctx);
+    assert_eq!(printed.pages.len(), 2);
+    let box_rect = Rect::new(50., 50., 120., 60.);
+    // The fixture maps digit n to glyph n + 1 with a half-em advance.
+    let eleven = [(2, 62.), (2, 70.)];
+    let two = [(3, 66.)];
+    for (page, (body_color, digits)) in printed.pages.iter().zip([
+        (CssColor::RED, eleven.as_slice()),
+        (CssColor::BLUE, two.as_slice()),
+    ]) {
+        let commands: Vec<_> = page.iter().collect();
+        let [DisplayItem::SolidRect { rect, color }, DisplayItem::PushClip { rect: clip, radii }, DisplayItem::PopClip, DisplayItem::Text {
+            glyphs, font_size, ..
+        }] = commands.as_slice()
+        else {
+            panic!("expected one clipped body followed by the page counter");
+        };
+        assert_eq!((*rect, *color), (box_rect, body_color));
+        assert_eq!((*clip, *radii), (box_rect, [0.; 4]));
+        assert_eq!(*font_size, 16.);
+        assert_eq!(glyphs.len(), digits.len());
+        for (glyph, &(id, x)) in glyphs.iter().zip(digits) {
+            assert_eq!(glyph.glyph_id, id);
+            assert_eq!(glyph.position, elidex_plugin::Point::new(x, 33.));
+        }
+    }
+}
+
+#[test]
+fn precomputed_blank_page_paints_only_its_number() {
+    use elidex_plugin::{ComputedStyle, CssColor, Display, LayoutBox, Point};
+
+    let body = Rect::new(50., 50., 120., 40.);
+    let (dom, _) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            background_color: CssColor::RED,
+            ..Default::default()
+        },
+        LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    );
+    let font_db = elidex_text::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let ctx = elidex_style::page::fixture(
+        220.,
+        160.,
+        50.,
+        "@page {@top-left {content:counter(page);font-family:'Elidex Test Digits'}}",
+    );
+
+    let fragments = [1, 2].map(|page_number| elidex_layout::PageFragment {
+        page_number,
+        is_blank: page_number == 2,
+        matched_selectors: vec![],
+        layout_box: LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    });
+    let printed = crate::build_paged_display_lists(&dom, &font_db, &fragments, &ctx);
+    assert_eq!(printed.page_count(), 2);
+    for (page, id) in printed.pages.iter().zip([2, 3]) {
+        let mut commands = page.iter();
+        if id == 2 {
+            assert!(
+                matches!(commands.next(), Some(DisplayItem::SolidRect { rect, color }) if *rect == body && *color == CssColor::RED)
+            );
+        }
+        let Some(DisplayItem::Text { glyphs, .. }) = commands.next() else {
+            panic!("expected printed page number");
+        };
+        let [glyph] = glyphs.as_slice() else {
+            panic!("expected one digit");
+        };
+        assert_eq!((glyph.glyph_id, glyph.position), (id, Point::new(66., 33.)));
+        assert!(commands.next().is_none());
+    }
 }

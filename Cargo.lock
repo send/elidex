@@ -2083,6 +2083,7 @@ dependencies = [
  "elidex-layout-multicol",
  "elidex-layout-table",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
 ]
 
@@ -2093,6 +2094,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-form",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 
@@ -2100,9 +2102,11 @@ dependencies = [
 name = "elidex-layout-flex"
 version = "0.1.0"
 dependencies = [
+ "elidex-css",
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
 ]
 
@@ -2123,6 +2127,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 
@@ -2212,6 +2217,7 @@ dependencies = [
  "elidex-layout",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-style",
  "elidex-text",
  "fontdb",

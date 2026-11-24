@@ -11,7 +11,7 @@ use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::positioned;
 use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
-    ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
+    ComputedStyle, CssSize, Display, LayoutBox, PageSelector, Position, PreparedPages, Size,
 };
 use elidex_text::FontDatabase;
 
@@ -36,6 +36,9 @@ use elidex_text::FontDatabase;
 /// producer goes through, enforced by the D4 trip-wire's wire #5. So the phase rule is
 /// once again ONE sentence at ONE granularity: *any write to either geometry source
 /// invalidates; only `layout_tree` publishes, at completion.*
+///
+/// A continuation in `input.break_token` belongs to the same immutable input.
+/// Start a new run with empty progress after changing the DOM or computed style.
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
@@ -182,7 +185,7 @@ pub struct PageFragment {
 #[must_use]
 pub fn layout_paged(
     dom: &mut EcsDom,
-    page_ctx: &PagedMediaContext,
+    page_ctx: &PreparedPages,
     font_db: &FontDatabase,
 ) -> Vec<PageFragment> {
     let roots = find_roots(dom);
@@ -193,8 +196,9 @@ pub fn layout_paged(
     // Use the first root for layout (typically the document root).
     let root = roots[0];
 
-    let content_width = page_ctx.content_width();
-    let content_height = page_ctx.content_height();
+    let area = page_ctx.select(1, false).geometry.area();
+    let content_width = area.size.width;
+    let content_height = area.size.height;
 
     if content_height <= 0.0 || content_width <= 0.0 {
         return Vec::new();
@@ -208,11 +212,11 @@ pub fn layout_paged(
     let input = LayoutInput {
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
-        offset: elidex_plugin::Point::new(page_ctx.page_margins.left, page_ctx.page_margins.top),
+        offset: area.origin,
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some(Size::new(page_ctx.page_width, page_ctx.page_height)),
+        viewport: Some(area.size),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -226,7 +230,10 @@ pub fn layout_paged(
     for (i, frag) in fragments.into_iter().enumerate() {
         let page_number = i + 1;
         let is_blank = is_blank_fragment(&frag);
-        let matched = match_page_selectors(&page_ctx.page_rules, page_number, is_blank);
+        let matched = page_ctx
+            .select(page_number, is_blank)
+            .matched_selectors
+            .clone();
         pages.push(PageFragment {
             layout_box: frag.layout_box,
             page_number,
@@ -244,23 +251,6 @@ pub fn layout_paged(
 /// by a forced page break with no content between breaks.
 fn is_blank_fragment(outcome: &elidex_layout_block::LayoutOutcome) -> bool {
     outcome.layout_box.content.size.height < 0.5 && outcome.layout_box.content.size.width < 0.5
-}
-
-/// Collect all page selectors from `@page` rules that match a given page.
-pub fn match_page_selectors(
-    page_rules: &[elidex_plugin::PageRule],
-    page_number: usize,
-    is_blank: bool,
-) -> Vec<PageSelector> {
-    let mut matched = Vec::new();
-    for rule in page_rules {
-        for sel in &rule.selectors {
-            if sel.matches(page_number, is_blank) && !matched.contains(sel) {
-                matched.push(*sel);
-            }
-        }
-    }
-    matched
 }
 
 /// Maximum number of fragments to prevent infinite loops.

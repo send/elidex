@@ -16,6 +16,7 @@ use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect};
 /// Per-line rectangle for an inline entity (used by `getClientRects()`).
 #[derive(Clone, Debug)]
 pub struct InlineLineRect {
+    pub(super) ordinal: usize,
     /// Inline-axis start on this line.
     pub inline_start: f32,
     /// Inline-axis end on this line.

@@ -5,7 +5,7 @@
 //! - pack-item construction (`PackItem`/`FlowMember`/`build_pack_items`) → [`items`]
 //! - inline-element box assignment (`EntityBounds`/`InlineLineRect`/
 //!   `assign_inline_layout_boxes`) → [`boxes`]
-//! - fragmentation slice + rebase (`slice_and_rebase_fragment`) → [`fragment`]
+//! - fragmentation slice + rebase (`truncate_fragment`) → [`fragment`]
 //! - the `text-align`/`text-align: justify` math (`FlushReason`, alignment resolution,
 //!   justification opportunity counting + baking) → [`justify`]
 
@@ -89,11 +89,12 @@ pub(super) struct LineBox {
 /// Line packer state — extracted to keep the main function under the line limit.
 pub(super) struct LinePacker {
     pub line_boxes: Vec<LineBox>,
+    pub placed_line: usize,
     pub entity_bounds: HashMap<Entity, EntityBounds>,
     /// Static positions for absolutely positioned placeholders
     /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top, mapped to logical axes).
     /// Stored as `Point(inline_pos, block_pos)` in logical coordinates.
-    pub static_positions: HashMap<Entity, Point>,
+    pub static_positions: HashMap<Entity, (usize, Point)>,
     current_inline: f32,
     current_line_height: f32,
     current_block_offset: f32,
@@ -152,7 +153,7 @@ pub(super) struct LinePacker {
     /// render-run-group key**: one entry per group (top-level + each converged
     /// positioned-inline sub-flow). The caller folds each to absolute and persists
     /// one `InlineFlow` per key.
-    pub flow_lines: HashMap<Entity, Vec<InlineFlowLine>>,
+    pub flow_lines: HashMap<Entity, Vec<(usize, InlineFlowLine)>>,
     /// `position:relative`/`sticky` atomic boxes tentatively placed on the current
     /// line, `(entity, IFC-local inline_start)`. Committed into
     /// `relpos_atomic_placements` on a rendered-content flush (same commit-on-content
@@ -169,12 +170,13 @@ pub(super) struct LinePacker {
     /// the **IFC-root** `content_origin` — like `static_positions`, NOT a sub-flow
     /// origin — then repositions each box (NOT a flow member; render Layer 6 paints
     /// it from the box). slice 3p-b-2.
-    pub relpos_atomic_placements: Vec<(Entity, f32, f32)>,
+    pub relpos_atomic_placements: Vec<(usize, Entity, f32, f32)>,
 }
 
 impl LinePacker {
     pub fn new(parent_entity: Entity, flow_align: FlowAlign) -> Self {
         Self {
+            placed_line: 0,
             line_boxes: Vec::new(),
             entity_bounds: HashMap::new(),
             static_positions: HashMap::new(),
@@ -209,6 +211,7 @@ impl LinePacker {
     #[allow(clippy::too_many_lines)]
     fn flush_line(&mut self, reason: FlushReason) {
         if self.any_rendered_content {
+            let ordinal = self.line_boxes.len();
             self.line_boxes.push(LineBox {
                 block_size: self.current_line_height,
             });
@@ -363,15 +366,15 @@ impl LinePacker {
                         }
                         0.0
                     };
-                self.flow_lines
-                    .entry(group_key)
-                    .or_default()
-                    .push(InlineFlowLine {
+                self.flow_lines.entry(group_key).or_default().push((
+                    ordinal,
+                    InlineFlowLine {
                         block_start,
                         block_size: line_height,
                         runs,
                         justify_word_spacing,
-                    });
+                    },
+                ));
             }
             // Commit the line's positioned-atomic placements (relpos/sticky): line
             // `offset` + the cumulative top-level justify expansion at the atomic's
@@ -382,6 +385,7 @@ impl LinePacker {
             // positioned box, so a flow member would double-paint).
             for (entity, inline_start) in self.current_line_relpos_atomics.drain(..) {
                 self.relpos_atomic_placements.push((
+                    ordinal,
                     entity,
                     inline_start + offset + cum_at(inline_start),
                     block_start,
@@ -455,6 +459,7 @@ impl LinePacker {
         }
         for (entity, min_start, max_end, block_start) in merged {
             let painted = InlineLineRect {
+                ordinal: self.line_boxes.len() - 1,
                 inline_start: min_start + offset + cum_at(min_start),
                 inline_end: max_end + offset + cum_at(max_end),
                 block_start,
@@ -493,11 +498,13 @@ impl LinePacker {
         containing_inline_size: f32,
         is_vertical: bool,
     ) {
+        self.placed_line = self.line_boxes.len();
         match pi {
             PackItem::Text {
                 item_index,
                 text,
                 break_after,
+                ..
             } => {
                 let InlineItem::Text(run) = &items[*item_index] else {
                     return;
@@ -632,12 +639,15 @@ impl LinePacker {
                     *group_key,
                 );
             }
-            PackItem::Placeholder { entity } => {
+            PackItem::Placeholder { entity, .. } => {
                 // CSS 2.1 §10.3.7 / §10.6.4: record static position at current inline/block position.
                 // Zero-width, zero-height — does not advance cursor_x.
                 self.static_positions.insert(
                     *entity,
-                    Point::new(self.current_inline, self.current_block_offset),
+                    (
+                        self.line_boxes.len(),
+                        Point::new(self.current_inline, self.current_block_offset),
+                    ),
                 );
             }
         }
@@ -659,6 +669,7 @@ impl LinePacker {
             self.flush_line(FlushReason::SoftWrap);
         }
 
+        self.placed_line = self.line_boxes.len();
         let seg_inline_start = self.current_inline;
         self.current_inline += full_width;
         self.current_line_height = self.current_line_height.max(block_advance);
@@ -674,6 +685,7 @@ impl LinePacker {
             self.current_line_entity_rects.push((
                 entity,
                 InlineLineRect {
+                    ordinal: self.line_boxes.len(),
                     inline_start: seg_inline_start,
                     inline_end: seg_inline_start + full_width,
                     block_start: self.current_block_offset,

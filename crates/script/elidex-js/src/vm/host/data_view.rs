@@ -363,7 +363,7 @@ fn write_bytes<const N: usize>(
 /// `byte_offset`.  Throws RangeError on out-of-range.  `n` is the
 /// already-coerced `ToNumber(offsetArg)` from the caller.
 ///
-/// NaN / undefined coerce to `0` (per `ToIndex` §7.1.22) but still
+/// NaN / undefined coerce to `0` (per `ToIndex` §7.1.24) but still
 /// participate in the bounds check — e.g. `new DataView(buf_len_1).
 /// getInt16(NaN)` must throw RangeError because `0 + 2 > 1`.
 fn ensure_in_range(n: f64, dv_len: u32, size: u32, method: &str) -> Result<u32, VmError> {

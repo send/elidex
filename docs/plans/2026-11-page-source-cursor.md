@@ -35,3 +35,11 @@ Give the Block token three explicit alternatives. A **local run continuation** c
 | css-break-3 §5.1 Breaking into Varying-size Fragmentainers | Continue content progress at the new size | Wider, narrower, same width | Inline collection, line commit, Block token producers and both resume paths | Supported inline paths | yes |
 
 Review this memo together with the 3b.2f and 3b.2g umbrella rows. The 3b.1 plan landed at be0c5d24; implementation follows its style-to-layout handoff. Test elidex-layout-block and elidex-layout through their normal entry points. The later page-plan child supplies the integrated page sequence for public replay.
+
+### Low-level continuation lifetime (PM 1084)
+
+A new paged run starts with empty progress. Direct layout dispatch can resume only within the same immutable source and computed styles. The positive control is the interleaved builder, which stores counting-pass tokens in a local vector and borrows them during replay in the same call. The public fragmented-layout driver starts its local chain at None. Block, Flex, Grid and Table consume input from their invoking layout pass, and Multicol owns its carry in a single fill invocation. Geometry generation changes on individual paint pages and cannot identify an input snapshot.
+
+**#11-break-token-input-generation** · **Owner** L1 · **Re-eval-date** 2026-12-15. The public low-level layout entry accepts a retained break token after the caller changes the source. When D2 or H wires ECS entity version counters, record the source entity versions in the token and have dispatch reject stale continuations. Verify that changing a contributing text node or its computed style invalidates the old continuation, while changing just the fragmentainer width preserves it. Entry points: elidex-layout-block LayoutInput::break_token and elidex-layout dispatch_layout_child.
+
+PM 1085 assigns the direct-text Multicol paint path to **#11-multicol-direct-inline-flow**, owner L1, re-evaluation 2026-12-15. For raw text in 3b.2, verify the source handed from the stack to the next column and the absence of a spanning-child snapshot. The #316 follow-up will collect the container's own line carrier and verify all words in the definitive auto and balanced InlineFlow.

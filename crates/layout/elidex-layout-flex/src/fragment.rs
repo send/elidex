@@ -135,7 +135,6 @@ fn fragment_row_flex(
                     let bt = BreakToken {
                         entity,
                         consumed_block_size: consumed,
-                        child_break_token: None,
                         mode_data: Some(BreakTokenData::Flex {
                             line_index: line_idx,
                             item_index: 0,
@@ -158,7 +157,6 @@ fn fragment_row_flex(
                         let bt = BreakToken {
                             entity,
                             consumed_block_size: consumed,
-                            child_break_token: None,
                             mode_data: Some(BreakTokenData::Flex {
                                 line_index: line_idx,
                                 item_index: 0,
@@ -207,7 +205,6 @@ fn fragment_row_flex(
                 let bt = BreakToken {
                     entity,
                     consumed_block_size: consumed_at_break,
-                    child_break_token: None,
                     mode_data: Some(BreakTokenData::Flex {
                         line_index: break_line,
                         item_index: 0,
@@ -296,7 +293,6 @@ fn fragment_column_flex(
                         let bt = BreakToken {
                             entity,
                             consumed_block_size: consumed,
-                            child_break_token: None,
                             mode_data: Some(BreakTokenData::Flex {
                                 line_index: line_idx,
                                 item_index: item_rel,
@@ -317,7 +313,6 @@ fn fragment_column_flex(
                         let bt = BreakToken {
                             entity,
                             consumed_block_size: consumed,
-                            child_break_token: None,
                             mode_data: Some(BreakTokenData::Flex {
                                 line_index: line_idx,
                                 item_index: item_rel,
@@ -362,7 +357,6 @@ fn fragment_column_flex(
                     let bt = BreakToken {
                         entity,
                         consumed_block_size: consumed_at_break,
-                        child_break_token: None,
                         mode_data: Some(BreakTokenData::Flex {
                             line_index: line_idx,
                             item_index: break_item,

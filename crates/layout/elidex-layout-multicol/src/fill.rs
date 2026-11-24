@@ -169,23 +169,17 @@ pub fn fill_columns_sequential(
             extract_child_index(result.break_token.as_ref()).unwrap_or(children.len());
         let prev_child_idx = extract_child_index(carry_break_token.as_ref()).unwrap_or(0);
 
-        // Precise per-column "the break-out child was laid PARTIALLY here" signal
-        // (P3): the break token carries a `child_break_token`, which
-        // `stack_block_children` sets ONLY when it fragmented a child mid-way. A
-        // clean inter-sibling break (`break-before`/`break-after: column`) or a
-        // monolithic deferral leaves it `None` and lays the child whole in ONE
-        // column (where the I-multicol shifted `LayoutBox` suffices). This single
-        // signal drives BOTH the `col_children` shift membership below AND the
-        // box-fragment snapshot — converged (Z-1b-0). Using the coarse
-        // `result.break_token.is_some()` positional proxy here instead would
-        // misclassify a `break-before: column` resume point (where `next == prev`
-        // but no child split) as mid-break and additively double-shift the
-        // deferred child.
+        // Only a split inside a child snapshots that child's per-column box.
         let break_out_child = result
             .break_token
             .as_ref()
-            .filter(|bt| bt.child_break_token.is_some())
-            .and_then(|_| children.get(next_child_idx).copied());
+            .and_then(|bt| match &bt.mode_data {
+                Some(BreakTokenData::Block {
+                    continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
+                    ..
+                }) => Some(child.entity),
+                _ => None,
+            });
 
         // Build the children list for this column fragment.
         //

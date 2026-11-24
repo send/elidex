@@ -79,34 +79,34 @@ fn parse_function_inner(
 ) -> Result<TransformFunction, ParseError> {
     match function {
         "translate" => {
-            let x = parse_length_or_percentage(args)?;
+            let x = parse_translate_length(args, true)?;
             let y = if args.try_parse(cssparser::Parser::expect_comma).is_ok() {
-                parse_length_or_percentage(args)?
+                parse_translate_length(args, true)?
             } else {
                 CssValue::Length(0.0, LengthUnit::Px)
             };
             Ok(TransformFunction::Translate(x, y))
         }
         "translatex" => {
-            let x = parse_length_or_percentage(args)?;
+            let x = parse_translate_length(args, true)?;
             Ok(TransformFunction::TranslateX(x))
         }
         "translatey" => {
-            let y = parse_length_or_percentage(args)?;
+            let y = parse_translate_length(args, true)?;
             Ok(TransformFunction::TranslateY(y))
         }
         "translatez" => {
-            let z = parse_length_only(args)?;
+            let z = parse_translate_length(args, false)?;
             Ok(TransformFunction::TranslateZ(z))
         }
         "translate3d" => {
-            let x = parse_length_or_percentage(args)?;
+            let x = parse_translate_length(args, true)?;
             args.expect_comma()
                 .map_err(|_| ParseError::simple("expected comma"))?;
-            let y = parse_length_or_percentage(args)?;
+            let y = parse_translate_length(args, true)?;
             args.expect_comma()
                 .map_err(|_| ParseError::simple("expected comma"))?;
-            let z = parse_length_only(args)?;
+            let z = parse_translate_length(args, false)?;
             Ok(TransformFunction::Translate3d(x, y, z))
         }
         "rotate" => {
@@ -258,10 +258,20 @@ fn parse_angle(input: &mut cssparser::Parser<'_, '_>) -> Result<f32, ParseError>
     }
 }
 
-/// Parse `<length>` only (no percentage). Accepts bare `0`.
-///
-/// CSS Transforms L2 §12.1: `translateZ()` and the Z argument of `translate3d()`
-/// accept `<length>` only — there is no reference box on the Z axis for percentages.
+/// CSS Transforms 2 §§12.1–12.2: translation admits literal lengths on all axes and
+/// percentages only along X/Y. Reference-box math belongs to the used-value reader.
+fn parse_translate_length(
+    input: &mut cssparser::Parser<'_, '_>,
+    percentage: bool,
+) -> Result<CssValue, ParseError> {
+    let value = elidex_plugin::css_resolve::strict::parse_literal_length_or_percentage(input)
+        .map_err(|()| ParseError::simple("invalid translation distance"))?;
+    if !percentage && matches!(value, CssValue::Percentage(_)) {
+        return Err(ParseError::simple("expected Z translation length"));
+    }
+    Ok(value)
+}
+
 fn parse_length_only(input: &mut cssparser::Parser<'_, '_>) -> Result<CssValue, ParseError> {
     let token = input
         .next()
@@ -363,8 +373,12 @@ pub(crate) fn parse_perspective_property(
     if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
         return Ok(CssValue::Keyword("none".to_string()));
     }
-    // Positive length only
-    parse_non_negative_length(input)
+    match elidex_plugin::css_resolve::strict::parse_literal_length_or_percentage(input) {
+        Ok(value @ CssValue::Length(n, _)) if n >= 0.0 => Ok(value),
+        _ => Err(ParseError::simple(
+            "expected non-negative perspective length",
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------

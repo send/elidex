@@ -43,6 +43,14 @@ pub(crate) fn resolve_candidates<'a>(
     candidates: &[CascadeEntry<'a>],
     parent: &ComputedStyle,
 ) -> Resolved<'a> {
+    resolve_in_context(candidates, parent, false)
+}
+
+pub(crate) fn resolve_in_context<'a>(
+    candidates: &[CascadeEntry<'a>],
+    parent: &ComputedStyle,
+    page_descriptors: bool,
+) -> Resolved<'a> {
     let mut locals = HashMap::new();
     for &entry in candidates {
         if let CssValue::Custom(components) = entry.value {
@@ -67,7 +75,16 @@ pub(crate) fn resolve_candidates<'a>(
         }
         if let CssValue::Pending(seq) = entry.value {
             let expanded = env.ordinary(seq).and_then(|v| {
-                elidex_css::parse_value_for_property(entry.property, v.source(), entry.registry)
+                if page_descriptors && entry.property == "size" {
+                    elidex_css::parse_page_size(v.source())
+                        .map(|value| vec![elidex_css::Declaration::new("size", value)])
+                } else {
+                    #[cfg(test)]
+                    if page_descriptors {
+                        page_receivers::observe(entry.property, entry.registry);
+                    }
+                    elidex_css::parse_value_for_property(entry.property, v.source(), entry.registry)
+                }
             });
             if let Some(declarations) = expanded {
                 for decl in declarations {
@@ -79,7 +96,12 @@ pub(crate) fn resolve_candidates<'a>(
                     );
                 }
             } else {
-                for member in elidex_css::declaration_members(entry.property, entry.registry) {
+                let members = if page_descriptors && entry.property == "size" {
+                    vec!["size".into()]
+                } else {
+                    elidex_css::declaration_members(entry.property, entry.registry)
+                };
+                for member in members {
                     insert(
                         &mut ordinary,
                         Cow::Owned(member),
@@ -99,3 +121,6 @@ pub(crate) fn resolve_candidates<'a>(
     }
     Resolved { custom, ordinary }
 }
+
+#[cfg(test)]
+mod page_receivers;

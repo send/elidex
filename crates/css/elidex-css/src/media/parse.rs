@@ -427,7 +427,7 @@ enum RawMfValue {
     Ratio(f64, f64),
     Ident(String),
     /// A length-typed `calc()` (CSS math), parsed by the canonical
-    /// `crate::values::parse_length` — MQ4 §1.2/§1.3 delegates `<mf-value>` to
+    /// `elidex_plugin::css_resolve::strict::parse_length` — MQ4 §1.2/§1.3 delegates `<mf-value>` to
     /// CSS Values. Only valid for `width`/`height`; resolved at eval.
     Calc(Box<CalcExpr>),
 }
@@ -454,10 +454,14 @@ fn parse_mf_value(input: &mut Parser<'_, '_>) -> Result<RawMfValue, ()> {
     // number-typed one (e.g. `calc(40)`) is filtered at coercion per feature.
     // The unsupported tail (abs-unit/resolution-unit `calc()`, `min`/`max`/
     // `clamp`) is the carved slot `#11-media-css-values-fidelity`.
-    if let Ok(expr) = input.try_parse(|i| match crate::values::parse_length(i) {
-        Ok(CssValue::Calc(expr)) => Ok(expr),
-        _ => Err(()),
-    }) {
+    if let Ok(expr) =
+        input.try_parse(
+            |i| match elidex_plugin::css_resolve::strict::parse_length(i) {
+                Ok(CssValue::Calc(expr)) => Ok(expr),
+                _ => Err(()),
+            },
+        )
+    {
         return Ok(RawMfValue::Calc(expr));
     }
     let first = match input.next().map_err(|_| ())? {
@@ -567,23 +571,14 @@ fn calc_has_length(expr: &CalcExpr) -> bool {
 /// [`RangeValue::Converted`] — the cssparser `f32` source + factor make that px
 /// inexact, so it (unlike a direct px) compares with tolerance.
 fn media_length_to_value(value: f64, unit: &str) -> Option<RangeValue> {
-    if let Ok(u) = crate::values::parse_length_unit(unit) {
-        return Some(RangeValue::Length { value, unit: u });
-    }
-    let lower = unit.to_ascii_lowercase();
-    let px = match lower.as_str() {
-        "in" => value * 96.0,
-        "cm" => value * (96.0 / 2.54),
-        "mm" => value * (96.0 / 25.4),
-        "q" => value * (96.0 / 25.4 / 4.0),
-        "pt" => value * (96.0 / 72.0),
-        "pc" => value * 16.0,
-        _ => return None,
-    };
-    Some(RangeValue::Converted {
-        px,
-        value,
-        unit: lower.into_boxed_str(),
+    let unit = elidex_plugin::css_resolve::strict::parse_length_unit(unit).ok()?;
+    Some(match unit.physical_px_ratio() {
+        Some(ratio) => RangeValue::Converted {
+            px: value * ratio,
+            value,
+            unit: unit.as_str().into(),
+        },
+        None => RangeValue::Length { value, unit },
     })
 }
 

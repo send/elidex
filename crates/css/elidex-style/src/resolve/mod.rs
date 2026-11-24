@@ -18,11 +18,10 @@ use elidex_plugin::{
 
 pub(crate) use helpers::PropertyMap;
 
-pub(crate) use var_resolution::resolve_candidates;
+pub(crate) use var_resolution::{resolve_candidates, resolve_in_context};
 
-use font::{
-    resolve_background_color, resolve_color, resolve_font_and_text_properties, resolve_font_size,
-};
+pub(crate) use font::resolve_font_size;
+use font::{resolve_background_color, resolve_color, resolve_font_and_text_properties};
 
 use box_model::{
     resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,
@@ -35,6 +34,24 @@ use grid::resolve_grid_properties;
 
 /// Context for resolving relative CSS values (re-exported from elidex-plugin).
 pub(crate) type ResolveContext = elidex_plugin::ResolveContext;
+
+/// Project an explicit initial value using the target's computed dependencies.
+#[must_use]
+pub fn get_computed_initial(
+    property: &str,
+    target: &ComputedStyle,
+    defaults: &ComputedStyle,
+    registry: &elidex_plugin::CssPropertyRegistry,
+    ctx: &elidex_plugin::ResolveContext,
+) -> CssValue {
+    if let Some(width) = box_model::initial_border_width(property, target, ctx) {
+        return CssValue::Length(width, LengthUnit::Px);
+    }
+    if registry.resolve(property).is_some_and(|handler| matches!(handler.initial_value(property), CssValue::Keyword(k) if k == "currentcolor")) {
+        return CssValue::Color(target.color);
+    }
+    get_computed_with_registry(property, defaults, registry)
+}
 
 /// Extract a property's computed value using the CSS property registry.
 ///

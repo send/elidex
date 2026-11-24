@@ -9,6 +9,7 @@ pub mod helpers;
 pub mod inline;
 pub mod paint_order;
 pub mod positioned;
+pub mod source_progress;
 
 use std::cell::RefCell;
 
@@ -81,10 +82,19 @@ pub struct BreakToken {
     pub entity: Entity,
     /// How much block-axis size was consumed before the break.
     pub consumed_block_size: f32,
-    /// Nested break token from a child that was itself interrupted.
-    pub child_break_token: Option<Box<BreakToken>>,
     /// Layout-mode-specific data for resumption.
     pub mode_data: Option<BreakTokenData>,
+}
+
+/// How block layout resumes at its recorded child index.
+#[derive(Clone, Debug)]
+pub enum BlockContinuation {
+    ChildBoundary,
+    InterruptedChild(Box<BreakToken>),
+    LocalRun {
+        first: Entity,
+        progress: source_progress::SourceProgress,
+    },
 }
 
 /// Layout-mode-specific data stored in a [`BreakToken`].
@@ -93,9 +103,7 @@ pub enum BreakTokenData {
     /// Block layout: index of the next child to lay out.
     Block {
         child_index: usize,
-        /// If the break occurred within an inline run at this `child_index`,
-        /// the number of line boxes to skip when resuming.
-        inline_break_line: Option<usize>,
+        continuation: BlockContinuation,
     },
     /// Flex layout: line and item indices, with optional child break token
     /// for flex items that contain fragmentable content.
@@ -199,7 +207,9 @@ pub struct LayoutInput<'a> {
     pub viewport: Option<Size>,
     /// Fragmentation context (if inside a fragmentainer).
     pub fragmentainer: Option<&'a FragmentainerContext>,
-    /// Break token from a previous fragment (for resumption).
+    /// Continuation within the same immutable DOM and style input. A new run,
+    /// including a run after input changes, starts with `None`. Fragmentainer
+    /// geometry may change between fragments (CSS Break 3 §5.1).
     pub break_token: Option<&'a BreakToken>,
     /// Parent grid context for subgrid items (CSS Grid Level 2 2).
     pub subgrid: Option<&'a SubgridContext>,
@@ -465,23 +475,27 @@ mod tests {
         let inner = BreakToken {
             entity: Entity::DANGLING,
             consumed_block_size: 50.0,
-            child_break_token: None,
             mode_data: Some(BreakTokenData::Block {
                 child_index: 2,
-                inline_break_line: None,
+                continuation: BlockContinuation::ChildBoundary,
             }),
         };
         let outer = BreakToken {
             entity: Entity::DANGLING,
             consumed_block_size: 100.0,
-            child_break_token: Some(Box::new(inner)),
             mode_data: Some(BreakTokenData::Flex {
                 line_index: 0,
                 item_index: 3,
-                child_break_token: None,
+                child_break_token: Some(Box::new(inner)),
             }),
         };
-        let child = outer.child_break_token.as_ref().unwrap();
+        let Some(BreakTokenData::Flex {
+            child_break_token: Some(child),
+            ..
+        }) = outer.mode_data
+        else {
+            panic!("expected nested flex child")
+        };
         assert_eq!(child.consumed_block_size, 50.0);
         assert!(matches!(
             child.mode_data,
@@ -493,7 +507,7 @@ mod tests {
     fn break_token_data_variants() {
         let block = BreakTokenData::Block {
             child_index: 5,
-            inline_break_line: None,
+            continuation: BlockContinuation::ChildBoundary,
         };
         let flex = BreakTokenData::Flex {
             line_index: 1,

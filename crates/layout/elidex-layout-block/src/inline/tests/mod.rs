@@ -14,7 +14,7 @@ fn collect_styled_runs(
     parent_style: &ComputedStyle,
     parent_entity: Entity,
 ) -> Vec<StyledRun> {
-    let (items, ..) = collect_inline_items(dom, children, parent_style, parent_entity);
+    let (items, ..) = collect_inline_items(dom, children, parent_style, parent_entity, false);
     items
         .into_iter()
         .filter_map(|item| match item {

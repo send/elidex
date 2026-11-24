@@ -5,7 +5,9 @@
 use cssparser::{Parser, Token};
 use elidex_plugin::{CssValue, LengthUnit};
 
-use crate::values::{parse_length_or_percentage, parse_non_negative_length_or_percentage};
+use elidex_plugin::css_resolve::strict::{
+    parse_length_or_percentage, parse_non_negative_length_or_percentage,
+};
 
 use super::{parse_color_property, parse_value_property, try_keyword_value, try_parse_keyword};
 use super::{single_decl, Declaration};
@@ -277,7 +279,11 @@ pub(super) fn parse_spacing(input: &mut Parser, name: &str) -> Vec<Declaration> 
     if let Ok(val) = try_keyword_value(input, "normal", &CssValue::Keyword("normal".to_string())) {
         return single_decl(name, val);
     }
-    parse_value_property(input, name, crate::values::parse_length)
+    parse_value_property(
+        input,
+        name,
+        elidex_plugin::css_resolve::strict::parse_length,
+    )
 }
 
 // --- Mapped keyword parsing ---
@@ -712,7 +718,7 @@ fn parse_border_width_value(input: &mut Parser) -> Result<CssValue, ()> {
         Token::Dimension {
             value, ref unit, ..
         } if value >= 0.0 => {
-            let u = crate::values::parse_length_unit(unit)?;
+            let u = elidex_plugin::css_resolve::strict::parse_length_unit(unit)?;
             Ok(CssValue::Length(value, u))
         }
         Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),
@@ -743,7 +749,7 @@ fn parse_column_width_value(input: &mut Parser) -> Result<CssValue, ()> {
         Token::Dimension {
             value, ref unit, ..
         } if value >= 0.0 => {
-            let u = crate::values::parse_length_unit(unit)?;
+            let u = elidex_plugin::css_resolve::strict::parse_length_unit(unit)?;
             Ok(CssValue::Length(value, u))
         }
         Token::Number { value: 0.0, .. } => Ok(CssValue::Length(0.0, LengthUnit::Px)),

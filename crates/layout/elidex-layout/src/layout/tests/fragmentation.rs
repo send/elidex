@@ -192,18 +192,8 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
 // Paged media layout tests (CSS Paged Media Level 3)
 // ---------------------------------------------------------------------------
 
-fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PagedMediaContext {
-    elidex_plugin::PagedMediaContext {
-        page_width: width,
-        page_height: height,
-        page_margins: elidex_plugin::EdgeSizes {
-            top: 50.0,
-            right: 50.0,
-            bottom: 50.0,
-            left: 50.0,
-        },
-        page_rules: Vec::new(),
-    }
+fn make_page_ctx(width: f32, height: f32) -> elidex_plugin::PreparedPages {
+    elidex_style::page::fixture(width, height, 50.0, "")
 }
 
 #[test]
@@ -269,7 +259,7 @@ fn paged_multi_page_break() {
 
 #[test]
 fn paged_selector_first() {
-    use elidex_plugin::{PageRule, PageSelector as PS};
+    use elidex_plugin::PageSelector as PS;
 
     let mut dom = EcsDom::new();
     let div = dom.create_element_ownerless_fixture("div", Attributes::default());
@@ -283,15 +273,7 @@ fn paged_selector_first() {
     );
 
     let font_db = FontDatabase::new();
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: elidex_plugin::EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: vec![PS::First],
-            ..PageRule::default()
-        }],
-    };
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page :first {}");
     let pages = layout_paged(&mut dom, &page_ctx, &font_db);
 
     assert!(!pages.is_empty());
@@ -359,20 +341,12 @@ fn paged_blank_page_from_forced_break() {
 
 #[test]
 fn paged_size_from_rule() {
-    use elidex_plugin::{NamedPageSize, PageRule, PageSize};
+    let page_ctx = elidex_style::page::fixture(816., 1056., 0., "@page {size:A4}");
 
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 816.0,
-        page_height: 1056.0,
-        page_margins: elidex_plugin::EdgeSizes::default(),
-        page_rules: vec![PageRule {
-            selectors: Vec::new(), // matches all pages
-            size: Some(PageSize::Named(NamedPageSize::A4)),
-            ..PageRule::default()
-        }],
-    };
-
-    let (w, h) = page_ctx.effective_page_size(1, false);
+    let elidex_plugin::Size {
+        width: w,
+        height: h,
+    } = page_ctx.select(1, false).geometry.sheet;
     assert!(approx_eq(w, 794.0), "A4 width = 794, got {w}");
     assert!(approx_eq(h, 1123.0), "A4 height = 1123, got {h}");
 }
@@ -441,4 +415,39 @@ fn paged_two_pass_counter_pages() {
     let total = pages.len();
     assert!(total >= 2, "should have multiple pages");
     assert_eq!(pages.last().unwrap().page_number, total);
+}
+
+#[test]
+fn new_paged_run_starts_at_first_child_after_style_change() {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element_ownerless_fixture("div", Attributes::default());
+    let style = |height| ComputedStyle {
+        display: Display::Block,
+        height,
+        ..Default::default()
+    };
+    dom.world_mut()
+        .insert_one(parent, style(Dimension::Auto))
+        .unwrap();
+    let mut children = Vec::new();
+    for _ in 0..3 {
+        let child = dom.create_element_ownerless_fixture("div", Attributes::default());
+        assert!(dom.append_child(parent, child));
+        dom.world_mut()
+            .insert_one(child, style(Dimension::Length(70.)))
+            .unwrap();
+        children.push(child);
+    }
+    let fonts = FontDatabase::new();
+    let pages = make_page_ctx(400., 200.);
+    assert_eq!(layout_paged(&mut dom, &pages, &fonts).len(), 3);
+    for child in children {
+        dom.world_mut()
+            .insert_one(child, style(Dimension::Length(20.)))
+            .unwrap();
+    }
+    let rerun = layout_paged(&mut dom, &pages, &fonts);
+    assert_eq!(rerun.len(), 1);
+    assert_eq!(rerun[0].page_number, 1);
+    assert_eq!(rerun[0].layout_box.content.size.height, 60.);
 }

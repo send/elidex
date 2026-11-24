@@ -100,8 +100,7 @@ pub use grid::{
     GridTrackList, JustifyItems, JustifySelf, TrackBreadth, TrackSection, TrackSize,
 };
 pub use paged::{
-    selectors_match, MarginBoxContent, NamedPageSize, PageMargins, PageRule, PageSelector,
-    PageSize, PagedMediaContext,
+    MarginBoxContent, NamedPageSize, PageGeometry, PageSelector, PreparedPage, PreparedPages,
 };
 pub use table::{BorderCollapse, CaptionSide, EmptyCells, TableLayout};
 pub use text::{

@@ -16,6 +16,7 @@ pub mod cascade;
 pub mod counter;
 pub mod generated_content;
 pub mod inherit;
+pub mod page;
 mod pseudo;
 pub mod resolve;
 pub mod slot;
@@ -34,7 +35,7 @@ use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue, Size};
 
 pub use elidex_plugin::ViewportOverflow;
 pub use generated_content::resolve_generated_content;
-pub use resolve::{dimension_to_css_value, get_computed_with_registry};
+pub use resolve::{dimension_to_css_value, get_computed_initial, get_computed_with_registry};
 
 /// Build the CSS property registry with all standard property handlers.
 #[must_use]
@@ -342,37 +343,43 @@ pub fn resolve_styles_with_compat(
     medium: Medium,
     _registry: Option<&CssPropertyRegistry>,
 ) -> ViewportOverflow {
-    let ua = ua::ua_stylesheet();
+    let sheets = style_sheets(author_stylesheets, extra_ua_sheets);
+    apply_document_style(
+        dom,
+        &sheets,
+        hint_generator,
+        viewport,
+        media_environment(viewport, medium),
+    )
+}
 
-    // Build the full stylesheet list: UA first, then extra UA, then author.
-    let mut all_sheets: Vec<&Stylesheet> =
-        Vec::with_capacity(1 + extra_ua_sheets.len() + author_stylesheets.len());
-    all_sheets.push(ua);
-    all_sheets.extend_from_slice(extra_ua_sheets);
-    all_sheets.extend_from_slice(author_stylesheets);
+fn style_sheets<'a>(authors: &[&'a Stylesheet], extra: &[&'a Stylesheet]) -> Vec<&'a Stylesheet> {
+    std::iter::once(ua::ua_stylesheet())
+        .chain(extra.iter().copied())
+        .chain(authors.iter().copied())
+        .collect()
+}
 
+fn media_environment(sheet: Size, medium: Medium) -> MediaEnvironment {
+    MediaEnvironment {
+        medium,
+        viewport_width: f64::from(sheet.width),
+        viewport_height: f64::from(sheet.height),
+        ..MediaEnvironment::default()
+    }
+}
+
+fn apply_document_style(
+    dom: &mut EcsDom,
+    all_sheets: &[&Stylesheet],
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    viewport: Size,
+    media_env: MediaEnvironment,
+) -> ViewportOverflow {
     let ctx = ResolveContext {
         viewport,
-        em_base: 16.0,
-        root_font_size: 16.0,
+        ..ResolveContext::default()
     };
-
-    // The `@media` cascade environment (CSS Conditional §2 / mediaqueries-5).
-    // Derived from the same `viewport` device-fact `ctx` uses — a derived view,
-    // not a competing SoT. `medium` is caller-supplied: the screen pipeline
-    // passes `Medium::Screen`, the paged/print pipeline passes `Medium::Print`
-    // so `@media print` applies in paged output (mediaqueries-5 §2.3). The
-    // non-viewport device facts (dppx / prefers-* / color) take
-    // `MediaEnvironment::default()` until shell producers light them up (carved
-    // `#11-media-prefers-features` / `#11-media-css-values-fidelity`).
-    let media_env = MediaEnvironment {
-        medium,
-        viewport_width: f64::from(viewport.width),
-        viewport_height: f64::from(viewport.height),
-        root_font_size_px: 16.0,
-        ..MediaEnvironment::default()
-    };
-
     // Find the document root (entity with children but no parent and no TagType).
     // Fallback: walk all entities with TagType that have no parent.
     let roots = find_roots(dom);
@@ -389,7 +396,7 @@ pub fn resolve_styles_with_compat(
     };
     for root in roots {
         state.depth = 0;
-        walk_tree(dom, root, &all_sheets, &default_parent, &mut state);
+        walk_tree(dom, root, all_sheets, &default_parent, &mut state);
     }
 
     // Final phase: resolve CSS counters + generated content (pseudo `content`,

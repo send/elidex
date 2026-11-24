@@ -332,7 +332,10 @@ pub struct SlotAssignment {
 /// Added by `distribute_slots()` for O(1) slotted-element checks in
 /// selector matching and event retargeting.
 #[derive(Clone, Copy, Debug)]
-pub struct SlottedMarker;
+pub struct SlottedMarker {
+    /// Slot supplying the distributed element’s inherited style (CSS Shadow 1 §4.1).
+    pub slot: Entity,
+}
 
 /// Forward-link from a `<template>` element to its associated **template
 /// contents** `DocumentFragment` (HTML §4.12.3, slot

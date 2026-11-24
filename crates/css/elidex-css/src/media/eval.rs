@@ -170,7 +170,7 @@ fn range_feature_value(name: RangeFeature, env: &MediaEnvironment) -> f64 {
 /// environment, plus whether it compares with tolerance (`true`) or exactly
 /// (`false`). Lengths resolve here so viewport-relative units use the queried
 /// viewport. Only a value from a lossy unit conversion
-/// ([`RangeValue::Converted`]) is tolerant — a direct px/relative `<length>`,
+/// (a converted literal or a calc with such a leaf) is tolerant — a direct px/relative `<length>`,
 /// `<ratio>`, exact `<resolution>`, and `<integer>` compare exactly, so
 /// fractional breakpoints are never widened (MQ4 §2.4.3).
 fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> (f64, bool) {
@@ -190,12 +190,22 @@ fn resolve_range_value(value: &RangeValue, env: &MediaEnvironment) -> (f64, bool
             // the css-values "-5px ≠ calc(-5px)" rule.) +∞ is left as-is so an
             // `(min-width: calc(infinity * 1px))` comparison stays false.
             let clamped = if v.is_nan() { 0.0 } else { v.max(0.0) };
-            (clamped, false)
+            (clamped, uses_converted_length(expr))
         }
         RangeValue::Ratio { num, den } => (num / den, false),
         RangeValue::Dppx(d) => (*d, false),
         RangeValue::Number(n) => (*n, false),
         RangeValue::Converted { px, .. } => (*px, true),
+    }
+}
+
+fn uses_converted_length(expr: &CalcExpr) -> bool {
+    match expr {
+        CalcExpr::Length(_, unit) => unit.physical_px_ratio().is_some(),
+        CalcExpr::Number(_) | CalcExpr::Percentage(_) => false,
+        CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) | CalcExpr::Mul(a, b) | CalcExpr::Div(a, b) => {
+            uses_converted_length(a) || uses_converted_length(b)
+        }
     }
 }
 
@@ -227,13 +237,16 @@ fn resolve_px(value: f64, unit: LengthUnit, env: &MediaEnvironment) -> f64 {
     match unit {
         LengthUnit::Px => value,
         LengthUnit::Em | LengthUnit::Rem => value * env.root_font_size_px,
-        LengthUnit::Vw => value / 100.0 * env.viewport_width,
-        LengthUnit::Vh => value / 100.0 * env.viewport_height,
-        LengthUnit::Vmin => value / 100.0 * env.viewport_width.min(env.viewport_height),
-        LengthUnit::Vmax => value / 100.0 * env.viewport_width.max(env.viewport_height),
-        // `LengthUnit` is `#[non_exhaustive]`; any future unit falls back to a
-        // px interpretation (parse only admits the units handled above).
-        _ => value,
+        LengthUnit::Vw | LengthUnit::Lvw => value / 100.0 * env.viewport_width,
+        LengthUnit::Vh | LengthUnit::Lvh => value / 100.0 * env.viewport_height,
+        LengthUnit::Vmin | LengthUnit::Lvmin => {
+            value / 100.0 * env.viewport_width.min(env.viewport_height)
+        }
+        LengthUnit::Vmax | LengthUnit::Lvmax => {
+            value / 100.0 * env.viewport_width.max(env.viewport_height)
+        }
+        // Physical calc leaves use the same CSS Values §6.2 ratio as literals.
+        _ => value * unit.physical_px_ratio().unwrap_or(1.0),
     }
 }
 

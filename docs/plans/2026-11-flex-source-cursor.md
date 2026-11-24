@@ -36,6 +36,12 @@ In the variant, B independently forces a break after b1. Page one emits a1 and b
 
 For the two row width sequences, drive counting layout from its real outgoing tokens. Save each input token and width, and record current-generation emissions before overwrite. Replay those inputs in fresh paint-layout generations. Check each pass independently against its three expected page groups. On each page require the first item at (0,0) and the second, when present, at (40px,0) with zero padding and borders. Check exact source coverage after every page, absence of all rejected or previously completed items in that generation, and an empty complement with no outgoing token on page three. Apply the same generation-visible absence check to the avoid-retreat case.
 
+### PM 1029 F6 — entry width and interrupted-child dispatch
+
+3b.2f consumes the landed [atomic Flex write retirement](2026-11-flex-write-retirement.md). Use a start-aligned row, a completed sibling and a 50%-wide item with auto basis, zero grow/shrink and zero edges. Its p and q boxes each have 16px block extent, with a forced break between them. Entry widths 80px and 120px yield definitive item widths 40px and 60px. Check the computed 50% on both entries and the actual 16px fragment against the full 32px content.
+
+Use a 64px page. On page one a preceding 16px Flex line leaves 48px for the definitive p callback. Expect no incoming child continuation; capture the exact interrupted-item identity and outgoing p token. From this saved state test two page-two entries. With the Flex flow at the page top, q receives 64px. With 16px already occupied outside the Flex flow on page two, supply the resulting 48px fragmentainer space at the Flex boundary and observe 48px at the child. The completed first-page sibling and preceding line contribute no page-two space. Derive these oracles from the specified heights. In both cases require q alone at child-local inline offset zero, the same nested token, no completed sibling, a 16px published fragment and exhausted coverage. Verify each callback, room, width and emission independently in counting and paint generations. Probes receive no continuation. Retain the fixed-width A–D regrouping controls.
+
 ## §3. Spec coverage map
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |

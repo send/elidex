@@ -9,8 +9,9 @@ use elidex_plugin::{CssPropertyRegistry, CssValue};
 
 use elidex_plugin::parse_color;
 
-use crate::values::{
-    parse_global_keyword, parse_length_or_percentage, parse_length_percentage_or_auto,
+use crate::values::parse_global_keyword;
+use elidex_plugin::css_resolve::strict::{
+    parse_length_or_percentage, parse_length_percentage_or_auto,
     parse_non_negative_length_or_percentage,
 };
 
@@ -543,11 +544,15 @@ fn builtin_parser(name: &str) -> Option<BuiltinParser> {
         },
 
         // --- Flex number properties ---
-        "flex-grow" | "flex-shrink" => |name, input| flex::parse_non_negative_number(input, name),
+        "flex-grow" | "flex-shrink" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_factor)
+        },
         "order" => |name, input| flex::parse_integer_property(input, name),
 
         // --- Flex basis ---
-        "flex-basis" => |_, input| flex::parse_flex_basis(input),
+        "flex-basis" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_basis)
+        },
 
         // --- Flex shorthands ---
         "flex" => |_, input| flex::parse_flex_shorthand(input),
