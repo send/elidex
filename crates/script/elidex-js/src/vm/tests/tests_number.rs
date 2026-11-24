@@ -223,7 +223,8 @@ fn number_to_precision_range_error_before_non_finite() {
 
 #[test]
 fn number_to_exponential_range_error_before_non_finite() {
-    // §20.1.3.2: RangeError for invalid digits even when this is NaN
+    // The VM rejects 101 fraction digits here. ECMA-262 §21.1.3.2 step 4
+    // returns "NaN" before checking the digit range.
     use super::eval_throws;
     eval_throws("(NaN).toExponential(101);");
 }

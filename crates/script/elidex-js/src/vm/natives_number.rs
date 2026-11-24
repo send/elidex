@@ -224,7 +224,7 @@ pub(super) fn native_number_to_exponential(
 ) -> Result<JsValue, VmError> {
     // §21.1.3.2: step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
-    // step 2 — ToInteger(fractionDigits) before non-finite check
+    // Step 2 converts fractionDigits with ToIntegerOrInfinity.
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let fraction_digits = if arg == JsValue::Undefined {
         None
@@ -240,11 +240,12 @@ pub(super) fn native_number_to_exponential(
         #[allow(clippy::cast_sign_loss)]
         Some(digits as usize)
     };
-    // step 3-4 — non-finite
+    // Step 4 handles a non-finite receiver before the range checks in steps 5–6.
+    // The VM checks the range above.
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
-    // §21.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
+    // §21.1.3.2 steps 7–9 leave the sign empty for negative zero.
     // Use abs() to normalize -0 to +0 for formatting.
     let (sign, x) = if n < 0.0 { ("-", -n) } else { ("", n.abs()) };
     let raw = match fraction_digits {
