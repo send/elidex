@@ -14,7 +14,7 @@ fn length(value: &CssValue, base: f32, ctx: &ResolveContext) -> Option<f32> {
     match value {
         CssValue::Length(n, u) => Some(elidex_plugin::css_resolve::resolve_length(*n, *u, ctx)),
         CssValue::Calc(e) => Some(elidex_plugin::css_resolve::resolve_calc_expr(e, base, ctx)),
-        CssValue::Percentage(n) => Some(base * n / 100.0),
+        CssValue::Percentage(n) => Some(elidex_plugin::css_resolve::percentage_of(base, *n)),
         _ => None,
     }
 }
@@ -56,107 +56,106 @@ fn prepare_geometry(
     sheets: &[&Stylesheet],
     device: PageGeometry,
     root: &ComputedStyle,
-) -> [(PreparedPage, f32); 6] {
+    number: usize,
+    blank: bool,
+    viewport: Size,
+) -> (PreparedPage, f32) {
     let ctx = ResolveContext {
-        viewport: device.area().size,
+        viewport,
         em_base: root.font_size,
         root_font_size: root.font_size,
     };
-    std::array::from_fn(|i| {
-        let number = i / 2 + 1;
-        let blank = i % 2 != 0;
-        let mut matched_selectors = Vec::new();
-        let mut candidates = Vec::new();
-        let mut boxes: BTreeMap<&str, Vec<CascadeEntry>> = BTreeMap::new();
-        for (sheet_index, sheet) in sheets.iter().enumerate() {
-            for (order, rule) in sheet.page_rules.iter().enumerate() {
-                let mut specificity = None;
-                for alternative in rule
-                    .alternatives
-                    .iter()
-                    .filter(|a| a.matches(None, number, blank))
-                {
-                    specificity =
-                        Some(alternative.specificity.max(specificity.unwrap_or_default()));
-                    for pseudo in &alternative.pseudos {
-                        if !matched_selectors.contains(pseudo) {
-                            matched_selectors.push(*pseudo);
-                        }
+    let mut matched_selectors = Vec::new();
+    let mut candidates = Vec::new();
+    let mut boxes: BTreeMap<&str, Vec<CascadeEntry>> = BTreeMap::new();
+    for (sheet_index, sheet) in sheets.iter().enumerate() {
+        for (order, rule) in sheet.page_rules.iter().enumerate() {
+            let mut specificity = None;
+            for alternative in rule
+                .alternatives
+                .iter()
+                .filter(|a| a.matches(None, number, blank))
+            {
+                specificity = Some(alternative.specificity.max(specificity.unwrap_or_default()));
+                for pseudo in &alternative.pseudos {
+                    if !matched_selectors.contains(pseudo) {
+                        matched_selectors.push(*pseudo);
                     }
                 }
-                let Some(specificity) = specificity else {
-                    continue;
-                };
-                let push = |entries: &mut Vec<_>, decls| {
-                    push_page_block(
-                        entries,
-                        decls,
-                        sheet,
-                        u32::try_from(sheet_index).unwrap_or(u32::MAX),
-                        u32::try_from(order).unwrap_or(u32::MAX),
-                        specificity,
-                    );
-                };
-                push(&mut candidates, &rule.declarations);
-                for (position, decls) in &rule.boxes {
-                    push(boxes.entry(position.as_str()).or_default(), decls);
-                }
+            }
+            let Some(specificity) = specificity else {
+                continue;
+            };
+            let push = |entries: &mut Vec<_>, decls| {
+                push_page_block(
+                    entries,
+                    decls,
+                    sheet,
+                    u32::try_from(sheet_index).unwrap_or(u32::MAX),
+                    u32::try_from(order).unwrap_or(u32::MAX),
+                    specificity,
+                );
+            };
+            push(&mut candidates, &rule.declarations);
+            for (position, decls) in &rule.boxes {
+                push(boxes.entry(position.as_str()).or_default(), decls);
             }
         }
-        let resolved = resolve_in_context(&candidates, root, true);
-        let winners = resolved.ordinary();
-        let font = resolve_font_size(&winners, root, &ctx);
-        let page_ctx = ctx.with_em_base(font);
-        let sheet = sheet_size(winners.get("size"), device.sheet, &page_ctx);
-        let margin = |name, base, default| {
-            winners
-                .get(name)
-                .map_or(default, |v| length(v, base, &page_ctx).unwrap_or(0.0))
-        };
-        let margins = EdgeSizes {
-            top: margin("margin-top", sheet.height, device.margins.top),
-            bottom: margin("margin-bottom", sheet.height, device.margins.bottom),
-            left: margin("margin-left", sheet.width, device.margins.left),
-            right: margin("margin-right", sheet.width, device.margins.right),
-        };
-        let parent = ComputedStyle {
-            custom_properties: resolved.custom,
-            font_size: font,
-            ..ComputedStyle::default()
-        };
-        let boxes = elidex_css::page::MARGIN_BOX_NAMES
-            .iter()
-            .filter_map(|&name| boxes.remove(name).map(|entries| (name, entries)))
-            .map(|(name, entries)| {
-                let box_style = resolve_in_context(&entries, &parent, false);
-                let mut winners = box_style.ordinary();
-                let content = winners
-                    .remove("content")
-                    .map(content_value_from_css_value)
-                    .unwrap_or_default();
-                let mut properties: Vec<_> = winners
-                    .into_iter()
-                    .map(|(k, v)| PropertyDeclaration::new(k, v.clone()))
-                    .collect();
-                properties.sort_by(|a, b| a.property.cmp(&b.property));
-                (
-                    name.to_owned(),
-                    MarginBoxContent {
-                        content,
-                        properties,
-                    },
-                )
-            })
-            .collect();
-        (
-            PreparedPage {
-                geometry: PageGeometry { sheet, margins },
-                boxes,
-                matched_selectors,
-            },
-            font,
-        )
-    })
+    }
+    let resolved = resolve_in_context(&candidates, root, true);
+    let winners = resolved.ordinary();
+    let font = resolve_font_size(&winners, root, &ctx);
+    let page_ctx = ctx.with_em_base(font);
+    let sheet = sheet_size(winners.get("size"), device.sheet, &page_ctx);
+    let margin = |name, base, default| {
+        winners.get(name).map_or(default, |v| {
+            let computed = crate::resolve::helpers::resolve_keyword(name, v, root);
+            length(computed.as_ref().unwrap_or(v), base, &page_ctx).unwrap_or(0.0)
+        })
+    };
+    let margins = EdgeSizes {
+        top: margin("margin-top", sheet.height, device.margins.top),
+        bottom: margin("margin-bottom", sheet.height, device.margins.bottom),
+        left: margin("margin-left", sheet.width, device.margins.left),
+        right: margin("margin-right", sheet.width, device.margins.right),
+    };
+    let parent = ComputedStyle {
+        custom_properties: resolved.custom,
+        font_size: font,
+        ..ComputedStyle::default()
+    };
+    let boxes = elidex_css::page::MARGIN_BOX_NAMES
+        .iter()
+        .filter_map(|&name| boxes.remove(name).map(|entries| (name, entries)))
+        .map(|(name, entries)| {
+            let box_style = resolve_in_context(&entries, &parent, false);
+            let mut winners = box_style.ordinary();
+            let content = winners
+                .remove("content")
+                .map(content_value_from_css_value)
+                .unwrap_or_default();
+            let mut properties: Vec<_> = winners
+                .into_iter()
+                .map(|(k, v)| PropertyDeclaration::new(k, v.clone()))
+                .collect();
+            properties.sort_by(|a, b| a.property.cmp(&b.property));
+            (
+                name.to_owned(),
+                MarginBoxContent {
+                    content,
+                    properties,
+                },
+            )
+        })
+        .collect();
+    (
+        PreparedPage {
+            geometry: PageGeometry { sheet, margins },
+            boxes,
+            matched_selectors,
+        },
+        font,
+    )
 }
 
 fn prepare_boxes(page: &mut PreparedPage, em_base: f32, root_font_size: f32, viewport: Size) {
@@ -195,6 +194,12 @@ fn prepare_boxes(page: &mut PreparedPage, em_base: f32, root_font_size: f32, vie
 
 /// Prepare page geometry, publish document styles against the first page area,
 /// then finish margin-box lengths using the published root font.
+/// Print media conditions use the device sheet. The UA sheet minus its default
+/// margins supplies the preliminary root and first-page geometry viewport to
+/// break their dependency cycle (PM 1001, print style preparation §1 step 4).
+/// The selected first page area supplies the document viewport, subsequent
+/// page viewport units, and margin-box viewport units (CSS Page 3 §§3, 7.1
+/// and CSS Values 4 §6.1.2).
 #[must_use]
 pub fn prepare_print_style(
     dom: &mut elidex_ecs::EcsDom,
@@ -210,8 +215,8 @@ pub fn prepare_print_style(
         ..ResolveContext::default()
     };
     let root = crate::walk::preliminary_root(dom, &sheets, &ctx, &media, hints);
-    let pages = prepare_geometry(&sheets, device, &root);
-    let viewport = pages[0].0.geometry.area().size;
+    let (mut first, font) = prepare_geometry(&sheets, device, &root, 1, false, ctx.viewport);
+    let viewport = first.geometry.area().size;
     crate::apply_document_style(dom, &sheets, hints, viewport, media);
     let final_font = dom
         .document_root()
@@ -223,10 +228,14 @@ pub fn prepare_print_style(
                 .map(|style| style.font_size)
         })
         .unwrap_or(ctx.root_font_size);
-    PreparedPages::new(pages.map(|(mut page, font)| {
+    prepare_boxes(&mut first, font, final_font, viewport);
+    PreparedPages::from_first(first, |number, blank| {
+        let geometry_viewport = if number == 1 { ctx.viewport } else { viewport };
+        let (mut page, font) =
+            prepare_geometry(&sheets, device, &root, number, blank, geometry_viewport);
         prepare_boxes(&mut page, font, final_font, viewport);
         page
-    }))
+    })
 }
 
 /// Prepare an authored stylesheet against a fixed device for layout and render fixtures.

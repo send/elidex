@@ -16,7 +16,7 @@ pub(crate) type PropertyMap<'a> = HashMap<&'a str, &'a CssValue>;
 
 /// Resolve `inherit` / `initial` / `unset` keywords, returning the effective
 /// [`CssValue`] to use for further resolution.
-pub(super) fn resolve_keyword(
+pub(crate) fn resolve_keyword(
     property: &str,
     value: &CssValue,
     parent_style: &ComputedStyle,

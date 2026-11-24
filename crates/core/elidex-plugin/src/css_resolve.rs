@@ -114,6 +114,13 @@ pub fn resolve_to_px(value: &CssValue, ctx: &ResolveContext) -> f32 {
     }
 }
 
+/// Resolve a percentage without overflowing or underflowing a finite intermediate.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // Only the final used length is stored as f32.
+pub fn percentage_of(base: f32, percent: f32) -> f32 {
+    (f64::from(base) * f64::from(percent) / 100.0) as f32
+}
+
 /// Resolve a `calc()` expression tree to a pixel value.
 ///
 /// Uses a typed resolver that distinguishes `Length` (dimensional) from
@@ -365,7 +372,7 @@ enum CalcResolved {
 fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContext) -> CalcResolved {
     match expr {
         CalcExpr::Length(v, unit) => CalcResolved::Length(resolve_length(*v, *unit, ctx)),
-        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_base * p / 100.0),
+        CalcExpr::Percentage(p) => CalcResolved::Length(percentage_of(percentage_base, *p)),
         CalcExpr::Number(n) => CalcResolved::Scalar(*n),
         CalcExpr::Add(a, b) | CalcExpr::Sub(a, b) => {
             let is_sub = matches!(expr, CalcExpr::Sub(..));

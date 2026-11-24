@@ -40,11 +40,93 @@ fn page_selectors_match_complete_alternatives_and_keep_source_order() {
         assert_eq!(p.select(1, false).geometry.sheet.width, first);
         assert_eq!(p.select(2, false).geometry.sheet.width, left);
     }
-    let s=sheet("@page :first {size:300px} @page :blank {size:400px} @page :right,:left {size:200px} @page :first:first {size:500px}",Origin::Author);
+    let s = sheet(
+        "@page :first {size:300px} @page :blank {size:400px} @page :right,:left {size:200px}",
+        Origin::Author,
+    );
     let p = prepare(&[&s]);
-    assert_eq!(p.select(1, false).geometry.sheet.width, 500.);
+    assert_eq!(p.select(1, false).geometry.sheet.width, 300.);
     assert_eq!(p.select(2, true).geometry.sheet.width, 400.);
     assert_eq!(p.select(2, true).matched_selectors, vec![Blank, Left]);
+}
+
+#[test]
+fn most_specific_matching_alternative_beats_a_later_rule() {
+    for earlier in [":right, :first:right", ":first:first"] {
+        let s = sheet(
+            &format!("@page {earlier} {{size:300px}} @page :first {{size:200px}}"),
+            Origin::Author,
+        );
+        assert_eq!(
+            prepare(&[&s]).select(1, false).geometry.sheet.width,
+            300.,
+            "{earlier}"
+        );
+    }
+}
+
+#[test]
+fn page_margins_resolve_css_wide_keywords_against_the_preliminary_root() {
+    for (value, left) in [
+        ("inherit", 32.),
+        ("var(--missing, inherit)", 32.),
+        ("initial", 0.),
+        ("unset", 0.),
+        ("var(--missing)", 0.),
+    ] {
+        let s = sheet(
+            &format!(
+                "html {{margin-left:32px}} @page {{size:200px; margin:0; margin-left:{value}}}"
+            ),
+            Origin::Author,
+        );
+        let mut dom = elidex_ecs::EcsDom::new();
+        let document = dom.create_document_root();
+        let html = dom.create_element_ownerless_fixture("html", elidex_ecs::Attributes::default());
+        assert!(dom.append_child(document, html));
+        let device = PageGeometry {
+            sheet: Size::new(800., 600.),
+            margins: EdgeSizes::uniform(10.),
+        };
+        let pages = prepare_print_style(&mut dom, &[&s], &[], &|_, _| vec![], device);
+        let geometry = pages.select(1, false).geometry;
+        assert_eq!(geometry.margins.left, left, "{value}");
+        assert_eq!(geometry.area().size.width, 200. - left, "{value}");
+    }
+}
+
+#[test]
+fn finite_percentage_margins_leave_a_finite_area() {
+    for value in ["50%", "calc(50%)", "calc(25% + 25%)"] {
+        let s = sheet(
+            &format!("@page {{size:1e37px 600px; margin:0; margin-left:{value}}}"),
+            Origin::Author,
+        );
+        let pages = prepare(&[&s]);
+        let geometry = pages.select(1, false).geometry;
+        assert_eq!(geometry.margins.left, 5e36, "{value}");
+        assert_eq!(geometry.area().size.width, 5e36, "{value}");
+    }
+}
+
+#[test]
+fn later_spreads_resolve_viewport_margins_against_the_selected_first_area() {
+    let s=sheet("@page {margin:0} @page :first {size:200px} @page :left {margin-left:10vw} @page :right {margin-right:5vw} @page :first {margin-right:0} @page :blank {margin-top:3px}",Origin::Author);
+    let pages = prepare(&[&s]);
+    assert_eq!(pages.select(1, false).geometry.area().size.width, 200.);
+    for (number, left, right) in [
+        (1, 0., 0.),
+        (2, 20., 0.),
+        (3, 0., 10.),
+        (4, 20., 0.),
+        (5, 0., 10.),
+    ] {
+        for blank in [false, true] {
+            let margins = pages.select(number, blank).geometry.margins;
+            assert_eq!((margins.left, margins.right), (left, right));
+            assert_eq!(margins.top, if blank { 3. } else { 0. });
+        }
+    }
 }
 
 #[test]

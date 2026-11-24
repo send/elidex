@@ -141,26 +141,57 @@ pub struct PreparedPage {
     pub boxes: Vec<(String, MarginBoxContent)>,
 }
 
+/// Prepared page identities for the first page and both sides of subsequent spreads.
 #[derive(Clone, Debug)]
-pub struct PreparedPages([PreparedPage; 6]);
+pub struct PreparedPages {
+    first: PagePair,
+    even: PagePair,
+    odd: PagePair,
+}
+
+#[derive(Clone, Debug)]
+struct PagePair {
+    content: PreparedPage,
+    blank: PreparedPage,
+}
 
 impl PreparedPages {
-    /// Page-number classes 1, 2 (even), and 3 (later odd), each ordinary then blank.
+    /// The ordinary first page is already prepared because its area establishes
+    /// the document viewport. Request each remaining identity exactly once.
     #[must_use]
-    pub fn new(pages: [PreparedPage; 6]) -> Self {
-        Self(pages)
+    pub fn from_first(
+        first: PreparedPage,
+        mut prepare: impl FnMut(usize, bool) -> PreparedPage,
+    ) -> Self {
+        let first = PagePair {
+            content: first,
+            blank: prepare(1, true),
+        };
+        let mut pair = |number| PagePair {
+            content: prepare(number, false),
+            blank: prepare(number, true),
+        };
+        Self {
+            first,
+            even: pair(2),
+            odd: pair(3),
+        }
     }
 
     #[must_use]
     pub fn select(&self, number: usize, blank: bool) -> &PreparedPage {
-        let spread = if number == 1 {
-            0
+        let pair = if number == 1 {
+            &self.first
         } else if number.is_multiple_of(2) {
-            1
+            &self.even
         } else {
-            2
+            &self.odd
         };
-        &self.0[2 * spread + usize::from(blank)]
+        if blank {
+            &pair.blank
+        } else {
+            &pair.content
+        }
     }
 }
 
