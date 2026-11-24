@@ -781,7 +781,8 @@ pub(crate) fn native_typed_array_at(
         element_kind: ek,
         ..
     } = parts;
-    // §23.2.3.3 step 3: `ToIntegerOrInfinity(index)` — NaN → 0,
+    // ECMA-262 §23.2.3.1 step 4 calls ToAbsoluteIndex (§7.1.25),
+    // which applies ToIntegerOrInfinity to the index: NaN → 0,
     // ±Infinity preserved.  Bounds are applied uniformly below so
     // `at(NaN)` returns the first element (unless empty) and
     // `at(±Infinity)` returns `undefined`.
