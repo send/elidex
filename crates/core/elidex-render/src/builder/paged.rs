@@ -437,7 +437,7 @@ fn resolve_margin_box_style(margin_box: &elidex_plugin::MarginBoxContent) -> Mar
                     _ => None,
                 };
                 if let Some(v) = v {
-                    if v.is_finite() && v > 0.0 {
+                    if v.is_finite() && v >= 0.0 {
                         s.font_size = v;
                     }
                 }
@@ -644,7 +644,7 @@ fn emit_margin_box_text(
     let content_w = (box_w - bw.left - bw.right - s.padding.left - s.padding.right).max(0.0);
     let content_h = (box_h - bw.top - bw.bottom - s.padding.top - s.padding.bottom).max(0.0);
 
-    if content_w <= 0.0 || content_h <= 0.0 {
+    if content_w <= 0.0 || content_h <= 0.0 || s.font_size == 0.0 {
         return;
     }
 
