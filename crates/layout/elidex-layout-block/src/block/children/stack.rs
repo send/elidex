@@ -323,7 +323,7 @@ fn stack_fragment(
         // TODO(G9): Float fragmentation — push float to next fragmentainer if it
         // overflows. Requires fragmentainer-aware float placement (CSS Frag §4.1).
         if child_float != Float::None {
-            layout_float(
+            let floated = layout_float(
                 dom,
                 child,
                 child_float,
@@ -333,9 +333,8 @@ fn stack_fragment(
                 cursor_block,
                 layout_child,
             );
-            if frag_ctx.is_some() {
-                contribution.finish_item(parent_entity, child);
-            }
+            contribution.include(&floated);
+            contribution.finish_item(parent_entity, child);
             prev_break_after = Some(child_style.break_after);
             continue;
         }
@@ -431,13 +430,11 @@ fn stack_fragment(
             }
         };
         let child_outcome = layout_child(dom, child, &child_input);
-        if frag_ctx.is_some() {
-            contribution.include(&child_outcome.contribution);
-            if child_outcome.break_token.is_some() {
-                contribution.record_item(parent_entity, child);
-            } else {
-                contribution.finish_item(parent_entity, child);
-            }
+        contribution.include(&child_outcome.contribution);
+        if child_outcome.break_token.is_some() {
+            contribution.record_item(parent_entity, child);
+        } else {
+            contribution.finish_item(parent_entity, child);
         }
         let child_box = child_outcome.layout_box;
 

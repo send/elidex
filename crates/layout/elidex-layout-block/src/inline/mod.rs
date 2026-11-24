@@ -151,13 +151,8 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, candidate_keys, top_level_key) = collect_inline_items(
-        dom,
-        children,
-        &parent_style,
-        parent_entity,
-        frag_constraint.is_some(),
-    );
+    let (mut items, candidate_keys, top_level_key) =
+        collect_inline_items(dom, children, &parent_style, parent_entity, true);
     let progress = frag_constraint.and_then(|c| c.progress.as_ref());
     let source_index = progress.map(crate::source_progress::SourceProgress::index);
     if let Some(cursor) = &source_index {
@@ -221,7 +216,6 @@ pub fn layout_inline_context_fragmented(
                     &items,
                     source_index.as_ref(),
                     None,
-                    frag_constraint.is_some(),
                 ),
                 height: 0.0,
                 static_positions: HashMap::new(),
@@ -332,7 +326,6 @@ pub fn layout_inline_context_fragmented(
         &items,
         source_index.as_ref(),
         cut.map(|(_, i, pos)| (*i, *pos)),
-        frag_constraint.is_some(),
     );
     let continuation = cut.map(|_| {
         let mut cumulative = progress.cloned().unwrap_or_default();
@@ -467,12 +460,8 @@ fn committed_source(
     items: &[InlineItem],
     source_index: Option<&crate::source_progress::ProgressIndex>,
     cut: Option<(usize, crate::source_progress::SourcePosition)>,
-    tracking: bool,
 ) -> crate::source_progress::SourceProgress {
     let mut contribution = crate::source_progress::SourceProgress::default();
-    if !tracking {
-        return contribution;
-    }
     let prefix = |entity| {
         source_index
             .as_ref()

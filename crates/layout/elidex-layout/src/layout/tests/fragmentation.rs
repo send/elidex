@@ -790,3 +790,118 @@ fn balanced_multicol_reports_empty_block_to_its_parent() {
         }
     }
 }
+
+#[test]
+fn whole_spanners_and_floats_forward_nested_source() {
+    use elidex_plugin::{ColumnSpan, Float};
+    let mut dom = EcsDom::new();
+    let mut node = |tag, display, parent, span, float, columns| {
+        let id = dom.create_element_ownerless_fixture(tag, Attributes::default());
+        dom.world_mut().insert_one(
+            id,
+            ComputedStyle {
+                display,
+                column_span: span,
+                float,
+                column_count: columns,
+                ..Default::default()
+            },
+        );
+        if let Some(owner) = parent {
+            dom.append_child(owner, id);
+        }
+        id
+    };
+    let owner = node(
+        "div",
+        Display::Block,
+        None,
+        ColumnSpan::None,
+        Float::None,
+        None,
+    );
+    let multi = node(
+        "div",
+        Display::Block,
+        Some(owner),
+        ColumnSpan::None,
+        Float::None,
+        Some(2),
+    );
+    let table = node(
+        "table",
+        Display::Table,
+        Some(multi),
+        ColumnSpan::All,
+        Float::None,
+        None,
+    );
+    let row = node(
+        "tr",
+        Display::TableRow,
+        Some(table),
+        ColumnSpan::None,
+        Float::None,
+        None,
+    );
+    node(
+        "td",
+        Display::TableCell,
+        Some(row),
+        ColumnSpan::None,
+        Float::None,
+        None,
+    );
+    let block = node(
+        "div",
+        Display::Block,
+        Some(multi),
+        ColumnSpan::All,
+        Float::None,
+        None,
+    );
+    let inner = node(
+        "div",
+        Display::Block,
+        Some(block),
+        ColumnSpan::None,
+        Float::None,
+        None,
+    );
+    let float = node(
+        "div",
+        Display::Block,
+        Some(owner),
+        ColumnSpan::None,
+        Float::Left,
+        None,
+    );
+    let floated = node(
+        "div",
+        Display::Block,
+        Some(float),
+        ColumnSpan::None,
+        Float::None,
+        None,
+    );
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 100.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Page,
+    };
+    let outcome = dispatch_layout_child(&mut dom, owner, &contribution_input(&fonts, &frag));
+    for (parent, child) in [
+        (owner, multi),
+        (multi, table),
+        (table, row),
+        (multi, block),
+        (block, inner),
+        (owner, float),
+        (float, floated),
+    ] {
+        assert!(
+            outcome.contribution.is_finished(parent, child),
+            "missing {parent:?}/{child:?}"
+        );
+    }
+}
