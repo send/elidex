@@ -272,7 +272,7 @@ pub(super) fn native_number_to_precision(
     if arg == JsValue::Undefined {
         return native_number_to_string(ctx, this, &[]);
     }
-    // step 3 — ToIntegerOrInfinity(precision) + RangeError
+    // Step 3 converts precision with ToIntegerOrInfinity.
     let p = super::coerce::to_number(ctx.vm, arg)?;
     // ToIntegerOrInfinity: NaN → 0
     let precision = if p.is_nan() { 0.0 } else { p.trunc() };
@@ -281,7 +281,9 @@ pub(super) fn native_number_to_precision(
             "toPrecision() argument must be between 1 and 100",
         ));
     }
-    // step 4-5 — non-finite
+    // Known VM P4 defect: the range check above throws before this return.
+    // ECMA-262 §21.1.3.5 step 4 handles non-finite receivers before
+    // steps 5–6 validate the precision range.
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
@@ -352,7 +354,7 @@ fn fix_exponential_sign(s: &str) -> String {
 }
 
 /// Format a number with a given number of significant digits (for toPrecision).
-/// Implements ECMA-262 Number.prototype.toPrecision (§21.1.3.5) steps 7-15.
+/// See ECMA-262 §21.1.3.5 (`Number.prototype.toPrecision`) for the formatting rules.
 /// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
 /// floating-point imprecision near powers of 10).
 fn format_significant_digits(n: f64, precision: usize) -> String {
@@ -381,7 +383,7 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     let mantissa = &exp_str[..e_pos];
     let digits: String = mantissa.chars().filter(|&c| c != '.').collect();
 
-    // Number.prototype.toPrecision (§21.1.3.5) step 11.c: exponential notation if e >= p or e < -6
+    // Number.prototype.toPrecision (§21.1.3.5) step 11.3: exponential notation if e >= p or e < -6
     #[allow(clippy::cast_possible_wrap)]
     let p_i32 = p as i32;
     let formatted = if e >= p_i32 || e < -6 {

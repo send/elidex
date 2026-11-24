@@ -8,14 +8,14 @@
 //!
 //! ## Scope (C4a + C4b)
 //!
-//! - `fill(value, start?, end?)` (§23.2.3.11)
-//! - `subarray(begin?, end?)` (§23.2.3.27) — shares backing buffer
-//! - `slice(begin?, end?)` (§23.2.3.25) — fresh buffer copy
-//! - `values()` / `keys()` / `entries()` (§23.2.3.34 / .20 / .8) —
+//! - `fill(value, start?, end?)` (§23.2.3.9)
+//! - `subarray(begin?, end?)` (§23.2.3.30) — shares backing buffer
+//! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
+//! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
 //!   reuse `ObjectKind::ArrayIterator` infra
 //! - `set(source, offset?)` (§23.2.3.24)
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
-//! - `reverse()` (§23.2.3.23)
+//! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
 //! - `join(separator?)` (§23.2.3.19)
 //! - `toLocaleString(locales?, options?)` forwards the ECMA-402 §20.6.1 argument pair.
@@ -781,7 +781,8 @@ pub(crate) fn native_typed_array_at(
         element_kind: ek,
         ..
     } = parts;
-    // §23.2.3.3 step 3: `ToIntegerOrInfinity(index)` — NaN → 0,
+    // ECMA-262 §23.2.3.1 step 4 calls ToAbsoluteIndex (§7.1.25),
+    // which applies ToIntegerOrInfinity to the index: NaN → 0,
     // ±Infinity preserved.  Bounds are applied uniformly below so
     // `at(NaN)` returns the first element (unless empty) and
     // `at(±Infinity)` returns `undefined`.
