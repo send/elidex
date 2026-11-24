@@ -188,3 +188,26 @@ fn assigned_style_elements_publish_display_on_the_first_walk() {
         assert_eq!(get_style(&dom, style).display, Display::Flex);
     }
 }
+
+#[test]
+fn shadow_style_after_text_stays_generated_across_restyle() {
+    let (mut dom, _, _, body) = build_simple_dom();
+    let host = child(&mut dom, body, "section");
+    let root = setup_shadow_with_style(
+        &mut dom,
+        host,
+        "style {display:block} style::after {content:'span {width:73px}'}",
+    );
+    let style = dom.first_child_with_tag(root, "style").unwrap();
+    let span = child(&mut dom, root, "span");
+    for pass in 1..=2 {
+        resolve(&mut dom, "");
+        let after = dom.get_last_child(style).unwrap();
+        assert!(dom.world().get::<&PseudoElementMarker>(after).is_ok());
+        assert_eq!(
+            dom.world().get::<&TextContent>(after).unwrap().0,
+            "span {width:73px}"
+        );
+        assert_eq!(get_style(&dom, span).width, Dimension::Auto, "pass {pass}");
+    }
+}

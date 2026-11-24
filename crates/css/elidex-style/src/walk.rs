@@ -71,7 +71,7 @@ fn build_anim_style_from_winners(
 /// *detached* `TemplateContents` fragment (HTML §4.12.3) no light-tree walk
 /// reaches; the `<template>` element itself is styled normally but has no
 /// light children.
-fn should_skip_child(dom: &EcsDom, entity: Entity) -> bool {
+fn is_generated_pseudo(dom: &EcsDom, entity: Entity) -> bool {
     dom.world().get::<&PseudoElementMarker>(entity).is_ok()
 }
 
@@ -318,7 +318,7 @@ fn walk_node(
     parent: &ComputedStyle,
     state: &mut WalkState<'_>,
 ) {
-    if state.depth > MAX_WALK_DEPTH || should_skip_child(dom, entity) {
+    if state.depth > MAX_WALK_DEPTH || is_generated_pseudo(dom, entity) {
         return;
     }
     let own_sheet = host_stylesheet(dom, entity, state.total_shadow_css);
@@ -478,8 +478,11 @@ fn collect_shadow_styles_recursive(
             continue;
         }
         if dom.has_tag(child, "style") {
-            // Collect text content from <style>'s children.
+            // Only authored text contributes to the sheet on a subsequent style pass.
             for text_child in dom.children(child) {
+                if is_generated_pseudo(dom, text_child) {
+                    continue;
+                }
                 if let Ok(tc) = dom.world().get::<&TextContent>(text_child) {
                     css.push_str(&tc.0);
                 }
