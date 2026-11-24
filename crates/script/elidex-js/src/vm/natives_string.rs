@@ -352,16 +352,16 @@ pub(super) fn native_string_split(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    // §21.1.3.19 step 6: limit defaults to 2^32 - 1; `ToUint32(limit)` when
-    // provided.  §7.1.7 ToUint32 maps NaN/±Infinity to 0.  limit = 0 yields
-    // empty array (spec step 10).
+    // ECMA-262 §22.1.3.23 step 5 defaults an undefined limit to 2^32 - 1
+    // and applies ToUint32 (§7.1.9) otherwise. Step 7 returns an empty
+    // array for a zero limit.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let limit: usize = match args.get(1).copied() {
         None | Some(JsValue::Undefined) => u32::MAX as usize,
         Some(val) => {
             let n = ctx.to_number(val)?;
             if n.is_finite() {
-                // ToUint32: modulo 2^32 truncation.
+                // This implementation takes the remainder before truncating.
                 let modded = n.rem_euclid(4_294_967_296.0);
                 modded.trunc() as usize
             } else {

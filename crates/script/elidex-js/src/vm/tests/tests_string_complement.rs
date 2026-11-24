@@ -520,7 +520,7 @@ fn number_to_string_radix_default_is_decimal() {
 
 #[test]
 fn string_split_honors_limit() {
-    // §21.1.3.19 step 6: limit truncates the result.
+    // §22.1.3.23 steps 7 and 15.3 return early when the substring limit is reached.
     assert_eq!(eval_string("'a,b,c,d'.split(',', 2).join('|');"), "a|b");
     assert_eq!(eval_string("'a,b,c'.split(',', 0).join('|');"), "");
 }
@@ -533,7 +533,7 @@ fn string_split_limit_coerces_via_to_number() {
 
 #[test]
 fn string_split_limit_non_finite_is_zero() {
-    // §7.1.7 ToUint32: NaN / ±Infinity → 0.  `split(sep, Infinity)` must
+    // §7.1.9 ToUint32: NaN / ±Infinity → 0.  `split(sep, Infinity)` must
     // not throw; it yields an empty array (limit = 0).
     assert_eq!(eval_number("'a,b,c'.split(',', Infinity).length;"), 0.0);
     assert_eq!(eval_number("'a,b,c'.split(',', NaN).length;"), 0.0);
