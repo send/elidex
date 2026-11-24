@@ -42,6 +42,60 @@ pub fn stack_block_children(
     parent_entity: Entity,
 ) -> StackResult {
     super::validate_route(dom, parent_entity, children, input.break_token);
+    let selected_boundary =
+        if input.fragmentainer.is_some() && !input.is_probe && children.len() > 1 {
+            let probe_floats = input
+                .float_ctx
+                .map(|ctx| RefCell::new(ctx.borrow().clone()));
+            let probe_input = LayoutInput {
+                is_probe: true,
+                layout_generation: 0,
+                float_ctx: probe_floats.as_ref(),
+                ..*input
+            };
+            let selection = stack_fragment(
+                dom,
+                children,
+                &probe_input,
+                layout_child,
+                is_bfc,
+                parent_entity,
+                None,
+            );
+            selection
+                .break_token
+                .and_then(|token| match token.mode_data {
+                    Some(BreakTokenData::Block {
+                        child_index,
+                        continuation: BlockContinuation::ChildBoundary,
+                        ..
+                    }) => Some(child_index),
+                    _ => None,
+                })
+        } else {
+            None
+        };
+    stack_fragment(
+        dom,
+        children,
+        input,
+        layout_child,
+        is_bfc,
+        parent_entity,
+        selected_boundary,
+    )
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn stack_fragment(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    input: &LayoutInput<'_>,
+    layout_child: crate::ChildLayoutFn,
+    is_bfc: bool,
+    parent_entity: Entity,
+    selected_boundary: Option<usize>,
+) -> StackResult {
     let env = crate::LayoutEnv::from_input(input, layout_child);
     let parent_style = crate::get_style(dom, parent_entity);
     let wm = WritingModeContext::new(parent_style.writing_mode, parent_style.direction);
@@ -297,6 +351,16 @@ pub fn stack_block_children(
                 let collapsed = collapse_margins(prev_mbe, child_margin_block_start);
                 cursor_block -= prev_mbe + child_margin_block_start - collapsed;
             }
+        }
+
+        if selected_boundary == Some(idx) {
+            result_break_token = Some(make_block_break_token(
+                parent_entity,
+                (cursor_block - cursor_block_origin).max(0.0),
+                idx,
+                BlockContinuation::ChildBoundary,
+            ));
+            break;
         }
 
         // --- Fragmentation: record Class A break candidate between siblings ---

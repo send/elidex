@@ -643,6 +643,11 @@ fn block_retreat_commits_only_the_winning_boundary() {
                 page.contribution.is_finished(block, *child),
                 i < expected_count
             );
+            let published = dom
+                .world()
+                .get::<&elidex_plugin::LayoutBox>(*child)
+                .is_ok_and(|lb| lb.layout_generation == input.layout_generation);
+            assert_eq!(published, i < expected_count);
             assert_eq!(coverage.is_finished(block, *child), i < expected_count);
         }
         let next = dispatch_layout_child(
