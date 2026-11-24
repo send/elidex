@@ -67,9 +67,8 @@ pub struct InlineLayoutResult {
     pub first_baseline: Option<f32>,
     /// Total number of line boxes produced.
     pub line_count: usize,
-    /// If fragmentation was applied, the number of lines in this fragment.
-    /// Lines after this count should be laid out in the next fragmentainer.
-    pub break_after_line: Option<usize>,
+    /// Source coverage at the committed break, if more content remains.
+    pub continuation: Option<crate::source_progress::SourceProgress>,
 }
 
 /// Fragmentation constraint for inline layout (CSS Fragmentation L3 §3.3
@@ -81,14 +80,14 @@ pub struct InlineFragConstraint {
     pub orphans: u32,
     /// CSS widows value (inherited, default 2).
     pub widows: u32,
-    /// Number of lines to skip (for resuming after a break).
-    pub skip_lines: usize,
+    /// Previously consumed source in this run.
+    pub progress: Option<crate::source_progress::SourceProgress>,
     /// Which fragmentation engine this run is inside, carried from
     /// [`FragmentainerContext::fragmentation_type`](crate::FragmentainerContext).
     /// Drives the fragmentation term of the persist gate: `Page` runs persist an
     /// `InlineFlow` per page (slice 4 / I-paged — per-page slice + continuation rebase,
     /// consumed via the page generation); `Column` (multicol) runs persist only when
-    /// **whole in their column** (slice 4 / I-multicol — `skip_lines == 0` and no
+    /// **whole in their column** (slice 4 / I-multicol — no incoming progress and no
     /// fragment break, shifted to the column offset by the multicol column shift). A
     /// mid-IFC column break (continuation or truncation) stays gated to legacy,
     /// deferred to the standalone fragment tree (Z).
@@ -151,8 +150,17 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, candidate_keys, top_level_key) =
-        collect_inline_items(dom, children, &parent_style, parent_entity);
+    let (mut items, candidate_keys, top_level_key) = collect_inline_items(
+        dom,
+        children,
+        &parent_style,
+        parent_entity,
+        frag_constraint.is_some(),
+    );
+    let progress = frag_constraint.and_then(|c| c.progress.as_ref());
+    if let Some(cursor) = progress {
+        items.retain(|item| !cursor.is_finished(parent_entity, item.source().0));
+    }
     // Staleness clear set: when nothing persists (here and the no-font return
     // below), clear `InlineFlow` on every candidate key (no persisted keys to
     // keep). `clear_inline_flows` removes the component on each — a no-op on
@@ -167,7 +175,7 @@ pub fn layout_inline_context_fragmented(
             static_positions: HashMap::new(),
             first_baseline: None,
             line_count: 0,
-            break_after_line: None,
+            continuation: None,
         };
     }
 
@@ -207,14 +215,14 @@ pub fn layout_inline_context_fragmented(
                 static_positions: HashMap::new(),
                 first_baseline: None,
                 line_count: 0,
-                break_after_line: None,
+                continuation: None,
             };
         }
     }
 
     // The packer records `flow_lines`/`relpos_atomic_placements` unconditionally and
     // OPTIMISTICALLY: whether a multicol run persists needs `break_after_line`/
-    // `skip_lines` (computed after packing), so the routing is `persist_flow`'s below —
+    // incoming progress, so the routing is `persist_flow`'s below —
     // a run that resolves mid-break is not persisted; its recorded lines leave via the
     // `ColumnFlowSlice` carrier instead (only a probe's are discarded).
     // Recording never perturbs box geometry — `entity_bounds`/`static_positions`/
@@ -233,7 +241,13 @@ pub fn layout_inline_context_fragmented(
 
     // Greedy line packing.
     let mut packer = pack::LinePacker::new(parent_entity, flow_align);
+    let mut placements = Vec::new();
     for pi in &pack_items {
+        let (index, start) = pi.source();
+        if progress.is_some_and(|p| p.contains(parent_entity, items[index].source().0, start)) {
+            continue;
+        }
+
         packer.pack(
             pi,
             &items,
@@ -242,6 +256,9 @@ pub fn layout_inline_context_fragmented(
             containing_inline_size,
             is_vertical,
         );
+        if frag_constraint.is_some() {
+            placements.push((packer.placed_line, index, start));
+        }
     }
     packer.finish();
 
@@ -249,13 +266,12 @@ pub fn layout_inline_context_fragmented(
 
     // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §3.3) ---
     let break_after_line = if let Some(constraint) = frag_constraint {
-        let skip = constraint.skip_lines;
         let line_heights: Vec<f32> = packer.line_boxes.iter().map(|lb| lb.block_size).collect();
 
         // Find the first line that overflows.
         let mut cumulative = 0.0_f32;
         let mut break_line: Option<usize> = None;
-        for (i, &h) in line_heights.iter().enumerate().skip(skip) {
+        for (i, &h) in line_heights.iter().enumerate() {
             if cumulative + h > constraint.available_block {
                 break_line = Some(i);
                 break;
@@ -268,13 +284,13 @@ pub fn layout_inline_context_fragmented(
             let orphans = constraint.orphans as usize;
             let widows = constraint.widows as usize;
             // orphans: at least `orphans` lines must stay in this fragment.
-            let mut actual_break = bl.max(skip + orphans);
+            let mut actual_break = bl.max(orphans);
             // widows: at least `widows` lines must go to the next fragment.
             if total > actual_break && total - actual_break < widows {
                 actual_break = total.saturating_sub(widows);
             }
             // If orphans + widows > total lines, treat as monolithic.
-            if actual_break < skip + orphans || actual_break >= total {
+            if actual_break < orphans || actual_break >= total {
                 None // cannot satisfy constraints or all lines fit
             } else {
                 Some(actual_break)
@@ -288,7 +304,29 @@ pub fn layout_inline_context_fragmented(
 
     // Compute total block using only lines up to break point (if fragmented).
     let effective_line_count = break_after_line.unwrap_or(line_count);
-    let skip_lines = frag_constraint.map_or(0, |c| c.skip_lines);
+    let continuation = break_after_line.map(|line| {
+        let (_, index, start) = placements
+            .iter()
+            .find(|(placed, ..)| *placed >= line)
+            .expect("break precedes a packed line");
+        let mut cursor = progress.cloned().unwrap_or_default();
+        for item in &items[..*index] {
+            let (entity, len) = item.source();
+            cursor.consume(
+                parent_entity,
+                entity,
+                crate::source_progress::SourcePosition::byte(0)
+                    ..crate::source_progress::SourcePosition::byte(len),
+            );
+            cursor.finish_item(parent_entity, entity);
+        }
+        cursor.consume(
+            parent_entity,
+            items[*index].source().0,
+            crate::source_progress::SourcePosition::byte(0)..*start,
+        );
+        cursor
+    });
 
     // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
     // the three text-feature gates that once forced render's legacy
@@ -304,7 +342,7 @@ pub fn layout_inline_context_fragmented(
     // except a multicol run that is NOT whole in its column, the last legacy route
     // (→ Z). Whole = the run starts at line 0 (not a continuation carried from a
     // prior column) AND is not truncated by a fragment break.
-    // A continuation (`skip_lines > 0`) would render only the tail (the prior
+    // A continuation with incoming progress would render only the tail (the prior
     // column's lines were gated out → lost); a truncation (`break_after_line.is_some()`)
     // drops its tail to a column the column shift won't reach. Either ⇒ legacy, so no
     // lines are lost. Mid-IFC column break converges with box fragments at Z (G11: one
@@ -317,7 +355,7 @@ pub fn layout_inline_context_fragmented(
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
     let frag_is_column =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let column_is_whole = skip_lines == 0 && break_after_line.is_none();
+    let column_is_whole = progress.is_none() && break_after_line.is_none();
     let persist_flow = !frag_is_column || column_is_whole;
     // Multicol mid-break (the last non-persisted column route): the per-column line
     // slice does not go to an `InlineFlow` here (the IFC runs per column at column-0
@@ -344,37 +382,14 @@ pub fn layout_inline_context_fragmented(
     let total_block: f32 = packer
         .line_boxes
         .iter()
-        .skip(skip_lines)
-        .take(effective_line_count.saturating_sub(skip_lines))
+        .take(effective_line_count)
         .map(|lb| lb.block_size)
         .sum();
 
-    // I-paged: slice every recorded geometry to this fragment's kept lines and
-    // continuation-rebase the block axis to the fragmentainer block-start, in a
-    // single pass over the packer's one block-offset source (F2). Runs BEFORE the
-    // box/static/flow consumers below so all of them (inline `LayoutBox`,
-    // `InlineClientRects`, static positions, persisted fragment) read the
-    // already-rebased values, and before the `content_origin` fold so the page
-    // offset is added exactly once. Paged-scoped: multicol (`Column`) stays gated
-    // to legacy (its column shift + accumulate is I-multicol), so its box geometry
-    // is left unrebased here too (no change vs today). The rebase is the missing
-    // continuation geometry the founding gate test flagged.
+    // The suffix starts at the fragment origin. Clip its tail consistently for
+    // page paint, column carriers, CSSOM geometry and positioned descendants.
     if frag_is_paged || do_carrier {
-        debug_assert!(
-            skip_lines <= effective_line_count && effective_line_count <= line_count,
-            "fragment slice bounds out of order: skip {skip_lines}, eff {effective_line_count}, count {line_count}"
-        );
-        // Multicol mid-break (`do_carrier`) needs the SAME per-column slice +
-        // continuation rebase paged uses: this column's kept lines, the first
-        // rebased to the column block-start. The column inline offset is applied
-        // later (`position_column_fragments`), like the box snapshot. Like paged,
-        // this also slices+rebases `entity_bounds` (the inline `LayoutBox`es /
-        // `InlineClientRects`) and `static_positions` to this column — "more
-        // correct" per-column geometry, but those remain G11 last-column-wins
-        // (one box per entity) and are render-dark for text now (the `InlineFlow`
-        // carries paint); per-fragment inline `LayoutBox`/clientRects + abspos-in-
-        // mid-break placement is committed-next (cssom-view store consume).
-        packer.slice_and_rebase_fragment(skip_lines, effective_line_count);
+        packer.truncate_fragment(effective_line_count);
     }
 
     pack::assign_inline_layout_boxes(
@@ -428,7 +443,7 @@ pub fn layout_inline_context_fragmented(
         static_positions,
         first_baseline: packer.first_baseline,
         line_count,
-        break_after_line,
+        continuation,
     }
 }
 

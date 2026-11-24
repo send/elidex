@@ -21,7 +21,7 @@ pub(super) struct InlineRunResult {
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
     /// If fragmentation was applied, the line index after which to break.
-    pub break_after_line: Option<usize>,
+    pub continuation: Option<crate::source_progress::SourceProgress>,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
@@ -31,8 +31,7 @@ pub(super) struct InlineRunResult {
 /// Writing-mode-aware: uses inline-axis size for the line width and
 /// positions the content origin based on the block cursor.
 ///
-/// `skip_lines` is set when resuming an inline run after a fragmentation
-/// break — it tells the inline layout engine how many line boxes to skip.
+/// Resume from the committed source intervals for this run.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn flush_inline_run(
     dom: &mut EcsDom,
@@ -44,7 +43,7 @@ pub(super) fn flush_inline_run(
     cursor_block_origin: f32,
     env: &crate::LayoutEnv<'_>,
     static_positions: &mut HashMap<Entity, Point>,
-    skip_lines: usize,
+    progress: Option<crate::source_progress::SourceProgress>,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let is_horizontal = wm.is_horizontal();
@@ -71,7 +70,7 @@ pub(super) fn flush_inline_run(
             available_block: (frag.available_block_size - consumed).max(0.0),
             orphans: parent_style.orphans,
             widows: parent_style.widows,
-            skip_lines,
+            progress,
             fragmentation_type: frag.fragmentation_type,
         }
     });
@@ -92,7 +91,7 @@ pub(super) fn flush_inline_run(
     InlineRunResult {
         block_extent: result.height,
         first_baseline: result.first_baseline,
-        break_after_line: result.break_after_line,
+        continuation: result.continuation,
     }
 }
 

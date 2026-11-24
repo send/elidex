@@ -356,8 +356,8 @@ pub fn layout_block_inner(
     let mut child_break_token: Option<crate::BreakToken> = None;
     let mut propagated_break_before: Option<elidex_plugin::BreakValue> = None;
     let mut propagated_break_after: Option<elidex_plugin::BreakValue> = None;
-    // Inline-only break line (separate from child_break_token to avoid double-wrapping).
-    let mut inline_break_after_line: Option<usize> = None;
+    // Direct inline layout can interrupt inside its single local run.
+    let mut inline_progress = None;
     let mut inline_content_block: f32 = 0.0;
 
     // --- Fragmentation: compute child fragmentainer context ---
@@ -406,11 +406,7 @@ pub fn layout_block_inner(
             child_phys_width,
             child_phys_height,
         );
-        // Extract child break token for stack_block_children resumption.
-        // layout_block_inner wraps stack's BreakToken as child_break_token in its own.
-        let child_bt_for_stack = input
-            .break_token
-            .and_then(|bt| bt.child_break_token.as_deref());
+        let child_bt_for_stack = input.break_token;
         let child_input = LayoutInput {
             containing: CssSize {
                 width: child_phys_width,
@@ -512,17 +508,15 @@ pub fn layout_block_inner(
             // is vertical (height). Use containing height when known.
             child_phys_height.unwrap_or(content_inline)
         };
-        // Extract inline resume skip_lines from break token (H2: inline resume).
-        let inline_skip_lines = input
+        let progress = input
             .break_token
-            .and_then(|bt| bt.mode_data.as_ref())
-            .and_then(|md| match md {
-                crate::BreakTokenData::Block {
-                    inline_break_line, ..
-                } => *inline_break_line,
+            .and_then(|token| match token.mode_data.as_ref() {
+                Some(crate::BreakTokenData::Block {
+                    continuation: crate::BlockContinuation::LocalRun { first, progress },
+                    ..
+                }) if children.first() == Some(first) => Some(progress.clone()),
                 _ => None,
-            })
-            .unwrap_or(0);
+            });
         // Build fragmentation constraint for inline layout if fragmentainer is active.
         let inline_frag_constraint =
             child_fragmentainer
@@ -531,7 +525,7 @@ pub fn layout_block_inner(
                     available_block: frag.available_block_size,
                     orphans: style.orphans,
                     widows: style.widows,
-                    skip_lines: inline_skip_lines,
+                    progress,
                     fragmentation_type: frag.fragmentation_type,
                 });
         let env = crate::LayoutEnv::from_input(input, layout_child);
@@ -548,7 +542,9 @@ pub fn layout_block_inner(
         block_first_baseline = inline_result.first_baseline;
         // Record inline break for later (handled after LayoutBox is built,
         // without going through the child_break_token wrapping path).
-        inline_break_after_line = inline_result.break_after_line;
+        inline_progress = inline_result
+            .continuation
+            .map(|progress| (children[0], progress));
         inline_content_block = inline_result.height;
         // inline_result.height is always the block-axis extent:
         // horizontal-tb: physical height (line boxes stacked vertically)
@@ -647,16 +643,15 @@ pub fn layout_block_inner(
 
     // Inline-only fragmentation break: return directly without wrapping
     // (no child_break_token nesting — mode_data goes on the top-level token).
-    if let Some(break_line) = inline_break_after_line {
+    if let Some((first, progress)) = inline_progress {
         return crate::LayoutOutcome {
             layout_box: lb,
             break_token: Some(crate::BreakToken {
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
-                child_break_token: None,
                 mode_data: Some(crate::BreakTokenData::Block {
                     child_index: 0,
-                    inline_break_line: Some(break_line),
+                    continuation: crate::BlockContinuation::LocalRun { first, progress },
                 }),
             }),
             propagated_break_before,
@@ -664,16 +659,12 @@ pub fn layout_block_inner(
         };
     }
 
-    // If stack_block_children produced a break token, wrap it in a parent break token.
-    if let Some(child_bt) = child_break_token {
+    // The stack token already belongs to this block. Include its leading decoration.
+    if let Some(mut child_bt) = child_break_token {
+        child_bt.consumed_block_size += block_start_pb;
         return crate::LayoutOutcome {
             layout_box: lb,
-            break_token: Some(crate::BreakToken {
-                entity,
-                consumed_block_size: child_bt.consumed_block_size + block_start_pb,
-                child_break_token: Some(Box::new(child_bt)),
-                mode_data: None,
-            }),
+            break_token: Some(child_bt),
             propagated_break_before,
             propagated_break_after,
         };

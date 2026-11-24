@@ -143,6 +143,7 @@ pub(crate) fn collect_inline_items(
     children: &[Entity],
     parent_style: &ComputedStyle,
     parent_entity: Entity,
+    track_source: bool,
 ) -> (Vec<InlineItem>, Vec<Entity>, Option<Entity>) {
     let mut items = Vec::new();
     // Candidate keys: seed with the IFC parent's raw direct children, then collect
@@ -163,8 +164,9 @@ pub(crate) fn collect_inline_items(
         top_level_key,
         &mut candidate_keys,
         root_horizontal,
+        track_source,
     );
-    collapse_inline_whitespace(&mut items);
+    collapse_inline_whitespace(&mut items, track_source);
     apply_text_transforms(&mut items);
     // `top_level_key` (render's `run[0]`) is the justification target group:
     // `text-align: justify` distributes free space over the top-level run group only
@@ -185,9 +187,30 @@ fn apply_text_transforms(items: &mut [InlineItem]) {
     for item in items {
         if let InlineItem::Text(run) = item {
             if run.text_transform != TextTransform::None {
-                if let std::borrow::Cow::Owned(transformed) =
+                let transformed = if let Some(positions) = run.source_positions.take() {
+                    let mut input = positions.into_iter();
+                    let mut mapped = Vec::new();
+                    let output = elidex_text::transform_with_source(
+                        &run.text,
+                        run.text_transform,
+                        |_, count| {
+                            let pos = input
+                                .next()
+                                .expect("one source position per collapsed scalar");
+                            mapped.extend((0..count).map(|expansion| {
+                                crate::source_progress::SourcePosition {
+                                    byte: pos.byte,
+                                    expansion,
+                                }
+                            }));
+                        },
+                    );
+                    run.source_positions = Some(mapped);
+                    output
+                } else {
                     apply_text_transform(&run.text, run.text_transform)
-                {
+                };
+                if let std::borrow::Cow::Owned(transformed) = transformed {
                     run.text = transformed;
                 }
             }
@@ -214,6 +237,7 @@ fn collect_inline_items_inner(
     // persist block uses for ALL groups). A positioned inline whose writing mode
     // differs gets no sub-flow (render would read it with the wrong axis).
     root_horizontal: bool,
+    track_source: bool,
 ) {
     if depth >= MAX_LAYOUT_DEPTH {
         return;
@@ -264,8 +288,9 @@ fn collect_inline_items_inner(
             // after collapse (no gate).
             if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
                 if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-                    if !tc.0.is_empty() {
+                    if track_source || !tc.0.is_empty() {
                         items.push(InlineItem::Text(StyledRun::from_style(
+                            child,
                             child,
                             tc.0.clone(),
                             &style,
@@ -293,6 +318,15 @@ fn collect_inline_items_inner(
             } else {
                 group_key
             };
+            if track_source && grandchildren.is_empty() {
+                items.push(InlineItem::Text(StyledRun::from_style(
+                    child,
+                    child,
+                    String::new(),
+                    &style,
+                    child_group,
+                )));
+            }
             collect_inline_items_inner(
                 dom,
                 &grandchildren,
@@ -303,6 +337,7 @@ fn collect_inline_items_inner(
                 child_group,
                 candidate_keys,
                 root_horizontal,
+                track_source,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style. Neither bidi
@@ -310,9 +345,10 @@ fn collect_inline_items_inner(
             // logical order (render reorders RTL runs visually — slice 4) and
             // text-transform is applied in-place after collapse
             // (`apply_text_transforms`, threaded via `StyledRun::text_transform`).
-            if !tc.0.is_empty() {
+            if track_source || !tc.0.is_empty() {
                 items.push(InlineItem::Text(StyledRun::from_style(
                     parent_entity,
+                    child,
                     tc.0.clone(),
                     parent_style,
                     group_key,

@@ -2094,6 +2094,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-form",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 

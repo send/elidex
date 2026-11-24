@@ -14,6 +14,7 @@ use super::super::is_block_level;
 use super::super::margin::{collapse_margins, resolve_margin};
 use super::helpers::{flush_inline_run, layout_float};
 use super::{make_block_break_token, StackResult};
+use crate::BlockContinuation;
 
 /// Stack block-level children along the block axis with margin collapse.
 ///
@@ -79,23 +80,21 @@ pub fn stack_block_children(
     let mut first_baseline: Option<f32> = None;
 
     // --- Fragmentation: resume from break token ---
-    let (start_index, resume_child_break_token, resume_inline_break_line) =
-        if let Some(bt) = input.break_token {
-            if let Some(BreakTokenData::Block {
+    let (start_index, resume_child_break_token, resume_run) =
+        match input.break_token.and_then(|bt| bt.mode_data.as_ref()) {
+            Some(BreakTokenData::Block {
                 child_index,
-                inline_break_line,
-            }) = &bt.mode_data
-            {
-                (
-                    *child_index,
-                    bt.child_break_token.as_deref(),
-                    *inline_break_line,
-                )
-            } else {
-                (0, None, None)
-            }
-        } else {
-            (0, None, None)
+                continuation,
+            }) => match continuation {
+                BlockContinuation::LocalRun { first, progress } => {
+                    (*child_index, None, Some((*first, progress)))
+                }
+                BlockContinuation::InterruptedChild(token) => {
+                    (*child_index, Some(token.as_ref()), None)
+                }
+                BlockContinuation::ChildBoundary => (*child_index, None, None),
+            },
+            _ => (0, None, None),
         };
     let is_continuation = input.break_token.is_some();
     let frag_ctx = input.fragmentainer;
@@ -169,11 +168,9 @@ pub fn stack_block_children(
 
         // Flush any pending inline run before this block child (CSS 2.1 §9.2.1.1).
         if !inline_run.is_empty() {
-            let skip_lines = if inline_run_start_idx == Some(start_index) {
-                resume_inline_break_line.unwrap_or(0)
-            } else {
-                0
-            };
+            let progress = resume_run
+                .filter(|(first, _)| Some(first) == inline_run.first())
+                .map(|(_, p)| p.clone());
             let run_result = flush_inline_run(
                 dom,
                 &inline_run,
@@ -184,7 +181,7 @@ pub fn stack_block_children(
                 cursor_block_origin,
                 &env,
                 &mut static_positions,
-                skip_lines,
+                progress,
             );
             if first_baseline.is_none() {
                 first_baseline = run_result
@@ -199,13 +196,15 @@ pub fn stack_block_children(
             prev_margin_block_end = Some(0.0);
             last_child_margin_block_end = Some(0.0);
             // Handle inline fragmentation break.
-            if let Some(break_line) = run_result.break_after_line {
+            if let Some(progress) = run_result.continuation {
                 result_break_token = Some(make_block_break_token(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
                     inline_run_start_idx.unwrap_or(idx),
-                    Some(break_line),
-                    None,
+                    BlockContinuation::LocalRun {
+                        first: inline_run[0],
+                        progress,
+                    },
                 ));
                 inline_run.clear();
                 inline_run_start_idx = None;
@@ -231,8 +230,7 @@ pub fn stack_block_children(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
                     idx,
-                    None,
-                    None,
+                    BlockContinuation::ChildBoundary,
                 ));
                 break;
             }
@@ -326,8 +324,7 @@ pub fn stack_block_children(
                         parent_entity,
                         consumed,
                         idx,
-                        None,
-                        None,
+                        BlockContinuation::ChildBoundary,
                     ));
                     break;
                 }
@@ -376,8 +373,7 @@ pub fn stack_block_children(
                 parent_entity,
                 (cursor_block - cursor_block_origin).max(0.0) + child_bt.consumed_block_size,
                 idx,
-                None,
-                Some(Box::new(child_bt)),
+                BlockContinuation::InterruptedChild(Box::new(child_bt)),
             ));
             break;
         }
@@ -415,8 +411,7 @@ pub fn stack_block_children(
                         parent_entity,
                         best.cursor_block,
                         best.child_index,
-                        None,
-                        None,
+                        BlockContinuation::ChildBoundary,
                     ));
                     break;
                 }
@@ -425,8 +420,7 @@ pub fn stack_block_children(
                     parent_entity,
                     consumed,
                     idx + 1,
-                    None,
-                    None,
+                    BlockContinuation::ChildBoundary,
                 ));
                 break;
             }
@@ -460,8 +454,7 @@ pub fn stack_block_children(
                     parent_entity,
                     (cursor_block - cursor_block_origin).max(0.0),
                     idx + 1,
-                    None,
-                    None,
+                    BlockContinuation::ChildBoundary,
                 ));
                 break;
             }
@@ -473,11 +466,9 @@ pub fn stack_block_children(
 
     // Flush trailing inline run (CSS 2.1 §9.2.1.1) — only if no break was produced.
     if result_break_token.is_none() && !inline_run.is_empty() {
-        let skip_lines = if inline_run_start_idx == Some(start_index) {
-            resume_inline_break_line.unwrap_or(0)
-        } else {
-            0
-        };
+        let progress = resume_run
+            .filter(|(first, _)| Some(first) == inline_run.first())
+            .map(|(_, p)| p.clone());
         let run_result = flush_inline_run(
             dom,
             &inline_run,
@@ -488,7 +479,7 @@ pub fn stack_block_children(
             cursor_block_origin,
             &env,
             &mut static_positions,
-            skip_lines,
+            progress,
         );
         if first_baseline.is_none() {
             first_baseline = run_result
@@ -501,13 +492,15 @@ pub fn stack_block_children(
         }
         last_child_margin_block_end = Some(0.0);
         // Handle inline fragmentation break from trailing run.
-        if let Some(break_line) = run_result.break_after_line {
+        if let Some(progress) = run_result.continuation {
             result_break_token = Some(make_block_break_token(
                 parent_entity,
                 (cursor_block - cursor_block_origin).max(0.0),
                 inline_run_start_idx.unwrap_or(children.len()),
-                Some(break_line),
-                None,
+                BlockContinuation::LocalRun {
+                    first: inline_run[0],
+                    progress,
+                },
             ));
         }
     }

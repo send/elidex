@@ -5,7 +5,7 @@
 //! - pack-item construction (`PackItem`/`FlowMember`/`build_pack_items`) → [`items`]
 //! - inline-element box assignment (`EntityBounds`/`InlineLineRect`/
 //!   `assign_inline_layout_boxes`) → [`boxes`]
-//! - fragmentation slice + rebase (`slice_and_rebase_fragment`) → [`fragment`]
+//! - fragmentation slice + rebase (`truncate_fragment`) → [`fragment`]
 //! - the `text-align`/`text-align: justify` math (`FlushReason`, alignment resolution,
 //!   justification opportunity counting + baking) → [`justify`]
 
@@ -89,6 +89,7 @@ pub(super) struct LineBox {
 /// Line packer state — extracted to keep the main function under the line limit.
 pub(super) struct LinePacker {
     pub line_boxes: Vec<LineBox>,
+    pub placed_line: usize,
     pub entity_bounds: HashMap<Entity, EntityBounds>,
     /// Static positions for absolutely positioned placeholders
     /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top, mapped to logical axes).
@@ -175,6 +176,7 @@ pub(super) struct LinePacker {
 impl LinePacker {
     pub fn new(parent_entity: Entity, flow_align: FlowAlign) -> Self {
         Self {
+            placed_line: 0,
             line_boxes: Vec::new(),
             entity_bounds: HashMap::new(),
             static_positions: HashMap::new(),
@@ -493,11 +495,13 @@ impl LinePacker {
         containing_inline_size: f32,
         is_vertical: bool,
     ) {
+        self.placed_line = self.line_boxes.len();
         match pi {
             PackItem::Text {
                 item_index,
                 text,
                 break_after,
+                ..
             } => {
                 let InlineItem::Text(run) = &items[*item_index] else {
                     return;
@@ -632,7 +636,7 @@ impl LinePacker {
                     *group_key,
                 );
             }
-            PackItem::Placeholder { entity } => {
+            PackItem::Placeholder { entity, .. } => {
                 // CSS 2.1 §10.3.7 / §10.6.4: record static position at current inline/block position.
                 // Zero-width, zero-height — does not advance cursor_x.
                 self.static_positions.insert(
@@ -659,6 +663,7 @@ impl LinePacker {
             self.flush_line(FlushReason::SoftWrap);
         }
 
+        self.placed_line = self.line_boxes.len();
         let seg_inline_start = self.current_inline;
         self.current_inline += full_width;
         self.current_line_height = self.current_line_height.max(block_advance);

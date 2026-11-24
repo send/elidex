@@ -22,6 +22,7 @@ pub(in crate::inline) enum PackItem {
         item_index: usize,
         /// The text of this segment.
         text: String,
+        start: crate::source_progress::SourcePosition,
         /// Break opportunity at the end of this segment, if any.
         break_after: Option<BreakOpportunity>,
     },
@@ -31,7 +32,21 @@ pub(in crate::inline) enum PackItem {
         item_index: usize,
     },
     /// Absolutely positioned placeholder — records static position, zero-width.
-    Placeholder { entity: Entity },
+    Placeholder { entity: Entity, item_index: usize },
+}
+
+impl PackItem {
+    pub(in crate::inline) fn source(&self) -> (usize, crate::source_progress::SourcePosition) {
+        match self {
+            Self::Text {
+                item_index, start, ..
+            } => (*item_index, *start),
+            Self::Atomic { item_index } | Self::Placeholder { item_index, .. } => (
+                *item_index,
+                crate::source_progress::SourcePosition::default(),
+            ),
+        }
+    }
 }
 
 /// What `place_item` records for a placed item (recorded unconditionally; where a
@@ -73,11 +88,22 @@ pub(in crate::inline) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem>
                 }
                 let breaks = find_break_opportunities(&run.text);
                 let mut prev_pos = 0;
+                let mut scalar_index = 0;
+                let mut start_of = |piece: &str| {
+                    run.source_positions
+                        .as_ref()
+                        .map_or_else(Default::default, |positions| {
+                            let start = positions[scalar_index];
+                            scalar_index += piece.chars().count();
+                            start
+                        })
+                };
                 for &(bp, kind) in &breaks {
                     if bp > prev_pos {
                         pack_items.push(PackItem::Text {
                             item_index: idx,
                             text: run.text[prev_pos..bp].to_string(),
+                            start: start_of(&run.text[prev_pos..bp]),
                             break_after: Some(kind),
                         });
                     }
@@ -87,6 +113,7 @@ pub(in crate::inline) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem>
                     pack_items.push(PackItem::Text {
                         item_index: idx,
                         text: run.text[prev_pos..].to_string(),
+                        start: start_of(&run.text[prev_pos..]),
                         break_after: None,
                     });
                 }
@@ -95,7 +122,10 @@ pub(in crate::inline) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem>
                 pack_items.push(PackItem::Atomic { item_index: idx });
             }
             InlineItem::Placeholder(entity) => {
-                pack_items.push(PackItem::Placeholder { entity: *entity });
+                pack_items.push(PackItem::Placeholder {
+                    entity: *entity,
+                    item_index: idx,
+                });
             }
         }
     }

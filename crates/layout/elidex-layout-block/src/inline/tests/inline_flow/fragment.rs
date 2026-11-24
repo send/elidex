@@ -5,7 +5,7 @@ use elidex_ecs::InlineFlow;
 fn paged_fragmented_run_now_persists() {
     // Slice 4 / I-paged inverts the old `gate_excludes_fragmented` test: its
     // reason ("flow_lines are not yet sliced per fragment") is resolved by THIS
-    // slice's `slice_and_rebase_fragment`, so a *paged* fragmented run now
+    // slice's `truncate_fragment`, so a *paged* fragmented run now
     // persists (per-page slice + continuation rebase + page-generation stamp).
     // `available_block` is large, so the whole short run fits in one page fragment.
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
@@ -17,7 +17,7 @@ fn paged_fragmented_run_now_persists() {
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Page,
     };
     layout_inline_context_fragmented(
@@ -39,7 +39,7 @@ fn paged_fragmented_run_now_persists() {
 #[test]
 fn multicol_whole_run_now_persists() {
     // Slice 4 / I-multicol: a multicol (`Column`) run that is WHOLE in its column
-    // (`skip_lines == 0`, fits → no break) now persists an `InlineFlow` — it was gated
+    // (fresh run, fits → no break) now persists an `InlineFlow` — it was gated
     // to legacy pre-I-multicol. And persisting changes ONLY `InlineFlow` presence: the
     // persisted geometry is byte-identical to the trusted non-fragmented layout of the
     // same content (D-mc2 — the packer's optimistic recording for `Column` does not
@@ -72,7 +72,7 @@ fn multicol_whole_run_now_persists() {
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Column,
     };
     layout_inline_context_fragmented(
@@ -106,7 +106,7 @@ fn multicol_whole_run_now_persists() {
 
 #[test]
 fn gate_excludes_multicol_continuation() {
-    // A multicol continuation (`skip_lines > 0` — the tail of a column-spanning IFC)
+    // A multicol continuation (the tail of a column-spanning IFC)
     // must NOT persist: render consumes the whole `InlineFlow` off the paged path, so a
     // tail-only flow would drop the prior column's lines. Mid-IFC column break stays on
     // legacy (deferred to Z with box fragments — G11).
@@ -119,7 +119,25 @@ fn gate_excludes_multicol_continuation() {
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
-        skip_lines: 1, // continuation from a prior column
+        progress: Some(
+            layout_inline_context_fragmented(
+                &mut dom,
+                &children,
+                1.0,
+                parent,
+                Point::ZERO,
+                &env(&font_db),
+                Some(&InlineFragConstraint {
+                    available_block: 0.0,
+                    orphans: 1,
+                    widows: 1,
+                    progress: None,
+                    fragmentation_type: crate::FragmentationType::Column,
+                }),
+            )
+            .continuation
+            .expect("first fragment must split after one line"),
+        ),
         fragmentation_type: crate::FragmentationType::Column,
     };
     layout_inline_context_fragmented(
@@ -133,7 +151,7 @@ fn gate_excludes_multicol_continuation() {
     );
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
-        "a multicol continuation (skip_lines>0) must stay on legacy (mid-IFC → Z)"
+        "a multicol continuation with incoming source coverage must stay on legacy (mid-IFC → Z)"
     );
 }
 
@@ -153,7 +171,7 @@ fn gate_excludes_multicol_truncation() {
         available_block: 0.001,
         orphans: 1,
         widows: 1,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Column,
     };
     layout_inline_context_fragmented(
@@ -195,7 +213,7 @@ fn multicol_nested_in_paged_stamps_page_generation() {
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Column,
     };
     layout_inline_context_fragmented(
@@ -256,7 +274,25 @@ fn continuation_fragment_rebases_to_fragmentainer_top() {
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
-        skip_lines: 1,
+        progress: Some(
+            layout_inline_context_fragmented(
+                &mut dom,
+                &children,
+                1.0,
+                parent,
+                Point::ZERO,
+                &env(&font_db),
+                Some(&InlineFragConstraint {
+                    available_block: 0.0,
+                    orphans: 1,
+                    widows: 1,
+                    progress: None,
+                    fragmentation_type: crate::FragmentationType::Column,
+                }),
+            )
+            .continuation
+            .expect("first fragment must split after one line"),
+        ),
         fragmentation_type: crate::FragmentationType::Page,
     };
     layout_inline_context_fragmented(
@@ -340,7 +376,17 @@ fn paged_fragment_clientrects_single_source_with_flow() {
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
-        skip_lines: 1,
+        progress: Some({
+            // This fixture isolates fresh CSSOM geometry for the continuation.
+            let mut progress = crate::source_progress::SourceProgress::default();
+            progress.consume(
+                parent,
+                span_text,
+                crate::source_progress::SourcePosition::byte(0)
+                    ..crate::source_progress::SourcePosition::byte(4),
+            );
+            progress
+        }),
         fragmentation_type: crate::FragmentationType::Page,
     };
     layout_inline_context_fragmented(
@@ -423,7 +469,7 @@ fn paged_fragment_drops_tail_after_break() {
         available_block: line_h * 2.5,
         orphans: 1,
         widows: 1,
-        skip_lines: 0,
+        progress: None,
         fragmentation_type: crate::FragmentationType::Page,
     };
     layout_inline_context_fragmented(
@@ -452,3 +498,201 @@ fn paged_fragment_drops_tail_after_break() {
 }
 
 // --- slice 2: vertical writing modes now persist (the `!is_vertical` gate dropped) ---
+
+#[test]
+fn varying_width_pages_resume_at_source_on_count_and_replay() {
+    // The bundled face gives every glyph (including the fallback glyph) a fixed
+    // advance. A–D are distinct logical words even with these identical metrics.
+    let font_db = FontDatabase::from_fixture(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../core/elidex-render/tests/fixtures/digits.ttf"
+    )));
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
+    let text = dom.create_text_ownerless_fixture("A B C D");
+    assert!(dom.append_child(parent, text));
+    dom.world_mut()
+        .insert_one(
+            parent,
+            ComputedStyle {
+                font_family: vec!["Elidex Test Digits".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let children = dom.composed_children(parent);
+    let key = children[0];
+    let params = TextMeasureParams {
+        families: &["Elidex Test Digits"],
+        font_size: crate::get_style(&dom, parent).font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    let width = |text| measure_text(&font_db, &params, text).unwrap().width;
+    let narrow = ["A ", "B ", "C ", "D "]
+        .map(width)
+        .into_iter()
+        .fold(0.0, f32::max)
+        + 0.5;
+    let wide = ["A B ", "B C ", "C D "]
+        .map(width)
+        .into_iter()
+        .fold(0.0, f32::max)
+        + 0.5;
+    for (widths, expected) in [
+        (vec![narrow, wide, wide], vec!["A", "B C", "D"]),
+        (vec![wide, narrow, narrow], vec!["A B", "C", "D"]),
+        (vec![wide, wide], vec!["A B", "C D"]),
+    ] {
+        let mut starts: Vec<Option<crate::source_progress::SourceProgress>> = Vec::new();
+        let mut progress = None;
+        for replay in [false, true] {
+            for (i, &page_width) in widths.iter().enumerate() {
+                if replay {
+                    progress = starts[i].clone();
+                } else {
+                    starts.push(progress.clone());
+                }
+                let frag = InlineFragConstraint {
+                    available_block: 0.0,
+                    orphans: 1,
+                    widows: 1,
+                    progress,
+                    fragmentation_type: crate::FragmentationType::Page,
+                };
+                progress = layout_inline_context_fragmented(
+                    &mut dom,
+                    &children,
+                    page_width,
+                    parent,
+                    Point::ZERO,
+                    &env(&font_db),
+                    Some(&frag),
+                )
+                .continuation;
+                let flow = dom.world().get::<&InlineFlow>(key).unwrap();
+                let lines = &flow.fragments[0].lines;
+                assert_eq!(lines.len(), 1);
+                let text: String = lines[0].runs.iter().filter_map(|r| r.text()).collect();
+                assert_eq!(text.trim_end(), expected[i]);
+                assert_eq!(lines[0].runs[0].inline_start(), 0.0);
+                assert_eq!(progress.is_some(), i + 1 < widths.len());
+                if let Some(cursor) = &progress {
+                    let next = "A B C D".find(expected[i + 1]).unwrap();
+                    assert!(cursor.covers(
+                        parent,
+                        key,
+                        crate::source_progress::SourcePosition::byte(0)
+                            ..crate::source_progress::SourcePosition::byte(next)
+                    ));
+                    assert!(!cursor.contains(
+                        parent,
+                        key,
+                        crate::source_progress::SourcePosition::byte(next)
+                    ));
+                    if replay {
+                        assert_eq!(starts[i + 1].as_ref(), Some(cursor));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cursor_keeps_original_nodes_across_collapse_transform_and_atomics() {
+    use crate::source_progress::SourcePosition;
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("A   ") else {
+        return;
+    };
+    let first = dom.composed_children(parent)[0];
+    let empty = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let nested = dom.create_element_ownerless_fixture("span", Attributes::default());
+    let word = dom.create_text_ownerless_fixture("   ß  C ");
+    let atomic = dom.create_element_ownerless_fixture("img", Attributes::default());
+    let last = dom.create_text_ownerless_fixture("D");
+    dom.append_child(parent, empty);
+    dom.append_child(parent, nested);
+    dom.append_child(nested, word);
+    dom.append_child(parent, atomic);
+    dom.append_child(parent, last);
+    dom.world_mut()
+        .insert_one(
+            empty,
+            ComputedStyle {
+                padding: elidex_plugin::EdgeSizes {
+                    left: elidex_plugin::Dimension::Length(1.0),
+                    ..Default::default()
+                },
+                ..style.clone()
+            },
+        )
+        .unwrap();
+    dom.world_mut()
+        .insert_one(
+            nested,
+            ComputedStyle {
+                text_transform: elidex_plugin::TextTransform::Uppercase,
+                ..style.clone()
+            },
+        )
+        .unwrap();
+    dom.world_mut()
+        .insert_one(
+            atomic,
+            ComputedStyle {
+                display: elidex_plugin::Display::InlineBlock,
+                width: elidex_plugin::Dimension::Length(10.0),
+                height: elidex_plugin::Dimension::Length(10.0),
+                ..style
+            },
+        )
+        .unwrap();
+    let children = dom.composed_children(parent);
+    let mut progress = None;
+    for (i, expected) in ["A", "SS", "C", "", "D"].into_iter().enumerate() {
+        let frag = InlineFragConstraint {
+            available_block: 0.0,
+            orphans: 1,
+            widows: 1,
+            progress,
+            fragmentation_type: crate::FragmentationType::Page,
+        };
+        progress = layout_inline_context_fragmented(
+            &mut dom,
+            &children,
+            1.0,
+            parent,
+            Point::ZERO,
+            &env(&font_db),
+            Some(&frag),
+        )
+        .continuation;
+        let flow = dom.world().get::<&InlineFlow>(first).unwrap();
+        let runs = &flow.fragments[0].lines[0].runs;
+        let text: String = runs.iter().filter_map(|r| r.text()).collect();
+        assert_eq!(text.trim_end(), expected);
+        if i == 3 {
+            assert!(
+                matches!(runs[0],elidex_ecs::InlineFlowRun::AtomicBox {entity,..} if entity==atomic)
+            );
+        }
+        if let Some(cursor) = &progress {
+            assert!(cursor.is_finished(parent, first));
+            assert!(cursor.is_finished(parent, empty));
+            assert!(cursor.covers(
+                parent,
+                word,
+                crate::source_progress::SourcePosition::byte(0)..SourcePosition::byte(if i == 0 {
+                    3
+                } else {
+                    7
+                })
+            ));
+            assert_eq!(cursor.is_finished(parent, atomic), i >= 3);
+        }
+    }
+    assert!(progress.is_none());
+}
