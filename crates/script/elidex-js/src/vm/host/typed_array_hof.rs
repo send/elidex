@@ -720,16 +720,9 @@ fn reduce_impl(
 /// neither is GC-traced; `BigInt` allocations are deduplicated
 /// by value in `BigIntPool` so repeated reads don't grow the
 /// pool unboundedly), sort, write back via
-/// [`write_element_raw`].  Snapshot-then-write-back gives the
-/// receiver **atomic-on-throw** semantics — a throwing
-/// `compareFn` returns the abrupt completion *before* any
-/// write-back happens, so the receiver is left unchanged rather
-/// than exposing a half-sorted state.  This matches spec
-/// §23.2.3.29 step 5 → 7 ordering: `SortIndexedProperties`
-/// (step 5) collects sorted values into a list, then step 7
-/// writes them back — an abrupt completion in step 5 short-
-/// circuits before step 7 runs, so the receiver is never
-/// observed mid-sort either way.  `compareFn` branch uses a
+/// [`write_element_raw`]. ECMA-262 §23.2.3.29 step 7 propagates any error
+/// from `SortIndexedProperties` before step 9 writes the sorted list back.
+/// Side effects of the comparator itself remain observable. The `compareFn` branch uses a
 /// stable insertion sort (same shape as
 /// `Array.prototype.sort`); default branch uses Rust's stable
 /// `slice::sort_by`.
@@ -769,13 +762,8 @@ pub(crate) fn native_typed_array_sort(
         .collect();
 
     if let Some(fn_id) = compare_fn {
-        // Insertion sort with fallible comparator.  Pair-wise
-        // adjacent compares only — Array.prototype.sort uses the
-        // same shape, so we keep the per-PR mental model
-        // consistent.  Throwing `fn_id` propagates immediately;
-        // the swaps live on the local `snapshot`, not the
-        // receiver, so the early return leaves the receiver
-        // unchanged (atomic-on-throw — see fn-level docstring).
+        // Insertion sort swaps elements in the snapshot. If the comparator
+        // throws, sort skips its write-back. The comparator's own writes persist.
         for i in 1..snapshot.len() {
             let mut j = i;
             while j > 0 {

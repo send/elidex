@@ -546,7 +546,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
 #[test]
 fn typed_array_ctor_and_set_use_to_length_for_array_like_length() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.5.1 array-like path uses `LengthOfArrayLike`/`ToLength`,
+    // ECMA-262 §23.2.5.1.4 step 3.b uses `LengthOfArrayLike`/`ToLength`,
     // which clamps NaN / negative / -Infinity lengths to `0` — a
     // `{length: -1}` source must yield an empty TypedArray, not a
     // RangeError.
@@ -570,7 +570,7 @@ fn typed_array_ctor_and_set_use_to_length_for_array_like_length() {
 #[test]
 fn typed_array_ctor_accepts_array_like_without_iterator() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.5.1 steps 9-12: when `usingIterator` is undefined
+    // ECMA-262 §23.2.5.1.4 steps 3–6: when `usingIterator` is undefined
     // (no `@@iterator` / explicitly nulled), the ctor walks
     // `source.length` + `source[i]` as an array-like.
     assert_eq!(

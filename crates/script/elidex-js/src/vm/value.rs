@@ -443,14 +443,8 @@ impl PropertyStorage {
 /// well.  TypedArray-specific feature-flagged logic (host methods, Fetch
 /// body init, etc.) gates at its own call sites, not on this type.
 ///
-/// Byte ordering for TypedArray indexed reads / writes is **spec-mandated
-/// little-endian**: ECMA-262 §10.4.5.17 TypedArrayGetElement and §10.4.5.18
-/// TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
-/// SetValueInBuffer with `isLittleEndian = true`, so engines must use
-/// little-endian for TypedArray indexed access regardless of host platform.
-/// `DataView` exposes both endiannesses to JS via the `littleEndian`
-/// argument on its prototype getters / setters (ECMA-262 §25.3.4, default
-/// `false` = big-endian).
+/// The VM stores these elements in little-endian byte order. See the byte-order
+/// convention in `vm/host/typed_array.rs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
     Int8,

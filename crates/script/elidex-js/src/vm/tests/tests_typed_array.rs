@@ -667,7 +667,7 @@ fn views_over_same_buffer_share_bytes() {
 fn uint16_view_over_uint8_buffer_reads_little_endian() {
     let mut vm = Vm::new();
     // Uint8Array [1, 0] = Uint16 value 1 under LE encoding
-    // (elidex choice per module header — IsLittleEndian() = true).
+    // (the VM sets the agent’s [[LittleEndian]] field to true).
     assert_eq!(
         eval_number(
             &mut vm,
@@ -678,8 +678,7 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
         ),
         1.0
     );
-    // Sanity: [0x80, 0x3f] = 1.0 as f32 (IEEE 754 LE) — ties
-    // the written spec-divergence disclaimer.
+    // The same byte order decodes [0, 0, 0x80, 0x3f] as Float32 1.0.
     assert_eq!(
         eval_number(
             &mut vm,

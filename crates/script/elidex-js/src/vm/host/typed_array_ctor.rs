@@ -20,7 +20,7 @@
 //! | `ArrayBuffer` (with `byteOffset?` / `length?`) | §23.2.5.1.3      | [`init_from_array_buffer`]   |
 //! | another `%TypedArray%`                | §23.2.5.1.2               | [`init_from_typed_array`]    |
 //! | iterable (callable `@@iterator`)      | §23.2.5.1.4               | [`init_from_iterable`]       |
-//! | other Object (array-like fallback)    | §23.2.5.1 steps 9-12      | reached via `init_from_iterable` → `init_from_array_like` |
+//! | Object with nullish `@@iterator`      | §23.2.5.1.4 steps 3–6      | reached via `init_from_iterable` → `init_from_array_like` |
 //!
 //! The fresh-zero-buffer arms (`()` / `(undefined)` / `(number)`) are
 //! handled inline in `construct_typed_array` because they don't
@@ -205,9 +205,9 @@ pub(super) fn init_from_typed_array(
     Ok((dst_buf_id, dst_offset, dst_byte_len))
 }
 
-/// Variant 5: `new Xxx(object)`.  ECMA-262 §23.2.5.1 steps 7-12: if the
-/// source has a callable `@@iterator`, iterate; otherwise fall back
-/// to the array-like path (`length` + integer-indexed `[[Get]]`s).
+/// ECMA-262 §23.2.5.1.4 steps 1–3 select the iterable or array-like path.
+/// GetMethod (§7.3.10) accepts a callable iterator method, returns undefined
+/// for null or undefined, and throws TypeError for any other value.
 pub(super) fn init_from_iterable(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
@@ -216,7 +216,7 @@ pub(super) fn init_from_iterable(
     let JsValue::Object(src_id) = source else {
         unreachable!("init_from_iterable called on non-Object");
     };
-    // §23.2.5.1 step 7 / GetMethod(object, @@iterator): an absent
+    // §23.2.5.1.4 step 1 / GetMethod(object, @@iterator): an absent
     // or `undefined` / `null` value for `@@iterator` falls through
     // to the array-like branch rather than throwing.
     let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
@@ -331,10 +331,9 @@ fn init_from_iterable_body(
     Ok((buf_id, offset, byte_len))
 }
 
-/// Variant 5b: §23.2.5.1 array-like fallback when `source` has no
-/// callable `@@iterator`.  Reads `source.length` → `ToLength` →
-/// allocates buffer → drains `source[i]` through the shared property
-/// path (§23.2.5.1 steps 9-12).  `ToLength` clamps negative / NaN
+/// With a nullish iterator method, §23.2.5.1.4 steps 3–6 obtain
+/// LengthOfArrayLike(source), allocate the buffer, and read each indexed
+/// property from the source.  `ToLength` clamps negative / NaN
 /// lengths to `0` (an empty TypedArray) rather than throwing —
 /// `{length: -1}` / `{length: NaN}` produce `new Uint8Array(0)`.
 fn init_from_array_like(

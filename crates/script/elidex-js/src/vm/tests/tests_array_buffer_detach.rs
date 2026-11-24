@@ -451,11 +451,8 @@ fn dataview_set_int8_after_buffer_detach_throws_typeerror() {
 
 #[test]
 fn dataview_byte_length_after_buffer_detach_throws_typeerror() {
-    // Contrast with `typed_array_byte_length_after_detach_is_zero` —
-    // DataView's `byteLength` getter THROWS rather than returning 0
-    // (different witness AO: §25.3.1.2 MakeDataViewWithBufferWitness
-    // + §25.3.1.4 IsViewOutOfBounds vs. TypedArray's
-    // §10.4.5.x TypedArrayLength path).
+    // Known VM P4 defect: the getter throws on detachment. ECMA-262
+    // §25.3.4.2 step 5 requires +0.
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.dv = new DataView(buf);").unwrap();
@@ -470,6 +467,7 @@ fn dataview_byte_length_after_buffer_detach_throws_typeerror() {
 
 #[test]
 fn dataview_byte_offset_after_buffer_detach_throws_typeerror() {
+    // Known VM P4 defect: ECMA-262 §25.3.4.3 step 5 requires +0 here.
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.dv = new DataView(buf);").unwrap();
@@ -573,7 +571,8 @@ fn d16_consumer_simulation_full_surface_sweep_post_detach() {
         "TypeError"
     );
 
-    // (c) DataView surface — getters + getInt32 throw TypeError.
+    // (c) byteLength throws due to the known VM P4 defect (§25.3.4.2 step 5).
+    // getInt32 throws as required by GetViewValue (§25.3.1.5 step 8).
     assert_eq!(
         eval_string(
             &mut vm,
