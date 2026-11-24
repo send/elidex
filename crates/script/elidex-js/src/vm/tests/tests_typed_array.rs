@@ -604,7 +604,7 @@ fn bigint64_write_string_coerces() {
 fn out_of_range_read_returns_undefined() {
     let mut vm = Vm::new();
     // `u8[5]` on a length-3 array returns undefined, does NOT
-    // walk the prototype chain (ECMA-262 §10.4.5.17 step 3).
+    // walk the prototype chain (ECMA-262 §10.4.5.17 step 1).
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] === undefined;"
@@ -614,9 +614,8 @@ fn out_of_range_read_returns_undefined() {
 #[test]
 fn out_of_range_write_is_no_op() {
     let mut vm = Vm::new();
-    // `u8[5] = 99` on a length-3 array silently no-ops (ES
-    // §10.4.5.16) — does NOT create an own property, does NOT
-    // throw.
+    // The index remains absent. Known VM P4 defect: the VM returns before
+    // converting the RHS (§10.4.5.18 steps 1–3). Literal 99 masks the difference.
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] = 99; \
