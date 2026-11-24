@@ -484,14 +484,14 @@ fn structured_clone_preserves_data_view_identity() {
 
 // ---------------------------------------------------------------------------
 // TypedArray ctor / set ToObject + ToLength coercion (§23.2.5.1) +
-// DataView NaN/undefined offset bounds (§25.3.1) +
+// DataView NaN/undefined offset bounds (§§25.3.1.5–6) +
 // BigInt element equality (pool-based compare, SP-coerce strict_eq)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn data_view_nan_offset_still_bounds_checks() {
     let mut vm = Vm::new();
-    // ECMA-262 §25.3.1 GetViewValue step 3-8: `ToIndex(NaN) = 0`, but the
+    // ECMA-262 §25.3.1.5 GetViewValue steps 3 and 11: `ToIndex(NaN) = 0`, but the
     // `requestIndex + elementSize > viewSize` bounds check still
     // runs — `new DataView(new ArrayBuffer(1)).getInt16(NaN)` must
     // throw RangeError because `0 + 2 > 1`.
@@ -502,7 +502,7 @@ fn data_view_nan_offset_still_bounds_checks() {
          try { dv.getInt16(NaN); } \
          catch (e) { ok = e instanceof RangeError; } ok;"
     ));
-    // And for undefined offset (also ToIndex(undefined) = 0):
+    // SetViewValue (§25.3.1.6 steps 3 and 13) checks the four-byte span at 0.
     assert!(eval_bool(
         &mut vm,
         "var dv = new DataView(new ArrayBuffer(1)); \
