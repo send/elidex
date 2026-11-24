@@ -69,7 +69,7 @@ fn e3_set_form_attribute_reflects_form_owner() {
 #[test]
 fn e4_required_boolean_presence_and_removal() {
     let (mut dom, e) = setup("input", &[]);
-    // Empty-string presence per HTML §2.5.2 boolean-attribute rule.
+    // A present boolean attribute represents true (HTML §2.3.2).
     assert!(dom.set_attribute(e, "required", "").did_set);
     with_fcs(&dom, e, |s| assert!(s.required));
     // Removal resets to default (false).
