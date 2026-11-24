@@ -190,10 +190,10 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// ToString (ECMA-262 §7.1.18)
+// ToString (ECMA-262 §7.1.19)
 // ---------------------------------------------------------------------------
 
-/// ToString (ECMA-262 §7.1.18). Returns a `StringId` or throws `TypeError`
+/// ToString (ECMA-262 §7.1.19). Returns a `StringId` or throws `TypeError`
 /// for Symbol values, per spec.
 pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
@@ -211,7 +211,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             Ok(vm.strings.intern(&s))
         }
         JsValue::Object(_) => {
-            // §7.1.18 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
+            // §7.1.19 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
             // No wrapper slot shortcut: a boxed primitive's overridden
             // `toString` / `valueOf` / `@@toPrimitive` must be honored. The
             // OrdinaryToPrimitive fallback inside `to_primitive` invokes the

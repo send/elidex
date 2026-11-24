@@ -430,7 +430,7 @@ impl VmInner {
 
 /// Extract the required `type` first-argument from a ctor call.
 /// Absent arg → TypeError; Symbol or other non-string values pass
-/// through `coerce::to_string` (Symbol throws per ECMA-262 §7.1.18).
+/// through `coerce::to_string` (Symbol throws per ECMA-262 §7.1.19).
 pub(super) fn type_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
