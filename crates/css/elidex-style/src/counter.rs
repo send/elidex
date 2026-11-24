@@ -271,7 +271,8 @@ fn to_alpha(value: i32, base: u8) -> String {
 /// Count `<li>` children of an element for reversed counter initialization.
 ///
 /// HTML §4.4.5 uses the number of owned `li` elements for a reversed list
-/// without a valid start. This helper counts direct `li` children.
+/// when `start` is absent or HTML integer parsing fails. This helper counts
+/// direct `li` children.
 #[must_use]
 pub fn count_li_children(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> usize {
     let mut count = 0;

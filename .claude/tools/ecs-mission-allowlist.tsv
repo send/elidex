@@ -78,7 +78,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/dispatch.rs	// null})` and Chromium / Firefox Fetch), mirroring the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// Firefox / Safari):
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// must therefore throw synchronously (verified on Chrome /
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/form_data.rs	// values — matches Chromium / Firefox.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/headers/mod.rs	/// matching Chromium's wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// / `InvalidNodeKind`) are silent no-ops to match Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only

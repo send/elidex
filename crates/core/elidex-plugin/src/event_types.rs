@@ -96,7 +96,8 @@ pub struct InputEventInit {
     pub is_composing: bool,
 }
 
-/// Initialization data for clipboard events (HTML §6.4.6).
+/// Text payload for clipboard events. The Clipboard API’s `ClipboardEventInit`
+/// dictionary (`#dictdef-clipboardeventinit`) carries a nullable `DataTransfer`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClipboardEventInit {
     /// The clipboard data type (e.g. "text/plain").
@@ -105,7 +106,7 @@ pub struct ClipboardEventInit {
     pub data: String,
 }
 
-/// Initialization data for composition events (HTML §6.5).
+/// Composition event data (UI Events, `#dictdef-compositioneventinit`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompositionEventInit {
     /// The composition data (text being composed).

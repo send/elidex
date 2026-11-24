@@ -70,19 +70,18 @@ pub(in crate::vm) use touch::{
 // Mutable side-table state structs
 // ---------------------------------------------------------------------------
 
-/// Per-`DataTransfer` mutable state (HTML DnD §6.2).  Keyed in
+/// Per-`DataTransfer` mutable state (HTML §6.11.3).  Keyed in
 /// `crate::vm::VmInner::data_transfer_states` by the wrapper's
 /// `ObjectId`.
 ///
-/// Identity-cached `[SameObject]` wrappers for `items` / `files`
-/// hang off the state entry so `dt.items === dt.items` holds.  The
+/// The state caches the `items` and `files` wrappers. The
 /// drag-image element reference is stored as raw `entity_bits` so
 /// the state can be Copy-cheap; integration with the paint pipeline
 /// is deferred to slot `#11-data-transfer-drag-image-paint`.
 pub(crate) struct DataTransferState {
-    /// `dropEffect` enum (HTML §6.2): `0=none / 1=copy / 2=link / 3=move`.
+    /// `dropEffect` enum (HTML §6.11.3): `0=none / 1=copy / 2=link / 3=move`.
     pub(in crate::vm) drop_effect: DropEffect,
-    /// `effectAllowed` enum (HTML §6.2): `0=none / 1=copy / 2=copyLink /
+    /// `effectAllowed` enum (HTML §6.11.3): `0=none / 1=copy / 2=copyLink /
     /// 3=copyMove / 4=link / 5=linkMove / 6=move / 7=all /
     /// 8=uninitialized`.
     pub(in crate::vm) effect_allowed: EffectAllowed,
@@ -91,11 +90,11 @@ pub(crate) struct DataTransferState {
     /// `clear` semantics; UA-fired drag/clipboard events populate
     /// this in spec order (deferred via `#11-event-dispatch-extra`).
     pub(in crate::vm) items: Vec<DataTransferEntry>,
-    /// `[SameObject]` cache for the `items` accessor (HTML §6.2).
+    /// `[SameObject]` cache for the `items` accessor (HTML §6.11.3).
     /// `None` until the first `dt.items` read; subsequent reads
     /// return the cached wrapper.
     pub(in crate::vm) items_wrapper: Option<ObjectId>,
-    /// `[SameObject]` cache for the `files` accessor (HTML §6.2).
+    /// Cached `files` wrapper. HTML §6.11.3 requires a live `[SameObject]` FileList.
     /// The wrapper is allocated lazily on first `.files` read; its
     /// underlying [`super::file_list::FileListSideData`] enumerates
     /// `file_entries` below.  Wrapper is invalidated (set to `None`)
@@ -103,12 +102,12 @@ pub(crate) struct DataTransferState {
     /// invalidation hook on `add(File)` / future `setData` overloads).
     pub(in crate::vm) files_wrapper: Option<ObjectId>,
     /// Ordered list of File wrapper `ObjectId`s — the file-typed
-    /// subset of `items` for the `[SameObject]` FileList view.  D-14
+    /// subset of `items` used to build the FileList.  D-14
     /// `#11-file-api` Phase 5 populates this from `add(File)` and uses
     /// it to build the `files` accessor's FileList.  Distinct from
     /// `items` so the JS-visible DataTransferItemList iteration
     /// (string + file mixed) remains spec-correct via `items` while
-    /// `files` enumerates only the file subset per HTML §6.2.
+    /// `files` enumerates only the file subset per HTML §6.11.3.
     pub(in crate::vm) file_entries: Vec<ObjectId>,
     /// `setDragImage` element reference as `entity_bits` (NonZero
     /// when present).  Pre-populated to `None`; `setDragImage(el,
@@ -140,9 +139,9 @@ impl DataTransferState {
     }
 }
 
-/// `DataTransfer.dropEffect` enum (HTML §6.2).  ASCII-CI input is
+/// `DataTransfer.dropEffect` enum (HTML §6.11.3).  ASCII-CI input is
 /// canonicalised to the lowercase enum form on set; invalid values
-/// silently leave the prior value (per spec).
+/// leave the prior value. HTML lists the accepted spellings case-sensitively.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::vm) enum DropEffect {
@@ -171,7 +170,7 @@ impl DropEffect {
         }
     }
 
-    /// Canonical lowercase representation per HTML §6.2.
+    /// Canonical lowercase representation per HTML §6.11.3.
     pub(in crate::vm) fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -182,7 +181,7 @@ impl DropEffect {
     }
 }
 
-/// `DataTransfer.effectAllowed` enum (HTML §6.2).  9 values.
+/// `DataTransfer.effectAllowed` enum (HTML §6.11.3).  9 values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::vm) enum EffectAllowed {
@@ -244,12 +243,9 @@ pub(in crate::vm) enum DataTransferEntry {
     /// data)` pair both held as interned `StringId`s.  HTML §6.11.2
     /// item: kind="string", type=format, data=data.
     String { format: StringId, data: StringId },
-    /// `add(File)` overload — `file_id` is the File wrapper `ObjectId`
-    /// (NOT the inner Blob), so DataTransferItemList enumeration and
-    /// `getAsFile()` resolve to the same File identity per spec
-    /// `[SameObject]` semantics.  `type_sid` mirrors the File's MIME
-    /// type at entry time (HTML §6.3 step "kind=file, type=type,
-    /// data=data").
+    /// HTML §6.11.3.1, `DataTransferItemList.add(File)`: store the File
+    /// and its MIME type. Here `getAsFile()` reuses the stored wrapper;
+    /// HTML §6.11.3.2 specifies a new File for a readable file item.
     File {
         file_id: ObjectId,
         type_sid: StringId,

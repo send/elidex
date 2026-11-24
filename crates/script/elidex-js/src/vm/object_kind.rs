@@ -979,15 +979,15 @@ pub enum ObjectKind {
     /// wrapper is reachable via `HostData::wrapper_cache`.
     #[cfg(feature = "engine")]
     ValidityState { entity_bits: u64 },
-    /// `DataTransfer` instance (HTML DnD §6.2) — the transferable
+    /// `DataTransfer` instance (HTML §6.11.3) — the
     /// data container for clipboard / drag-and-drop events.
     /// Payload-free; the mutable state (drop-effect / effect-allowed
-    /// enum, ordered entry list, `[SameObject]` wrapper caches for
+    /// enum, ordered entry list, wrapper caches for
     /// `items` / `files`, drag-image entity + offsets) lives
     /// out-of-band in `super::VmInner::data_transfer_states`
     /// keyed by this object's `ObjectId`.
     ///
-    /// `new DataTransfer()` is exposed per HTML §6.2 since 2018 and
+    /// The `DataTransfer()` constructor (HTML §6.11.3)
     /// creates an empty container.  UA-fired drag / clipboard events
     /// receive a populated instance (UA fire path deferred to slot
     /// `#11-event-dispatch-extra`).
@@ -1000,7 +1000,7 @@ pub enum ObjectKind {
     /// state map because `drag_image_entity` is cross-DOM.
     #[cfg(feature = "engine")]
     DataTransfer,
-    /// `DataTransferItem` wrapper (HTML DnD §6.3).  Carries the
+    /// `DataTransferItem` wrapper (HTML §6.11.3.2).  Carries the
     /// owning [`Self::DataTransfer`] `ObjectId` plus the entry index
     /// inline; the actual entry data lives on the parent's state
     /// (`items: Vec<DataTransferEntry>`).  Identity is preserved via
@@ -1013,7 +1013,7 @@ pub enum ObjectKind {
     /// prunes entries whose value `ObjectId` was collected).
     #[cfg(feature = "engine")]
     DataTransferItem { parent_dt_id: ObjectId, index: u32 },
-    /// `DataTransferItemList` wrapper (HTML DnD §6.3).  Indexed
+    /// `DataTransferItemList` wrapper (HTML §6.11.3.1).  Indexed
     /// platform object reflecting the parent DataTransfer's item
     /// list.  Payload-free apart from the parent reference; every
     /// read consults the parent's state.  Identity preserved via
