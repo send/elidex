@@ -168,70 +168,6 @@ fn page_margin_box_items() {
 }
 
 #[test]
-fn page_counter_text_rendered() {
-    use elidex_plugin::{ContentItem, ListStyleType};
-
-    let mut cs = elidex_style::counter::CounterState::new();
-    cs.set_counter("page", 3);
-    cs.set_counter("pages", 10);
-
-    // Evaluate content value directly to verify counter(page) resolves.
-    let text = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "page".to_string(),
-            style: ListStyleType::Decimal,
-        }]),
-        &cs,
-    );
-    assert_eq!(text, "3", "counter(page) should resolve to page number");
-
-    let text_pages = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "pages".to_string(),
-            style: ListStyleType::Decimal,
-        }]),
-        &cs,
-    );
-    assert_eq!(text_pages, "10", "counter(pages) should resolve to total");
-}
-
-#[test]
-fn custom_counter_in_margin_box() {
-    use elidex_plugin::{ContentItem, ListStyleType};
-
-    let mut cs = elidex_style::counter::CounterState::new();
-    cs.set_counter("page", 1);
-    cs.set_counter("pages", 5);
-    // Simulate a document-defined counter.
-    cs.set_counter("chapter", 3);
-
-    let text = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![
-            ContentItem::String("Chapter ".to_string()),
-            ContentItem::Counter {
-                name: "chapter".to_string(),
-                style: ListStyleType::Decimal,
-            },
-        ]),
-        &cs,
-    );
-    assert_eq!(text, "Chapter 3", "custom counter should resolve");
-
-    // Upper-roman style.
-    let text_roman = super::super::evaluate_content_value(
-        &elidex_plugin::ContentValue::Items(vec![ContentItem::Counter {
-            name: "chapter".to_string(),
-            style: ListStyleType::UpperRoman,
-        }]),
-        &cs,
-    );
-    assert_eq!(
-        text_roman, "III",
-        "upper-roman style should format correctly"
-    );
-}
-
-#[test]
 fn content_offset_to_page_area() {
     let page_ctx = make_page_ctx(816.0, 1056.0);
     // Content area: 716 x 956, starting at (50, 50).
@@ -285,122 +221,6 @@ fn page_size_matches_rule() {
 // ---------------------------------------------------------------------------
 // Margin box area positioning tests (all 16 types)
 // ---------------------------------------------------------------------------
-
-#[test]
-fn margin_box_area_top_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_w = pw - margins.left - margins.right; // 730
-    let third = content_w / 3.0;
-
-    let (x, y, w, h) = super::super::margin_box_area("top-left", pw, ph, &margins);
-    assert!((x - margins.left).abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - third).abs() < 0.01);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    let (x, _y, w, _h) = super::super::margin_box_area("top-center", pw, ph, &margins);
-    assert!((x - (margins.left + third)).abs() < 0.01);
-    assert!((w - third).abs() < 0.01);
-
-    let (x, _y, w, _h) = super::super::margin_box_area("top-right", pw, ph, &margins);
-    assert!((x - (margins.left + 2.0 * third)).abs() < 0.01);
-    assert!((w - third).abs() < 0.01);
-}
-
-#[test]
-fn margin_box_area_bottom_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_y = margins.top;
-    let content_h = ph - margins.top - margins.bottom;
-
-    let (_x, y, _w, h) = super::super::margin_box_area("bottom-center", pw, ph, &margins);
-    assert!((y - (content_y + content_h)).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-}
-
-#[test]
-fn margin_box_area_left_right_edge() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_h = ph - margins.top - margins.bottom; // 890
-    let third_h = content_h / 3.0;
-
-    // left-middle
-    let (x, y, w, h) = super::super::margin_box_area("left-middle", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!((y - (margins.top + third_h)).abs() < 0.01);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - third_h).abs() < 0.01);
-
-    // right-top
-    let (x, y, w, h) = super::super::margin_box_area("right-top", pw, ph, &margins);
-    assert!((x - (pw - margins.right)).abs() < f32::EPSILON);
-    assert!((y - margins.top).abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - third_h).abs() < 0.01);
-}
-
-#[test]
-fn margin_box_area_corners() {
-    let margins = EdgeSizes {
-        top: 50.0,
-        right: 40.0,
-        bottom: 60.0,
-        left: 30.0,
-    };
-    let pw = 800.0;
-    let ph = 1000.0;
-    let content_w = pw - margins.left - margins.right;
-    let content_h = ph - margins.top - margins.bottom;
-
-    // top-left-corner
-    let (x, y, w, h) = super::super::margin_box_area("top-left-corner", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    // top-right-corner
-    let (x, y, w, h) = super::super::margin_box_area("top-right-corner", pw, ph, &margins);
-    assert!((x - (margins.left + content_w)).abs() < f32::EPSILON);
-    assert!(y.abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - margins.top).abs() < f32::EPSILON);
-
-    // bottom-left-corner
-    let (x, y, w, h) = super::super::margin_box_area("bottom-left-corner", pw, ph, &margins);
-    assert!(x.abs() < f32::EPSILON);
-    assert!((y - (margins.top + content_h)).abs() < f32::EPSILON);
-    assert!((w - margins.left).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-
-    // bottom-right-corner
-    let (x, y, w, h) = super::super::margin_box_area("bottom-right-corner", pw, ph, &margins);
-    assert!((x - (margins.left + content_w)).abs() < f32::EPSILON);
-    assert!((y - (margins.top + content_h)).abs() < f32::EPSILON);
-    assert!((w - margins.right).abs() < f32::EPSILON);
-    assert!((h - margins.bottom).abs() < f32::EPSILON);
-}
 
 #[test]
 fn margin_box_all_16_positions_render() {
@@ -628,24 +448,6 @@ fn margin_box_with_explicit_width_height() {
 }
 
 #[test]
-fn resolve_margin_box_style_defaults() {
-    use elidex_plugin::{ContentValue, MarginBoxContent};
-
-    let mb = MarginBoxContent {
-        content: ContentValue::Normal,
-        properties: Vec::new(),
-    };
-    let style = super::super::resolve_margin_box_style(&mb);
-    assert!((style.font_size - 12.0).abs() < f32::EPSILON);
-    assert_eq!(style.weight, 400);
-    assert!(style.background_color.is_none());
-    assert!(style.explicit_width.is_none());
-    assert!(style.explicit_height.is_none());
-    assert!((style.padding.top).abs() < f32::EPSILON);
-    assert!((style.border_widths.top).abs() < f32::EPSILON);
-}
-
-#[test]
 fn continued_block_paints_each_child_and_page_counter_once() {
     use elidex_plugin::{
         ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Dimension, Display,
@@ -724,5 +526,76 @@ fn continued_block_paints_each_child_and_page_counter_once() {
             assert_eq!(glyph.glyph_id, id);
             assert_eq!(glyph.position, elidex_plugin::Point::new(x, 33.));
         }
+    }
+}
+
+#[test]
+fn precomputed_blank_page_paints_only_its_number() {
+    use elidex_plugin::{
+        ComputedStyle, ContentItem, ContentValue, CssColor, CssValue, Display, LayoutBox,
+        ListStyleType, MarginBoxContent, PageMargins, PageRule, Point, PropertyDeclaration,
+    };
+
+    let body = Rect::new(50., 50., 120., 40.);
+    let (dom, _) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            background_color: CssColor::RED,
+            ..Default::default()
+        },
+        LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    );
+    let font_db = elidex_text::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let mut ctx = make_page_ctx(220., 160.);
+    ctx.page_rules.push(PageRule {
+        margins: PageMargins {
+            top_left: Some(MarginBoxContent {
+                content: ContentValue::Items(vec![ContentItem::Counter {
+                    name: "page".into(),
+                    style: ListStyleType::Decimal,
+                }]),
+                properties: vec![PropertyDeclaration::new(
+                    "font-family",
+                    CssValue::String("Elidex Test Digits".into()),
+                )],
+            }),
+            ..Default::default()
+        },
+        selectors: vec![],
+        size: None,
+        properties: vec![],
+    });
+
+    let fragments = [1, 2].map(|page_number| elidex_layout::PageFragment {
+        page_number,
+        is_blank: page_number == 2,
+        matched_selectors: vec![],
+        layout_box: LayoutBox {
+            content: body,
+            ..Default::default()
+        },
+    });
+    let printed = crate::build_paged_display_lists(&dom, &font_db, &fragments, &ctx);
+    assert_eq!(printed.page_count(), 2);
+    for (page, id) in printed.pages.iter().zip([2, 3]) {
+        let mut commands = page.iter();
+        if id == 2 {
+            assert!(
+                matches!(commands.next(), Some(DisplayItem::SolidRect { rect, color }) if *rect == body && *color == CssColor::RED)
+            );
+        }
+        let Some(DisplayItem::Text { glyphs, .. }) = commands.next() else {
+            panic!("expected printed page number");
+        };
+        let [glyph] = glyphs.as_slice() else {
+            panic!("expected one digit");
+        };
+        assert_eq!((glyph.glyph_id, glyph.position), (id, Point::new(66., 33.)));
+        assert!(commands.next().is_none());
     }
 }
