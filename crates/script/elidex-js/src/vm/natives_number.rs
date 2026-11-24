@@ -57,7 +57,7 @@ pub(super) fn native_number_to_string(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §21.1.3.6 step 3 (SnapToInteger, §7.1.6): radix defaults to 10;
+    // §21.1.3.6 steps 2–3: an undefined radix defaults to 10;
     // if specified, truncate FIRST, then range-check the integer value in
     // [2, 36].  `36.1` must truncate to 36 and be accepted; `36.5` likewise;
     // +Infinity and values outside the range throw RangeError.
