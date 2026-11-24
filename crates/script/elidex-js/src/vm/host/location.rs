@@ -31,9 +31,8 @@
 //!
 //! # Origin
 //!
-//! `location.origin` mirrors HTML §7.2.3 "origin of a URL".  For
-//! schemes whose origin tuple is opaque (`file:`, `about:`, `data:`,
-//! some `blob:` URLs), the getter returns `"null"`.
+//! HTML §7.2.4 (`#dom-location-origin`) specifies serialization of the
+//! URL's origin. An opaque origin serializes to `"null"`.
 
 #![cfg(feature = "engine")]
 
@@ -223,8 +222,6 @@ pub(super) fn native_location_get_origin(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `url::Origin` handles the special-scheme list; `.unicode_serialization()`
-    // returns `"null"` for opaque origins (matches HTML §7.2.3).
     url_component(ctx, |u| u.origin().unicode_serialization())
 }
 
@@ -290,7 +287,7 @@ pub(super) fn native_location_to_string(
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// Install `globalThis.location` (WHATWG HTML §7.1).
+    /// Install `globalThis.location` (HTML §7.2.2, `Window.location` IDL).
     ///
     /// The object is an ordinary plain object with accessors + methods;
     /// it does **not** live on an ECS entity because Location is not
