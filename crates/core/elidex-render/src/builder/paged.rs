@@ -173,6 +173,7 @@ pub fn build_paged_display_lists_interleaved(
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Print,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
 

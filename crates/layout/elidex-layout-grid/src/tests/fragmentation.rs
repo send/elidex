@@ -40,6 +40,7 @@ fn do_layout_grid_fragmented(
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Print,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     layout_grid(dom, entity, &input, layout_child)

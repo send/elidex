@@ -695,6 +695,7 @@ fn vertical_rl_fixed_positioning() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     crate::block::layout_block_inner(&mut dom, root, &input, crate::layout_block_only);

@@ -19,6 +19,7 @@ fn vertical_mode_uses_font_size_line_advance() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let block_dim =
@@ -47,6 +48,7 @@ fn vertical_lr_same_as_vertical_rl_for_height() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let block_dim =
@@ -74,6 +76,7 @@ fn horizontal_tb_uses_line_height() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;

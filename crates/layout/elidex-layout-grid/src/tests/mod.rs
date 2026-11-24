@@ -42,6 +42,7 @@ fn do_layout_grid(
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     layout_grid(dom, entity, &input, layout_child).layout_box

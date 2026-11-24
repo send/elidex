@@ -552,6 +552,7 @@ pub fn layout_grid(
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         medium: input.medium,
+        placement: input.placement,
         is_probe: input.is_probe,
     };
     let mut fragment = position::ItemFragmentation {
@@ -658,6 +659,7 @@ pub fn layout_grid(
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,
+            placement: input.placement,
             is_probe: input.is_probe,
         };
         for child in abs_children {

@@ -63,6 +63,7 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     dispatch_layout_child(&mut dom, body, &input);
@@ -114,6 +115,7 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     dispatch_layout_child(&mut dom, contents, &input);
@@ -171,6 +173,7 @@ fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
         subgrid: None,
         layout_generation: 1,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     dispatch_layout_child(&mut dom, contents, &input);
@@ -212,6 +215,7 @@ fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _ = elidex_layout_block::layout_block_only(&mut dom, body, &input);
@@ -269,6 +273,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     let _ = layout_fragmented(&mut dom, div, &input, frag);

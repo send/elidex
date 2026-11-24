@@ -37,6 +37,7 @@ fn inline_block_participates_in_ifc() {
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: crate::FragmentPlacement::Normal,
         is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;

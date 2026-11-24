@@ -312,6 +312,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         subgrid: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,
+        placement: elidex_layout_block::FragmentPlacement::Normal,
         is_probe: false,
     };
     let outcome = crate::layout_table(&mut dom, table, &input, test_layout_child);

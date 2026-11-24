@@ -345,6 +345,7 @@ pub fn layout_table(
                 subgrid: None,
                 layout_generation: input.layout_generation,
                 medium: input.medium,
+                placement: input.placement,
                 is_probe: input.is_probe,
             };
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
@@ -545,6 +546,7 @@ pub fn layout_table(
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         medium: input.medium,
+        placement: input.placement,
         is_probe: input.is_probe,
     };
     let col_widths = compute_column_widths(dom, &col_input, &table_env);
@@ -610,6 +612,7 @@ pub fn layout_table(
             // would append duplicate per-column box fragments alongside the final
             // pass's. Same posture as flex's measure pass (`..LayoutInput::probe`).
             medium: input.medium,
+            placement: input.placement,
             is_probe: true,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_input).layout_box;
@@ -788,6 +791,7 @@ pub fn layout_table(
             subgrid: None,
             layout_generation: input.layout_generation,
             medium: input.medium,
+            placement: input.placement,
             is_probe: input.is_probe,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
@@ -818,6 +822,7 @@ pub fn layout_table(
                 subgrid: None,
                 layout_generation: input.layout_generation,
                 medium: input.medium,
+                placement: input.placement,
                 is_probe: input.is_probe,
             };
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
@@ -890,6 +895,7 @@ pub fn layout_table(
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,
+            placement: input.placement,
             is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
