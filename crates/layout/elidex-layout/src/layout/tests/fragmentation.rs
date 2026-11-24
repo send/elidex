@@ -795,15 +795,12 @@ fn balanced_multicol_reports_empty_block_to_its_parent() {
 fn whole_spanners_and_floats_forward_nested_source() {
     use elidex_plugin::{ColumnSpan, Float};
     let mut dom = EcsDom::new();
-    let mut node = |tag, display, parent, span, float, columns| {
+    let mut node = |tag, display, parent| {
         let id = dom.create_element_ownerless_fixture(tag, Attributes::default());
         dom.world_mut().insert_one(
             id,
             ComputedStyle {
                 display,
-                column_span: span,
-                float,
-                column_count: columns,
                 ..Default::default()
             },
         );
@@ -812,78 +809,29 @@ fn whole_spanners_and_floats_forward_nested_source() {
         }
         id
     };
-    let owner = node(
-        "div",
-        Display::Block,
-        None,
-        ColumnSpan::None,
-        Float::None,
-        None,
-    );
-    let multi = node(
-        "div",
-        Display::Block,
-        Some(owner),
-        ColumnSpan::None,
-        Float::None,
-        Some(2),
-    );
-    let table = node(
-        "table",
-        Display::Table,
-        Some(multi),
-        ColumnSpan::All,
-        Float::None,
-        None,
-    );
-    let row = node(
-        "tr",
-        Display::TableRow,
-        Some(table),
-        ColumnSpan::None,
-        Float::None,
-        None,
-    );
-    node(
-        "td",
-        Display::TableCell,
-        Some(row),
-        ColumnSpan::None,
-        Float::None,
-        None,
-    );
-    let block = node(
-        "div",
-        Display::Block,
-        Some(multi),
-        ColumnSpan::All,
-        Float::None,
-        None,
-    );
-    let inner = node(
-        "div",
-        Display::Block,
-        Some(block),
-        ColumnSpan::None,
-        Float::None,
-        None,
-    );
-    let float = node(
-        "div",
-        Display::Block,
-        Some(owner),
-        ColumnSpan::None,
-        Float::Left,
-        None,
-    );
-    let floated = node(
-        "div",
-        Display::Block,
-        Some(float),
-        ColumnSpan::None,
-        Float::None,
-        None,
-    );
+    let owner = node("div", Display::Block, None);
+    let multi = node("div", Display::Block, Some(owner));
+    let table = node("table", Display::Table, Some(multi));
+    let row = node("tr", Display::TableRow, Some(table));
+    node("td", Display::TableCell, Some(row));
+    let block = node("div", Display::Block, Some(multi));
+    let inner = node("div", Display::Block, Some(block));
+    let float = node("div", Display::Block, Some(owner));
+    let floated = node("div", Display::Block, Some(float));
+    dom.world_mut()
+        .get::<&mut ComputedStyle>(multi)
+        .unwrap()
+        .column_count = Some(2);
+    for spanner in [table, block] {
+        dom.world_mut()
+            .get::<&mut ComputedStyle>(spanner)
+            .unwrap()
+            .column_span = ColumnSpan::All;
+    }
+    dom.world_mut()
+        .get::<&mut ComputedStyle>(float)
+        .unwrap()
+        .float = Float::Left;
     let fonts = FontDatabase::new();
     let frag = elidex_layout_block::FragmentainerContext {
         available_block_size: 100.0,
