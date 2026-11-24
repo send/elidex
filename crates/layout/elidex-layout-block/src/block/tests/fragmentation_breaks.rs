@@ -249,3 +249,52 @@ fn monolithic_first_child_overflows_without_break() {
     let lb = dom.world().get::<&elidex_plugin::LayoutBox>(child).unwrap();
     assert!((lb.content.size.height - 200.0).abs() < 0.01);
 }
+
+#[test]
+fn hidden_inline_descendant_leaves_only_its_wrapper_terminal() {
+    let fonts = FontDatabase::new();
+    let (mut dom, owner) = make_dom_with_block_div(block_style());
+    let wrapper = make_block_child(&mut dom, owner, 0.0);
+    dom.world_mut().insert_one(
+        wrapper,
+        ComputedStyle {
+            display: Display::Inline,
+            ..Default::default()
+        },
+    );
+    let hidden = make_block_child(&mut dom, wrapper, 0.0);
+    dom.world_mut().insert_one(
+        hidden,
+        ComputedStyle {
+            display: Display::None,
+            ..Default::default()
+        },
+    );
+    let deferred =
+        make_block_child_with_break(&mut dom, owner, 10.0, BreakValue::Page, BreakValue::Auto);
+    let frag = FragmentainerContext {
+        available_block_size: 50.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    let input = LayoutInput {
+        fragmentainer: Some(&frag),
+        ..base_input(&fonts)
+    };
+    let first = crate::layout_block_only(&mut dom, owner, &input);
+    assert!(first.contribution.is_finished(owner, wrapper));
+    assert!(!first
+        .contribution
+        .contributed_items()
+        .any(|(_, id)| id == hidden));
+    let token = first.break_token.unwrap();
+    let next = crate::layout_block_only(
+        &mut dom,
+        owner,
+        &LayoutInput {
+            break_token: Some(&token),
+            ..input
+        },
+    );
+    assert!(next.contribution.is_finished(owner, deferred));
+    assert!(next.break_token.is_none());
+}
