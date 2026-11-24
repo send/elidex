@@ -511,6 +511,7 @@ pub fn layout_absolutely_positioned(
         // `input.is_probe`), so an abspos multicol laid here while an ancestor is
         // probing must still suppress its fragment-tree store write. `false` only
         // in real (definitive) layout, where `env.is_probe` is already false.
+        medium: env.medium,
         is_probe: env.is_probe,
     };
     let child_lb = (env.layout_child)(dom, entity, &child_input).layout_box;

@@ -49,6 +49,7 @@ fn mixed_block_inline_anonymous_box() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(
@@ -115,6 +116,7 @@ fn block_only_children_no_anonymous_boxes() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(
@@ -180,6 +182,7 @@ fn display_none_skipped_in_block_context() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let result = crate::block::stack_block_children(

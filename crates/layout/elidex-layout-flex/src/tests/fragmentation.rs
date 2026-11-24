@@ -37,6 +37,7 @@ fn do_layout_flex_fragmented(
         break_token: break_token.as_ref(),
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_flex(dom, entity, &input, layout_child)

@@ -219,6 +219,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);
@@ -258,6 +259,7 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let outcome = crate::layout_flex(&mut dom, container, &input, layout_block_only);

@@ -223,6 +223,7 @@ pub(crate) fn layout_inline_fragment(
         layout_child,
         is_vertical,
         env.layout_generation,
+        env.medium,
         env.is_probe,
     );
 

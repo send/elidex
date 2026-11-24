@@ -389,6 +389,7 @@ pub fn layout_flex(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        medium: input.medium,
         is_probe: input.is_probe,
     };
 
@@ -571,6 +572,7 @@ pub fn layout_flex(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(

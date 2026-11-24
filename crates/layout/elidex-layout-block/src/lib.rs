@@ -236,6 +236,8 @@ impl UsedAssignment {
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
+    /// Consumer-selected output medium, preserved inside nested fragmentation contexts.
+    pub medium: elidex_plugin::Medium,
     /// Available physical height when the percentage reference in `containing.height` is indefinite.
     pub available_height_if_indefinite: Option<f32>,
     /// Whether the available physical width is a definite percentage reference.
@@ -327,6 +329,7 @@ impl<'a> LayoutInput<'a> {
             break_token: None,
             subgrid: None,
             layout_generation: 0,
+            medium: env.medium,
             is_probe: true,
         }
     }
@@ -338,6 +341,7 @@ impl<'a> LayoutInput<'a> {
 /// parameter count in layout functions.
 #[derive(Clone, Copy)]
 pub struct LayoutEnv<'a> {
+    pub medium: elidex_plugin::Medium,
     /// Font database for text measurement.
     pub font_db: &'a FontDatabase,
     /// Dispatch function for child layout by display type.
@@ -365,6 +369,7 @@ impl<'a> LayoutEnv<'a> {
             depth: input.depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         }
     }

@@ -37,6 +37,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let fragments = layout_fragmented(&mut dom, div, &input, frag);
@@ -89,6 +90,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let fragments = layout_fragmented(&mut dom, parent, &input, frag);
@@ -159,6 +161,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let fragments = layout_fragmented(&mut dom, parent, &input, frag);
@@ -198,6 +201,7 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     let fragments = layout_fragmented(&mut dom, div, &input, frag);
@@ -584,6 +588,7 @@ fn contribution_input<'a>(
         break_token: None,
         subgrid: None,
         layout_generation: 1,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     }
 }
@@ -868,4 +873,80 @@ fn whole_spanners_and_floats_forward_nested_source() {
             "missing {parent:?}/{child:?}"
         );
     }
+}
+
+#[test]
+fn nested_screen_multicol_keeps_overflow_columns_at_the_inner_pitch() {
+    let mut dom = EcsDom::new();
+    let mut multi = |parent| {
+        let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.world_mut().insert_one(
+            id,
+            ComputedStyle {
+                display: Display::Block,
+                column_count: Some(2),
+                column_gap: Dimension::Length(0.0),
+                column_fill: elidex_plugin::ColumnFill::Auto,
+                height: Dimension::Length(40.0),
+                ..Default::default()
+            },
+        );
+        if let Some(owner) = parent {
+            dom.append_child(owner, id);
+        }
+        id
+    };
+    let outer = multi(None);
+    let inner = multi(Some(outer));
+    let mut last = None;
+    for i in 0..1001 {
+        let id = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.append_child(inner, id);
+        dom.world_mut().insert_one(
+            id,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(1.0),
+                break_after: if i < 1000 {
+                    elidex_plugin::BreakValue::Column
+                } else {
+                    elidex_plugin::BreakValue::Auto
+                },
+                ..Default::default()
+            },
+        );
+        last = Some(id);
+    }
+    let fonts = FontDatabase::new();
+    let frag = elidex_layout_block::FragmentainerContext {
+        available_block_size: 40.0,
+        fragmentation_type: elidex_layout_block::FragmentationType::Column,
+    };
+    let input = elidex_layout_block::LayoutInput {
+        medium: elidex_plugin::Medium::Screen,
+        containing: CssSize::definite(600.0, 800.0),
+        containing_inline_size: 600.0,
+        fragmentainer: None,
+        ..contribution_input(&fonts, &frag)
+    };
+    let outcome = dispatch_layout_child(&mut dom, outer, &input);
+    let last = last.unwrap();
+    assert!(outcome.contribution.is_finished(inner, last));
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::MulticolInfo>(inner)
+            .unwrap()
+            .segments[0]
+            .0,
+        1001
+    );
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::LayoutBox>(last)
+            .unwrap()
+            .content
+            .origin
+            .x,
+        150_000.0
+    );
 }

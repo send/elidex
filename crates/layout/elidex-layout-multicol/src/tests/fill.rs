@@ -290,6 +290,11 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             })
             .collect();
         let input = LayoutInput {
+            medium: if outer.is_some() {
+                elidex_plugin::Medium::Print
+            } else {
+                elidex_plugin::Medium::Screen
+            },
             fragmentainer: outer,
             ..make_input(&fonts)
         };

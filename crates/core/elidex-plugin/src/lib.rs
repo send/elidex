@@ -53,8 +53,8 @@ pub use event_types::{
 pub use ipc_channel::{IpcChannel, IpcRecvTimeoutError, IpcSendError, IpcTryRecvError};
 pub use js_value::JsValue;
 pub use layout_types::{
-    BoxModel, CssSize, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult, Point,
-    Rect, Size, Vector,
+    BoxModel, CssSize, EdgeSizes, InlineClientRects, LayoutBox, LayoutContext, LayoutResult,
+    Medium, Point, Rect, Size, Vector,
 };
 pub use logical::{LogicalEdges, LogicalRect, LogicalSize, WritingModeContext};
 pub use origin::{

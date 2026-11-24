@@ -225,6 +225,7 @@ pub fn layout_multicol(
                     depth,
                     viewport: input.viewport,
                     layout_generation: input.layout_generation,
+                    medium: input.medium,
                     is_probe: input.is_probe,
                 };
                 let segment_input = LayoutInput {
@@ -304,6 +305,7 @@ pub fn layout_multicol(
                     break_token: None,
                     subgrid: None,
                     layout_generation: input.layout_generation,
+                    medium: input.medium,
                     is_probe: input.is_probe,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
@@ -372,6 +374,7 @@ pub fn layout_multicol(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
@@ -431,7 +434,7 @@ fn layout_normal_segment(
         ),
         (None, _) => fill_columns_balanced(dom, children, env, balance_max_height),
     };
-    while env.input.fragmentainer.is_none() && !batch.stalled {
+    while env.input.medium == elidex_plugin::Medium::Screen && !batch.stalled {
         let Some(carry) = batch.carry.take() else {
             break;
         };

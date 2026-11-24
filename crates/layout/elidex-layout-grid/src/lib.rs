@@ -529,6 +529,7 @@ pub fn layout_grid(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        medium: input.medium,
         is_probe: input.is_probe,
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
@@ -614,6 +615,7 @@ pub fn layout_grid(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         for child in abs_children {

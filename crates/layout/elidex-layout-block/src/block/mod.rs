@@ -98,6 +98,7 @@ pub fn layout_block(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
@@ -134,6 +135,7 @@ pub fn layout_block_with_height(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
@@ -513,6 +515,7 @@ pub fn layout_block_inner(
             break_token: child_bt_for_stack,
             subgrid: None,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         let is_bfc = input.is_flex_item || establishes_bfc(&style);
@@ -727,6 +730,7 @@ pub fn layout_block_inner(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            medium: input.medium,
             is_probe: input.is_probe,
         };
         crate::positioned::layout_positioned_children(

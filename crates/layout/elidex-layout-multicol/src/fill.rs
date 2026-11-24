@@ -499,6 +499,7 @@ fn build_column_input<'a>(
         layout_generation: input.layout_generation,
         // Throwaway iff this is a search probe OR an ancestor is already probing
         // — so a nested multicol suppresses its store write (P1).
+        medium: input.medium,
         is_probe: probe || input.is_probe,
     }
 }

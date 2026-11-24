@@ -75,6 +75,7 @@ fn do_layout_table(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        medium: elidex_plugin::Medium::Screen,
         is_probe: false,
     };
     layout_table(dom, entity, &input, layout_child).layout_box
