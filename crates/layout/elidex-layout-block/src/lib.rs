@@ -230,6 +230,8 @@ impl UsedAssignment {
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
+    /// Available physical height when the percentage reference in `containing.height` is indefinite.
+    pub available_height_if_indefinite: Option<f32>,
     /// Whether the available physical width is a definite percentage reference.
     pub containing_width_definite: bool,
     /// Whether this box establishes an independent context as a flex item (Flexbox §4).
@@ -284,6 +286,14 @@ pub struct LayoutInput<'a> {
 }
 
 impl<'a> LayoutInput<'a> {
+    /// Physical space for auto layout, including a measured but percentage-indefinite height.
+    #[must_use]
+    pub fn available_height(&self) -> Option<f32> {
+        self.containing
+            .height
+            .or(self.available_height_if_indefinite)
+    }
+
     /// Create a probe `LayoutInput` for intrinsic sizing (min/max-content).
     ///
     /// Sets `offset` to zero, all optional context fields to `None`, and
@@ -296,6 +306,7 @@ impl<'a> LayoutInput<'a> {
     #[must_use]
     pub fn probe(env: &LayoutEnv<'a>, containing_width: f32) -> Self {
         Self {
+            available_height_if_indefinite: None,
             containing_width_definite: true,
             is_flex_item: false,
             assigned: UsedAssignment::default(),

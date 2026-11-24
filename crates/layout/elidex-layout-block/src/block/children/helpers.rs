@@ -54,7 +54,7 @@ pub(super) fn flush_inline_run(
     let inline_size = if is_horizontal {
         input.containing.width
     } else {
-        input.containing.height_or_width()
+        input.available_height().unwrap_or(input.containing.width)
     };
 
     // Content origin: inline-start position is fixed, block position is the cursor.
@@ -286,6 +286,11 @@ pub(super) fn layout_float(
 
     // Layout the float's contents at a temporary position.
     let temp_input = LayoutInput {
+        available_height_if_indefinite: if is_horizontal {
+            input.available_height_if_indefinite
+        } else {
+            None
+        },
         containing_width_definite: is_horizontal || input.containing_width_definite,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),

@@ -491,6 +491,7 @@ pub fn layout_absolutely_positioned(
         content_height
     };
     let child_input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),

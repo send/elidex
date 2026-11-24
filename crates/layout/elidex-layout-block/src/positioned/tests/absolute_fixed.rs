@@ -364,6 +364,7 @@ fn fixed_uses_viewport() {
 
     // Layout with viewport 800x600
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -426,6 +427,7 @@ fn fixed_removed_from_flow() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -479,6 +481,7 @@ fn fixed_top_left_zero() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -532,6 +535,7 @@ fn fixed_percentage_against_viewport() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -599,6 +603,7 @@ fn fixed_inside_relative() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -672,6 +677,7 @@ fn fixed_inside_static_transform_ancestor_uses_transform_cb() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -745,6 +751,7 @@ fn fixed_no_transform_uses_viewport() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),

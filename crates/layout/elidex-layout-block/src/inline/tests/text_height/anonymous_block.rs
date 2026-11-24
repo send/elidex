@@ -34,6 +34,7 @@ fn mixed_block_inline_anonymous_box() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -99,6 +100,7 @@ fn block_only_children_no_anonymous_boxes() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -163,6 +165,7 @@ fn display_none_skipped_in_block_context() {
 
     let children_list = dom.composed_children(parent);
     let input = crate::LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),

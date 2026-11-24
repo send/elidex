@@ -44,6 +44,7 @@ pub(super) fn layout_atomic_items(
         } = item
         {
             let input = crate::LayoutInput {
+                available_height_if_indefinite: None,
                 containing_width_definite: true,
                 is_flex_item: false,
                 assigned: crate::UsedAssignment::default(),

@@ -88,6 +88,7 @@ fn make_block_child_with_break(
 /// Build a base `LayoutInput` (without fragmentainer / break token; caller sets those).
 fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
     crate::LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),

@@ -204,6 +204,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let (mut dom, container, _items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
@@ -242,6 +243,7 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
     let (mut dom, container, _items) = make_flex_dom(style, &[flex_item(100.0, 50.0)]);
     let font_db = FontDatabase::new();
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),

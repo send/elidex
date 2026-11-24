@@ -49,6 +49,7 @@ fn run_at_generation(dom: &mut EcsDom, parent: Entity, width: f32, generation: u
     CALLS.with_borrow_mut(Vec::clear);
     let fonts = FontDatabase::new();
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: UsedAssignment::default(),
@@ -353,6 +354,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
         let fonts = FontDatabase::new();
         for depth in [0, elidex_layout_block::MAX_LAYOUT_DEPTH] {
             let input = LayoutInput {
+                available_height_if_indefinite: None,
                 containing_width_definite: true,
                 is_flex_item: false,
                 assigned: UsedAssignment {
@@ -711,6 +713,7 @@ fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
         );
         let fonts = FontDatabase::new();
         let input = LayoutInput {
+            available_height_if_indefinite: None,
             containing_width_definite: true,
             is_flex_item: false,
             assigned: UsedAssignment {
@@ -797,5 +800,45 @@ fn vertical_block_percentage_width_requires_a_definite_flex_cross_size() {
             if auto_margin { 30.0 } else { 100.0 }
         );
         assert_eq!(lb.margin.left, if auto_margin { 35.0 } else { 0.0 });
+    }
+}
+
+#[test]
+fn vertical_auto_height_uses_available_space_with_indefinite_percentage_reference() {
+    use elidex_plugin::{AlignItems, WritingMode};
+    for child_height in [Dimension::Auto, Dimension::Percentage(50.0)] {
+        let mut dom = EcsDom::new();
+        let parent = node(
+            &mut dom,
+            None,
+            ComputedStyle {
+                align_items: AlignItems::FlexStart,
+                ..style(Display::Flex)
+            },
+        );
+        let vertical = ComputedStyle {
+            writing_mode: WritingMode::VerticalRl,
+            ..style(Display::Block)
+        };
+        let item = node(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                width: Dimension::Length(100.0),
+                max_height: Dimension::Length(20.0),
+                ..vertical.clone()
+            },
+        );
+        let child = node(
+            &mut dom,
+            Some(item),
+            ComputedStyle {
+                height: child_height,
+                ..vertical
+            },
+        );
+        run(&mut dom, parent, 100.0);
+        assert_eq!(get_layout(&dom, item).content.size.height, 20.0);
+        assert_eq!(get_layout(&dom, child).content.size.height, 20.0);
     }
 }

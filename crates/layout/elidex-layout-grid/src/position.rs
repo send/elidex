@@ -399,6 +399,7 @@ pub(crate) fn position_items(
             area_height
         };
         let final_input = LayoutInput {
+            available_height_if_indefinite: None,
             containing_width_definite: true,
             is_flex_item: false,
             assigned: elidex_layout_block::UsedAssignment::default(),

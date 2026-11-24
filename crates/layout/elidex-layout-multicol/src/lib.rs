@@ -233,6 +233,7 @@ pub fn layout_multicol(
                     (content_origin.x + block_cursor, content_origin.y)
                 };
                 let spanner_input = LayoutInput {
+                    available_height_if_indefinite: None,
                     containing_width_definite: true,
                     is_flex_item: false,
                     assigned: elidex_layout_block::UsedAssignment::default(),

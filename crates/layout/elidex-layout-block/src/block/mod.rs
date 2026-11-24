@@ -82,6 +82,7 @@ pub fn layout_block(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -114,6 +115,7 @@ pub fn layout_block_with_height(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: crate::UsedAssignment::default(),
@@ -184,7 +186,7 @@ pub fn layout_block_inner(
     } else {
         // Vertical element: inline axis = Y. Available = containing height.
         // If indefinite, fall back to containing width (approximate).
-        containing_height.unwrap_or(containing_width)
+        input.available_height().unwrap_or(containing_width)
     };
 
     // --- Resolve padding and border (protect against NaN/infinity/negative) ---
@@ -483,6 +485,15 @@ pub fn layout_block_inner(
         );
         let child_bt_for_stack = input.break_token;
         let child_input = LayoutInput {
+            available_height_if_indefinite: if child_phys_height.is_none() {
+                if is_horizontal {
+                    assigned_block
+                } else {
+                    Some(content_inline)
+                }
+            } else {
+                None
+            },
             containing_width_definite: child_width_definite,
             is_flex_item: false,
             assigned: crate::UsedAssignment::default(),

@@ -874,6 +874,7 @@ fn first_child_dispatch_uses_published_display_through_contents() {
     let viewport = Size::new(200., 150.);
     let font_db = FontDatabase::new();
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),

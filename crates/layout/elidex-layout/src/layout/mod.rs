@@ -230,6 +230,7 @@ pub fn layout_paged(
     };
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
@@ -402,6 +403,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         .ok();
 
     let root_input = LayoutInput {
+        available_height_if_indefinite: None,
         containing_width_definite: true,
         is_flex_item: false,
         assigned: elidex_layout_block::UsedAssignment::default(),
