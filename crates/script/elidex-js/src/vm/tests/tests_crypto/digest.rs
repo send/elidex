@@ -156,7 +156,7 @@ fn digest_rejects_unknown_algorithm_with_not_supported_error() {
 
 #[test]
 fn digest_unknown_algorithm_preserves_user_supplied_name_in_message() {
-    // Spec §18.4.4: preserve original-case name.
+    // elidex includes the unrecognized spelling in its diagnostic.
     assert!(eval_global_bool(
         "globalThis.r = false; \
          crypto.subtle.digest('NoSuchAlg', new Uint8Array(0)) \
