@@ -459,6 +459,8 @@ pub fn layout_block_inner(
         )
     });
 
+    let size_fragmentainer =
+        child_fragmentainer.filter(|_| !fragmentation::is_monolithic(&style, intrinsic.is_some()));
     let resolve_size = |content_block| {
         assigned_block.unwrap_or_else(|| {
             resolve_block_height(
@@ -687,7 +689,8 @@ pub fn layout_block_inner(
             child_fragmentainer
                 .as_ref()
                 .map(|frag| crate::inline::InlineFragConstraint {
-                    box_continues: assigned_block.or(child_containing_block).is_some()
+                    box_continues: size_fragmentainer.is_some()
+                        && assigned_block.or(child_containing_block).is_some()
                         && resolve_size(0.0) > frag.available_block_size
                         && frag.fragmentation_type == crate::FragmentationType::Column
                         && crate::column_segments::is_column_item(dom, entity),
@@ -725,27 +728,25 @@ pub fn layout_block_inner(
     // --- Resolve block-size ---
     let block_size = resolve_size(content_block);
 
-    let fragment_size = child_fragmentainer
-        .filter(|_| !fragmentation::is_monolithic(&style, intrinsic.is_some()))
-        .and_then(|frag| {
-            let target = assigned_block
-                .or(child_containing_block)
-                .map(|_| block_size);
-            let split = !end.is_complete() || inline_progress.is_some();
-            let room = frag.available_block_size;
-            if is_first_fragment && !split && target.is_none_or(|target| target <= room) {
-                return None;
-            }
-            Some(crate::FragmentSize::resolve(
-                target,
-                input
-                    .break_token
-                    .and_then(|token| token.specified_size_fraction),
-                content_block,
-                room,
-                split,
-            ))
-        });
+    let fragment_size = size_fragmentainer.and_then(|frag| {
+        let target = assigned_block
+            .or(child_containing_block)
+            .map(|_| block_size);
+        let split = !end.is_complete() || inline_progress.is_some();
+        let room = frag.available_block_size;
+        if is_first_fragment && !split && target.is_none_or(|target| target <= room) {
+            return None;
+        }
+        Some(crate::FragmentSize::resolve(
+            target,
+            input
+                .break_token
+                .and_then(|token| token.specified_size_fraction),
+            content_block,
+            room,
+            split,
+        ))
+    });
     let block_size = fragment_size.map_or(block_size, |size| size.extent);
     let size_fraction = fragment_size.and_then(|size| size.fraction);
     if inline_progress.is_none()

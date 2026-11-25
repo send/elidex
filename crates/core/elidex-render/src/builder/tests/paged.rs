@@ -567,3 +567,73 @@ fn empty_first_grid_row_preserves_visible_second_page_item() {
         .collect();
     assert_eq!(visible, [false, true]);
 }
+
+#[test]
+fn monolithic_column_item_places_inline_block_after_digit() {
+    use elidex_plugin::{ColumnFill, ComputedStyle, Dimension, Display, LayoutBox, Overflow};
+    let fonts = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, columns) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(40.0),
+            column_count: Some(3),
+            column_fill: ColumnFill::Auto,
+            ..Default::default()
+        },
+        LayoutBox::default(),
+    );
+    let block = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(columns, block));
+    dom.world_mut()
+        .insert_one(
+            block,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(95.0),
+                overflow_x: Overflow::Hidden,
+                overflow_y: Overflow::Hidden,
+                font_family: vec!["Elidex Test Digits".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let digit = dom.create_text_ownerless_fixture("1");
+    assert!(dom.append_child(block, digit));
+    let atomic = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(block, atomic));
+    dom.world_mut()
+        .insert_one(
+            atomic,
+            ComputedStyle {
+                display: Display::InlineBlock,
+                max_width: Dimension::Length(8.0),
+                height: Dimension::Length(8.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let ctx = elidex_style::page::fixture(400., 240., 50., "");
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+    assert_eq!(printed.pages.len(), 1);
+    let glyph = printed.pages[0]
+        .iter()
+        .find_map(|item| match item {
+            DisplayItem::Text { glyphs, .. } => glyphs.first(),
+            _ => None,
+        })
+        .expect("digit paints in the column");
+    let box_origin = dom
+        .world()
+        .get::<&LayoutBox>(atomic)
+        .unwrap()
+        .content
+        .origin;
+    assert!(
+        box_origin.x > glyph.position.x,
+        "atomic {box_origin:?}, digit {:?}",
+        glyph.position
+    );
+    assert!((box_origin.y - glyph.position.y).abs() < 20.0);
+}
