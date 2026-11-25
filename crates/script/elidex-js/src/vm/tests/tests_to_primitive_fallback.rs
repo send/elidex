@@ -143,7 +143,7 @@ fn at_to_primitive_overrides_ordinary_to_primitive() {
 #[cfg(feature = "engine")]
 #[test]
 fn web_idl_enum_extracts_via_user_to_string() {
-    // §7.1.12 step 9 → §7.1.1.1: `getReader({ mode })` runs ToString
+    // §7.1.19 step 10 → §7.1.1.1: `getReader({ mode })` runs ToString
     // on `mode` to extract the enum value.  A plain Object whose
     // `toString` returns "byob" should select the BYOB branch (which
     // currently throws "BYOB-unsupported"); pre-slot-#10.7 the

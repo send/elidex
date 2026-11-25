@@ -7,8 +7,9 @@
 //!
 //! **UTC-baseline**: `LocalTime(t)` and `UTC(t)` (§21.4.1.25 / §21.4.1.26) are
 //! the identity here — the engine carries no timezone database
-//! (`intl-icu-deferral`), so local and UTC components coincide and
-//! `getTimezoneOffset()` is always `+0`. Full local-timezone support is a
+//! (`intl-icu-deferral`), so local and UTC components coincide. The offset getter
+//! (§21.4.4.11) returns `+0` for a finite time value and `NaN` for an invalid
+//! date. Full local-timezone support is a
 //! follow-up (`#11-vm-date-local-timezone`).
 //!
 //! Month/weekday indices are cast `f64 → usize`; every source is a
@@ -16,10 +17,6 @@
 //! truncation lints are provably inapplicable here.
 #![allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 
-// The canonical §7.1.5 ToIntegerOrInfinity (One issue, one way) — shared with
-// natives_string_ext / typed-array / relative-index helpers. It uses `trunc`
-// and does NOT normalize `-0`; the Date-specific `-0 → +0` happens once, in
-// `time_clip`, the single funnel every time value passes through.
 use super::super::coerce::to_integer_or_infinity;
 
 /// §21.4.1.2 — milliseconds per second.
@@ -34,7 +31,7 @@ pub(super) const MS_PER_DAY: f64 = 86_400_000.0;
 pub(super) const MAX_TIME_VALUE: f64 = 8.64e15;
 
 /// Cumulative day-of-year at the first of each month in a non-leap year
-/// (January = index 0). March onward gains `InLeapYear(t)` in a leap year.
+/// (January = index 0). March onward gains one day in a leap year.
 const MONTH_START_DAY: [f64; 12] = [
     0.0, 31.0, 59.0, 90.0, 120.0, 151.0, 181.0, 212.0, 243.0, 273.0, 304.0, 334.0,
 ];
@@ -53,7 +50,7 @@ pub(super) fn time_within_day(t: f64) -> f64 {
     t.rem_euclid(MS_PER_DAY)
 }
 
-/// §21.4.1.5 DaysInYear(y) — 365 or 366.
+/// The year has 366 days if IsLeapYear(y) (§21.4.1.9) is true, otherwise 365.
 fn days_in_year(y: f64) -> f64 {
     if y.rem_euclid(4.0) != 0.0 {
         365.0
@@ -66,13 +63,13 @@ fn days_in_year(y: f64) -> f64 {
     }
 }
 
-/// §21.4.1.6 DayFromYear(y) — day number of the first day of year `y`.
+/// §21.4.1.5 DayFromYear(y) — day number of the first day of year `y`.
 fn day_from_year(y: f64) -> f64 {
     365.0 * (y - 1970.0) + ((y - 1969.0) / 4.0).floor() - ((y - 1901.0) / 100.0).floor()
         + ((y - 1601.0) / 400.0).floor()
 }
 
-/// §21.4.1.10 InLeapYear(t) — `1` in a leap year, else `0`.
+/// Leap-year offset for `t`, as used by MonthFromTime (§21.4.1.10).
 fn in_leap_year(t: f64) -> f64 {
     if days_in_year(year_from_time(t)) == 366.0 {
         1.0
@@ -81,7 +78,7 @@ fn in_leap_year(t: f64) -> f64 {
     }
 }
 
-/// §21.4.1.8 YearFromTime(t) — the largest year `y` with
+/// §21.4.1.7 YearFromTime(t) — the largest year `y` with
 /// `TimeFromYear(y) <= t`, i.e. `DayFromYear(y) <= Day(t)`.
 pub(super) fn year_from_time(t: f64) -> f64 {
     let d = day(t);
@@ -99,12 +96,12 @@ pub(super) fn year_from_time(t: f64) -> f64 {
     y
 }
 
-/// §21.4.1.9 DayWithinYear(t).
+/// §21.4.1.8 DayWithinYear(t).
 fn day_within_year(t: f64) -> f64 {
     day(t) - day_from_year(year_from_time(t))
 }
 
-/// §21.4.1.11 MonthFromTime(t) — `0` (January) .. `11` (December).
+/// §21.4.1.10 MonthFromTime(t) — `0` (January) .. `11` (December).
 pub(super) fn month_from_time(t: f64) -> f64 {
     // Defensive NaN passthrough (matching `year_from_time`): without this the
     // `d < …` comparisons are all false for NaN and the final `else` would
@@ -142,7 +139,7 @@ pub(super) fn month_from_time(t: f64) -> f64 {
     }
 }
 
-/// §21.4.1.12 DateFromTime(t) — day of the month, `1` .. `31`.
+/// §21.4.1.11 DateFromTime(t) — day of the month, `1` .. `31`.
 pub(super) fn date_from_time(t: f64) -> f64 {
     let d = day_within_year(t);
     let month = month_from_time(t) as usize;
@@ -151,27 +148,27 @@ pub(super) fn date_from_time(t: f64) -> f64 {
     d - offset + 1.0
 }
 
-/// §21.4.1.13 WeekDay(t) — `0` (Sunday) .. `6` (Saturday).
+/// §21.4.1.12 WeekDay(t) — `0` (Sunday) .. `6` (Saturday).
 pub(super) fn week_day(t: f64) -> f64 {
     (day(t) + 4.0).rem_euclid(7.0)
 }
 
-/// §21.4.1.14 HourFromTime(t).
+/// §21.4.1.13 HourFromTime(t).
 pub(super) fn hour_from_time(t: f64) -> f64 {
     (t / MS_PER_HOUR).floor().rem_euclid(24.0)
 }
 
-/// §21.4.1.15 MinFromTime(t).
+/// §21.4.1.14 MinuteFromTime(t).
 pub(super) fn min_from_time(t: f64) -> f64 {
     (t / MS_PER_MINUTE).floor().rem_euclid(60.0)
 }
 
-/// §21.4.1.16 SecFromTime(t).
+/// §21.4.1.15 SecondFromTime(t).
 pub(super) fn sec_from_time(t: f64) -> f64 {
     (t / MS_PER_SECOND).floor().rem_euclid(60.0)
 }
 
-/// §21.4.1.17 msFromTime(t).
+/// §21.4.1.16 MillisecondFromTime(t).
 pub(super) fn ms_from_time(t: f64) -> f64 {
     t.rem_euclid(MS_PER_SECOND)
 }
@@ -230,10 +227,8 @@ pub(super) fn time_clip(time: f64) -> f64 {
     if !time.is_finite() || time.abs() > MAX_TIME_VALUE {
         return f64::NAN;
     }
-    // `coerce::to_integer_or_infinity` uses `trunc`, which preserves `-0`;
-    // §21.4.1.31 returns `𝔽(!ToIntegerOrInfinity(time))` and
-    // ToIntegerOrInfinity(-0.4) is `+0`, so normalize `-0 → +0` here — the one
-    // funnel every produced time value passes through.
+    // Step 3 converts the mathematical integer back to a Number.
+    // Integer zero becomes +0 even if the helper produced -0.
     let clipped = to_integer_or_infinity(time);
     if clipped == 0.0 {
         0.0
@@ -295,7 +290,7 @@ mod tests {
 
     #[test]
     fn time_clip_normalizes_negative_zero() {
-        // §21.4.1.31 / ToIntegerOrInfinity(-0.4) = +0 (observable via getTime).
+        // TimeClip(-0.4) returns the Number +0 (§21.4.1.31 step 3).
         let t = time_clip(-0.4);
         assert_eq!(t, 0.0);
         assert!(t.is_sign_positive(), "time_clip(-0.4) must be +0, not -0");

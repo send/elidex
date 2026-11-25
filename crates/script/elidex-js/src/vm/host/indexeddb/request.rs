@@ -1,10 +1,9 @@
 //! IDBRequest lifecycle (W3C IndexedDB §4.1 / §5.6 / §5.9 / §5.10).
 //!
-//! A request is created by an object-store / index / cursor / factory
-//! operation, its backend result computed synchronously and staged in
-//! `IdbRequestState.deferred`, then delivered via the
-//! [`PendingTask::IdbDeliver`] database task (§5.6 step 5.6) — the event
-//! fires after control returns to the event loop, never inline.
+//! For store, index and cursor requests, [`PendingTask::IdbDeliver`]
+//! delivers the staged backend outcome (§5.6). The VM reuses this task
+//! for ordinary factory results, whose delivery is specified in §4.3.
+//! Upgrade completion follows the VM path in `txn`.
 
 #![cfg(feature = "engine")]
 
@@ -49,9 +48,7 @@ pub(crate) fn create_request(
     id
 }
 
-/// W3C IDB §5.6 "asynchronously execute a request" — the single request
-/// issuance seam (one-issue-one-way).  Per §5.6 this is ONE algorithm with
-/// an OPTIONAL `request` parameter:
+/// VM helper for transaction requests (§5.6) and factory delivery (§4.3).
 ///
 /// * `request == None` ⇒ the common case: create a fresh `IDBRequest`
 ///   (`source` / `transaction` links), then proceed.
@@ -60,9 +57,8 @@ pub(crate) fn create_request(
 ///   return synchronously) and the cursor iteration re-fire
 ///   (`continue` / `advance`, plan §3 DR-1) both take this branch.
 ///
-/// Either way it then stages the already-computed backend `outcome`, appends
-/// the request to its transaction's request list (§5.6 step 4 — drives
-/// auto-commit, §5.9 step 8.3), and queues the delivery task (step 5.6).  The
+/// It stages the backend `outcome` and queues delivery. Only requests with
+/// a transaction join its request list (§5.6 step 4). The
 /// backend operation itself runs synchronously at the call site (no real
 /// parallelism), so `outcome` is final here.
 pub(crate) fn async_execute(
@@ -106,10 +102,10 @@ pub(crate) fn async_execute(
     req
 }
 
-/// Drain step for [`PendingTask::IdbDeliver`] (§5.6 step 5.6).  Removes the
-/// request from its transaction's request list **before** firing (so §5.9
-/// step 8.3 reads the post-removal list), sets `readyState = "done"` +
-/// result / error, then fires the `success` / `error` event.
+/// Drain step for [`PendingTask::IdbDeliver`]. For a transaction request,
+/// §5.6 step 5.6 removes it from the request list before event dispatch.
+/// For an ordinary factory result, §4.3 queues delivery without a transaction.
+/// Both paths set the done flag and result or error before firing the event.
 pub(crate) fn dispatch_idb_deliver(vm: &mut VmInner, request_id: ObjectId) {
     let (outcome, txn_id) = {
         let Some(st) = vm.idb_request_states.get_mut(&request_id) else {

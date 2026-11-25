@@ -66,7 +66,7 @@ impl NativeContext<'_> {
     }
 
     /// Convert a value to an interned string using ECMA-262 ToString.
-    /// Returns `Err(VmError)` for Symbol values (ECMA-262 §7.1.18).
+    /// Returns `Err(VmError)` for Symbol values (ECMA-262 §7.1.19).
     #[inline]
     pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
         coerce::to_string(self.vm, val)

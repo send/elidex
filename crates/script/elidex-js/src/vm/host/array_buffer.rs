@@ -230,8 +230,9 @@ pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
 /// `body_data.remove(&id)`.  Subsequent
 /// [`array_buffer_byte_length`] then returns `0` naturally via the
 /// missing-entry path, while membership in `detached_buffers` lets
-/// the slice / DataView / TypedArray hot paths short-circuit with
-/// the spec-prescribed TypeError / undefined / silent-no-op.
+/// slice and DataView operations detect detachment. A TypedArray indexed read
+/// returns undefined. An indexed write converts the RHS first and can throw
+/// before the detached check skips the store (§10.4.5.18 steps 1–3).
 ///
 /// Idempotent — re-detaching is a no-op (the second
 /// `body_data.remove` is also a no-op).
@@ -641,7 +642,7 @@ fn native_array_buffer_slice(
 
 /// Clamp `n` to `[0, len]`, applying the spec
 /// `ToIntegerOrInfinity` truncation first (ECMA-262 §7.1.5 —
-/// sign-preserving truncation toward zero, NaN → 0) so fractional
+/// truncation toward zero, NaN → 0) so fractional
 /// arguments match browser semantics: `slice(-1.9)` is `slice(-1)`
 /// not `slice(-1.9)`.  Matches the slice-range helper used by
 /// `ArrayBuffer.prototype.slice` (ECMA-262 §25.1.6.7) and

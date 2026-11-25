@@ -190,10 +190,10 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// ToString (ECMA-262 §7.1.18)
+// ToString (ECMA-262 §7.1.19)
 // ---------------------------------------------------------------------------
 
-/// ToString (ECMA-262 §7.1.18). Returns a `StringId` or throws `TypeError`
+/// ToString (ECMA-262 §7.1.19). Returns a `StringId` or throws `TypeError`
 /// for Symbol values, per spec.
 pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
@@ -211,7 +211,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             Ok(vm.strings.intern(&s))
         }
         JsValue::Object(_) => {
-            // §7.1.18 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
+            // §7.1.19 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
             // No wrapper slot shortcut: a boxed primitive's overridden
             // `toString` / `valueOf` / `@@toPrimitive` must be honored. The
             // OrdinaryToPrimitive fallback inside `to_primitive` invokes the
@@ -546,14 +546,11 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 // ---------------------------------------------------------------------------
 
 /// ECMA-262 §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
-/// `NaN → +0`; `±Infinity` preserved; otherwise truncate toward
-/// zero via `f64::trunc`, which is sign-preserving on ±0 (so a
-/// `-0.0` input flows through unchanged).  Returns `f64` so the
-/// caller picks the final width — every downstream consumer either
-/// casts to an integer (which collapses ±0 to `0`) or compares with
-/// ordered `< 0.0` (which treats `-0.0` as not-less-than-zero), so
-/// the IEEE 754 sign of zero is never observable in slice / index
-/// arithmetic.
+/// Maps NaN to zero and otherwise truncates the Number toward zero.
+/// The specification returns a mathematical integer or infinity. This
+/// helper uses `f64`, so a negative fraction can yield negative zero.
+/// Callers that expose the integer as a Number must produce positive
+/// zero for either zero representation.
 ///
 /// This is the cheap pure-arithmetic tail of the spec algorithm —
 /// the spec also runs `ToNumber` on the input before truncating, so
@@ -744,7 +741,7 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 
 /// Abstract equality (`==`). May need string/number coercions.  Returns
 /// `Err` when a user-defined `@@toPrimitive`/`valueOf`/`toString` throws
-/// (§7.2.13 `?` steps 10-12 require abrupt-completion propagation).
+/// (§7.2.13 steps 11–12 propagate abrupt completion from `ToPrimitive`).
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bool, VmError> {
     // Empty (sparse hole) is treated as Undefined in all coercions.
     let a = if a.is_empty() { JsValue::Undefined } else { a };
@@ -770,7 +767,8 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
         }
 
         // BigInt == BigInt handled by same_type above.
-        // BigInt == Number (§7.2.13 step 5/6)
+        // §7.2.13 steps 13–14 compare a finite Number by mathematical value.
+        // A non-finite Number compares unequal.
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
                 return Ok(false);
@@ -816,8 +814,8 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
         }
 
-        // Symbol == non-Symbol → false (symbols are unique; same-type
-        // comparison is handled by strict_eq above).
+        // VM defect: this arm also rejects Symbol/Object pairs. §7.2.13
+        // steps 11–12 require converting that object before comparison.
         (JsValue::Symbol(_), _) | (_, JsValue::Symbol(_)) => false,
 
         // Boolean == x → ToNumber(Boolean) == x
@@ -830,9 +828,9 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             abstract_eq(vm, a, JsValue::Number(n))?
         }
 
-        // Object == primitive → ? ToPrimitive (§7.2.13 steps 10, 12).
-        // Abrupt completion from a user-defined @@toPrimitive / valueOf /
-        // toString must propagate per spec `?` mark.
+        // §7.2.13 steps 11–12 convert the object when paired with a String,
+        // Number, BigInt or Symbol. VM defect: these arms also convert an
+        // ordinary object paired with null or undefined. Step 14 returns false.
         (JsValue::Object(_), _) => {
             let prim = vm.to_primitive(a, "default")?;
             abstract_eq(vm, prim, b)?

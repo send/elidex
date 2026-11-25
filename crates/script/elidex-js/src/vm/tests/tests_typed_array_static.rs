@@ -230,8 +230,9 @@ fn typed_array_from_non_callable_map_fn_throws_type_error() {
 #[test]
 fn typed_array_from_bigint_subclass() {
     let mut vm = Vm::new();
-    // `BigInt64Array.from([1n, 2n, 3n])` copies BigInt values into a BigInt64Array. Other
-    // ToBigInt-convertible inputs are possible.
+    // This iterable supplies BigInts. The destination converts them with
+    // ToBigInt64 (§7.1.17). ToBigInt also accepts booleans and parseable
+    // integer strings. The fixture checks BigInt destination dispatch.
     assert!(eval_bool(
         &mut vm,
         "var a = BigInt64Array.from([1n, 2n, 3n]); \

@@ -708,7 +708,7 @@ fn error_to_string_includes_name_and_message() {
     );
     // No-message case: just the name (prototype's default message is "").
     assert_eq!(eval_string("new Error().toString();"), "Error");
-    // §7.1.12 step 9 → §7.1.1.1 also routes `String(err)` through the
+    // §7.1.19 step 10 → §7.1.1.1 also routes `String(err)` through the
     // user-defined `toString()`, so it produces the same result.
     assert_eq!(eval_string("String(new Error('oops'));"), "Error: oops");
 }

@@ -124,7 +124,7 @@ fn ol_set_reversed(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // HTML §6.5.5 boolean reflect setter: ECMAScript ToBoolean →
+    // HTML §2.6.1 boolean reflect setter: ECMAScript ToBoolean →
     // truthy sets attribute to "" (HTML legacy convention), falsy
     // removes.  Routes through the shared `coerce::to_boolean` so
     // `0n` → false (and any other ToBoolean spec edge stays in one

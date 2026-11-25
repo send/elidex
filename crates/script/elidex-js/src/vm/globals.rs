@@ -148,7 +148,7 @@ impl VmInner {
         self.register_symbol_prototype();
         self.register_symbol_global();
 
-        // BigInt global (not a constructor)
+        // BigInt global
         self.register_bigint_global();
 
         // Promise global (constructable) + prototype

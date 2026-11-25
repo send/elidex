@@ -94,17 +94,16 @@ pub(crate) enum PendingTask {
         kind: super::file_reader::ReadKind,
         encoding: Option<StringId>,
     },
-    /// W3C IndexedDB §5.6 step 5.6 "queue a database task": deliver a
-    /// request's pre-computed result.  Drain removes the request from its
-    /// transaction's request list, sets `readyState = "done"` + result /
-    /// error, and fires the `success` / `error` event (§5.9 / §5.10) which
-    /// runs the transaction auto-commit lifecycle (§5.9 step 8.3).
+    /// Deliver a staged request result. Transaction requests follow IndexedDB
+    /// §5.6 step 5.6. Ordinary factory results use the same VM task for §4.3
+    /// (`open` step 5.3 and `deleteDatabase` step 4.3).
     #[cfg(feature = "engine")]
     IdbDeliver { request_id: ObjectId },
     /// W3C IndexedDB §5.4 step 2.5 "queue a database task" — the second
     /// (deferred) phase of committing a transaction: set state `finished`,
     /// fire `complete`, and (for an upgrade transaction) clear the open
-    /// request's `transaction` and fire its `success`.  The synchronous
+    /// request's `transaction`. The VM also fires open success here, although
+    /// §4.3 requires a separate task. The synchronous
     /// first phase (`state = committing` + the durable backend write) ran
     /// in `txn::commit_transaction`; deferring the event keeps the
     /// auto-commit sweep's map iteration safe (no user JS mid-iteration).
@@ -117,9 +116,8 @@ pub(crate) enum PendingTask {
     IdbAbortDone { txn_id: ObjectId },
     /// W3C IndexedDB §5.7 "upgrade a database": fire `upgradeneeded`
     /// (an `IDBVersionChangeEvent` with `oldVersion` / `newVersion`) at the
-    /// open request, then run the upgrade transaction's auto-commit
-    /// lifecycle (which, once the handler turn ends, commits → finalizes
-    /// the version bump → fires the open request's `success`).
+    /// open request. For subsequent commit and open success delivery, see
+    /// [`PendingTask::IdbCommitDone`].
     #[cfg(feature = "engine")]
     IdbUpgrade {
         request_id: ObjectId,
