@@ -17,10 +17,6 @@
 //! truncation lints are provably inapplicable here.
 #![allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 
-// The canonical §7.1.5 ToIntegerOrInfinity (One issue, one way) — shared with
-// natives_string_ext / typed-array / relative-index helpers. It uses `trunc`
-// and does NOT normalize `-0`; the Date-specific `-0 → +0` happens once, in
-// `time_clip`, the single funnel every time value passes through.
 use super::super::coerce::to_integer_or_infinity;
 
 /// §21.4.1.2 — milliseconds per second.
@@ -231,10 +227,8 @@ pub(super) fn time_clip(time: f64) -> f64 {
     if !time.is_finite() || time.abs() > MAX_TIME_VALUE {
         return f64::NAN;
     }
-    // `coerce::to_integer_or_infinity` uses `trunc`, which preserves `-0`;
-    // §21.4.1.31 returns `𝔽(!ToIntegerOrInfinity(time))` and
-    // ToIntegerOrInfinity(-0.4) is `+0`, so normalize `-0 → +0` here — the one
-    // funnel every produced time value passes through.
+    // Step 3 converts the mathematical integer back to a Number.
+    // Integer zero becomes +0 even if the helper produced -0.
     let clipped = to_integer_or_infinity(time);
     if clipped == 0.0 {
         0.0
@@ -296,7 +290,7 @@ mod tests {
 
     #[test]
     fn time_clip_normalizes_negative_zero() {
-        // §21.4.1.31 / ToIntegerOrInfinity(-0.4) = +0 (observable via getTime).
+        // TimeClip(-0.4) returns the Number +0 (§21.4.1.31 step 3).
         let t = time_clip(-0.4);
         assert_eq!(t, 0.0);
         assert!(t.is_sign_positive(), "time_clip(-0.4) must be +0, not -0");

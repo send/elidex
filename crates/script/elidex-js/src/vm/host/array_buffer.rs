@@ -646,7 +646,7 @@ fn native_array_buffer_slice(
 
 /// Clamp `n` to `[0, len]`, applying the spec
 /// `ToIntegerOrInfinity` truncation first (ECMA-262 §7.1.5 —
-/// sign-preserving truncation toward zero, NaN → 0) so fractional
+/// truncation toward zero, NaN → 0) so fractional
 /// arguments match browser semantics: `slice(-1.9)` is `slice(-1)`
 /// not `slice(-1.9)`.  Matches the slice-range helper used by
 /// `ArrayBuffer.prototype.slice` (ECMA-262 §25.1.6.7) and

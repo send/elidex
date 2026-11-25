@@ -415,8 +415,8 @@ fn to_integer_or_infinity_truncates_toward_zero() {
 /// Both signs of zero, plus `NaN`, compare equal to mathematical zero on
 /// the way out.  The helper does not promise anything about IEEE 754 sign
 /// bits — `f64::trunc` is sign-preserving on `-0`, while the `is_nan` arm
-/// returns `+0` — and downstream consumers don't observe the difference,
-/// so this test pins only the numeric equality.
+/// returns `+0`. This test checks arithmetic equality. TimeClip must produce
+/// the Number `+0` at the observable Date boundary (§21.4.1.31 step 3).
 #[test]
 fn to_integer_or_infinity_zero_inputs_compare_equal_to_zero() {
     assert_eq!(to_integer_or_infinity(0.0), 0.0);

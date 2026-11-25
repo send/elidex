@@ -546,14 +546,11 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 // ---------------------------------------------------------------------------
 
 /// ECMA-262 §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
-/// `NaN → +0`; `±Infinity` preserved; otherwise truncate toward
-/// zero via `f64::trunc`, which is sign-preserving on ±0 (so a
-/// `-0.0` input flows through unchanged).  Returns `f64` so the
-/// caller picks the final width — every downstream consumer either
-/// casts to an integer (which collapses ±0 to `0`) or compares with
-/// ordered `< 0.0` (which treats `-0.0` as not-less-than-zero), so
-/// the IEEE 754 sign of zero is never observable in slice / index
-/// arithmetic.
+/// Maps NaN to zero and otherwise truncates the Number toward zero.
+/// The specification returns a mathematical integer or infinity. This
+/// helper uses `f64`, so a negative fraction can yield negative zero.
+/// Callers that expose the integer as a Number must produce positive
+/// zero for either zero representation.
 ///
 /// This is the cheap pure-arithmetic tail of the spec algorithm —
 /// the spec also runs `ToNumber` on the input before truncating, so
