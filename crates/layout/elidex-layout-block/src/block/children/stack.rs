@@ -640,13 +640,7 @@ fn stack_fragment(
         .as_mut()
         .and_then(|t| t.mode_data.as_mut())
     {
-        if let Some(BreakTokenData::Block {
-            coverage: previous, ..
-        }) = input.break_token.and_then(|t| t.mode_data.as_ref())
-        {
-            *coverage = previous.clone();
-        }
-        coverage.include(&contribution);
+        *coverage = contribution.after_fragment(input.break_token);
     }
 
     // CSS Fragmentation L3 §5.2: margins not collapsed at fragment end.

@@ -228,6 +228,7 @@ pub enum BreakTokenData {
     },
     /// Grid layout: row index and spanning item break tokens.
     Grid {
+        coverage: source_progress::SourceProgress,
         row_index: usize,
         /// The grid selected its last row, including the empty grid case.
         rows_exhausted: bool,
@@ -237,6 +238,7 @@ pub enum BreakTokenData {
     },
     /// Column cap reached inside a normal segment. Resume its Block stack.
     Multicol {
+        coverage: source_progress::SourceProgress,
         segment_index: usize,
         /// Count of committed columns within this segment.
         column_index: usize,
@@ -777,6 +779,7 @@ mod tests {
             child_break_token: None,
         };
         let grid = BreakTokenData::Grid {
+            coverage: source_progress::SourceProgress::default(),
             rows_exhausted: false,
             row_index: 3,
             child_break_tokens: Vec::new(),

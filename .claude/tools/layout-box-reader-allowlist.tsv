@@ -99,7 +99,7 @@ producer	crates/layout/elidex-layout-grid/src/position.rs	let corrected = Layout
 producer	crates/layout/elidex-layout-multicol/src/fill.rs	if let Ok(lb) = dom.world().get::<&LayoutBox>(child) {
 producer	crates/layout/elidex-layout-multicol/src/fill.rs	let lb = dom.world().get::<&LayoutBox>(entity).ok()?;
 import	crates/layout/elidex-layout-multicol/src/fill.rs	use elidex_plugin::{ComputedStyle, CssSize, LayoutBox, Overflow, Point, WritingModeContext};
-import	crates/layout/elidex-layout-multicol/src/lib.rs	Float, LayoutBox, MulticolInfo, Point, Position, Rect, Size, Vector, WritingModeContext,
+import	crates/layout/elidex-layout-multicol/src/lib.rs	BoxSizing, ColumnFill, ComputedStyle, CssSize, Dimension, EdgeSizes, LayoutBox, MulticolInfo,
 producer	crates/layout/elidex-layout-multicol/src/lib.rs	let lb = LayoutBox {
 producer	crates/layout/elidex-layout-table/src/helpers.rs	) -> LayoutBox {
 import	crates/layout/elidex-layout-table/src/helpers.rs	BoxSizing, ComputedStyle, Dimension, Display, EdgeSizes, LayoutBox, Point, Rect, TableLayout,

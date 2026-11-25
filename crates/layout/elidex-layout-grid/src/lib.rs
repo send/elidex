@@ -626,6 +626,7 @@ pub fn layout_grid(
                     entity,
                     consumed_block_size: content,
                     mode_data: Some(BreakTokenData::Grid {
+                        coverage: contribution.after_fragment(input.break_token),
                         row_index: end_row,
                         rows_exhausted: row_break.is_none(),
                         child_break_tokens: fragment.outgoing,

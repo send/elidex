@@ -186,22 +186,16 @@ pub(crate) fn walk(
         .get::<&LayoutBox>(entity)
         .ok()
         .map(|l| (*l).clone());
-    // Store-consumable source (§2.2), **screen path only** (`!ctx.paged`, §2.8): both
-    // paged renderers keep the per-page LayoutBox path until paged×multicol store
-    // unification. NOTE the gate is `!ctx.paged`, NOT `expected_generation.is_none()` —
-    // the legacy `build_paged_display_lists` renderer sets `paged: true` with
-    // `expected_generation: None`, so a generation-based gate would (wrongly) consume
-    // the screen store on that paged path (Codex PR#321 R8-F2). The cheap `!is_empty()`
-    // arena check skips the per-entity consumable lookup on the common no-multicol page.
-    //
+    // Screen paint reads the definitive column store. Interleaved page paint can
+    // also consume a column batch when its empty inline slice identifies the
+    // current generation. Legacy pages have no such generation.
     // Mixed-consumability cannot occur (so routing all `fragments_for(entity)` through
     // the per-fragment loop is sound): `is_consumable` is true iff a column drained an
     // IFC line carrier, and the carrier is written only on the IFC `parent_entity` and
     // drained keyed on the spanning direct child — they coincide ONLY when the direct
     // child IS the IFC container (a block establishing an IFC ⇒ all in-flow children
     // inline-level, CSS 2 §9.2.1). Such an entity continues the SAME inline run across
-    // every column it spans, so every one of its fragments carries (all nodes
-    // consumable) and none is a nested-block fragment. A nested-block / deeper-IFC
+    // every column it spans, including geometry-only columns whose slices are empty. A nested-block / deeper-IFC
     // mid-break writes no carrier on the direct child ⇒ NOT consumable ⇒ the single
     // `LayoutBox` arm. (See `fill.rs` `FragmentSnapshot` for the carrier-drain invariant.)
     // An interleaved page with a geometry-only column has a freshly committed

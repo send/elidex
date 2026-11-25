@@ -88,6 +88,17 @@ impl SourceProgress {
         ProgressIndex { items }
     }
 
+    /// Retain the incoming snapshot and append the source committed in this fragment.
+    #[must_use]
+    pub fn after_fragment(&self, incoming: Option<&crate::BreakToken>) -> Self {
+        let mut covered = incoming
+            .and_then(token_coverage)
+            .cloned()
+            .unwrap_or_default();
+        covered.include(self);
+        covered
+    }
+
     /// Incorporate only the source reported by the selected child fragment.
     pub fn include(&mut self, contribution: &Self) {
         for page in contribution.pages() {
@@ -219,14 +230,15 @@ pub fn fragment_advanced(
     segment: Option<&[Entity]>,
 ) -> bool {
     let empty = SourceProgress::default();
-    let previous = old.and_then(column_or_block_coverage).unwrap_or(&empty);
+    let previous = old.and_then(token_coverage).unwrap_or(&empty);
     contribution.advances(previous) || route_advanced(dom, old, next, segment)
 }
 
-fn column_or_block_coverage(token: &crate::BreakToken) -> Option<&SourceProgress> {
+fn token_coverage(token: &crate::BreakToken) -> Option<&SourceProgress> {
     match token.mode_data.as_ref()? {
-        crate::BreakTokenData::Block { coverage, .. } => Some(coverage),
-        crate::BreakTokenData::Multicol { column, .. } => column_or_block_coverage(column),
+        crate::BreakTokenData::Block { coverage, .. }
+        | crate::BreakTokenData::Grid { coverage, .. }
+        | crate::BreakTokenData::Multicol { coverage, .. } => Some(coverage),
         _ => None,
     }
 }
@@ -294,6 +306,7 @@ fn route_advanced(
             row_index,
             rows_exhausted,
             child_break_tokens,
+            ..
         }) => {
             let (prior_row, children) = match before {
                 Some(BreakTokenData::Grid {
@@ -322,12 +335,14 @@ fn route_advanced(
             segment_index,
             column_index,
             column,
+            ..
         }) => {
             let prior = match before {
                 Some(BreakTokenData::Multicol {
                     segment_index,
                     column_index,
                     column,
+                    ..
                 }) => (*segment_index, *column_index, Some(column.as_ref())),
                 None => (0, 0, None),
                 _ => return false,

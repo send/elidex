@@ -626,12 +626,11 @@ fn pages_advance_across_empty_grid_rows_and_new_size_only_children() {
         assert_eq!(pages.len(), if empty_first_row { 2 } else { 4 });
         assert!(!pages[0].contribution.is_finished(grid, item));
         let boundary = pages[0].end.token().unwrap();
-        let empty = elidex_layout_block::source_progress::SourceProgress::default();
         assert!(!elidex_layout_block::source_progress::fragment_advanced(
             &dom,
             Some(boundary),
             boundary,
-            &empty,
+            &pages[0].contribution,
             None
         ));
         let last = pages.last().unwrap();

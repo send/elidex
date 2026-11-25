@@ -178,6 +178,7 @@ pub fn layout_multicol(
             segment_index,
             column_index,
             column,
+            ..
         }) = &token.mode_data
         else {
             panic!("Multicol continuation requires a segment and column route");
@@ -266,6 +267,7 @@ pub fn layout_multicol(
                             entity,
                             consumed_block_size: block_cursor,
                             mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {
+                                coverage: contribution.after_fragment(input.break_token),
                                 segment_index: index,
                                 column_index: frags.len()
                                     + if index == start { start_column } else { 0 },

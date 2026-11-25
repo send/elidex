@@ -752,11 +752,7 @@ pub fn layout_block_inner(
         && end.is_complete()
         && fragment_size.is_some_and(|size| size.remaining)
     {
-        let mut coverage = match input.break_token.and_then(|token| token.mode_data.as_ref()) {
-            Some(crate::BreakTokenData::Block { coverage, .. }) => coverage.clone(),
-            _ => crate::source_progress::SourceProgress::default(),
-        };
-        coverage.include(&contribution);
+        let coverage = contribution.after_fragment(input.break_token);
         end = crate::FragmentEnd::Continue(crate::BreakToken {
             entity,
             specified_size_fraction: size_fraction,
