@@ -219,15 +219,26 @@ pub fn fragment_advanced(
     segment: Option<&[Entity]>,
 ) -> bool {
     let empty = SourceProgress::default();
-    let previous = match old.and_then(|token| token.mode_data.as_ref()) {
-        Some(crate::BreakTokenData::Block { coverage, .. }) => coverage,
-        _ => &empty,
-    };
-    contribution.advances(previous) || specified_size_advanced(dom, old, next, segment)
+    let previous = old.and_then(column_or_block_coverage).unwrap_or(&empty);
+    contribution.advances(previous) || route_advanced(dom, old, next, segment)
 }
 
-/// Follow the same nested interruption through both column boundaries.
-fn specified_size_advanced(
+fn column_or_block_coverage(token: &crate::BreakToken) -> Option<&SourceProgress> {
+    match token.mode_data.as_ref()? {
+        crate::BreakTokenData::Block { coverage, .. } => Some(coverage),
+        crate::BreakTokenData::Multicol { column, .. } => column_or_block_coverage(column),
+        _ => None,
+    }
+}
+
+fn fraction_advanced(old: Option<&crate::BreakToken>, new: &crate::BreakToken) -> bool {
+    let previous = old.and_then(|t| t.specified_size_fraction).unwrap_or(0.0);
+    new.specified_size_fraction
+        .is_some_and(|after| after > previous)
+}
+
+/// Compare the committed routes at fixed geometry. An admitted child starts at zero.
+fn route_advanced(
     dom: &elidex_ecs::EcsDom,
     old: Option<&crate::BreakToken>,
     new: &crate::BreakToken,
@@ -244,12 +255,6 @@ fn specified_size_advanced(
         )
     };
     let before = old.and_then(|token| token.mode_data.as_ref());
-    let previous_fraction = old
-        .and_then(|token| token.specified_size_fraction)
-        .unwrap_or(0.0);
-    let advanced = new
-        .specified_size_fraction
-        .is_some_and(|after| after > previous_fraction);
     match new.mode_data.as_ref() {
         Some(BreakTokenData::Block {
             continuation: BlockContinuation::InterruptedChild(child),
@@ -273,14 +278,14 @@ fn specified_size_advanced(
                 None => None,
                 _ => return false,
             };
-            specified_size_advanced(dom, previous, child, None)
+            route_advanced(dom, previous, child, None)
         }
         Some(BreakTokenData::Block {
             child_index,
             continuation: BlockContinuation::ChildBoundary,
             ..
         }) => {
-            advanced
+            fraction_advanced(old, new)
                 && *child_index == children().len()
                 && (before.is_none()
                     || matches!(before, Some(BreakTokenData::Block {child_index: prior, continuation: BlockContinuation::ChildBoundary, ..}) if prior == child_index))
@@ -290,30 +295,51 @@ fn specified_size_advanced(
             rows_exhausted,
             child_break_tokens,
         }) => {
-            let (same_end, children) = match before {
+            let (prior_row, children) = match before {
                 Some(BreakTokenData::Grid {
-                    row_index: prior,
-                    rows_exhausted,
+                    row_index,
                     child_break_tokens,
-                }) => (
-                    prior == row_index && *rows_exhausted && child_break_tokens.is_empty(),
-                    child_break_tokens.as_slice(),
-                ),
-                None => (true, &[][..]),
+                    ..
+                }) => (*row_index, child_break_tokens.as_slice()),
+                None => (0, &[][..]),
                 _ => return false,
             };
+            if *row_index != prior_row {
+                return *row_index > prior_row;
+            }
             if *rows_exhausted && child_break_tokens.is_empty() {
-                return same_end && advanced;
+                return fraction_advanced(old, new);
             }
             let by_id: std::collections::HashMap<_, _> = children
                 .iter()
                 .map(|(id, token)| (*id, token.as_ref()))
                 .collect();
-            child_break_tokens.iter().any(|(entity, next)| {
-                let previous = by_id.get(entity).copied();
-                (before.is_none() || previous.is_some())
-                    && specified_size_advanced(dom, previous, next, None)
-            })
+            child_break_tokens
+                .iter()
+                .any(|(entity, next)| route_advanced(dom, by_id.get(entity).copied(), next, None))
+        }
+        Some(BreakTokenData::Multicol {
+            segment_index,
+            column_index,
+            column,
+        }) => {
+            let prior = match before {
+                Some(BreakTokenData::Multicol {
+                    segment_index,
+                    column_index,
+                    column,
+                }) => (*segment_index, *column_index, Some(column.as_ref())),
+                None => (0, 0, None),
+                _ => return false,
+            };
+            // Fill only commits a batch after checking every column against its
+            // predecessor. For an unchanged boundary, compare the inner route.
+            if (*segment_index, *column_index) != (prior.0, prior.1) {
+                return (*segment_index, *column_index) > (prior.0, prior.1);
+            }
+            let segments = crate::column_segments::split_segments(dom, &children());
+            matches!(segments.get(*segment_index), Some(crate::column_segments::Segment::Normal(items))
+                if route_advanced(dom, prior.2, column, Some(items)))
         }
         _ => false,
     }

@@ -110,6 +110,9 @@ pub struct FragmentNode {
     /// the first column). Unifies with paged media's page-number generation
     /// when paged folds into the store (committed-next).
     pub fragmentainer: u32,
+    /// Page generation of a geometry-only direct IFC column. Its siblings were
+    /// published in the same definitive column batch.
+    pub empty_inline_generation: Option<u32>,
     /// Whether render consumes this fragment's entity **per-fragment** (the C-1
     /// fragment-walk router signal): set iff this box's mid-break IFC lines were
     /// drained into a per-column `InlineFlow` carrier (`flow_groups` non-empty) at
@@ -381,6 +384,19 @@ impl FragmentTree {
         box_fragment: BoxFragment,
         consumable: bool,
     ) -> FragmentId {
+        self.push_column_box(entity, fragmentainer, box_fragment, consumable, None)
+    }
+
+    /// Commit a column snapshot with the paint generation of an empty inline slice.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn push_column_box(
+        &mut self,
+        entity: Entity,
+        fragmentainer: u32,
+        box_fragment: BoxFragment,
+        consumable: bool,
+        empty_inline_generation: Option<u32>,
+    ) -> FragmentId {
         self.invalidate_on_write();
         // Replace an existing (entity, fragmentainer) node if one is present — the
         // `consumable` flag is overwritten alongside the geometry, so a re-lay that
@@ -390,6 +406,7 @@ impl FragmentTree {
                 if self.nodes[id.0 as usize].fragmentainer == fragmentainer {
                     self.nodes[id.0 as usize].content = FragmentContent::Box(box_fragment);
                     self.nodes[id.0 as usize].consumable = consumable;
+                    self.nodes[id.0 as usize].empty_inline_generation = empty_inline_generation;
                     return id;
                 }
             }
@@ -401,6 +418,7 @@ impl FragmentTree {
             children: Vec::new(),
             entity: Some(entity),
             fragmentainer,
+            empty_inline_generation,
             consumable,
             content: FragmentContent::Box(box_fragment),
         });

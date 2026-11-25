@@ -5,6 +5,7 @@
 //! all layout algorithm crates.
 
 pub mod block;
+pub mod column_segments;
 pub mod helpers;
 pub mod inline;
 pub mod paint_order;
@@ -237,6 +238,8 @@ pub enum BreakTokenData {
     /// Column cap reached inside a normal segment. Resume its Block stack.
     Multicol {
         segment_index: usize,
+        /// Count of committed columns within this segment.
+        column_index: usize,
         column: Box<BreakToken>,
     },
     /// Table layout: row index and optional header/footer entities for

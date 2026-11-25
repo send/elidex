@@ -310,7 +310,7 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             assert!(!first.contribution.is_finished(owner, children[1000]));
             let token = first.end.into_token().unwrap();
             assert!(
-                matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
+                matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column_index: 1000, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
             );
             assert_invalid_segment_rejected(&mut dom, owner, &input, &token);
             let tail = layout_multicol(

@@ -14,20 +14,14 @@ use elidex_layout_block::{
     resolve_padding, sanitize_border, ChildLayoutFn, LayoutInput, LayoutOutcome,
 };
 use elidex_plugin::{
-    BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, CssSize, Dimension, Display, EdgeSizes,
-    Float, LayoutBox, MulticolInfo, Point, Position, Rect, Size, Vector, WritingModeContext,
+    BoxSizing, ColumnFill, ComputedStyle, CssSize, Dimension, EdgeSizes, LayoutBox, MulticolInfo,
+    Point, Position, Rect, Size, Vector, WritingModeContext,
 };
 
 use algo::{compute_column_geometry, ColumnGeometry};
 use fill::{fill_columns_balanced, fill_columns_sequential, ColumnFillEnv};
 
-/// Segment of children between `column-span: all` elements.
-enum Segment {
-    /// Normal children to be laid out across columns.
-    Normal(Vec<Entity>),
-    /// A `column-span: all` element that spans the full container width.
-    Spanner(Entity),
-}
+use elidex_layout_block::column_segments::{split_segments, Segment};
 
 /// Shared layout context for column fill functions, reducing argument counts.
 #[derive(Clone, Copy)]
@@ -178,10 +172,11 @@ pub fn layout_multicol(
     let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
     let mut multicol_segments: Vec<(u32, f32, f32)> = Vec::new();
 
-    let (start, incoming) = if let Some(token) = input.break_token {
+    let (start, start_column, incoming) = if let Some(token) = input.break_token {
         assert_eq!(token.entity, entity, "Multicol continuation owner mismatch");
         let Some(elidex_layout_block::BreakTokenData::Multicol {
             segment_index,
+            column_index,
             column,
         }) = &token.mode_data
         else {
@@ -198,9 +193,9 @@ pub fn layout_multicol(
             "invalid column route kind"
         );
         elidex_layout_block::block::validate_block_route(dom, entity, children, Some(column));
-        (*segment_index, Some(column.as_ref()))
+        (*segment_index, *column_index, Some(column.as_ref()))
     } else {
-        (0, None)
+        (0, 0, None)
     };
     let mut end = elidex_layout_block::FragmentEnd::Complete;
     for (index, segment) in segments.iter().enumerate().skip(start) {
@@ -272,6 +267,8 @@ pub fn layout_multicol(
                             consumed_block_size: block_cursor,
                             mode_data: Some(elidex_layout_block::BreakTokenData::Multicol {
                                 segment_index: index,
+                                column_index: frags.len()
+                                    + if index == start { start_column } else { 0 },
                                 column: Box::new(column),
                             }),
                         },
@@ -623,11 +620,15 @@ fn position_column_fragments(
                 let mut bf = snap.box_fragment.clone();
                 bf.content.origin += delta;
                 #[allow(clippy::cast_possible_truncation)]
-                dom.fragment_tree_mut().push_box(
+                dom.fragment_tree_mut().push_column_box(
                     snap.entity,
                     i as u32,
                     bf,
                     !snap.flow_groups.is_empty(),
+                    (!snap.flow_groups.is_empty()
+                        && snap.flow_groups.iter().all(|(_, lines)| lines.is_empty())
+                        && snap.atomic_repositions.is_empty())
+                    .then_some(layout_generation),
                 );
                 // IFC lines (Z-1b live): fold this column's per-run-start lines into
                 // the accumulator, offset to the column's inline position. The line's
@@ -719,7 +720,7 @@ fn position_column_fragments(
     // is empty under a probe (the commit block is guarded), so this is a no-op there.
     for (run_start, lines) in flows {
         debug_assert!(
-            dom.world().get::<&InlineFlow>(run_start).is_err(),
+            lines.is_empty() || dom.world().get::<&InlineFlow>(run_start).is_err(),
             "mid-break run-start must carry no InlineFlow at build time (cleared each \
              column by clear_inline_flows) — else the per-column shift double-applied \
              the column offset before this build"
@@ -760,59 +761,6 @@ fn reposition_midbreak_atomics(
             false,
         );
     }
-}
-
-/// Split children into segments around `column-span: all` elements.
-///
-/// CSS Multi-column L1 §5: `column-span: all` only applies to in-flow
-/// block-level elements. Out-of-flow and inline-level are excluded.
-///
-/// Absolutely/fixedly positioned children are excluded from column content
-/// entirely — they are laid out separately via `layout_positioned_children`.
-fn split_segments(dom: &EcsDom, children: &[Entity]) -> Vec<Segment> {
-    let mut segments = Vec::new();
-    let mut current_normal: Vec<Entity> = Vec::new();
-
-    for &child in children {
-        let child_style = dom.world().get::<&ComputedStyle>(child).ok();
-
-        // Skip display:none children — they generate no boxes.
-        if child_style
-            .as_ref()
-            .is_some_and(|s| s.display == Display::None)
-        {
-            continue;
-        }
-
-        // Skip absolutely/fixedly positioned children — they're out-of-flow.
-        let is_out_of_flow = child_style
-            .as_ref()
-            .is_some_and(|s| matches!(s.position, Position::Absolute | Position::Fixed));
-        if is_out_of_flow {
-            continue;
-        }
-
-        let is_spanner = child_style.is_some_and(|style| {
-            style.column_span == ColumnSpan::All
-                && style.display != Display::Inline
-                && style.float == Float::None
-        });
-
-        if is_spanner {
-            if !current_normal.is_empty() {
-                segments.push(Segment::Normal(std::mem::take(&mut current_normal)));
-            }
-            segments.push(Segment::Spanner(child));
-        } else {
-            current_normal.push(child);
-        }
-    }
-
-    if !current_normal.is_empty() {
-        segments.push(Segment::Normal(current_normal));
-    }
-
-    segments
 }
 
 /// Resolve a definite block-size for the multicol container.

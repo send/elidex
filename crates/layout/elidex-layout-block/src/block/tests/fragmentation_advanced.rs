@@ -230,6 +230,7 @@ fn break_inside_avoid_penalizes_candidates() {
 fn orphans_widows_unit_basic() {
     use crate::inline::InlineFragConstraint;
     let constraint = InlineFragConstraint {
+        box_continues: false,
         available_block: 100.0,
         orphans: 2,
         widows: 2,
@@ -246,6 +247,7 @@ fn orphans_widows_unit_basic() {
 fn orphans_widows_monolithic_when_exceeds_total() {
     use crate::inline::InlineFragConstraint;
     let constraint = InlineFragConstraint {
+        box_continues: false,
         available_block: 50.0,
         orphans: 5,
         widows: 5,

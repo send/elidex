@@ -69,6 +69,7 @@ pub(super) fn flush_inline_run(
     let frag_constraint = input.fragmentainer.map(|frag| {
         let consumed = (cursor_block - cursor_block_origin).max(0.0);
         crate::inline::InlineFragConstraint {
+            box_continues: false,
             available_block: (frag.available_block_size - consumed).max(0.0),
             orphans: parent_style.orphans,
             widows: parent_style.widows,

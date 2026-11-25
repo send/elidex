@@ -204,7 +204,15 @@ pub(crate) fn walk(
     // consumable) and none is a nested-block fragment. A nested-block / deeper-IFC
     // mid-break writes no carrier on the direct child ⇒ NOT consumable ⇒ the single
     // `LayoutBox` arm. (See `fill.rs` `FragmentSnapshot` for the carrier-drain invariant.)
-    let store_frags: Vec<BoxFragment> = if !ctx.paged
+    // An interleaved page with a geometry-only column has a freshly committed
+    // batch for this entity. Paint each box and the folded source-bearing lines.
+    let current_columns = ctx.expected_generation.is_some_and(|generation| {
+        ctx.dom
+            .fragment_tree()
+            .fragments_for(entity)
+            .any(|n| n.empty_inline_generation == Some(generation))
+    });
+    let store_frags: Vec<BoxFragment> = if (!ctx.paged || current_columns)
         && !ctx.dom.fragment_tree().is_empty()
         && ctx.dom.fragment_tree().is_consumable(entity)
     {
@@ -278,6 +286,7 @@ pub(crate) fn walk(
         // store (committed-next). Still strictly better than the single-clip loss or the
         // no-clip full bleed. The store is queried directly (gated out of `store_frags`).
         let paged_union_clip: Option<Rect> = if clips
+            && single_box
             && ctx.paged
             && !ctx.dom.fragment_tree().is_empty()
             && ctx.dom.fragment_tree().is_consumable(entity)

@@ -589,3 +589,129 @@ fn cloned_edges_cannot_repeat_the_same_page_forever() {
         ));
     }
 }
+
+#[test]
+fn pages_advance_across_empty_grid_rows_and_new_size_only_children() {
+    use elidex_plugin::{AlignSelf, GridLine, GridTrackList, TrackSection, TrackSize};
+    let fonts = FontDatabase::new();
+    let frag = page(40.0);
+    for empty_first_row in [true, false] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_rows: GridTrackList::Explicit(TrackSection {
+                    tracks: vec![TrackSize::Length(40.0); 2],
+                    line_names: vec![],
+                }),
+                ..Default::default()
+            },
+        );
+        if !empty_first_row {
+            element(&mut dom, Some(grid), sized(Display::Block, 10.0));
+        }
+        let item = element(
+            &mut dom,
+            Some(grid),
+            ComputedStyle {
+                grid_row_start: GridLine::Line(2),
+                grid_row_end: GridLine::Line(3),
+                align_self: AlignSelf::FlexStart,
+                ..sized(Display::Block, if empty_first_row { 10.0 } else { 95.0 })
+            },
+        );
+        let pages = layout_fragmented(&mut dom, grid, &contribution_input(&fonts, &frag), frag);
+        assert_eq!(pages.len(), if empty_first_row { 2 } else { 4 });
+        assert!(!pages[0].contribution.is_finished(grid, item));
+        let boundary = pages[0].end.token().unwrap();
+        let empty = elidex_layout_block::source_progress::SourceProgress::default();
+        assert!(!elidex_layout_block::source_progress::fragment_advanced(
+            &dom,
+            Some(boundary),
+            boundary,
+            &empty,
+            None
+        ));
+        let last = pages.last().unwrap();
+        assert!(last.contribution.is_finished(grid, item));
+        assert!(last.end.is_complete());
+        if !empty_first_row {
+            assert_eq!(
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(item)
+                    .unwrap()
+                    .content
+                    .size
+                    .height,
+                15.0
+            );
+        }
+    }
+}
+
+#[test]
+fn pages_resume_multicol_after_one_thousand_size_only_columns() {
+    let fonts = FontDatabase::new();
+    let frag = page(40.0);
+    let mut dom = EcsDom::new();
+    let owner = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            column_count: Some(2),
+            column_fill: elidex_plugin::ColumnFill::Auto,
+            ..sized(Display::Block, 1.0)
+        },
+    );
+    let child = element(&mut dom, Some(owner), sized(Display::Block, 1001.0));
+    let input = elidex_layout_block::LayoutInput {
+        medium: elidex_plugin::Medium::Print,
+        ..contribution_input(&fonts, &frag)
+    };
+    let pages = layout_fragmented(&mut dom, owner, &input, frag);
+    assert_eq!(pages.len(), 2);
+    assert!(pages[0].end.token().is_some());
+    assert!(pages[1].end.is_complete());
+    assert!(pages[1].contribution.is_finished(owner, child));
+}
+
+#[test]
+fn cloned_border_box_uses_ordinary_content_target_on_every_page() {
+    let fonts = FontDatabase::new();
+    let frag = page(40.0);
+    for display in [Display::Grid, Display::Block] {
+        for vertical in [false, true] {
+            let mut dom = EcsDom::new();
+            let mut style = sized(display, 100.0);
+            style.box_sizing = elidex_plugin::BoxSizing::BorderBox;
+            style.box_decoration_break = elidex_plugin::BoxDecorationBreak::Cloned;
+            if vertical {
+                style.writing_mode = elidex_plugin::WritingMode::VerticalRl;
+                style.width = Dimension::Length(100.0);
+                style.padding.left = Dimension::Length(20.0);
+                style.padding.right = Dimension::Length(20.0);
+            } else {
+                style.padding.top = Dimension::Length(20.0);
+                style.padding.bottom = Dimension::Length(20.0);
+            }
+            let root = element(&mut dom, None, style);
+            let pages = layout_fragmented(&mut dom, root, &contribution_input(&fonts, &frag), frag);
+            assert_eq!(pages.len(), 3, "{display:?}, vertical={vertical}");
+            let extent: f32 = pages
+                .iter()
+                .map(|p| {
+                    let size = p.layout_box.content.size;
+                    if vertical {
+                        size.width
+                    } else {
+                        size.height
+                    }
+                })
+                .sum();
+            assert_eq!(extent, 60.0);
+            assert!(pages.last().unwrap().end.is_complete());
+        }
+    }
+}

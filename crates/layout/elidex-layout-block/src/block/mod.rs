@@ -203,6 +203,8 @@ pub fn layout_block_inner(
     let mut margin = input
         .assigned
         .margins(crate::resolve_margins(&style, containing_inline));
+    let ordinary_padding = padding;
+    let ordinary_border = border;
     input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
     let i_pb = crate::inline_pb(&wm, &padding, &border);
     let l_padding = LogicalEdges::from_physical(padding, wm);
@@ -390,7 +392,7 @@ pub fn layout_block_inner(
         // use it; otherwise None.
         match style.width {
             Dimension::Length(px) if px.is_finite() => {
-                let b_pb_val = crate::block_pb(&wm, &padding, &border);
+                let b_pb_val = crate::block_pb(&wm, &ordinary_padding, &ordinary_border);
                 if style.box_sizing == BoxSizing::BorderBox {
                     Some((px - b_pb_val).max(0.0))
                 } else {
@@ -399,7 +401,7 @@ pub fn layout_block_inner(
             }
             Dimension::Percentage(pct) => containing_block.map(|cb| {
                 let resolved = cb * pct / 100.0;
-                let b_pb_val = crate::block_pb(&wm, &padding, &border);
+                let b_pb_val = crate::block_pb(&wm, &ordinary_padding, &ordinary_border);
                 if style.box_sizing == BoxSizing::BorderBox {
                     (resolved - b_pb_val).max(0.0)
                 } else {
@@ -457,6 +459,19 @@ pub fn layout_block_inner(
         )
     });
 
+    let resolve_size = |content_block| {
+        assigned_block.unwrap_or_else(|| {
+            resolve_block_height(
+                &style,
+                content_block,
+                containing_block,
+                &ordinary_padding,
+                &ordinary_border,
+                intrinsic.is_some(),
+                &wm,
+            )
+        })
+    };
     let geometry_only = input.break_token.is_some_and(|token| {
         token.entity == entity
             && token.specified_size_fraction.is_some()
@@ -467,8 +482,6 @@ pub fn layout_block_inner(
     let content_block = if geometry_only {
         children::validate_route(dom, entity, &children, input.break_token);
         if !input.is_probe {
-            // Paint batches direct inline siblings into runs between block children.
-            // Publish an empty slice for each consumed run in this generation.
             let keys: Vec<_> = children
                 .split(|&id| {
                     dom.world()
@@ -480,11 +493,28 @@ pub fn layout_block_inner(
                 })
                 .filter_map(|run| crate::inline::first_eligible_child(dom, run))
                 .collect();
-            for key in keys {
-                let _ = dom.world_mut().insert_one(
-                    key,
-                    elidex_ecs::InlineFlow::single(input.layout_generation, Vec::new()),
-                );
+            match input.fragmentainer.map(|f| f.fragmentation_type) {
+                Some(crate::FragmentationType::Page) => {
+                    for key in keys {
+                        let _ = dom.world_mut().insert_one(
+                            key,
+                            elidex_ecs::InlineFlow::single(input.layout_generation, Vec::new()),
+                        );
+                    }
+                }
+                Some(crate::FragmentationType::Column)
+                    if !keys.is_empty() && !children_are_block(dom, &children) =>
+                {
+                    // The column owner publishes all slices of a direct IFC together.
+                    let _ = dom.world_mut().insert_one(
+                        entity,
+                        elidex_ecs::ColumnFlowSlice {
+                            flow_groups: keys.into_iter().map(|key| (key, Vec::new())).collect(),
+                            ..Default::default()
+                        },
+                    );
+                }
+                _ => {}
             }
         }
         0.0
@@ -657,6 +687,10 @@ pub fn layout_block_inner(
             child_fragmentainer
                 .as_ref()
                 .map(|frag| crate::inline::InlineFragConstraint {
+                    box_continues: assigned_block.or(child_containing_block).is_some()
+                        && resolve_size(0.0) > frag.available_block_size
+                        && frag.fragmentation_type == crate::FragmentationType::Column
+                        && crate::column_segments::is_column_item(dom, entity),
                     available_block: frag.available_block_size,
                     orphans: style.orphans,
                     widows: style.widows,
@@ -689,17 +723,7 @@ pub fn layout_block_inner(
     };
 
     // --- Resolve block-size ---
-    let block_size = assigned_block.unwrap_or_else(|| {
-        resolve_block_height(
-            &style,
-            content_block,
-            containing_block,
-            &padding,
-            &border,
-            intrinsic.is_some(),
-            &wm,
-        )
-    });
+    let block_size = resolve_size(content_block);
 
     let fragment_size = child_fragmentainer
         .filter(|_| !fragmentation::is_monolithic(&style, intrinsic.is_some()))

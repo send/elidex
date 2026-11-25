@@ -123,21 +123,20 @@ pub fn layout_grid(
     let (mut padding, mut border, margin) =
         elidex_layout_block::resolve_box_model(&style, containing_inline);
     let mut margin = input.assigned.margins(margin);
-    input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
-    let margin_top = margin.top;
-    let margin_bottom = margin.bottom;
-    let margin_left = margin.left;
-    let margin_right = margin.right;
-
     let h_pb = horizontal_pb(&padding, &border);
     let content_width = input.assigned.content.width.unwrap_or_else(|| {
         elidex_layout_block::resolve_content_width(
             &style,
             containing_width,
             h_pb,
-            margin_left + margin_right,
+            margin.left + margin.right,
         )
     });
+    input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
+    let margin_top = margin.top;
+    let margin_bottom = margin.bottom;
+    let margin_left = margin.left;
+
     let content_x = offset_x + margin_left + border.left + padding.left;
     let content_y = offset_y + margin_top + border.top + padding.top;
     let content_origin = Point::new(content_x, content_y);
