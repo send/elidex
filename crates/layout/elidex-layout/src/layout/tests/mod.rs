@@ -8,7 +8,9 @@ mod basic;
 mod flex_assignment;
 mod fragmentation;
 mod grid_multicol_contributions;
+mod multicol_batching;
 mod provenance;
+mod source_contributions;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct DispatchObservation {

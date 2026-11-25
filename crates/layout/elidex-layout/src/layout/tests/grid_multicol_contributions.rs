@@ -1,4 +1,4 @@
-use super::fragmentation::contribution_input;
+use super::source_contributions::contribution_input;
 use super::*;
 
 #[test]
