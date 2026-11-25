@@ -15,6 +15,7 @@ mod pack;
 
 mod collect;
 pub(crate) use collect::first_eligible_child;
+pub use collect::{flow_participation, FlowParticipation};
 mod reconcile;
 mod styled_run;
 mod whitespace;

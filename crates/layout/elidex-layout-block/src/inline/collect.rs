@@ -18,6 +18,28 @@ fn is_atomic_inline(display: Display) -> bool {
     )
 }
 
+/// How a node contributes to in-flow layout or to an out-of-flow static position.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FlowParticipation {
+    Source,
+    Placeholder,
+    None,
+}
+
+pub fn flow_participation(
+    dom: &EcsDom,
+    child: Entity,
+    style: Option<&ComputedStyle>,
+) -> FlowParticipation {
+    match style {
+        Some(s) if s.display == Display::None => FlowParticipation::None,
+        Some(s) if crate::positioned::is_absolutely_positioned(s) => FlowParticipation::Placeholder,
+        Some(_) => FlowParticipation::Source,
+        None if dom.world().get::<&TextContent>(child).is_ok() => FlowParticipation::Source,
+        None => FlowParticipation::None,
+    }
+}
+
 /// Render's `run[0]` for the inline run rooted at the element whose composed
 /// children are `children` — it MUST match `paint_non_sc` / Layer-5 grouping
 /// exactly (`crates/core/elidex-render/src/builder/walk.rs`), since layout persists
@@ -246,17 +268,16 @@ fn collect_inline_items_inner(
         return;
     }
     for &child in children {
-        if let Some(style) = crate::try_get_style(dom, child) {
-            if style.display == Display::None {
-                continue;
-            }
-            // CSS 2.1 §9.3.1/§9.6: absolutely positioned elements are removed from flow.
-            // Insert a zero-width placeholder to record static position
-            // (CSS 2.1 §10.3.7 / §10.6.4).
-            if crate::positioned::is_absolutely_positioned(&style) {
+        let style = crate::try_get_style(dom, child);
+        match flow_participation(dom, child, style.as_ref()) {
+            FlowParticipation::None => continue,
+            FlowParticipation::Placeholder => {
                 items.push(InlineItem::Placeholder(child));
                 continue;
             }
+            FlowParticipation::Source => {}
+        }
+        if let Some(style) = style {
             // Atomic inline-level box (CSS Display 3 §A `#atomic-inline`):
             // placeholder with zero size (filled later by `layout_atomic_items`).
             // A *static* atomic converges into its group's `InlineFlow` as an

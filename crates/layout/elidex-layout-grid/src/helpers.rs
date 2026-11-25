@@ -41,11 +41,9 @@ pub(crate) fn collect_grid_items(
         let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue; // Text node — skip.
         };
-        if child_style.display == Display::None {
-            continue;
-        }
-        // Absolutely positioned grid children are removed from grid layout.
-        if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
+        if elidex_layout_block::inline::flow_participation(dom, child, Some(&child_style))
+            != elidex_layout_block::inline::FlowParticipation::Source
+        {
             continue;
         }
 

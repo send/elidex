@@ -94,8 +94,7 @@ producer	crates/layout/elidex-layout-flex/src/lib.rs	let lb = LayoutBox {
 import	crates/layout/elidex-layout-grid/src/lib.rs	AlignItems, CssSize, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox,
 producer	crates/layout/elidex-layout-grid/src/lib.rs	let lb = LayoutBox {
 pending-migration:C-3c	crates/layout/elidex-layout-grid/src/position.rs	.get::<&LayoutBox>(first_item.entity)
-import	crates/layout/elidex-layout-grid/src/position.rs	AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point, Rect,
-producer	crates/layout/elidex-layout-grid/src/position.rs	let corrected = LayoutBox {
+import	crates/layout/elidex-layout-grid/src/position.rs	AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point,
 producer	crates/layout/elidex-layout-multicol/src/fill.rs	if let Ok(lb) = dom.world().get::<&LayoutBox>(child) {
 producer	crates/layout/elidex-layout-multicol/src/fill.rs	let lb = dom.world().get::<&LayoutBox>(entity).ok()?;
 import	crates/layout/elidex-layout-multicol/src/fill.rs	use elidex_plugin::{ComputedStyle, CssSize, LayoutBox, Overflow, Point, WritingModeContext};

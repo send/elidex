@@ -714,3 +714,126 @@ fn cloned_border_box_uses_ordinary_content_target_on_every_page() {
         }
     }
 }
+
+#[test]
+fn non_layout_nodes_before_a_split_block_do_not_require_coverage() {
+    let fonts = FontDatabase::new();
+    let frag = page(100.0);
+    for container in ["block", "grid", "multicol"] {
+        for comment_count in [1, 2] {
+            let mut dom = EcsDom::new();
+            let owner = element(
+                &mut dom,
+                None,
+                match container {
+                    "grid" => ComputedStyle {
+                        display: Display::Grid,
+                        grid_template_rows: tracks(200.0),
+                        ..Default::default()
+                    },
+                    "multicol" => ComputedStyle {
+                        column_count: Some(2),
+                        column_fill: elidex_plugin::ColumnFill::Auto,
+                        ..sized(Display::Block, 100.0)
+                    },
+                    _ => ComputedStyle {
+                        display: Display::Block,
+                        ..Default::default()
+                    },
+                },
+            );
+            let mut ignored = Vec::new();
+            if container != "block" {
+                let id = dom.create_comment_ownerless_fixture("outer");
+                assert!(dom.append_child(owner, id));
+                ignored.push(id);
+            }
+            let block = if container == "block" {
+                owner
+            } else {
+                element(
+                    &mut dom,
+                    Some(owner),
+                    ComputedStyle {
+                        display: Display::Block,
+                        ..Default::default()
+                    },
+                )
+            };
+            for _ in 0..comment_count {
+                let id = dom.create_comment_ownerless_fixture("x");
+                assert!(dom.append_child(block, id));
+                ignored.push(id);
+            }
+            if comment_count == 2 {
+                let id = dom.create_element_ownerless_fixture("template", Attributes::default());
+                assert!(dom.append_child(block, id));
+                ignored.push(id);
+            }
+            let content = element(&mut dom, Some(block), sized(Display::Block, 200.0));
+            let fragments =
+                layout_fragmented(&mut dom, owner, &contribution_input(&fonts, &frag), frag);
+            assert_eq!(fragments.len(), if container == "multicol" { 1 } else { 2 });
+            let last = fragments.last().unwrap();
+            assert!(last.end.is_complete());
+            assert!(last.contribution.is_finished(block, content));
+            for fragment in fragments {
+                assert!(!fragment
+                    .contribution
+                    .contributed_items()
+                    .any(|(_, id)| ignored.contains(&id)));
+            }
+        }
+    }
+}
+
+#[test]
+fn stretched_grid_item_uses_same_content_size_with_or_without_page_room() {
+    let fonts = FontDatabase::new();
+    let frag = page(500.0);
+    for sizing in [
+        elidex_plugin::BoxSizing::BorderBox,
+        elidex_plugin::BoxSizing::ContentBox,
+    ] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_rows: tracks(100.0),
+                ..Default::default()
+            },
+        );
+        let mut style = ComputedStyle {
+            display: Display::Block,
+            box_sizing: sizing,
+            ..Default::default()
+        };
+        style.padding.top = Dimension::Length(10.0);
+        style.padding.bottom = Dimension::Length(10.0);
+        let item = element(&mut dom, Some(grid), style);
+        for room in [Some(&frag), None] {
+            let input = elidex_layout_block::LayoutInput {
+                fragmentainer: room,
+                ..contribution_input(&fonts, &frag)
+            };
+            assert!(dispatch_layout_child(&mut dom, grid, &input)
+                .end
+                .is_complete());
+            assert_eq!(
+                dom.world()
+                    .get::<&elidex_plugin::LayoutBox>(item)
+                    .unwrap()
+                    .content
+                    .size
+                    .height,
+                80.0
+            );
+            assert_eq!(
+                dom.world().get::<&ComputedStyle>(item).unwrap().height,
+                Dimension::Auto
+            );
+        }
+    }
+}

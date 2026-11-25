@@ -8,12 +8,12 @@ use std::collections::HashMap;
 use elidex_ecs::EcsDom;
 use elidex_layout_block::{LayoutEnv, LayoutInput, SubgridContext};
 use elidex_plugin::{
-    AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point, Rect,
+    AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point,
     WritingMode,
 };
 
 use crate::track;
-use crate::{GridItem, LAYOUT_SIZE_EPSILON};
+use crate::GridItem;
 
 // ---------------------------------------------------------------------------
 // Subgrid helpers
@@ -354,21 +354,12 @@ pub(crate) fn position_items(
             col_bl,
         );
 
-        // Override the child's width/height so layout_block_inner uses grid-resolved values.
-        {
-            let mut style = elidex_layout_block::get_style(dom, item.entity);
-            style.width = Dimension::Length(item_content_w);
-            style.height = Dimension::Length(item_content_h);
-            let _ = dom.world_mut().insert_one(item.entity, style);
-        }
-
         // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
         let child_subgrid_ctx = if let Some(parent) = placement
             .subgrid_ctx
             .as_ref()
             .filter(|_| item.is_subgrid_cols || item.is_subgrid_rows)
         {
-            let child_style = elidex_layout_block::get_style(dom, item.entity);
             let (child_col_sizes, child_col_names) = extract_axis_subgrid(
                 item.is_subgrid_cols,
                 parent.col_sizes.as_ref(),
@@ -437,7 +428,13 @@ pub(crate) fn position_items(
             available_height_if_indefinite: None,
             containing_width_definite: true,
             is_flex_item: false,
-            assigned: elidex_layout_block::UsedAssignment::default(),
+            assigned: elidex_layout_block::UsedAssignment {
+                content: elidex_plugin::Size {
+                    width: Some(item_content_w),
+                    height: Some(item_content_h),
+                },
+                ..Default::default()
+            },
             containing: CssSize::definite(area_width, item_content_h),
             containing_inline_size: final_inline_size,
             offset,
@@ -474,21 +471,6 @@ pub(crate) fn position_items(
                 margin_box.size.width
             };
             entry.block_extent = entry.block_extent.max(entry_offset + extent);
-            continue;
-        }
-
-        // Ensure the content height matches the grid-resolved value.
-        if (item_content_h - final_lb.content.size.height).abs() > LAYOUT_SIZE_EPSILON {
-            let corrected = LayoutBox {
-                content: Rect::new(
-                    final_lb.content.origin.x,
-                    final_lb.content.origin.y,
-                    item_content_w,
-                    item_content_h,
-                ),
-                ..final_lb
-            };
-            dom.set_layout_box(item.entity, corrected);
         }
     }
 

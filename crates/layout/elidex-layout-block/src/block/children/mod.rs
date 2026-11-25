@@ -66,10 +66,9 @@ fn make_block_break_token(
 }
 
 fn participates(dom: &elidex_ecs::EcsDom, child: Entity) -> bool {
-    crate::try_get_style(dom, child).is_none_or(|style| {
-        style.display != elidex_plugin::Display::None
-            && !crate::positioned::is_absolutely_positioned(&style)
-    })
+    let style = dom.world().get::<&elidex_plugin::ComputedStyle>(child).ok();
+    crate::inline::flow_participation(dom, child, style.as_deref())
+        == crate::inline::FlowParticipation::Source
 }
 
 /// Validate a caller-supplied Block continuation before publishing the next fragment.
