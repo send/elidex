@@ -272,22 +272,18 @@ fn push_color_attr(
     }
 }
 
-/// Parse a legacy HTML color value (WHATWG §2.4.6).
-///
-/// Implements the full "rules for parsing a legacy colour value" algorithm:
-/// 1. Named CSS colors (case-insensitive)
-/// 2. Standard `#RGB` / `#RRGGBB` hex
-/// 3. Legacy algorithm: strip `#`, replace non-hex chars with `0`, pad to
-///    multiple of 3, split into R/G/B, strip leading zeros, take first 2 hex
-///    digits of each. Handles exotic cases like `bgcolor="chucknorris"` → `#c00000`.
+/// Parse a presentational hint using the HTML §2.3.6 legacy color rules.
 #[must_use]
 fn parse_html_color(value: &str) -> Option<CssColor> {
+    // Defect against HTML §2.3.6 steps 1–2: trim() also strips non-ASCII
+    // whitespace, and the empty check rejects whitespace-only input after trimming.
+    // Step 1 tests the original input. Step 10 pads an empty remainder to black.
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("transparent") {
         return None;
     }
 
-    // Step 4: try named CSS colors first.
+    // Defect against step 4: this table covers only a subset of CSS named colors.
     let named = [
         ("black", CssColor::BLACK),
         ("white", CssColor::WHITE),
@@ -316,7 +312,7 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
         }
     }
 
-    // Step 5: try standard #RGB / #RRGGBB hex.
+    // Step 5 expands #RGB. The #RRGGBB fast path gives the same RGB as steps 6–19.
     if let Some(hex) = trimmed.strip_prefix('#') {
         if hex.len() == 3 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
             let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
@@ -332,20 +328,13 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
         }
     }
 
-    // Steps 6-11: full legacy colour value algorithm.
+    // Steps 6–19 handle the remaining input.
     legacy_color_algorithm(trimmed)
 }
 
-/// WHATWG §2.4.6 steps 7-20: the legacy "any string → color" algorithm.
-///
-/// This handles arbitrary strings like `"chucknorris"` by:
-/// - Replacing code points > U+FFFF with "00", truncating to 128 chars
-/// - Stripping leading `#`, replacing non-hex with `0`
-/// - Padding to multiple of 3, splitting into 3 components
-/// - Truncating to 8 if longer, stripping leading zeros (simultaneously),
-///   then taking the first 2 hex digits of each as R, G, B
+/// Convert the remaining input to RGB components (HTML §2.3.6 steps 6–19).
 fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
-    // Step 7: replace non-BMP code points with "00".
+    // Step 6: replace non-BMP code points with "00".
     let mut s = String::with_capacity(input.len());
     for ch in input.chars() {
         if ch as u32 > 0xFFFF {
@@ -355,35 +344,37 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         }
     }
 
-    // Step 8: truncate to 128 characters.
+    // Defect against step 7: the 128-code-point limit is applied to UTF-8 bytes.
     if s.len() > 128 {
         s.truncate(128);
     }
 
-    // Step 9: remove leading '#'.
+    // Step 8 removes a leading '#'. Defect: rejecting an empty remainder here
+    // skips step 10, which pads it to three zeros.
     let s = s.strip_prefix('#').unwrap_or(&s);
     if s.is_empty() {
         return None;
     }
 
-    // Step 10: replace non-ASCII-hex with '0'.
+    // Defect against step 9: this emits one zero per non-hex byte. The rule
+    // emits one zero per non-hex code point.
     let mut digits: Vec<u8> = s
         .bytes()
         .map(|b| if b.is_ascii_hexdigit() { b } else { b'0' })
         .collect();
 
-    // Step 11: pad to multiple of 3 (min 3).
+    // Step 10: pad to multiple of 3 (min 3).
     while digits.len() < 3 || !digits.len().is_multiple_of(3) {
         digits.push(b'0');
     }
 
-    // Step 12: split into 3 equal components.
+    // Step 11: split into 3 equal components.
     let mut comp_len = digits.len() / 3;
     let mut r_start = 0;
     let mut g_start = comp_len;
     let mut b_start = comp_len * 2;
 
-    // Step 13: if component length > 8, remove leading chars to leave 8.
+    // Step 12: if component length > 8, remove leading chars to leave 8.
     if comp_len > 8 {
         let excess = comp_len - 8;
         r_start += excess;
@@ -392,7 +383,7 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         comp_len = 8;
     }
 
-    // Step 14: while length > 2 and all 3 components start with '0',
+    // Step 13: while length > 2 and all 3 components start with '0',
     // remove that leading character from each.
     while comp_len > 2
         && digits[r_start] == b'0'
@@ -405,7 +396,7 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         comp_len -= 1;
     }
 
-    // Step 15: if length > 2, truncate to first 2 characters.
+    // Step 14: if length > 2, truncate to first 2 characters.
     let take = comp_len.min(2);
 
     let parse2 = |start: usize| -> u8 {
@@ -715,8 +706,7 @@ mod tests {
 
     #[test]
     fn parse_html_color_non_ascii_no_panic() {
-        // Non-ASCII characters are replaced with '0' by the legacy algorithm.
-        // Per WHATWG §2.4.6, any string produces a color (non-hex → 0).
+        // HTML §2.3.6 steps 6 and 9 map these inputs to zeros.
         assert!(parse_html_color("あ").is_some());
         assert!(parse_html_color("ああ").is_some());
         assert!(parse_html_color("🔥").is_some());
@@ -746,8 +736,8 @@ mod tests {
     fn parse_html_color_legacy_algorithm() {
         // "chucknorris" → replace non-hex: "c00c0000000" (11) → pad to 12: "c00c00000000"
         // split 3×4: "c00c"/"0000"/"0000"
-        // step 14: first chars c/0/0 — not all '0', stop
-        // step 15: len=4 > 2, truncate to first 2: "c0"/"00"/"00" → #c00000
+        // step 13: first chars c/0/0 — not all '0', stop
+        // step 14: len=4 > 2, truncate to first 2: "c0"/"00"/"00" → #c00000
         assert_eq!(
             parse_html_color("chucknorris"),
             Some(CssColor::new(0xc0, 0x00, 0x00, 255))
@@ -776,6 +766,7 @@ mod tests {
     #[test]
     fn parse_html_color_empty_returns_none() {
         assert!(parse_html_color("").is_none());
+        // Records the post-trim empty-input defect in parse_html_color.
         assert!(parse_html_color("   ").is_none());
     }
 
