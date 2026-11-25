@@ -14,6 +14,7 @@ fn paged_fragmented_run_now_persists() {
     let children = dom.composed_children(parent);
     let key = run_start(&dom, parent);
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
@@ -69,6 +70,7 @@ fn multicol_whole_run_now_persists() {
 
     // Column-whole: large available_block → the IFC fits one column, no break.
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
@@ -116,6 +118,7 @@ fn gate_excludes_multicol_continuation() {
     let children = dom.composed_children(parent);
     let key = run_start(&dom, parent);
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
@@ -128,6 +131,7 @@ fn gate_excludes_multicol_continuation() {
                 Point::ZERO,
                 &env(&font_db),
                 Some(&InlineFragConstraint {
+                    box_continues: false,
                     available_block: 0.0,
                     orphans: 1,
                     widows: 1,
@@ -168,6 +172,7 @@ fn gate_excludes_multicol_truncation() {
     // Width 1.0 → 2 lines; tiny available_block forces a break (orphans=1 keeps line 0,
     // line 1 truncated to the next column).
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 0.001,
         orphans: 1,
         widows: 1,
@@ -212,6 +217,7 @@ fn multicol_nested_in_paged_stamps_page_generation() {
         is_probe: false,
     };
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 2,
         widows: 2,
@@ -273,6 +279,7 @@ fn continuation_fragment_rebases_to_fragmentainer_top() {
 
     // Continuation fragment (page 2) skipping the first line.
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
@@ -285,6 +292,7 @@ fn continuation_fragment_rebases_to_fragmentainer_top() {
                 Point::ZERO,
                 &env(&font_db),
                 Some(&InlineFragConstraint {
+                    box_continues: false,
                     available_block: 0.0,
                     orphans: 1,
                     widows: 1,
@@ -375,6 +383,7 @@ fn paged_fragment_clientrects_single_source_with_flow() {
 
     // Width 1.0 → four single-word lines; skip line 0 → keep [1,2,3] on page 2.
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: 1000.0,
         orphans: 1,
         widows: 1,
@@ -468,6 +477,7 @@ fn paged_fragment_drops_tail_after_break() {
 
     // Available block fits ~2 lines → break after line 2 (orphans/widows = 1).
     let frag = InlineFragConstraint {
+        box_continues: false,
         available_block: line_h * 2.5,
         orphans: 1,
         widows: 1,
@@ -557,6 +567,7 @@ fn varying_width_pages_resume_at_source_on_count_and_replay() {
                     starts.push(progress.clone());
                 }
                 let frag = InlineFragConstraint {
+                    box_continues: false,
                     available_block: 0.0,
                     orphans: 1,
                     widows: 1,
@@ -652,6 +663,7 @@ fn fragment_cursor_keeps_original_nodes_across_collapse_transform_and_atomics() 
     let mut progress = None;
     for (i, expected) in ["A", "SS", "C", "", "D"].into_iter().enumerate() {
         let frag = InlineFragConstraint {
+            box_continues: false,
             available_block: 0.0,
             orphans: 1,
             widows: 1,
@@ -720,6 +732,7 @@ fn fragment_cursor_keeps_zero_height_committed_line_and_geometry() {
     let mut progress = None;
     for expected in ["AB", "C"] {
         let frag = InlineFragConstraint {
+            box_continues: false,
             available_block: 16.0,
             orphans: 1,
             widows: 1,
@@ -776,6 +789,7 @@ fn fragment_cursor_tracks_forced_then_soft_break() {
     let mut progress = None;
     for expected in ["A", "SS", "C"] {
         let frag = InlineFragConstraint {
+            box_continues: false,
             available_block: 1.0,
             orphans: 1,
             widows: 1,

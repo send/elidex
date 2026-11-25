@@ -200,7 +200,7 @@ pub fn build_paged_display_lists_interleaved(
             is_probe: false,
             ..base_input
         };
-        let outcome = elidex_layout::dispatch_layout_child(dom, root, &frag_input);
+        let outcome = elidex_layout::layout_page_fragment(dom, root, &frag_input);
         let is_blank = outcome.layout_box.content.size.height < 0.5
             && outcome.layout_box.content.size.width < 0.5;
 

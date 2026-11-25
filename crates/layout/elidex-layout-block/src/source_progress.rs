@@ -88,6 +88,17 @@ impl SourceProgress {
         ProgressIndex { items }
     }
 
+    /// Retain the incoming snapshot and append the source committed in this fragment.
+    #[must_use]
+    pub fn after_fragment(&self, incoming: Option<&crate::BreakToken>) -> Self {
+        let mut covered = incoming
+            .and_then(token_coverage)
+            .cloned()
+            .unwrap_or_default();
+        covered.include(self);
+        covered
+    }
+
     /// Incorporate only the source reported by the selected child fragment.
     pub fn include(&mut self, contribution: &Self) {
         for page in contribution.pages() {
@@ -210,6 +221,145 @@ impl ItemCoverage {
         self.ranges.get(i).is_some_and(|r| r.contains(&position))
     }
 }
+/// Test forward progress before starting another column or page at fixed geometry.
+pub fn fragment_advanced(
+    dom: &elidex_ecs::EcsDom,
+    old: Option<&crate::BreakToken>,
+    next: &crate::BreakToken,
+    contribution: &SourceProgress,
+    segment: Option<&[Entity]>,
+) -> bool {
+    let empty = SourceProgress::default();
+    let previous = old.and_then(token_coverage).unwrap_or(&empty);
+    contribution.advances(previous) || route_advanced(dom, old, next, segment)
+}
+
+fn token_coverage(token: &crate::BreakToken) -> Option<&SourceProgress> {
+    match token.mode_data.as_ref()? {
+        crate::BreakTokenData::Block { coverage, .. }
+        | crate::BreakTokenData::Grid { coverage, .. }
+        | crate::BreakTokenData::Multicol { coverage, .. } => Some(coverage),
+        _ => None,
+    }
+}
+
+fn fraction_advanced(old: Option<&crate::BreakToken>, new: &crate::BreakToken) -> bool {
+    let previous = old.and_then(|t| t.specified_size_fraction).unwrap_or(0.0);
+    new.specified_size_fraction
+        .is_some_and(|after| after > previous)
+}
+
+/// Compare the committed routes at fixed geometry. An admitted child starts at zero.
+fn route_advanced(
+    dom: &elidex_ecs::EcsDom,
+    old: Option<&crate::BreakToken>,
+    new: &crate::BreakToken,
+    segment: Option<&[Entity]>,
+) -> bool {
+    use crate::{BlockContinuation, BreakTokenData};
+    if old.is_some_and(|old| old.entity != new.entity) {
+        return false;
+    }
+    let children = || {
+        segment.map_or_else(
+            || std::borrow::Cow::Owned(crate::composed_children_flat(dom, new.entity)),
+            std::borrow::Cow::Borrowed,
+        )
+    };
+    let before = old.and_then(|token| token.mode_data.as_ref());
+    match new.mode_data.as_ref() {
+        Some(BreakTokenData::Block {
+            continuation: BlockContinuation::InterruptedChild(child),
+            child_index: entered_index,
+            ..
+        }) => {
+            let previous = match before {
+                Some(BreakTokenData::Block {
+                    continuation: BlockContinuation::InterruptedChild(child),
+                    ..
+                }) => Some(child.as_ref()),
+                Some(BreakTokenData::Block {
+                    child_index,
+                    continuation: BlockContinuation::ChildBoundary,
+                    ..
+                }) if child_index == entered_index
+                    && children().get(*child_index) == Some(&child.entity) =>
+                {
+                    None
+                }
+                None => None,
+                _ => return false,
+            };
+            route_advanced(dom, previous, child, None)
+        }
+        Some(BreakTokenData::Block {
+            child_index,
+            continuation: BlockContinuation::ChildBoundary,
+            ..
+        }) => {
+            fraction_advanced(old, new)
+                && *child_index == children().len()
+                && (before.is_none()
+                    || matches!(before, Some(BreakTokenData::Block {child_index: prior, continuation: BlockContinuation::ChildBoundary, ..}) if prior == child_index))
+        }
+        Some(BreakTokenData::Grid {
+            row_index,
+            rows_exhausted,
+            child_break_tokens,
+            ..
+        }) => {
+            let (prior_row, children) = match before {
+                Some(BreakTokenData::Grid {
+                    row_index,
+                    child_break_tokens,
+                    ..
+                }) => (*row_index, child_break_tokens.as_slice()),
+                None => (0, &[][..]),
+                _ => return false,
+            };
+            if *row_index != prior_row {
+                return *row_index > prior_row;
+            }
+            if *rows_exhausted && child_break_tokens.is_empty() {
+                return fraction_advanced(old, new);
+            }
+            let by_id: std::collections::HashMap<_, _> = children
+                .iter()
+                .map(|(id, token)| (*id, token.as_ref()))
+                .collect();
+            child_break_tokens
+                .iter()
+                .any(|(entity, next)| route_advanced(dom, by_id.get(entity).copied(), next, None))
+        }
+        Some(BreakTokenData::Multicol {
+            segment_index,
+            column_index,
+            column,
+            ..
+        }) => {
+            let prior = match before {
+                Some(BreakTokenData::Multicol {
+                    segment_index,
+                    column_index,
+                    column,
+                    ..
+                }) => (*segment_index, *column_index, Some(column.as_ref())),
+                None => (0, 0, None),
+                _ => return false,
+            };
+            // Fill only commits a batch after checking every column against its
+            // predecessor. For an unchanged boundary, compare the inner route.
+            if (*segment_index, *column_index) != (prior.0, prior.1) {
+                return (*segment_index, *column_index) > (prior.0, prior.1);
+            }
+            let segments = crate::column_segments::split_segments(dom, &children());
+            matches!(segments.get(*segment_index), Some(crate::column_segments::Segment::Normal(items))
+                if route_advanced(dom, prior.2, column, Some(items)))
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

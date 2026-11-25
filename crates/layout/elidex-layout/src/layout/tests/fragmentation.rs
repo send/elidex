@@ -572,7 +572,7 @@ fn block_preserves_table_row_contributions_at_a_forced_break() {
     }
 }
 
-fn contribution_input<'a>(
+pub(super) fn contribution_input<'a>(
     font_db: &'a FontDatabase,
     frag: &'a elidex_layout_block::FragmentainerContext,
 ) -> elidex_layout_block::LayoutInput<'a> {

@@ -54,6 +54,7 @@ fn make_block_break_token(
     continuation: crate::BlockContinuation,
 ) -> BreakToken {
     BreakToken {
+        specified_size_fraction: None,
         entity: parent_entity,
         consumed_block_size,
         mode_data: Some(BreakTokenData::Block {

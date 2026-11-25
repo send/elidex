@@ -310,7 +310,7 @@ fn overflow_column_cap_preserves_remaining_source_in_both_media() {
             assert!(!first.contribution.is_finished(owner, children[1000]));
             let token = first.end.into_token().unwrap();
             assert!(
-                matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
+                matches!(&token.mode_data, Some(BreakTokenData::Multicol {segment_index: 0, column_index: 1000, column, ..}) if matches!(&column.mode_data, Some(BreakTokenData::Block { child_index: 1000, .. })))
             );
             assert_invalid_segment_rejected(&mut dom, owner, &input, &token);
             let tail = layout_multicol(
@@ -375,4 +375,82 @@ fn assert_invalid_segment_rejected(
             .layout_generation,
         5
     );
+}
+
+#[test]
+fn replay_columns_with_end_of_source_size_progress() {
+    use crate::fill::{fill_columns_sequential, ColumnFillEnv};
+    let fonts = make_font_db();
+    let mut dom = EcsDom::new();
+    let owner = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        ..Default::default()
+    };
+    let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+    dom.world_mut().insert_one(owner, style);
+    let child = add_block_child(&mut dom, owner, 210.0);
+    let prefix = add_block_child(&mut dom, child, 16.0);
+    let suffix = add_block_child(&mut dom, child, 16.0);
+    dom.world_mut()
+        .get::<&mut ComputedStyle>(suffix)
+        .unwrap()
+        .break_before = elidex_plugin::BreakValue::Column;
+    let geom = crate::algo::ColumnGeometry {
+        count: 2,
+        width: 100.0,
+        gap: 0.0,
+    };
+    let ctx = crate::ColumnLayoutCtx {
+        content_origin: Point::ZERO,
+        block_offset: 0.0,
+        wm,
+    };
+    let mut saved = Vec::new();
+    for replay in [false, true] {
+        let mut carry = None;
+        for (i, (room, expected)) in [
+            (95.0, 95.0),
+            (60.0, 60.0),
+            (0.0, 0.0),
+            (30.0, 30.0),
+            (30.0, 25.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if !replay {
+                saved.push(carry.clone());
+            }
+            let input = LayoutInput {
+                break_token: saved[i].as_ref(),
+                ..make_input(&fonts)
+            };
+            let env = ColumnFillEnv {
+                input: &input,
+                geom: &geom,
+                env: &elidex_layout_block::LayoutEnv::from_input(&input, layout_child_fn),
+                parent_entity: owner,
+                col_ctx: &ctx,
+            };
+            let batch = fill_columns_sequential(&mut dom, &[child], &env, room, 1, false);
+            assert_eq!(batch.fragments.len(), 1);
+            assert_eq!(batch.stalled, i == 2, "column {i}");
+            let source = &batch.fragments[0].contribution;
+            assert_eq!(source.is_finished(child, prefix), i == 0);
+            assert_eq!(source.is_finished(child, suffix), i == 1);
+            assert_eq!(
+                dom.world()
+                    .get::<&LayoutBox>(child)
+                    .unwrap()
+                    .content
+                    .size
+                    .height,
+                expected
+            );
+            carry = batch.carry;
+            assert_eq!(carry.is_none(), i == 4);
+        }
+    }
 }

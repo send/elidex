@@ -295,6 +295,33 @@ pub fn layout_fragmented(
     layout_fragmented_with_tokens(dom, entity, input, fragmentainer).0
 }
 
+/// Lay out one fixed-geometry page, including the CSS Break 3 §4.4 last resort.
+pub fn layout_page_fragment(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+) -> elidex_layout_block::LayoutOutcome {
+    use elidex_layout_block::{source_progress::fragment_advanced, FragmentEnd, FragmentPlacement};
+    let made_progress = |dom: &EcsDom, outcome: &elidex_layout_block::LayoutOutcome| {
+        outcome.end.token().is_none_or(|next| {
+            fragment_advanced(dom, input.break_token, next, &outcome.contribution, None)
+        })
+    };
+    let first = dispatch_layout_child(dom, entity, input);
+    if made_progress(dom, &first) {
+        return first;
+    }
+    let retry = LayoutInput {
+        placement: FragmentPlacement::FreshPageFallback,
+        ..*input
+    };
+    let mut outcome = dispatch_layout_child(dom, entity, &retry);
+    if !made_progress(dom, &outcome) {
+        outcome.end = FragmentEnd::Incomplete;
+    }
+    outcome
+}
+
 /// Like [`layout_fragmented`], but also returns the break token chain.
 ///
 /// Each entry in `tokens[i]` is the break token that was used as INPUT to
@@ -329,7 +356,14 @@ pub fn layout_fragmented_with_tokens(
             break_token: current_token.as_ref(),
             ..*input
         };
-        let outcome = dispatch_layout_child(dom, entity, &frag_input);
+        let outcome = if matches!(
+            fragmentainer.fragmentation_type,
+            elidex_layout_block::FragmentationType::Page
+        ) {
+            layout_page_fragment(dom, entity, &frag_input)
+        } else {
+            dispatch_layout_child(dom, entity, &frag_input)
+        };
         current_token = outcome.end.token().cloned();
         let has_more = current_token.is_some();
         fragments.push(outcome);

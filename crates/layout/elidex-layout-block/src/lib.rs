@@ -5,6 +5,7 @@
 //! all layout algorithm crates.
 
 pub mod block;
+pub mod column_segments;
 pub mod helpers;
 pub mod inline;
 pub mod paint_order;
@@ -50,6 +51,28 @@ pub struct FragmentainerContext {
     pub available_block_size: f32,
     /// Type of fragmentation.
     pub fragmentation_type: FragmentationType,
+}
+
+impl FragmentainerContext {
+    /// Content-box room at entry after the applicable logical edges (CSS Break 3 §§5.1, 5.4).
+    #[must_use]
+    pub fn content_room(
+        self,
+        first: bool,
+        decoration: elidex_plugin::BoxDecorationBreak,
+        start: f32,
+        end: f32,
+    ) -> Self {
+        let reserved = match decoration {
+            elidex_plugin::BoxDecorationBreak::Cloned => start + end,
+            elidex_plugin::BoxDecorationBreak::Slice if first => start,
+            elidex_plugin::BoxDecorationBreak::Slice => 0.0,
+        };
+        Self {
+            available_block_size: (self.available_block_size - reserved).max(0.0),
+            ..self
+        }
+    }
 }
 
 /// How a formatter ended the current fragment.
@@ -127,8 +150,54 @@ pub struct BreakToken {
     pub entity: Entity,
     /// How much block-axis size was consumed before the break.
     pub consumed_block_size: f32,
+    /// Cumulative share of this box's own definite content-box target.
+    pub specified_size_fraction: Option<f64>,
     /// Layout-mode-specific data for resumption.
     pub mode_data: Option<BreakTokenData>,
+}
+
+/// Used content-box size for one fragment (CSS Break 3 §§5.1, 5.3).
+#[derive(Clone, Copy, Debug)]
+pub struct FragmentSize {
+    pub extent: f32,
+    pub fraction: Option<f64>,
+    pub remaining: bool,
+}
+
+impl FragmentSize {
+    #[must_use]
+    pub fn resolve(
+        target: Option<f32>,
+        incoming: Option<f64>,
+        content: f32,
+        room: f32,
+        interrupted: bool,
+    ) -> Self {
+        let covered = incoming.unwrap_or_default();
+        // Compare the outstanding extent at layout precision so arithmetic on a
+        // saved fraction cannot manufacture an extra fragment at an exact fit.
+        #[allow(clippy::cast_possible_truncation)]
+        let remaining = target.map_or(0.0, |size| (f64::from(size) * (1.0 - covered)) as f32);
+        let room = room.max(0.0);
+        let content = content.max(0.0);
+        let extent = if interrupted || remaining > room {
+            content.max(room)
+        } else {
+            content.max(remaining)
+        };
+        let fraction = target.map(|size| {
+            if size > 0.0 && extent < remaining {
+                (covered + f64::from(extent) / f64::from(size)).min(1.0)
+            } else {
+                1.0
+            }
+        });
+        Self {
+            extent,
+            fraction,
+            remaining: extent < remaining,
+        }
+    }
 }
 
 /// How block layout resumes at its recorded child index.
@@ -159,14 +228,20 @@ pub enum BreakTokenData {
     },
     /// Grid layout: row index and spanning item break tokens.
     Grid {
+        coverage: source_progress::SourceProgress,
         row_index: usize,
-        /// Spanning items that were fragmented at this break row.
+        /// The grid selected its last row, including the empty grid case.
+        rows_exhausted: bool,
+        /// Items with actual child continuations.
         /// Each entry is `(item_entity, child_break_token)` for resumption.
         child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
     },
     /// Column cap reached inside a normal segment. Resume its Block stack.
     Multicol {
+        coverage: source_progress::SourceProgress,
         segment_index: usize,
+        /// Count of committed columns within this segment.
+        column_index: usize,
         column: Box<BreakToken>,
     },
     /// Table layout: row index and optional header/footer entities for
@@ -279,8 +354,21 @@ impl UsedAssignment {
 pub enum FragmentPlacement {
     /// Use the output medium's ordinary continuation policy.
     Normal,
+    /// Retry at a fresh page after ordinary edge reservation prevented any progress.
+    FreshPageFallback,
     /// Finish progressing column batches locally, including when printing.
     Whole,
+}
+
+impl FragmentPlacement {
+    #[must_use]
+    pub fn at_offset(self, offset: f32) -> Self {
+        if self == Self::FreshPageFallback && offset > 0.0 {
+            Self::Normal
+        } else {
+            self
+        }
+    }
 }
 
 /// Contextual parameters for a single child layout invocation.
@@ -385,6 +473,42 @@ impl<'a> LayoutInput<'a> {
             placement: env.placement,
             is_probe: true,
         }
+    }
+}
+
+impl LayoutInput<'_> {
+    /// CSS Break 3 §4.4: when a fresh page cannot advance, truncate cloned
+    /// block-end decoration first, then block-start if it still consumes all room.
+    pub fn truncate_cloned_edges(
+        &self,
+        style: &elidex_plugin::ComputedStyle,
+        padding: &mut EdgeSizes,
+        border: &mut EdgeSizes,
+        margin: &mut EdgeSizes,
+    ) {
+        if self.placement != FragmentPlacement::FreshPageFallback
+            || style.box_decoration_break != elidex_plugin::BoxDecorationBreak::Cloned
+        {
+            return;
+        }
+        let Some(room) = self.fragmentainer else {
+            return;
+        };
+        let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
+        let mut edges = [&mut *padding, &mut *border, &mut *margin]
+            .map(|edges| elidex_plugin::LogicalEdges::from_physical(*edges, wm));
+        let start: f32 = edges.iter().map(|edge| edge.block_start).sum();
+        let end: f32 = edges.iter().map(|edge| edge.block_end).sum();
+        if start + end < room.available_block_size {
+            return;
+        }
+        for edge in &mut edges {
+            edge.block_end = 0.0;
+            if start >= room.available_block_size {
+                edge.block_start = 0.0;
+            }
+        }
+        [*padding, *border, *margin] = edges.map(|edge| edge.to_physical(wm));
     }
 }
 
@@ -609,6 +733,7 @@ mod tests {
     #[test]
     fn break_token_nested() {
         let inner = BreakToken {
+            specified_size_fraction: None,
             entity: Entity::DANGLING,
             consumed_block_size: 50.0,
             mode_data: Some(BreakTokenData::Block {
@@ -618,6 +743,7 @@ mod tests {
             }),
         };
         let outer = BreakToken {
+            specified_size_fraction: None,
             entity: Entity::DANGLING,
             consumed_block_size: 100.0,
             mode_data: Some(BreakTokenData::Flex {
@@ -653,6 +779,8 @@ mod tests {
             child_break_token: None,
         };
         let grid = BreakTokenData::Grid {
+            coverage: source_progress::SourceProgress::default(),
+            rows_exhausted: false,
             row_index: 3,
             child_break_tokens: Vec::new(),
         };

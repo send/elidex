@@ -225,18 +225,16 @@ pub fn fill_columns_sequential(
         let carry = result.end.into_token().filter(|token| {
             !matches!(&token.mode_data, Some(BreakTokenData::Block {
             child_index, continuation: elidex_layout_block::BlockContinuation::ChildBoundary, ..
-        }) if *child_index == children.len())
+        }) if *child_index == children.len() && !token.specified_size_fraction.is_some_and(|fraction| fraction < 1.0))
         });
-        if carry.is_some() {
-            let empty = elidex_layout_block::source_progress::SourceProgress::default();
-            let previous = match carry_break_token
-                .as_ref()
-                .and_then(|token| token.mode_data.as_ref())
-            {
-                Some(BreakTokenData::Block { coverage, .. }) => coverage,
-                _ => &empty,
-            };
-            stalled = !result.contribution.advances(previous);
+        if let Some(next) = &carry {
+            stalled = !elidex_layout_block::source_progress::fragment_advanced(
+                dom,
+                carry_break_token.as_ref(),
+                next,
+                &result.contribution,
+                Some(children),
+            );
         }
         fragments.push(ColumnFragment {
             contribution: result.contribution,

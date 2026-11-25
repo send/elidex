@@ -416,3 +416,224 @@ fn precomputed_blank_page_paints_only_its_number() {
         assert!(commands.next().is_none());
     }
 }
+
+#[test]
+fn consumed_inline_text_paints_only_on_its_source_page() {
+    use elidex_plugin::{ComputedStyle, CssColor, Dimension, Display};
+    let fonts = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, block) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(210.0),
+            background_color: CssColor::RED,
+            font_family: vec!["Elidex Test Digits".into()],
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox::default(),
+    );
+    let text = dom.create_text_ownerless_fixture("1");
+    assert!(dom.append_child(block, text));
+    let ctx = elidex_style::page::fixture(240., 180., 50., "");
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+    assert_eq!(printed.pages.len(), 3);
+    for (i, page) in printed.pages.iter().enumerate() {
+        let count: usize = page
+            .iter()
+            .filter_map(|item| {
+                if let DisplayItem::Text { glyphs, .. } = item {
+                    Some(glyphs.len())
+                } else {
+                    None
+                }
+            })
+            .sum();
+        assert_eq!(count, usize::from(i == 0));
+        assert!(page
+            .iter()
+            .any(|item| matches!(item,DisplayItem::SolidRect {color,..} if *color==CssColor::RED)));
+    }
+}
+
+#[test]
+fn geometry_only_columns_preserve_the_first_columns_digit() {
+    use elidex_plugin::{ColumnFill, ComputedStyle, CssColor, Dimension, Display, LayoutBox};
+    let fonts = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    for (column_height, height, source) in [
+        (40.0, 95.0, "1"),
+        (80.0, 210.0, "1"),
+        (40.0, 110.0, "1\n2\n3\n4"),
+    ] {
+        let (mut dom, columns) = setup_block_element(
+            ComputedStyle {
+                column_count: Some(3),
+                column_gap: Dimension::Length(0.0),
+                column_fill: ColumnFill::Auto,
+                height: Dimension::Length(column_height),
+                display: Display::Block,
+                ..Default::default()
+            },
+            LayoutBox::default(),
+        );
+        let block = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+        assert!(dom.append_child(columns, block));
+        dom.world_mut()
+            .insert_one(
+                block,
+                ComputedStyle {
+                    height: Dimension::Length(height),
+                    background_color: CssColor::RED,
+                    display: Display::Block,
+                    white_space: elidex_plugin::WhiteSpace::Pre,
+                    line_height: elidex_plugin::LineHeight::Px(20.0),
+                    font_family: vec!["Elidex Test Digits".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let text = dom.create_text_ownerless_fixture(source);
+        assert!(dom.append_child(block, text));
+        let ctx = elidex_style::page::fixture(400., 240., 50., "");
+        let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+        assert_eq!(printed.pages.len(), 1);
+        let page = &printed.pages[0];
+        let positions: Vec<_> = page
+            .iter()
+            .filter_map(|item| match item {
+                DisplayItem::Text { glyphs, .. } => Some(
+                    glyphs
+                        .iter()
+                        .filter(|g| g.glyph_id != 0)
+                        .map(|g| g.position.x),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(positions.len(), source.lines().count());
+        assert!(positions[0] < 150.0);
+        if source.lines().count() > 1 {
+            assert!(positions.last().unwrap() >= &150.0);
+        }
+        assert!(positions.iter().all(|x| *x < 250.0));
+        assert_eq!(page.iter().filter(|item| matches!(item, DisplayItem::SolidRect {color,..} if *color == CssColor::RED)).count(), 3);
+    }
+}
+
+#[test]
+fn empty_first_grid_row_preserves_visible_second_page_item() {
+    use elidex_plugin::{
+        ComputedStyle, CssColor, Display, GridLine, GridTrackList, LayoutBox, TrackSection,
+        TrackSize,
+    };
+    let (mut dom, grid) = setup_block_element(
+        ComputedStyle {
+            display: Display::Grid,
+            grid_template_rows: GridTrackList::Explicit(TrackSection {
+                tracks: vec![TrackSize::Length(40.0); 2],
+                line_names: vec![],
+            }),
+            ..Default::default()
+        },
+        LayoutBox::default(),
+    );
+    let item = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(grid, item));
+    dom.world_mut()
+        .insert_one(
+            item,
+            ComputedStyle {
+                display: Display::Block,
+                grid_row_start: GridLine::Line(2),
+                grid_row_end: GridLine::Line(3),
+                background_color: CssColor::RED,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let fonts = elidex_shaping::FontDatabase::new();
+    let ctx = elidex_style::page::fixture(240., 140., 50., "");
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+    let visible: Vec<_> = printed
+        .pages
+        .iter()
+        .map(|page| {
+            page.iter().any(|item|
+        matches!(item, DisplayItem::SolidRect {color, ..} if *color == CssColor::RED))
+        })
+        .collect();
+    assert_eq!(visible, [false, true]);
+}
+
+#[test]
+fn monolithic_column_item_places_inline_block_after_digit() {
+    use elidex_plugin::{ColumnFill, ComputedStyle, Dimension, Display, LayoutBox, Overflow};
+    let fonts = elidex_shaping::FontDatabase::from_fixture(include_bytes!(
+        "../../../tests/fixtures/digits.ttf"
+    ));
+    let (mut dom, columns) = setup_block_element(
+        ComputedStyle {
+            display: Display::Block,
+            height: Dimension::Length(40.0),
+            column_count: Some(3),
+            column_fill: ColumnFill::Auto,
+            ..Default::default()
+        },
+        LayoutBox::default(),
+    );
+    let block = dom.create_element_ownerless_fixture("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(columns, block));
+    dom.world_mut()
+        .insert_one(
+            block,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(95.0),
+                overflow_x: Overflow::Hidden,
+                overflow_y: Overflow::Hidden,
+                font_family: vec!["Elidex Test Digits".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let digit = dom.create_text_ownerless_fixture("1");
+    assert!(dom.append_child(block, digit));
+    let atomic = dom.create_element_ownerless_fixture("span", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(block, atomic));
+    dom.world_mut()
+        .insert_one(
+            atomic,
+            ComputedStyle {
+                display: Display::InlineBlock,
+                max_width: Dimension::Length(8.0),
+                height: Dimension::Length(8.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let ctx = elidex_style::page::fixture(400., 240., 50., "");
+    let printed = crate::build_paged_display_lists_interleaved(&mut dom, &fonts, &ctx);
+    assert_eq!(printed.pages.len(), 1);
+    let glyph = printed.pages[0]
+        .iter()
+        .find_map(|item| match item {
+            DisplayItem::Text { glyphs, .. } => glyphs.first(),
+            _ => None,
+        })
+        .expect("digit paints in the column");
+    let box_origin = dom
+        .world()
+        .get::<&LayoutBox>(atomic)
+        .unwrap()
+        .content
+        .origin;
+    assert!(
+        box_origin.x > glyph.position.x,
+        "atomic {box_origin:?}, digit {:?}",
+        glyph.position
+    );
+    assert!((box_origin.y - glyph.position.y).abs() < 20.0);
+}

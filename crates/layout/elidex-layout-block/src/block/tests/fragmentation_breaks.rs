@@ -338,3 +338,103 @@ fn hidden_inline_descendant_leaves_only_its_wrapper_terminal() {
     assert!(next.contribution.is_finished(owner, deferred));
     assert!(next.end.is_complete());
 }
+
+#[test]
+fn specified_block_size_counts_filled_fragment_room_through_replay() {
+    let fonts = FontDatabase::new();
+    for (rooms, heights, suffix_height, cloned) in [
+        (vec![95.0, 120.0], vec![95.0, 115.0], 16.0, false),
+        (vec![57.0, 153.0], vec![57.0, 153.0], 16.0, false),
+        (vec![115.0, 140.0], vec![95.0, 115.0], 16.0, true),
+        (vec![95.0, 160.0], vec![95.0, 130.0], 130.0, false),
+        (
+            vec![95.0, 60.0, 30.0, 30.0],
+            vec![95.0, 60.0, 30.0, 25.0],
+            16.0,
+            false,
+        ),
+    ] {
+        let mut style = ComputedStyle {
+            height: Dimension::Length(210.0),
+            ..block_style()
+        };
+        if cloned {
+            style.box_decoration_break = elidex_plugin::BoxDecorationBreak::Cloned;
+            style.padding.top = Dimension::Length(3.0);
+            style.padding.bottom = Dimension::Length(7.0);
+            style.margin_top = Dimension::Length(4.0);
+            style.margin_bottom = Dimension::Length(6.0);
+        }
+        let (mut dom, owner) = make_dom_with_block_div(style);
+        let prefix =
+            make_block_child_with_break(&mut dom, owner, 16.0, BreakValue::Auto, BreakValue::Page);
+        let suffix = make_block_child(&mut dom, owner, suffix_height);
+        let mut saved = Vec::new();
+        for replay in [false, true] {
+            let mut carry = None;
+            let mut total = 0.0;
+            for (index, (&room, &expected)) in rooms.iter().zip(&heights).enumerate() {
+                let frag = FragmentainerContext {
+                    available_block_size: room,
+                    fragmentation_type: FragmentationType::Page,
+                };
+                if !replay {
+                    saved.push(carry.clone());
+                }
+                let input = LayoutInput {
+                    break_token: saved[index].as_ref(),
+                    fragmentainer: Some(&frag),
+                    layout_generation: 1 + u32::from(replay) * 10 + u32::try_from(index).unwrap(),
+                    ..base_input(&fonts)
+                };
+                let outcome = crate::layout_block_only(&mut dom, owner, &input);
+                assert_eq!(outcome.layout_box.content.size.height, expected);
+                assert_eq!(outcome.contribution.is_finished(owner, prefix), index == 0);
+                assert_eq!(outcome.contribution.is_finished(owner, suffix), index == 1);
+                total += expected;
+                carry = outcome.end.into_token();
+                if index + 1 == rooms.len() {
+                    assert!(carry.is_none());
+                } else {
+                    let token = carry.as_ref().unwrap();
+                    assert!(
+                        (token.specified_size_fraction.unwrap() - f64::from(total) / 210.0).abs()
+                            < 1e-10
+                    );
+                    assert!(
+                        matches!(&token.mode_data, Some(BreakTokenData::Block { child_index, .. }) if *child_index == if index == 0 { 1 } else { 2 })
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn interrupted_child_uses_room_left_by_preceding_sibling() {
+    let fonts = FontDatabase::new();
+    let (mut dom, owner) = make_dom_with_block_div(block_style());
+    make_block_child(&mut dom, owner, 20.0);
+    let split = make_block_child(&mut dom, owner, 210.0);
+    make_block_child_with_break(&mut dom, split, 16.0, BreakValue::Auto, BreakValue::Page);
+    make_block_child(&mut dom, split, 16.0);
+    let frag = FragmentainerContext {
+        available_block_size: 95.0,
+        fragmentation_type: FragmentationType::Page,
+    };
+    let input = LayoutInput {
+        fragmentainer: Some(&frag),
+        ..base_input(&fonts)
+    };
+    let first = crate::layout_block_only(&mut dom, owner, &input);
+    assert!(first.end.token().is_some());
+    assert_eq!(
+        dom.world()
+            .get::<&elidex_plugin::LayoutBox>(split)
+            .unwrap()
+            .content
+            .size
+            .height,
+        75.0
+    );
+}

@@ -197,16 +197,19 @@ pub fn layout_block_inner(
     // --- Resolve padding and border (protect against NaN/infinity/negative) ---
     // CSS Box Model Level 3 §5.3: padding/margin percentages refer to the
     // containing block's **inline size** (containing_inline_size).
-    let padding = crate::resolve_padding(&style, containing_inline);
-    let border = sanitize_border(&style);
+    let mut padding = crate::resolve_padding(&style, containing_inline);
+    let mut border = sanitize_border(&style);
+    // --- Resolve margins (all four sides, then map to inline/block) ---
+    let mut margin = input
+        .assigned
+        .margins(crate::resolve_margins(&style, containing_inline));
+    let ordinary_padding = padding;
+    let ordinary_border = border;
+    input.truncate_cloned_edges(&style, &mut padding, &mut border, &mut margin);
     let i_pb = crate::inline_pb(&wm, &padding, &border);
     let l_padding = LogicalEdges::from_physical(padding, wm);
     let l_border = LogicalEdges::from_physical(border, wm);
 
-    // --- Resolve margins (all four sides, then map to inline/block) ---
-    let margin = input
-        .assigned
-        .margins(crate::resolve_margins(&style, containing_inline));
     let EdgeSizes {
         top: margin_top,
         right: margin_right_raw,
@@ -389,7 +392,7 @@ pub fn layout_block_inner(
         // use it; otherwise None.
         match style.width {
             Dimension::Length(px) if px.is_finite() => {
-                let b_pb_val = crate::block_pb(&wm, &padding, &border);
+                let b_pb_val = crate::block_pb(&wm, &ordinary_padding, &ordinary_border);
                 if style.box_sizing == BoxSizing::BorderBox {
                     Some((px - b_pb_val).max(0.0))
                 } else {
@@ -398,7 +401,7 @@ pub fn layout_block_inner(
             }
             Dimension::Percentage(pct) => containing_block.map(|cb| {
                 let resolved = cb * pct / 100.0;
-                let b_pb_val = crate::block_pb(&wm, &padding, &border);
+                let b_pb_val = crate::block_pb(&wm, &ordinary_padding, &ordinary_border);
                 if style.box_sizing == BoxSizing::BorderBox {
                     (resolved - b_pb_val).max(0.0)
                 } else {
@@ -448,18 +451,76 @@ pub fn layout_block_inner(
     let block_end_pb = l_border.block_end + l_padding.block_end;
 
     let child_fragmentainer = input.fragmentainer.map(|frag| {
-        let pb_consumed = match style.box_decoration_break {
-            elidex_plugin::BoxDecorationBreak::Slice if is_first_fragment => block_start_pb,
-            elidex_plugin::BoxDecorationBreak::Slice => 0.0,
-            elidex_plugin::BoxDecorationBreak::Cloned => block_start_pb + block_end_pb,
-        };
-        crate::FragmentainerContext {
-            available_block_size: (frag.available_block_size - pb_consumed).max(0.0),
-            fragmentation_type: frag.fragmentation_type,
-        }
+        frag.content_room(
+            is_first_fragment,
+            style.box_decoration_break,
+            block_start_pb + margin_block_start,
+            block_end_pb + margin_block_end,
+        )
     });
 
-    let content_block = if let Some(intr) = intrinsic {
+    let size_fragmentainer =
+        child_fragmentainer.filter(|_| !fragmentation::is_monolithic(&style, intrinsic.is_some()));
+    let resolve_size = |content_block| {
+        assigned_block.unwrap_or_else(|| {
+            resolve_block_height(
+                &style,
+                content_block,
+                containing_block,
+                &ordinary_padding,
+                &ordinary_border,
+                intrinsic.is_some(),
+                &wm,
+            )
+        })
+    };
+    let geometry_only = input.break_token.is_some_and(|token| {
+        token.entity == entity
+            && token.specified_size_fraction.is_some()
+            && matches!(&token.mode_data, Some(crate::BreakTokenData::Block {
+            child_index, continuation: crate::BlockContinuation::ChildBoundary, ..
+        }) if *child_index == children.len())
+    });
+    let content_block = if geometry_only {
+        children::validate_route(dom, entity, &children, input.break_token);
+        if !input.is_probe {
+            let keys: Vec<_> = children
+                .split(|&id| {
+                    dom.world()
+                        .get::<&elidex_plugin::ComputedStyle>(id)
+                        .is_ok_and(|s| {
+                            s.position == elidex_plugin::Position::Static
+                                && is_block_level(s.display)
+                        })
+                })
+                .filter_map(|run| crate::inline::first_eligible_child(dom, run))
+                .collect();
+            match input.fragmentainer.map(|f| f.fragmentation_type) {
+                Some(crate::FragmentationType::Page) => {
+                    for key in keys {
+                        let _ = dom.world_mut().insert_one(
+                            key,
+                            elidex_ecs::InlineFlow::single(input.layout_generation, Vec::new()),
+                        );
+                    }
+                }
+                Some(crate::FragmentationType::Column)
+                    if !keys.is_empty() && !children_are_block(dom, &children) =>
+                {
+                    // The column owner publishes all slices of a direct IFC together.
+                    let _ = dom.world_mut().insert_one(
+                        entity,
+                        elidex_ecs::ColumnFlowSlice {
+                            flow_groups: keys.into_iter().map(|key| (key, Vec::new())).collect(),
+                            ..Default::default()
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+        0.0
+    } else if let Some(intr) = intrinsic {
         if let Some(size) = assigned_block {
             size
         } else if is_horizontal {
@@ -628,6 +689,11 @@ pub fn layout_block_inner(
             child_fragmentainer
                 .as_ref()
                 .map(|frag| crate::inline::InlineFragConstraint {
+                    box_continues: size_fragmentainer.is_some()
+                        && assigned_block.or(child_containing_block).is_some()
+                        && resolve_size(0.0) > frag.available_block_size
+                        && frag.fragmentation_type == crate::FragmentationType::Column
+                        && crate::column_segments::is_column_item(dom, entity),
                     available_block: frag.available_block_size,
                     orphans: style.orphans,
                     widows: style.widows,
@@ -660,17 +726,45 @@ pub fn layout_block_inner(
     };
 
     // --- Resolve block-size ---
-    let block_size = assigned_block.unwrap_or_else(|| {
-        resolve_block_height(
-            &style,
+    let block_size = resolve_size(content_block);
+
+    let fragment_size = size_fragmentainer.and_then(|frag| {
+        let target = assigned_block
+            .or(child_containing_block)
+            .map(|_| block_size);
+        let split = !end.is_complete() || inline_progress.is_some();
+        let room = frag.available_block_size;
+        if is_first_fragment && !split && target.is_none_or(|target| target <= room) {
+            return None;
+        }
+        Some(crate::FragmentSize::resolve(
+            target,
+            input
+                .break_token
+                .and_then(|token| token.specified_size_fraction),
             content_block,
-            containing_block,
-            &padding,
-            &border,
-            intrinsic.is_some(),
-            &wm,
-        )
+            room,
+            split,
+        ))
     });
+    let block_size = fragment_size.map_or(block_size, |size| size.extent);
+    let size_fraction = fragment_size.and_then(|size| size.fraction);
+    if inline_progress.is_none()
+        && end.is_complete()
+        && fragment_size.is_some_and(|size| size.remaining)
+    {
+        let coverage = contribution.after_fragment(input.break_token);
+        end = crate::FragmentEnd::Continue(crate::BreakToken {
+            entity,
+            specified_size_fraction: size_fraction,
+            consumed_block_size: content_block,
+            mode_data: Some(crate::BreakTokenData::Block {
+                coverage,
+                child_index: children.len(),
+                continuation: crate::BlockContinuation::ChildBoundary,
+            }),
+        });
+    }
 
     // --- Build physical LayoutBox ---
     // Convert inline/block sizes and positions to physical (x, y, width, height).
@@ -753,6 +847,7 @@ pub fn layout_block_inner(
             contribution,
             layout_box: lb,
             end: crate::FragmentEnd::Continue(crate::BreakToken {
+                specified_size_fraction: size_fraction,
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
                 mode_data: Some(crate::BreakTokenData::Block {
@@ -768,6 +863,7 @@ pub fn layout_block_inner(
 
     // The stack token already belongs to this block. Include its leading decoration.
     if let crate::FragmentEnd::Continue(child_bt) = &mut end {
+        child_bt.specified_size_fraction = size_fraction;
         child_bt.consumed_block_size += block_start_pb;
     }
 

@@ -14,6 +14,7 @@ pub(crate) mod measure;
 mod pack;
 
 mod collect;
+pub(crate) use collect::first_eligible_child;
 mod reconcile;
 mod styled_run;
 mod whitespace;
@@ -75,6 +76,8 @@ pub struct InlineLayoutResult {
 /// Fragmentation constraint for inline layout (CSS Fragmentation L3 §3.3
 /// "Breaks Between Lines: orphans, widows").
 pub struct InlineFragConstraint {
+    /// The direct IFC container continues past this fragment even if its text fits.
+    pub box_continues: bool,
     /// Available block-axis space from the current cursor position.
     pub available_block: f32,
     /// CSS orphans value (inherited, default 2).
@@ -390,7 +393,9 @@ pub(crate) fn layout_inline_fragment(
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
     let frag_is_column =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let column_is_whole = progress.is_none() && break_after_line.is_none();
+    let column_is_whole = progress.is_none()
+        && break_after_line.is_none()
+        && !frag_constraint.is_some_and(|c| c.box_continues);
     let persist_flow = !frag_is_column || column_is_whole;
     // Multicol mid-break (the last non-persisted column route): the per-column line
     // slice does not go to an `InlineFlow` here (the IFC runs per column at column-0

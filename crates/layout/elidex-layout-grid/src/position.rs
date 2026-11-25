@@ -123,6 +123,17 @@ pub(crate) struct GridPlacement<'a> {
 // position_items
 // ---------------------------------------------------------------------------
 
+pub(super) struct ItemFragmentation<'a> {
+    pub owner: elidex_ecs::Entity,
+    pub contribution: elidex_layout_block::source_progress::SourceProgress,
+    pub room: Option<&'a elidex_layout_block::FragmentainerContext>,
+    pub resume_row: usize,
+    pub incoming: &'a HashMap<elidex_ecs::Entity, &'a elidex_layout_block::BreakToken>,
+    pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
+    pub block_extent: f32,
+    pub incomplete: bool,
+}
+
 /// Position each item within its grid area and perform final layout.
 ///
 /// Returns the grid container's first baseline (CSS Grid §4.2).
@@ -132,6 +143,7 @@ pub(crate) fn position_items(
     items: &[GridItem],
     placement: &GridPlacement<'_>,
     env: &LayoutEnv<'_>,
+    entry: &mut ItemFragmentation<'_>,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
@@ -350,11 +362,6 @@ pub(crate) fn position_items(
             let _ = dom.world_mut().insert_one(item.entity, style);
         }
 
-        // Margin-box position: layout_child (layout_block_inner) adds
-        // margin + border + padding offsets from here.
-        let margin_box_x = content_x + area_x + x_offset;
-        let margin_box_y = content_y + area_y + y_offset;
-
         // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
         let child_subgrid_ctx = if let Some(parent) = placement
             .subgrid_ctx
@@ -398,6 +405,34 @@ pub(crate) fn position_items(
         } else {
             area_height
         };
+        let row_offset = if entry.resume_row == 0 {
+            row_pos
+        } else {
+            (row_pos
+                - row_positions
+                    .get(entry.resume_row)
+                    .copied()
+                    .unwrap_or(row_pos))
+            .max(0.0)
+        };
+        let incoming_token = entry.incoming.get(&item.entity).copied();
+        // The alignment offset precedes the first piece only.
+        let entry_offset = if incoming_token.is_some() {
+            0.0
+        } else {
+            row_offset + if is_horizontal_wm { y_offset } else { x_offset }
+        };
+        let offset = if is_horizontal_wm {
+            Point::new(content_x + area_x + x_offset, content_y + entry_offset)
+        } else {
+            Point::new(content_x + entry_offset, content_y + area_y + y_offset)
+        };
+        let room = entry
+            .room
+            .map(|room| elidex_layout_block::FragmentainerContext {
+                available_block_size: (room.available_block_size - entry_offset).max(0.0),
+                ..*room
+            });
         let final_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
@@ -405,20 +440,42 @@ pub(crate) fn position_items(
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(area_width, item_content_h),
             containing_inline_size: final_inline_size,
-            offset: Point::new(margin_box_x, margin_box_y),
+            offset,
             font_db: env.font_db,
             depth: env.depth + 1,
             float_ctx: None,
             viewport: None,
-            fragmentainer: None,
-            break_token: None,
+            fragmentainer: room.as_ref(),
+            break_token: incoming_token,
             subgrid: child_subgrid_ctx.as_ref(),
             layout_generation: env.layout_generation,
             medium: env.medium,
-            placement: env.placement,
+            placement: env.placement.at_offset(entry_offset),
             is_probe: env.is_probe,
         };
-        let final_lb = (env.layout_child)(dom, item.entity, &final_input).layout_box;
+        let outcome = (env.layout_child)(dom, item.entity, &final_input);
+        let final_lb = outcome.layout_box;
+        entry.contribution.include(&outcome.contribution);
+        if matches!(outcome.end, elidex_layout_block::FragmentEnd::Incomplete) {
+            entry.incomplete = true;
+            break;
+        }
+        if let elidex_layout_block::FragmentEnd::Continue(token) = outcome.end {
+            entry.contribution.record_item(entry.owner, item.entity);
+            entry.outgoing.push((item.entity, Box::new(token)));
+        } else {
+            entry.contribution.finish_item(entry.owner, item.entity);
+        }
+        if room.is_some() {
+            let margin_box = final_lb.margin_box();
+            let extent = if is_horizontal_wm {
+                margin_box.size.height
+            } else {
+                margin_box.size.width
+            };
+            entry.block_extent = entry.block_extent.max(entry_offset + extent);
+            continue;
+        }
 
         // Ensure the content height matches the grid-resolved value.
         if (item_content_h - final_lb.content.size.height).abs() > LAYOUT_SIZE_EPSILON {
