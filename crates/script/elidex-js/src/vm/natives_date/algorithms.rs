@@ -34,7 +34,7 @@ pub(super) const MS_PER_DAY: f64 = 86_400_000.0;
 pub(super) const MAX_TIME_VALUE: f64 = 8.64e15;
 
 /// Cumulative day-of-year at the first of each month in a non-leap year
-/// (January = index 0). March onward gains `InLeapYear(t)` in a leap year.
+/// (January = index 0). March onward gains one day in a leap year.
 const MONTH_START_DAY: [f64; 12] = [
     0.0, 31.0, 59.0, 90.0, 120.0, 151.0, 181.0, 212.0, 243.0, 273.0, 304.0, 334.0,
 ];
@@ -53,7 +53,7 @@ pub(super) fn time_within_day(t: f64) -> f64 {
     t.rem_euclid(MS_PER_DAY)
 }
 
-/// §21.4.1.5 DaysInYear(y) — 365 or 366.
+/// The year has 366 days if IsLeapYear(y) (§21.4.1.9) is true, otherwise 365.
 fn days_in_year(y: f64) -> f64 {
     if y.rem_euclid(4.0) != 0.0 {
         365.0
@@ -66,13 +66,13 @@ fn days_in_year(y: f64) -> f64 {
     }
 }
 
-/// §21.4.1.6 DayFromYear(y) — day number of the first day of year `y`.
+/// §21.4.1.5 DayFromYear(y) — day number of the first day of year `y`.
 fn day_from_year(y: f64) -> f64 {
     365.0 * (y - 1970.0) + ((y - 1969.0) / 4.0).floor() - ((y - 1901.0) / 100.0).floor()
         + ((y - 1601.0) / 400.0).floor()
 }
 
-/// §21.4.1.10 InLeapYear(t) — `1` in a leap year, else `0`.
+/// Leap-year offset for `t`, as used by MonthFromTime (§21.4.1.10).
 fn in_leap_year(t: f64) -> f64 {
     if days_in_year(year_from_time(t)) == 366.0 {
         1.0
@@ -81,7 +81,7 @@ fn in_leap_year(t: f64) -> f64 {
     }
 }
 
-/// §21.4.1.8 YearFromTime(t) — the largest year `y` with
+/// §21.4.1.7 YearFromTime(t) — the largest year `y` with
 /// `TimeFromYear(y) <= t`, i.e. `DayFromYear(y) <= Day(t)`.
 pub(super) fn year_from_time(t: f64) -> f64 {
     let d = day(t);
@@ -99,12 +99,12 @@ pub(super) fn year_from_time(t: f64) -> f64 {
     y
 }
 
-/// §21.4.1.9 DayWithinYear(t).
+/// §21.4.1.8 DayWithinYear(t).
 fn day_within_year(t: f64) -> f64 {
     day(t) - day_from_year(year_from_time(t))
 }
 
-/// §21.4.1.11 MonthFromTime(t) — `0` (January) .. `11` (December).
+/// §21.4.1.10 MonthFromTime(t) — `0` (January) .. `11` (December).
 pub(super) fn month_from_time(t: f64) -> f64 {
     // Defensive NaN passthrough (matching `year_from_time`): without this the
     // `d < …` comparisons are all false for NaN and the final `else` would
@@ -142,7 +142,7 @@ pub(super) fn month_from_time(t: f64) -> f64 {
     }
 }
 
-/// §21.4.1.12 DateFromTime(t) — day of the month, `1` .. `31`.
+/// §21.4.1.11 DateFromTime(t) — day of the month, `1` .. `31`.
 pub(super) fn date_from_time(t: f64) -> f64 {
     let d = day_within_year(t);
     let month = month_from_time(t) as usize;
@@ -151,27 +151,27 @@ pub(super) fn date_from_time(t: f64) -> f64 {
     d - offset + 1.0
 }
 
-/// §21.4.1.13 WeekDay(t) — `0` (Sunday) .. `6` (Saturday).
+/// §21.4.1.12 WeekDay(t) — `0` (Sunday) .. `6` (Saturday).
 pub(super) fn week_day(t: f64) -> f64 {
     (day(t) + 4.0).rem_euclid(7.0)
 }
 
-/// §21.4.1.14 HourFromTime(t).
+/// §21.4.1.13 HourFromTime(t).
 pub(super) fn hour_from_time(t: f64) -> f64 {
     (t / MS_PER_HOUR).floor().rem_euclid(24.0)
 }
 
-/// §21.4.1.15 MinFromTime(t).
+/// §21.4.1.14 MinuteFromTime(t).
 pub(super) fn min_from_time(t: f64) -> f64 {
     (t / MS_PER_MINUTE).floor().rem_euclid(60.0)
 }
 
-/// §21.4.1.16 SecFromTime(t).
+/// §21.4.1.15 SecondFromTime(t).
 pub(super) fn sec_from_time(t: f64) -> f64 {
     (t / MS_PER_SECOND).floor().rem_euclid(60.0)
 }
 
-/// §21.4.1.17 msFromTime(t).
+/// §21.4.1.16 MillisecondFromTime(t).
 pub(super) fn ms_from_time(t: f64) -> f64 {
     t.rem_euclid(MS_PER_SECOND)
 }

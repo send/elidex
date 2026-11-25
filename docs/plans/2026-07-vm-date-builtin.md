@@ -55,9 +55,9 @@ implementation-defined ゆえ bounded surface として follow-up slot に carve
 - `format.rs` — `toISOString` / `toString` / `toDateString` 等の文字列生成
 
 ### Canonical AO (§21.4.1, webref 確認済)
-- `Day` §21.4.1.3 / `TimeWithinDay` §21.4.1.4 / `DayFromYear` §21.4.1.6 /
-  `YearFromTime` §21.4.1.8 / `MonthFromTime` §21.4.1.11 / `DateFromTime` §21.4.1.12 /
-  `WeekDay` §21.4.1.13 / `HourFromTime` §21.4.1.14 …
+- `Day` §21.4.1.3 / `TimeWithinDay` §21.4.1.4 / `DayFromYear` §21.4.1.5 /
+  `YearFromTime` §21.4.1.7 / `MonthFromTime` §21.4.1.10 / `DateFromTime` §21.4.1.11 /
+  `WeekDay` §21.4.1.12 / `HourFromTime` §21.4.1.13 …
 - `MakeTime` §21.4.1.27 / `MakeDay` §21.4.1.28 / `MakeDate` §21.4.1.29 / `TimeClip` §21.4.1.31
 - `LocalTime` §21.4.1.25 / `UTC` §21.4.1.26 → UTC-baseline では identity
 
