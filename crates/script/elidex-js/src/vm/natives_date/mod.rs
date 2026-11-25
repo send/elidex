@@ -4,7 +4,7 @@
 //! [`ObjectKind::Date`](super::value::ObjectKind::Date) as an `f64` time value
 //! (milliseconds since the Unix epoch, or `NaN` for an Invalid Date). See
 //! [`algorithms`] for the §21.4.1 time-value math and the **UTC-baseline**
-//! rationale (`getTimezoneOffset` is always `+0`; local components equal UTC).
+//! rationale.
 
 mod algorithms;
 mod format;

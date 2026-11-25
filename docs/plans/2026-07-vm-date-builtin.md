@@ -30,7 +30,7 @@ ES2020 baseline の core surface — compat/deprecated ではなく **clean core
 
 ### timezone → **UTC-baseline** (full local-tz は follow-up)
 `CLAUDE.md intl-icu-deferral`（ICU/tz-database dep 禁止）ゆえ、正確な local timezone を持てない。
-baseline は **UTC-baseline**: `getTimezoneOffset()` = `+0`、local `get*`/`set*` == UTC `get*`/`set*`
+baseline は **UTC-baseline**: `getTimezoneOffset()` は有限の時刻値なら `+0`、無効な Date なら `NaN`、local `get*`/`set*` == UTC `get*`/`set*`
 （`LocalTime(t)` / `UTC(t)` AO は identity）。実行環境の tz に依存せず **決定的**。
 これは spec の local-time 解釈からの意図的逸脱で、`Date` の観測可能な値が host tz に依らないことを
 保証する documented baseline。full local-tz は tz-db 解禁後の follow-up slot。

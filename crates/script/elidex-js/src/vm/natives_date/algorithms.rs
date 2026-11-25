@@ -7,8 +7,9 @@
 //!
 //! **UTC-baseline**: `LocalTime(t)` and `UTC(t)` (§21.4.1.25 / §21.4.1.26) are
 //! the identity here — the engine carries no timezone database
-//! (`intl-icu-deferral`), so local and UTC components coincide and
-//! `getTimezoneOffset()` is always `+0`. Full local-timezone support is a
+//! (`intl-icu-deferral`), so local and UTC components coincide. The offset getter
+//! (§21.4.4.11) returns `+0` for a finite time value and `NaN` for an invalid
+//! date. Full local-timezone support is a
 //! follow-up (`#11-vm-date-local-timezone`).
 //!
 //! Month/weekday indices are cast `f64 → usize`; every source is a
