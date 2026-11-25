@@ -13,7 +13,7 @@
 //! - `slice(begin?, end?)` (§23.2.3.27) — fresh buffer copy
 //! - `values()` / `keys()` / `entries()` (§23.2.3.35 / .19 / .7) —
 //!   reuse `ObjectKind::ArrayIterator` infra
-//! - `set(source, offset?)` (§23.2.3.26)
+//! - `set(source, offset?)` (§23.2.3.26).
 //! - `copyWithin(target, start, end?)` (§23.2.3.6)
 //! - `reverse()` (§23.2.3.25)
 //! - `indexOf` / `lastIndexOf` / `includes` / `at`
@@ -51,14 +51,9 @@ fn relative_index_u32(n: f64, len: u32) -> u32 {
     coerce::relative_index_f64(n, f64::from(len)) as u32
 }
 
-/// Allocate a new TypedArray wrapper of the given `ElementKind` over
-/// `buffer_id` at `byte_offset` / `byte_length`.  Picks the built-in
-/// subclass prototype associated with `ek` (`Uint8Array.prototype`,
-/// etc.) and does NOT consult the receiver's constructor,
-/// `new.target`, or `@@species` — current callers
-/// (`subarray` / `slice`) pass their own `element_kind`, so the
-/// result matches a same-ElementKind built-in subclass.  Full
-/// `SpeciesConstructor` dispatch lands with PR-spec-polish SP8.
+/// Slice and subarray currently wrap their selected buffer with the receiver’s built-in
+/// element kind. Both spec methods use TypedArraySpeciesCreate. Map and filter already have a
+/// separate species lookup path.
 fn alloc_typed_array_view(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -166,11 +161,8 @@ pub(crate) fn native_typed_array_fill(
 // subarray(begin?, end?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.subarray(begin?, end?)` (ECMA-262 §23.2.3.30).
-/// Returns a new TypedArray of the same subclass **sharing the
-/// backing `ArrayBuffer`** — mutations through either view are
-/// visible through the other.  Spec invariant:
-/// `ta.subarray(0,1).buffer === ta.buffer`.
+/// With the built-in species, subarray shares the backing buffer. This VM directly constructs
+/// that view. A custom species can change the returned object or throw.
 pub(crate) fn native_typed_array_subarray(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -206,18 +198,8 @@ pub(crate) fn native_typed_array_subarray(
 // slice(begin?, end?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.slice(begin?, end?)` (ECMA-262 §23.2.3.27).
-/// Returns a new TypedArray of the same built-in subclass **over a
-/// fresh buffer** — mutations do not propagate between receiver and
-/// slice.  Uses the receiver's `element_kind` as the allocation
-/// ElementKind; `SpeciesConstructor` / user-subclass dispatch is
-/// deferred to PR-spec-polish SP8.
-///
-/// Source and destination share the same `ElementKind`, so the
-/// per-element decode/encode round-trip is unnecessary —
-/// [`super::byte_io::copy_bytes`] performs the entire range copy
-/// in one snapshot + one clone-grow-install.  O(N²) bytes-touched
-/// → O(N).
+/// This VM copies bytes into a new same-kind view. Slice calls TypedArraySpeciesCreate in the
+/// specification; the VM bypasses it here.
 pub(crate) fn native_typed_array_slice(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -458,14 +440,8 @@ pub(crate) fn native_typed_array_set(
         }
     }
 
-    // Array-like branch: §23.2.3.26.1 step 3 runs `ToObject(source)` so
-    // primitives (strings, numbers, booleans) are wrapped and their
-    // indexed/length access proceeds uniformly; only null/undefined
-    // TypeError.  The fresh wrapper (primitive source) is only
-    // reachable via the returned `src_id` integer — push it onto
-    // `vm.stack` as a GC root for the duration of the read loop
-    // and truncate unconditionally on every exit (early RangeError
-    // or fallible `?` throw inside `get_element` / `write_element_raw`).
+    // SetTypedArrayFromArrayLike (§23.2.3.26.1) step 3 calls ToObject (§7.1.20).
+    // It preserves an object source, throws for null or undefined, and boxes other primitives.
     let src_id = super::super::coerce::to_object(ctx.vm, source)?;
     let src_obj = JsValue::Object(src_id);
     let src_root = ctx.vm.stack.len();
@@ -502,10 +478,8 @@ fn set_array_like_body(
     let len_val =
         ctx.get_property_value(src_id, super::super::value::PropertyKey::String(length_sid))?;
     let len_f = ctx.to_number(len_val)?;
-    // §23.2.3.26.1 step 4 runs `LengthOfArrayLike`/`ToLength`, which
-    // clamps NaN and negative lengths to `0` (so `set({length: -1})`
-    // is a no-op rather than a RangeError).  Only values larger than
-    // `u32::MAX` exceed the engine's byte_length cap.
+    // SetTypedArrayFromArrayLike step 4 obtains LengthOfArrayLike. The VM additionally rejects
+    // a truncated source count above u32::MAX. (SetTypedArrayFromArrayLike §23.2.3.26.1.)
     let src_len = {
         let clamped = if len_f.is_nan() || len_f <= 0.0 {
             0.0
@@ -529,10 +503,8 @@ fn set_array_like_body(
             "Failed to execute 'set' on 'TypedArray': offset + length out of range",
         ));
     }
-    // §23.2.3.26.1 step 8.b reads `src[ToString(k)]` against the
-    // wrapper object returned by `ToObject(source)`, not the raw
-    // primitive — receiver identity affects any prototype-installed
-    // getter that observes `this`.
+    // SetTypedArrayFromArrayLike (§23.2.3.26.1) step 8.b gets the indexed property
+    // of the object returned by ToObject in step 3.
     for i in 0..src_len {
         #[allow(clippy::cast_precision_loss)]
         let key = JsValue::Number(f64::from(i));

@@ -326,21 +326,8 @@ fn destructure_view(vm: &super::super::VmInner, view_id: ObjectId) -> (ObjectId,
     }
 }
 
-/// `%TypedArray%.prototype.map(callbackfn, thisArg?)`
-/// (ECMA-262 §23.2.3.22).
-///
-/// Resolves `TypedArraySpeciesCreate(O, ⟨len⟩)` (§23.2.4.3) BEFORE
-/// the read/callback/write loop so a hostile species lookup that
-/// throws fires before any element is observed (matching the spec
-/// step ordering 4 → 6).  Reads each source element via
-/// [`read_element_raw`] (no `[[Get]]` round-trip — the receiver is
-/// brand-checked), invokes the callback with `(elem, index,
-/// receiver)`, and writes the result through the destination's
-/// per-element coercion via [`write_element_raw`].
-///
-/// The destination view is rooted on `vm.stack` for the duration of
-/// the loop so it stays live across the `to_number` / `to_bigint`
-/// GC points inside `write_element_raw`.
+/// Map step 5 performs TypedArraySpeciesCreate, before step 7 reads, maps and writes. The VM
+/// resolves kind/prototype and directly allocates. (%TypedArray%.prototype.map §23.2.3.22.)
 pub(crate) fn native_typed_array_map(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -456,33 +443,9 @@ pub(crate) fn native_typed_array_filter(
     Ok(JsValue::Object(dst_view_id))
 }
 
-/// `%TypedArray%.prototype.flatMap(callbackfn, thisArg?)` —
-/// per-element callback whose result is spliced (when a TypedArray)
-/// or pushed (otherwise) into a fresh species-allocated destination.
-///
-/// Not in ES2024 (the spec omits `flatMap` from `%TypedArray%.prototype`
-/// because flat-then-collect produces a length unknown to the
-/// destination until the callback loop finishes — incompatible with
-/// the spec's species-allocate-then-fill TypedArray method shape).
-/// elidex installs it as an extension that mirrors the
-/// [`super::super::natives_array_hof::native_array_flat_map`]
-/// shape with TypedArray-aware splicing: a callback returning a
-/// TypedArray (any subclass) splices each element through the
-/// destination's per-element coercion; any other return value is
-/// pushed as a singleton.  Mismatched BigInt/Number element brands
-/// surface naturally as a per-element `write_element_raw`
-/// TypeError during the splice (e.g. splicing a `BigInt64Array`
-/// into a `Uint8Array` destination).
-///
-/// Two-phase like `filter`: collect into a stack scope, then
-/// resolve species + write back.  Atomic-on-throw in two stages:
-/// a throwing callback or other collection-time failure surfaces
-/// before species resolution or any destination view allocation;
-/// per-element coercion / write failures (`write_element_raw`)
-/// surface later during the write-back loop, after the
-/// destination TypedArray has already been allocated, but still
-/// before any value is returned to the caller — so the receiver
-/// is never observably mutated either way.
+/// The VM flatMap extension splices typed-array results, then resolves species, allocates and
+/// writes. Conversion errors arise during write-back. The method writes its destination;
+/// callbacks and accessors may mutate the receiver. Filter also allocates after collection.
 pub(crate) fn native_typed_array_flat_map(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
