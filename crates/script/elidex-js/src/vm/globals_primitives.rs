@@ -230,7 +230,7 @@ impl VmInner {
     }
 
     pub(super) fn register_symbol_global(&mut self) {
-        // The Symbol "constructor" is callable but not constructable.
+        // The VM installs Symbol with CallShape::CallableOnly.
         // Register it as a native function, then attach static methods and
         // well-known symbol properties.
         let sym_fn_id = self.create_native_function("Symbol", native_symbol_constructor);
@@ -305,7 +305,7 @@ impl VmInner {
             native_bigint_to_string, native_bigint_value_of,
         };
 
-        // BigInt is callable but NOT constructable (like Symbol).
+        // The VM installs BigInt with CallShape::CallableOnly.
         let bigint_fn = self.create_native_function("BigInt", native_bigint_constructor);
 
         // Static methods: BigInt.asIntN, BigInt.asUintN

@@ -170,8 +170,8 @@ pub(crate) fn abort_transaction(vm: &mut VmInner, txn_id: ObjectId, error: Optio
 }
 
 /// Finishes the transaction and fires `complete` (IndexedDB §5.4 step 2.5).
-/// For upgrades, this task also delivers the open request's `success` event.
-/// The factory's `open` algorithm (§4.3 step 5.3) queues that delivery separately.
+/// VM defect: upgrades deliver the open request's `success` in this task.
+/// The factory's `open` algorithm (§4.3 step 5.3) queues a separate task.
 pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
     let (upgrade_request, upgrade_handle, db) = {
         let Some(st) = vm.idb_transaction_states.get_mut(&txn_id) else {

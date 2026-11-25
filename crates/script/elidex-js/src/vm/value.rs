@@ -674,13 +674,13 @@ pub struct JsCalleeInfo {
 /// * [`CallShape::Ordinary`] — both `[[Call]]` and `[[Construct]]` are
 ///   accepted (ECMA-262 §10.3 built-in functions; `Array`, `Object`,
 ///   `Error`, etc.).
-/// * [`CallShape::CallableOnly`] — `[[Call]]` only; `[[Construct]]`
-///   throws TypeError because the function has no `[[Construct]]`
-///   (ECMA-262 §10.3 — "A built-in function object has a
-///   `[[Construct]]` internal method if and only if it is described
-///   as a 'constructor'"). `IsConstructor` (§7.2.4) returns false.
-///   VM constructor admission supplies the TypeError diagnostic for `new`.
-///   `Symbol`, `BigInt`.
+/// * [`CallShape::CallableOnly`] — VM admission rejects construction with a
+///   VM-defined TypeError message. VM defect (#11-vm-symbol-bigint-class-heritage):
+///   this shape also covers
+///   `Symbol` and `BigInt`. Both have `[[Construct]]` (§10.3), so
+///   `IsConstructor` (§7.2.4) returns true and both are valid class heritage.
+///   Their constructor bodies throw for a defined NewTarget (§20.4.1.1
+///   and §21.2.1.1, step 1).
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
 ///   throws TypeError per the WebIDL §3.7.1 (Interface object) creation
 ///   algorithm step 1.2 ("If NewTarget is undefined, then throw a

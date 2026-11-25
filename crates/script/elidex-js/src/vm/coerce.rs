@@ -768,7 +768,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
 
         // BigInt == BigInt handled by same_type above.
         // §7.2.13 steps 13–14 compare a finite Number by mathematical value.
-        // Non-finite Numbers fall through to false.
+        // A non-finite Number compares unequal.
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
                 return Ok(false);

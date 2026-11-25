@@ -211,7 +211,7 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   wrapper の内部 slot を **直読み**して override を bypass する（spec はいずれも ToPrimitive →
   `OrdinaryToPrimitive` を通す）:
   - `coerce.rs:47` `to_number` の `NumberWrapper` arm — §7.1.4 ToNumber: Object → `ToPrimitive(number)`
-  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.18 ToString: Object → `ToPrimitive(string)`
+  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.19 ToString: Object → `ToPrimitive(string)`
   - `natives_json/stringify.rs` ×3 — §25.5.4 `SerializeJSONProperty` step 4 は `[[NumberData]]` →
     `? ToNumber(value)` / `[[StringData]]` → `? ToString(value)` を要求するが slot 直読み
     （value 本体 / replacer array / `space` 引数の 3 箇所）
@@ -231,7 +231,7 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
 ### external-converge (Codex R9) 由来
 
 - `#11-vm-symbol-operand-coercion-throws` — **既存 VM bug (Date 無関係、下記 R9 fix の test 作成中に
-  発見)**。`coerce.rs` の `to_number` (§7.1.4) / `to_string` (§7.1.18) は Symbol → TypeError を
+  発見)**。`coerce.rs` の `to_number` (§7.1.4) / `to_string` (§7.1.19) は Symbol → TypeError を
   **正しく実装**しているが、VM の **opcode 経路がそれを迂回**し、primitive Symbol の coercion が
   throw せず string を返す。probe 実測 (いずれも spec では TypeError であるべき):
   `` `${Symbol('x')}` `` / `''+Symbol('x')` / `Number(Symbol('x'))` / `Symbol('x')*1` /

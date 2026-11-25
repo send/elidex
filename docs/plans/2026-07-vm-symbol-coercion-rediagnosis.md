@@ -35,7 +35,7 @@ slot**. No behavior changes.
 The probe evaluated each expression top-level (no `try`/`catch`) and recorded the
 outcome. All results are spec-correct:
 
-**Coercion → must throw `TypeError` (§7.1.4 ToNumber / §7.1.18 ToString / §13.15.3
+**Coercion → must throw `TypeError` (§7.1.4 ToNumber / §7.1.19 ToString / §13.15.3
 ApplyStringOrNumericBinaryOperator) — ALL THROW:**
 
 | spelling | result | spelling | result |
@@ -112,7 +112,7 @@ dispatch → coerce), which the existing **unit**-level `to_number(Symbol)` /
 ## 4. Why no code fix (correct by construction)
 
 The correctness is structural, not incidental: `coerce::to_number` (§7.1.4, Symbol
-arm) and `coerce::to_string` (§7.1.18, Symbol arm) are the **single** coercion
+arm) and `coerce::to_string` (§7.1.19, Symbol arm) are the **single** coercion
 chokepoint; every arithmetic/bitwise/relational opcode (`dispatch.rs` →
 `ops.rs`/`coerce_ops.rs`) and every builtin (`NativeContext::to_number` /
 `to_string_val`) routes through them, and their Object arm delegates to

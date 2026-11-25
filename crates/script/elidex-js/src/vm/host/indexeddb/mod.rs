@@ -23,7 +23,7 @@
 //!
 //! ## Async model (W3C IDB §5.6 / §5.9 / §2.7.1)
 //!
-//! `IDBRequest` is a non-Node `EventTarget` (NOT a Promise).  A request's
+//! `IDBRequest` is a non-Node `EventTarget`. For a store, index or cursor request, the
 //! operation runs synchronously against the SQLite backend, but its result
 //! is delivered via a **database task** (§5.6 step 5.6 "queue a database
 //! task") — [`super::pending_tasks::PendingTask::IdbDeliver`] drained at the
