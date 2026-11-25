@@ -94,7 +94,7 @@ A naive "route every wrapper through ToPrimitive everywhere" over-corrects the J
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §7.1.4 ToNumber | step 8 | value is Object | `coerce::to_number` Object arm — remove wrapper fast-path → fallthrough `to_primitive(val,"number")` (`coerce.rs:61-62`) | ✓ | yes (`+wrapper`, `wrapper*n`, unary/bitwise/relational) |
-| ECMA-262 §7.1.19 ToString | step 10 | value is Object | `coerce::to_string` Object arm — remove fast-path → fallthrough `to_primitive(val,"string")` (`coerce.rs:245-246`) | ✓ | yes (template, `+''`, wrapper→string) |
+| ECMA-262 §7.1.19 ToString | step 10 | value is Object | `coerce::to_string` Object arm — remove fast-path → fallthrough `to_primitive(val,"string")` (`coerce.rs:245-246`) | ✓ | yes (template, `String(wrapper)`, wrapper→string) |
 | ECMA-262 §7.1.1 ToPrimitive | step 1.b | exotic `@@toPrimitive` present | `ops.rs::to_primitive` (UNCHANGED — the defer target) | ✓ | yes |
 | ECMA-262 §7.1.1.1 OrdinaryToPrimitive | steps 1-3 | `@@toPrimitive` absent → `valueOf`/`toString` by hint | `ops.rs::ordinary_to_primitive` (UNCHANGED) | ✓ | yes |
 | ECMA-262 §25.5.4.2 SerializeJSONProperty | step 4.b | `[[NumberData]]` | `stringify.rs:91` → `ToNumber(value)` | ✓ | yes (`JSON.stringify(new Number(…))`) |

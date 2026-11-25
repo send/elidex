@@ -102,10 +102,10 @@ pub(crate) fn async_execute(
     req
 }
 
-/// Drain step for [`PendingTask::IdbDeliver`] (§5.6 step 5.6).  Removes the
-/// request from its transaction's request list **before** firing (so §5.9
-/// step 8.3 reads the post-removal list), sets `readyState = "done"` +
-/// result / error, then fires the `success` / `error` event.
+/// Drain step for [`PendingTask::IdbDeliver`]. For a transaction request,
+/// §5.6 step 5.6 removes it from the request list before event dispatch.
+/// For an ordinary factory result, §4.3 queues delivery without a transaction.
+/// Both paths set the done flag and result or error before firing the event.
 pub(crate) fn dispatch_idb_deliver(vm: &mut VmInner, request_id: ObjectId) {
     let (outcome, txn_id) = {
         let Some(st) = vm.idb_request_states.get_mut(&request_id) else {
