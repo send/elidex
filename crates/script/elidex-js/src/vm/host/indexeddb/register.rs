@@ -80,7 +80,7 @@ impl VmInner {
         // --- IDBOpenDBRequest : IDBRequest ---------------------------------
         let open_proto = self.alloc_idb_proto(Some(req_proto));
         // Inherits the IDBRequest accessors / EventTarget shadow; adds the two
-        // open-request-only handler attributes (§4.3).
+        // IDBOpenDBRequest handler attributes (IndexedDB §4.1).
         self.install_vm_object_handler_attrs(open_proto, &["onupgradeneeded", "onblocked"]);
         self.idb_open_db_request_prototype = Some(open_proto);
         self.idb_install_interface(open_proto, "IDBOpenDBRequest");
