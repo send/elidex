@@ -512,8 +512,8 @@ fn details_close_does_not_cascade_exclusion() {
 
 #[test]
 fn details_open_setter_normalises_attribute_value_when_already_open() {
-    // R7 IMP regression: per HTML §6.13.1 "reflect a boolean
-    // attribute" the setter must always normalise the content
+    // R7 IMP regression: per HTML §2.6.1, the boolean
+    // setter must always normalise the content
     // attribute (present-with-empty-value when true, absent when
     // false) regardless of state change.  Pre-fix the state-unchanged
     // short-circuit also skipped this normalisation, leaving the
