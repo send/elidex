@@ -36,8 +36,6 @@ use elidex_plugin::{
     Point, VerticalAlign,
 };
 
-use elidex_layout_block::block::resolve_margin;
-
 use algo::resolve_collapsed_borders;
 pub(crate) use algo::CollapsedBorders;
 pub(crate) use grid::{
@@ -197,7 +195,8 @@ pub fn layout_table(
     let offset_y = input.offset.y;
     let font_db = input.font_db;
     let depth = input.depth;
-    if depth >= MAX_LAYOUT_DEPTH {
+    if depth >= MAX_LAYOUT_DEPTH && input.assigned == elidex_layout_block::UsedAssignment::default()
+    {
         return LayoutBox::default().into();
     }
 
@@ -242,17 +241,34 @@ pub fn layout_table(
     let v_pb = vertical_pb(&padding, &border);
 
     // Resolve margins (before width, since auto width depends on margins).
-    let margin = EdgeSizes {
-        top: resolve_margin(style.margin_top, input.containing_inline_size),
-        right: resolve_margin(style.margin_right, input.containing_inline_size),
-        bottom: resolve_margin(style.margin_bottom, input.containing_inline_size),
-        left: resolve_margin(style.margin_left, input.containing_inline_size),
-    };
+    let margin = input.assigned.margins(elidex_layout_block::resolve_margins(
+        &style,
+        input.containing_inline_size,
+    ));
     let h_margin = margin.left + margin.right;
 
+    let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal_wm);
     // Resolve table width.
-    let content_width =
-        elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin);
+    let content_width = assigned_inline.unwrap_or_else(|| {
+        elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin)
+    });
+
+    if depth >= MAX_LAYOUT_DEPTH {
+        let lb = build_table_layout_box(
+            &padding,
+            &border,
+            &margin,
+            Point::new(
+                offset_x + margin.left + border.left + padding.left,
+                offset_y + margin.top + border.top + padding.top,
+            ),
+            input.assigned.content.width.unwrap_or(0.0),
+            input.assigned.content.height.unwrap_or(0.0),
+            None,
+        );
+        dom.set_layout_box(entity, lb.clone());
+        return lb.into();
+    }
 
     // Child inline containing size: in vertical modes, inline size = physical height.
     let child_inline_containing = elidex_layout_block::compute_inline_containing(
@@ -313,6 +329,10 @@ pub fn layout_table(
     if !is_continuation {
         for &cap in &captions_top {
             let cap_input = LayoutInput {
+                available_height_if_indefinite: None,
+                containing_width_definite: true,
+                is_flex_item: false,
+                assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,
                 offset: Point::new(content_x, cursor_y),
@@ -380,15 +400,41 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let content_height =
-            resolve_table_height(&style, containing_height, v_pb, caption_top_height);
+        let width = input.assigned.content.width.unwrap_or_else(|| {
+            let natural = if is_horizontal_wm {
+                content_width
+            } else if style.width != elidex_plugin::Dimension::Auto {
+                elidex_layout_block::resolve_content_width(&style, containing_width, h_pb, h_margin)
+            } else {
+                0.0
+            };
+            helpers::constrain_empty_extent(
+                natural,
+                style.min_width,
+                style.max_width,
+                containing_width,
+                h_pb,
+                style.box_sizing,
+            )
+        });
+        let height = input.assigned.content.height.unwrap_or_else(|| {
+            let natural = resolve_table_height(&style, containing_height, v_pb, caption_top_height);
+            helpers::constrain_empty_extent(
+                natural,
+                style.min_height,
+                style.max_height,
+                containing_height.unwrap_or(0.0),
+                v_pb,
+                style.box_sizing,
+            )
+        });
         let lb = build_table_layout_box(
             &padding,
             &border,
             &margin,
             Point::new(content_x, offset_y + margin.top + border.top + padding.top),
-            content_width,
-            content_height,
+            width,
+            height,
             None,
         );
         dom.set_layout_box(entity, lb.clone());
@@ -469,7 +515,7 @@ pub fn layout_table(
     // Pre-compute the table's explicit content height for cell percentage-height
     // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
     // percentage heights resolve against the content-box height; otherwise auto.
-    let table_explicit_height = match style.height {
+    let table_explicit_height = assigned_block.or_else(|| match style.height {
         elidex_plugin::Dimension::Length(px) if px.is_finite() && px > 0.0 => {
             if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
                 Some((px - v_pb).max(0.0))
@@ -486,7 +532,7 @@ pub fn layout_table(
             }
         }),
         _ => None,
-    };
+    });
 
     // Compute row heights by laying out each cell with its resolved column width.
     let mut row_heights = vec![0.0_f32; num_rows];
@@ -503,6 +549,10 @@ pub fn layout_table(
         // Pass table explicit height as containing_height so cell percentage
         // heights resolve correctly (CSS 2.1 §17.5.3).
         let cell_input = LayoutInput {
+            available_height_if_indefinite: None,
+            containing_width_definite: true,
+            is_flex_item: false,
+            assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize {
                 width: effective_width,
                 height: table_explicit_height,
@@ -597,8 +647,9 @@ pub fn layout_table(
     let pre_redistribution_row_height: f32 =
         row_heights.iter().sum::<f32>() + spacing_v * (num_rows as f32 + 1.0);
     let min_for_redistribution = caption_top_height + pre_redistribution_row_height;
-    let explicit_height =
-        resolve_table_height(&style, containing_height, v_pb, min_for_redistribution);
+    let explicit_height = assigned_block.unwrap_or_else(|| {
+        resolve_table_height(&style, containing_height, v_pb, min_for_redistribution)
+    });
     if explicit_height > min_for_redistribution {
         let surplus = explicit_height - min_for_redistribution;
         redistribute_surplus(&mut row_heights, surplus);
@@ -697,6 +748,10 @@ pub fn layout_table(
 
         // Re-layout cell at correct position.
         let cell_relayout_input = LayoutInput {
+            available_height_if_indefinite: None,
+            containing_width_definite: true,
+            is_flex_item: false,
+            assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(cell_phys_w, cell_phys_h),
             containing_inline_size: child_inline_containing,
             offset: Point::new(cell_x, cell_y),
@@ -722,6 +777,10 @@ pub fn layout_table(
     if result_break_token.is_none() && !is_continuation {
         for &cap in &captions_bottom {
             let cap_input = LayoutInput {
+                available_height_if_indefinite: None,
+                containing_width_definite: true,
+                is_flex_item: false,
+                assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,
                 offset: Point::new(content_x, cursor_y),
@@ -745,9 +804,10 @@ pub fn layout_table(
     // Determine final table height.
     let total_caption_height = caption_top_height + caption_bottom_height;
     let min_content_height = total_caption_height + table_content_height_from_rows;
-    let mut content_height =
+    let mut content_height = assigned_block.unwrap_or_else(|| {
         resolve_table_height(&style, containing_height, v_pb, min_content_height)
-            .max(min_content_height);
+            .max(min_content_height)
+    });
 
     // If fragmentation produced a break, clamp content height to consumed size.
     if let Some(ref bt) = result_break_token {

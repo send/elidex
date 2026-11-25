@@ -41,12 +41,18 @@ pub struct Selector {
 impl Selector {
     /// Check if this selector matches the given entity in the DOM.
     pub fn matches(&self, entity: Entity, dom: &EcsDom) -> bool {
+        self.matches_in_context(entity, dom, None)
+    }
+
+    /// Match in a stylesheet's tree context (CSS Shadow 1 §3.2.3).
+    /// A shadow stylesheet supplies its own host; document queries have none.
+    pub fn matches_in_context(&self, entity: Entity, dom: &EcsDom, host: Option<Entity>) -> bool {
         if self.components.is_empty() {
             // Empty components with a pseudo-element (e.g., `::before` alone)
             // is equivalent to `*::before` -- matches any element.
             return self.pseudo_element.is_some();
         }
-        match_components(&self.components, 0, entity, dom)
+        match_components(&self.components, 0, entity, dom, host)
     }
 
     /// Check if this selector contains `:host` or `:host()`.

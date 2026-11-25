@@ -268,10 +268,10 @@ fn buffer_getter_brand_check_rejects_foreign() {
 #[test]
 fn canonical_numeric_keys_return_undefined_not_ordinary() {
     let mut vm = Vm::new();
-    // ECMA-262 §7.1.22: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
+    // ECMA-262 §7.1.23: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
     // canonical numeric index strings.  On a TypedArray integer-
     // indexed exotic they must return `undefined` (§10.4.5.17
-    // step 3), NOT fall through to ordinary [[Get]] lookup.
+    // step 1), without consulting ordinary properties.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([1, 2]); \
@@ -284,11 +284,8 @@ fn canonical_numeric_keys_return_undefined_not_ordinary() {
 #[test]
 fn canonical_numeric_keys_set_is_silent_no_op() {
     let mut vm = Vm::new();
-    // ECMA-262 §10.4.5.18 step 1: storing on a canonical numeric index
-    // that is not a valid integer index is a silent no-op — the
-    // write doesn't create an own property, so a subsequent read
-    // still returns `undefined`.  The in-range integer elements
-    // stay untouched.
+    // §10.4.5.18 step 3 skips each invalid-index store. The numeric RHS
+    // masks the VM conversion-order defect: its early return skips steps 1–2.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([5, 6]); \
@@ -302,9 +299,8 @@ fn canonical_numeric_keys_set_is_silent_no_op() {
 fn typed_array_accepts_u32_max_boundary_index_string() {
     let mut vm = Vm::new();
     // `"4294967295"` = u32::MAX is a valid CanonicalNumericIndexString.
-    // Out-of-range integer index → Get returns `undefined`, Set is
-    // a silent no-op (§10.4.5.15/16); must not fall through to
-    // ordinary property storage.
+    // The invalid index returns undefined on read (§10.4.5.17 step 1)
+    // and skips the store (§10.4.5.18 step 3).
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array(1); \
@@ -316,13 +312,9 @@ fn typed_array_accepts_u32_max_boundary_index_string() {
 #[test]
 fn canonical_numeric_number_keys_set_is_silent_no_op() {
     let mut vm = Vm::new();
-    // Number-key direct path (bytecode may bypass ToPropertyKey):
-    // NaN / ±Infinity / negative integer / fractional / out-of-
-    // u32-range Number keys must be treated as canonical numeric
-    // non-integer — silent no-op on Set, NOT ordinary property
-    // creation.  Ordinary property would survive as
-    // `u['-1']`/`u['NaN']`/etc. and pollute the TypedArray with
-    // user-visible named own keys.
+    // These numeric keys select no element and create no ordinary property.
+    // §10.4.5.18 steps 1–2 convert the RHS before step 3 skips the store.
+    // The literal 99 masks the VM defect in the key and stored-count early returns.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([5, 6]); \
@@ -521,10 +513,7 @@ fn data_view_nan_offset_still_bounds_checks() {
 #[test]
 fn typed_array_set_accepts_primitive_source_via_to_object() {
     let mut vm = Vm::new();
-    // ECMA-262 §23.2.3.26.1 SetTypedArrayFromArrayLike step 3: `ToObject(source)`.
-    // Primitive strings become StringWrapper whose length + indexed
-    // access drive the write loop (each 1-char string ToNumber's to
-    // NaN → 0 for Uint8Array).
+    // SetTypedArrayFromArrayLike §23.2.3.26.1 step 3 calls ToObject.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -533,7 +522,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
         ),
         0.0
     );
-    // Null / undefined still TypeError (§7.1.20 ToObject step 1).
+    // ToObject §7.1.20 rejects null and undefined.
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array(1); var ok = false; \

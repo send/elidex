@@ -1,12 +1,12 @@
 //! Pseudo-element (`::before`/`::after`) generation for style resolution.
 
 use elidex_css::media::MediaEnvironment;
-use elidex_css::{PseudoElement, Stylesheet};
+use elidex_css::PseudoElement;
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker};
 use elidex_plugin::{ComputedStyle, ContentValue, Display};
 
 use crate::cascade::collect_and_cascade_pseudo;
-use crate::resolve::{build_computed_style, ResolveContext};
+use crate::resolve::{build_style_for_subject, ResolveContext, StyleSubject};
 
 /// Remove all pseudo-element child entities from a parent.
 ///
@@ -24,13 +24,15 @@ pub(crate) fn remove_pseudo_entities(dom: &mut EcsDom, parent: Entity) {
 
 /// Generate a pseudo-element entity (`::before` or `::after`) if the
 /// originating element has matching CSS rules with non-empty content.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_pseudo_entity(
     dom: &mut EcsDom,
     entity: Entity,
-    stylesheets: &[&Stylesheet],
+    stylesheets: crate::cascade::ElementSheets<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
     media_env: &MediaEnvironment,
+    effective_parent: Option<Display>,
     pseudo: PseudoElement,
 ) {
     // Cascade pseudo-element rules (gated by the `@media` environment).
@@ -43,7 +45,13 @@ pub(crate) fn generate_pseudo_entity(
     let mut resolved = crate::resolve::resolve_candidates(&winners, parent_style);
     let custom = std::mem::take(&mut resolved.custom);
     let winners = resolved.ordinary();
-    let mut pe_style = build_computed_style(&winners, parent_style, ctx);
+    let mut pe_style = build_style_for_subject(
+        &winners,
+        parent_style,
+        ctx,
+        StyleSubject::Element,
+        effective_parent,
+    );
 
     pe_style.custom_properties = custom;
 
@@ -51,13 +59,6 @@ pub(crate) fn generate_pseudo_entity(
     // to `none`.  Both `normal` and `none` suppress generation.
     if !matches!(pe_style.content, ContentValue::Items(_)) {
         return;
-    }
-
-    // Create the pseudo-element entity with inline display.
-    let mut style = pe_style;
-    // Pseudo-elements default to inline display unless explicitly set.
-    if !winners.contains_key("display") {
-        style.display = Display::Inline;
     }
 
     // Create the entity with empty text — the pre-layout generated-content pass
@@ -68,7 +69,7 @@ pub(crate) fn generate_pseudo_entity(
     // `destroy_entity`) and the originating element's node document.
     let owner = dom.node_document_for_new_nodes(entity);
     let pe_entity = dom.create_text_with_owner(String::new(), owner);
-    let _ = dom.world_mut().insert_one(pe_entity, style);
+    let _ = dom.world_mut().insert_one(pe_entity, pe_style);
     let _ = dom.world_mut().insert_one(pe_entity, PseudoElementMarker);
 
     // Insert as first child (::before) or last child (::after).

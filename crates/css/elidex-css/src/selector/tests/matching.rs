@@ -523,7 +523,8 @@ fn host_matches_shadow_host() {
         .unwrap();
 
     let sel = parse_sel(":host").unwrap();
-    assert!(sel.matches(host, &dom));
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
+    assert!(!sel.matches(host, &dom));
 }
 
 #[test]
@@ -545,7 +546,8 @@ fn host_function_matches_with_class() {
         .unwrap();
 
     let sel = parse_sel(":host(.active)").unwrap();
-    assert!(sel.matches(host, &dom));
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
+    assert!(!sel.matches(host, &dom));
 }
 
 #[test]
@@ -556,7 +558,7 @@ fn host_function_no_match_without_class() {
         .unwrap();
 
     let sel = parse_sel(":host(.active)").unwrap();
-    assert!(!sel.matches(host, &dom));
+    assert!(!sel.matches_in_context(host, &dom, Some(host)));
 }
 
 #[test]
@@ -640,9 +642,10 @@ fn not_host_matches_non_host() {
 
     let sel = parse_sel(":not(:host)").unwrap();
     // Non-host matches :not(:host).
-    assert!(sel.matches(div, &dom));
+    assert!(sel.matches_in_context(div, &dom, Some(host)));
     // Shadow host does NOT match :not(:host).
-    assert!(!sel.matches(host, &dom));
+    assert!(!sel.matches_in_context(host, &dom, Some(host)));
+    assert!(sel.matches(host, &dom));
 }
 
 #[test]
@@ -654,6 +657,7 @@ fn not_host_function_matches_host_without_class() {
 
     // :not(:host(.active)) should match host without .active class.
     let sel = parse_sel(":not(:host(.active))").unwrap();
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
     assert!(sel.matches(host, &dom));
 
     // Host with .active should NOT match :not(:host(.active)).
@@ -662,7 +666,8 @@ fn not_host_function_matches_host_without_class() {
     let host2 = dom.create_element_ownerless_fixture("div", attrs);
     dom.attach_shadow(host2, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
-    assert!(!sel.matches(host2, &dom));
+    assert!(!sel.matches_in_context(host2, &dom, Some(host2)));
+    assert!(sel.matches_in_context(host2, &dom, Some(host)));
 }
 
 // --- Form pseudo-class matching tests (M4-3.5 R2) ---

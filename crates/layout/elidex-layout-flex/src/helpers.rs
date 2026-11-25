@@ -1,14 +1,13 @@
 //! Box model helpers, item collection, and automatic minimum size computation.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::block::resolve_margin;
 use elidex_layout_block::{
     adjust_min_max_for_border_box, clamp_min_max, effective_align, horizontal_pb, resolve_min_max,
     sanitize, sanitize_border, vertical_pb, LayoutInput,
 };
 use elidex_plugin::{BoxSizing, ComputedStyle, Dimension, Display, FlexBasis, Visibility};
 
-use super::{is_reversed, resolve_flex_basis, FlexContext, FlexItem};
+use super::{resolve_flex_basis, FlexContext, FlexItem};
 
 /// Compute padding+border on main and cross axes.
 pub(crate) fn compute_pb(
@@ -27,23 +26,6 @@ pub(crate) fn compute_pb(
     }
 }
 
-/// Returns `(margin_main, margin_cross)`.
-pub(crate) fn compute_margins(
-    style: &ComputedStyle,
-    horizontal: bool,
-    containing_width: f32,
-) -> (f32, f32) {
-    let ml = resolve_margin(style.margin_left, containing_width);
-    let mr = resolve_margin(style.margin_right, containing_width);
-    let mt = resolve_margin(style.margin_top, containing_width);
-    let mb = resolve_margin(style.margin_bottom, containing_width);
-    if horizontal {
-        (ml + mr, mt + mb)
-    } else {
-        (mt + mb, ml + mr)
-    }
-}
-
 /// Collect flex items from children, resolving styles and computing metrics.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn collect_flex_items(
@@ -54,7 +36,7 @@ pub(crate) fn collect_flex_items(
 ) -> Vec<FlexItem> {
     let mut items = Vec::new();
     for (source_order, &child) in children.iter().enumerate() {
-        let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
+        let Some(child_style) = elidex_layout_block::try_get_style(dom, child) else {
             continue;
         };
         if child_style.display == Display::None {
@@ -63,13 +45,6 @@ pub(crate) fn collect_flex_items(
         // Absolutely positioned flex children are removed from flex layout.
         if elidex_layout_block::positioned::is_absolutely_positioned(&child_style) {
             continue;
-        }
-
-        // Flex §4.2: blockify flex items.
-        let blockified = child_style.display.blockify();
-        if blockified != child_style.display {
-            child_style.display = blockified;
-            let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
         let (pb_main, pb_cross) = compute_pb(&child_style, ctx.horizontal, ctx.inline_containing);
@@ -81,7 +56,7 @@ pub(crate) fn collect_flex_items(
             margin_cross_start_auto,
             margin_cross_end_auto,
         ) = if ctx.horizontal {
-            let (ms, me) = if is_reversed(ctx.direction) {
+            let (ms, me) = if ctx.reversed_main() {
                 (
                     child_style.margin_right == Dimension::Auto,
                     child_style.margin_left == Dimension::Auto,
@@ -99,7 +74,7 @@ pub(crate) fn collect_flex_items(
                 child_style.margin_bottom == Dimension::Auto,
             )
         } else {
-            let (ms, me) = if is_reversed(ctx.direction) {
+            let (ms, me) = if ctx.reversed_main() {
                 (
                     child_style.margin_bottom == Dimension::Auto,
                     child_style.margin_top == Dimension::Auto,
@@ -118,14 +93,13 @@ pub(crate) fn collect_flex_items(
             )
         };
 
-        let (margin_main, margin_cross) =
-            compute_margins(&child_style, ctx.horizontal, ctx.inline_containing);
-
-        // Cross-start margin for baseline offset computation.
-        let margin_cross_start = if ctx.horizontal {
-            resolve_margin(child_style.margin_top, ctx.inline_containing)
+        let margin = elidex_layout_block::resolve_margins(&child_style, ctx.inline_containing);
+        let horizontal_margin = margin.left + margin.right;
+        let vertical_margin = margin.top + margin.bottom;
+        let (margin_main, margin_cross, margin_cross_start) = if ctx.horizontal {
+            (horizontal_margin, vertical_margin, margin.top)
         } else {
-            resolve_margin(child_style.margin_left, ctx.inline_containing)
+            (vertical_margin, horizontal_margin, margin.left)
         };
 
         // Flex §4.4: visibility:collapse detection.
@@ -159,6 +133,7 @@ pub(crate) fn collect_flex_items(
                 ctx.content_width
             };
             let child_input = LayoutInput {
+                is_flex_item: true,
                 viewport: env.viewport,
                 ..LayoutInput::probe(env, probe_width)
             };
@@ -201,7 +176,27 @@ pub(crate) fn collect_flex_items(
         // Clamp hypothetical main size by min/max (CSS §9.5 step 5).
         let hypo_main = clamp_min_max(hypo_main, min_main, max_main);
 
+        let (cross_min, cross_max, cross_basis) = if ctx.horizontal {
+            (
+                child_style.min_height,
+                child_style.max_height,
+                ctx.resolved_height.unwrap_or(0.0),
+            )
+        } else {
+            (
+                child_style.min_width,
+                child_style.max_width,
+                ctx.content_width,
+            )
+        };
+        let mut min_cross = resolve_min_max(cross_min, cross_basis, 0.0);
+        let mut max_cross = resolve_min_max(cross_max, cross_basis, f32::INFINITY);
+        if child_style.box_sizing == BoxSizing::BorderBox {
+            adjust_min_max_for_border_box(&mut min_cross, &mut max_cross, pb_cross);
+        }
         items.push(FlexItem {
+            min_cross,
+            max_cross,
             entity: child,
             source_order,
             order: child_style.order,
@@ -209,6 +204,7 @@ pub(crate) fn collect_flex_items(
             hypo_main,
             grow: child_style.flex_grow,
             shrink: child_style.flex_shrink,
+            margin,
             margin_main,
             margin_cross,
             pb_main,
@@ -217,6 +213,7 @@ pub(crate) fn collect_flex_items(
             final_cross: 0.0,
             align: effective_align(child_style.align_self, ctx.align_items),
             cross_size_auto,
+            definite_preferred_cross: false,
             min_main,
             max_main,
             margin_main_start_auto,
@@ -259,6 +256,7 @@ fn compute_automatic_minimum(
 
     // Content-based minimum: probe layout at near-zero width.
     let probe_input = LayoutInput {
+        is_flex_item: true,
         viewport: env.viewport,
         ..LayoutInput::probe(env, 1.0)
     };

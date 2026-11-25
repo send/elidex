@@ -176,7 +176,7 @@ not omitted). The edges E-n are the cells' subjects (§2.2).
 
 | Axis | Content |
 |---|---|
-| A1 entry | one `[[Construct]]` entry for `new`, SuperCall, the upgrade and every future caller (Reflect.construct, Proxy, TypedArrayCreate, Array.from) |
+| A1 entry | one `[[Construct]]` entry for `new`, SuperCall, the upgrade and every future caller (Reflect.construct, Proxy, TypedArrayCreateFromConstructor, Array.from) |
 | A2 proto | GetPrototypeFromConstructor (§10.1.14) / Web IDL §3.8 step 3 (3.2-3.3): one resolver |
 | A3 this | the this-binding: base bound at entry, derived uninitialized until `super()`, arrow reads the binding, native gets *uninitialized* |
 | A4 return | §10.2.2 steps 12-17 for JS; §10.3.2 step 2 (an Object) for natives |

@@ -101,7 +101,7 @@ fn unset_keyword() {
 
     // color is inherited: unset -> inherit from parent
     // display is non-inherited: unset -> initial
-    let css = "div { color: red; display: flex; } span { color: unset; display: unset; }";
+    let css = "div { color: red; display: block; } span { color: unset; display: unset; }";
     let ss = parse_stylesheet(css, Origin::Author);
     resolve_styles(&mut dom, &[&ss], Size::new(1920.0, 1080.0));
 

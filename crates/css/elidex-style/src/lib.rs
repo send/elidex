@@ -392,11 +392,21 @@ fn apply_document_style(
         media_env,
         hint_generator,
         depth: 0,
+        effective_parent: None,
+        document_element: dom
+            .document_root()
+            .and_then(|root| dom.first_element_child(root)),
         total_shadow_css: &mut total_shadow_css,
     };
     for root in roots {
         state.depth = 0;
-        walk_tree(dom, root, all_sheets, &default_parent, &mut state);
+        walk_tree(
+            dom,
+            root,
+            cascade::ElementSheets::document(all_sheets),
+            &default_parent,
+            &mut state,
+        );
     }
 
     // Final phase: resolve CSS counters + generated content (pseudo `content`,

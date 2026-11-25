@@ -611,13 +611,12 @@ fn missing_import_surfaces_as_link_error() {
     vm.unbind();
 }
 
-/// DR-11 + ECMA-262 §10.4.5.18 TypedArraySetElement — writes
-/// through a TypedArray view over a detached buffer are silently
-/// no-ops; reads return `undefined` (legacy contract carried by F3's
-/// `is_detached_buffer` short-circuit in `byte_io::*_with_routing`).
+/// DR-11: after detachment, the indexed read returns `undefined` (§10.4.5.17).
+/// TypedArraySetElement (§10.4.5.18 steps 1–3) converts the RHS first, which
+/// can throw. Here 99 converts successfully and the detached view skips the store.
 /// This is the cross-view alias-safety guard for Memory.grow's
 /// detach: an `Uint8Array` view captured before grow keeps reporting
-/// `byteLength === 0` and rejects further writes while the fresh
+/// `byteLength === 0` and its elements stay unchanged while the fresh
 /// view over the post-grow backing observes pre-grow content
 /// unchanged.
 #[test]

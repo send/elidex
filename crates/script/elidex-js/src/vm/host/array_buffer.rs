@@ -269,14 +269,10 @@ pub(crate) fn array_buffer_detach(vm: &mut VmInner, id: ObjectId) {
     }
 }
 
-/// Throw `TypeError` if `id` refers to a detached ArrayBuffer per
-/// [`is_detached_buffer`], else `Ok(())`.  Used at spec sites that
-/// require buffer-attached witness before touching backing bytes /
-/// length state — currently the TypedArray ctor
-/// (ECMA-262 §23.2.5.1.3 step 6) and the DataView ctor
-/// (ECMA-262 §25.3.2.1 step 4).  Mirrors the same single-helper
-/// pattern as `data_view_require_attached` (see `data_view.rs`) —
-/// one canonical brand-+-attach check site per spec consumer.
+/// Buffer initialization checks detachment at step 6. Typed-source initialization validates
+/// bounds at step 7. The VM callers check attachment before copying or accepting a view; the
+/// buffer helper already sampled byte length. (InitializeTypedArrayFromArrayBuffer
+/// §23.2.5.1.3.)
 pub(crate) fn array_buffer_require_attached(vm: &VmInner, id: ObjectId) -> Result<(), VmError> {
     if is_detached_buffer(vm, id) {
         return Err(VmError::type_error("operation on a detached ArrayBuffer"));

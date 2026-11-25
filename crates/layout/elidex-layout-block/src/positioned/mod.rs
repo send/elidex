@@ -188,7 +188,7 @@ fn collect_inner(
     fixed: &mut Vec<Entity>,
     depth: u32,
 ) {
-    if depth >= MAX_LAYOUT_DEPTH {
+    if depth >= MAX_LAYOUT_DEPTH || crate::helpers::is_replaced(dom, parent) {
         return;
     }
     for child in dom.children_iter(parent) {

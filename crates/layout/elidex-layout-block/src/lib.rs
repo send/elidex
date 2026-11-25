@@ -24,9 +24,10 @@ pub use helpers::{
     adjust_min_max_for_border_box, block_pb, clamp_min_max, composed_children_flat,
     compute_inline_containing, effective_align, flatten_contents, get_intrinsic_size, get_style,
     horizontal_pb, inline_pb, resolve_box_model, resolve_content_width, resolve_dimension_value,
-    resolve_explicit_height, resolve_min_max, resolve_padding, restore_descendant_styles, sanitize,
-    sanitize_border, sanitize_edge_values, sanitize_non_negative, sanitize_padding,
-    save_descendant_styles, total_gap, try_get_style, vertical_pb,
+    resolve_explicit_height, resolve_margins, resolve_min_max, resolve_padding,
+    restore_descendant_styles, sanitize, sanitize_border, sanitize_edge_values,
+    sanitize_non_negative, sanitize_padding, save_descendant_styles, total_gap, try_get_style,
+    vertical_pb,
 };
 
 // ---------------------------------------------------------------------------
@@ -176,10 +177,68 @@ pub struct SubgridContext {
 // Layout input and dispatch
 // ---------------------------------------------------------------------------
 
+/// Used content dimensions and margins established by the parent formatter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UsedAssignment {
+    /// Independently established physical content axes.
+    pub content: Size<Option<f32>>,
+    /// Whether each assigned content axis is definite for descendant percentages.
+    pub definite_for_percentages: Size<bool>,
+    /// Used physical margins, measured from the margin-box origin.
+    pub margin: EdgeSizes<Option<f32>>,
+}
+
+impl Default for UsedAssignment {
+    fn default() -> Self {
+        Self {
+            content: Size {
+                width: None,
+                height: None,
+            },
+            definite_for_percentages: Size {
+                width: true,
+                height: true,
+            },
+            margin: EdgeSizes::default(),
+        }
+    }
+}
+
+impl UsedAssignment {
+    /// Physical assignments in the requested inline/block order.
+    #[must_use]
+    pub fn axes(self, horizontal: bool) -> (Option<f32>, Option<f32>) {
+        if horizontal {
+            (self.content.width, self.content.height)
+        } else {
+            (self.content.height, self.content.width)
+        }
+    }
+
+    /// Apply the established margins to the formatter's resolved edges.
+    #[must_use]
+    pub fn margins(self, resolved: EdgeSizes) -> EdgeSizes {
+        EdgeSizes::new(
+            self.margin.top.unwrap_or(resolved.top),
+            self.margin.right.unwrap_or(resolved.right),
+            self.margin.bottom.unwrap_or(resolved.bottom),
+            self.margin.left.unwrap_or(resolved.left),
+        )
+    }
+}
+
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
-    /// Containing block size (width always definite, height may be indefinite).
+    /// Available physical height when the percentage reference in `containing.height` is indefinite.
+    pub available_height_if_indefinite: Option<f32>,
+    /// Whether the available physical width is a definite percentage reference.
+    pub containing_width_definite: bool,
+    /// Whether this box establishes an independent context as a flex item (Flexbox §4).
+    pub is_flex_item: bool,
+    /// Assignments for this box only.
+    pub assigned: UsedAssignment,
+    /// Available containing dimensions. Width definiteness is recorded separately.
     pub containing: CssSize,
     /// Inline-axis size of the containing block (for margin/padding % resolution).
     ///
@@ -227,6 +286,14 @@ pub struct LayoutInput<'a> {
 }
 
 impl<'a> LayoutInput<'a> {
+    /// Physical space for auto layout, including a measured but percentage-indefinite height.
+    #[must_use]
+    pub fn available_height(&self) -> Option<f32> {
+        self.containing
+            .height
+            .or(self.available_height_if_indefinite)
+    }
+
     /// Create a probe `LayoutInput` for intrinsic sizing (min/max-content).
     ///
     /// Sets `offset` to zero, all optional context fields to `None`, and
@@ -239,6 +306,10 @@ impl<'a> LayoutInput<'a> {
     #[must_use]
     pub fn probe(env: &LayoutEnv<'a>, containing_width: f32) -> Self {
         Self {
+            available_height_if_indefinite: None,
+            containing_width_definite: true,
+            is_flex_item: false,
+            assigned: UsedAssignment::default(),
             containing: CssSize::width_only(containing_width),
             containing_inline_size: containing_width,
             offset: Point::ZERO,
@@ -329,21 +400,19 @@ pub fn layout_block_only(
 }
 
 /// Parameters for [`empty_container_box`].
-pub struct EmptyContainerParams<'a> {
+pub struct EmptyContainerParams {
     /// Content area origin.
     pub content_origin: Point,
     /// Content area width.
     pub content_width: f32,
-    /// Containing block height (if known).
-    pub containing_height: Option<f32>,
+    /// Definite content height (if known).
+    pub resolved_height: Option<f32>,
     /// Resolved padding.
     pub padding: EdgeSizes,
     /// Resolved border.
     pub border: EdgeSizes,
     /// Resolved margin.
     pub margin: EdgeSizes,
-    /// Computed style of the container.
-    pub style: &'a elidex_plugin::ComputedStyle,
     /// Layout generation for paged media (0 = non-paged).
     pub layout_generation: u32,
 }
@@ -355,14 +424,14 @@ pub struct EmptyContainerParams<'a> {
 pub fn empty_container_box(
     dom: &mut EcsDom,
     entity: Entity,
-    params: &EmptyContainerParams<'_>,
+    params: &EmptyContainerParams,
 ) -> LayoutBox {
     let lb = LayoutBox {
         content: elidex_plugin::Rect::new(
             params.content_origin.x,
             params.content_origin.y,
             params.content_width,
-            resolve_explicit_height(params.style, params.containing_height).unwrap_or(0.0),
+            params.resolved_height.unwrap_or(0.0),
         ),
         padding: params.padding,
         border: params.border,

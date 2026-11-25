@@ -183,10 +183,10 @@ fn literal_and_substituted_background_reset_the_prior_image() {
         let entries = super::super::cascade::collect_and_cascade(
             body,
             &dom,
-            &sheets,
+            super::super::cascade::ElementSheets::document(&sheets),
             &[],
             &[],
-            &super::super::cascade::ShadowCascade::Outer,
+            &super::super::cascade::ShadowCascade::default(),
             &MediaEnvironment::default(),
         );
         if declaration.contains("--bad") {

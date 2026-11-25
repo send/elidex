@@ -119,13 +119,22 @@ pub fn resolve_box_model(
 ) -> (EdgeSizes, EdgeSizes, EdgeSizes) {
     let padding = resolve_padding(style, containing_inline_size);
     let border = sanitize_border(style);
-    let margin = EdgeSizes::new(
+    (
+        padding,
+        border,
+        resolve_margins(style, containing_inline_size),
+    )
+}
+
+/// Resolve the physical margin edges against the containing inline size.
+#[must_use]
+pub fn resolve_margins(style: &ComputedStyle, containing_inline_size: f32) -> EdgeSizes {
+    EdgeSizes::new(
         crate::block::resolve_margin(style.margin_top, containing_inline_size),
         crate::block::resolve_margin(style.margin_right, containing_inline_size),
         crate::block::resolve_margin(style.margin_bottom, containing_inline_size),
         crate::block::resolve_margin(style.margin_left, containing_inline_size),
-    );
-    (padding, border, margin)
+    )
 }
 
 /// Sum of horizontal (left + right) padding and border.
@@ -400,26 +409,52 @@ pub fn try_get_style(dom: &EcsDom, entity: Entity) -> Option<ComputedStyle> {
 ///
 /// Returns `Some(Size)` for replaced elements (images, form controls, iframes),
 /// `None` otherwise.
-#[allow(clippy::cast_precision_loss)]
 #[must_use]
 pub fn get_intrinsic_size(dom: &EcsDom, entity: Entity) -> Option<Size> {
-    dom.world()
-        .get::<&ImageData>(entity)
-        .ok()
-        .map(|img| Size::new(img.width as f32, img.height as f32))
-        .or_else(|| {
-            dom.world()
-                .get::<&elidex_form::FormControlState>(entity)
-                .ok()
-                .map(|fcs| {
-                    let s = elidex_form::form_intrinsic_size(&fcs);
-                    Size::new(s.width.max(0.0), s.height.max(0.0))
-                })
+    replaced_size(dom, entity, None)
+}
+
+enum ReplacedContent<'a> {
+    Image(&'a ImageData),
+    Control(&'a elidex_form::FormControlState),
+    Iframe(&'a elidex_ecs::IframeData),
+}
+
+fn with_replaced_content<T>(
+    dom: &EcsDom,
+    entity: Entity,
+    read: impl FnOnce(ReplacedContent<'_>) -> T,
+) -> Option<T> {
+    if let Ok(img) = dom.world().get::<&ImageData>(entity) {
+        Some(read(ReplacedContent::Image(&img)))
+    } else if let Ok(control) = dom.world().get::<&elidex_form::FormControlState>(entity) {
+        Some(read(ReplacedContent::Control(&control)))
+    } else {
+        dom.world()
+            .get::<&elidex_ecs::IframeData>(entity)
+            .ok()
+            .map(|frame| read(ReplacedContent::Iframe(&frame)))
+    }
+}
+
+pub(crate) fn is_replaced(dom: &EcsDom, entity: Entity) -> bool {
+    with_replaced_content(dom, entity, |_| ()).is_some()
+}
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn replaced_size(
+    dom: &EcsDom,
+    entity: Entity,
+    established: Option<Size>,
+) -> Option<Size> {
+    with_replaced_content(dom, entity, |content| {
+        established.unwrap_or_else(|| match content {
+            ReplacedContent::Image(img) => Size::new(img.width as f32, img.height as f32),
+            ReplacedContent::Iframe(frame) => Size::new(frame.width as f32, frame.height as f32),
+            ReplacedContent::Control(control) => {
+                let size = elidex_form::form_intrinsic_size(control);
+                Size::new(size.width.max(0.0), size.height.max(0.0))
+            }
         })
-        .or_else(|| {
-            dom.world()
-                .get::<&elidex_ecs::IframeData>(entity)
-                .ok()
-                .map(|iframe| Size::new(iframe.width as f32, iframe.height as f32))
-        })
+    })
 }

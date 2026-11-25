@@ -211,7 +211,8 @@ fn typed_array_indexed_write_after_buffer_detach_is_silent_noop() {
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.u8 = new Uint8Array(buf);").unwrap();
     array_buffer_detach(&mut vm.inner, buf_id);
-    // Per §10.4.5.18 the write must NOT throw — silent no-op success.
+    // §10.4.5.18 steps 1–2 convert 99 successfully. Detachment then makes
+    // the index invalid, so step 3 skips the store.
     let probe = "
         var threw = false;
         try { u8[0] = 99; } catch (e) { threw = true; }
@@ -314,11 +315,9 @@ fn typed_array_ctor_with_detached_buffer_and_offset_throws_typeerror_not_rangeer
 
 #[test]
 fn typed_array_ctor_from_detached_typed_array_throws_typeerror() {
-    // ECMA-262 §23.2.5.1.2 step 8 (`InitializeTypedArrayFromTypedArray`):
-    // the source TypedArray's backing buffer must be attached at
-    // construction time.  Without this check, `read_element_raw`'s
-    // Stage 3 silent-undefined-on-detach path would copy `0`s into
-    // the fresh destination instead of throwing TypeError.
+    // InitializeTypedArrayFromTypedArray step 7 calls ValidateTypedArrayBounds and rejects the
+    // detached source before element copying. (InitializeTypedArrayFromTypedArray
+    // §23.2.5.1.2.)
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 8);
     let _ = vm.eval("globalThis.src = new Uint8Array(buf);").unwrap();

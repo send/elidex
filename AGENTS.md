@@ -7,8 +7,9 @@ truth. Do not restate or fork its rules here.
 ## Review guidelines
 
 Codex reads this section for PR code review (it keys on the literal
-`## Review guidelines` heading). The local pre-push gate (Claude-based) already
-covers generic correctness and style, so a generic review adds little. Add
+`## Review guidelines` heading). The pre-push gate already covers generic
+correctness and style (for work written by a Codex lane it runs in an
+independent Codex session that the PM starts), so a generic review adds little. Add
 value by applying elidex's *project-specific* design lenses and flagging what a
 generic reviewer misses:
 
@@ -24,3 +25,9 @@ generic reviewer misses:
 Those files are the SSoT; this section only directs you to apply them and
 deliberately does **not** duplicate their content (duplication would drift —
 see CLAUDE.md "One issue, one way").
+
+## Lane drivers (Codex CLI)
+
+If you are driving an elidex lane, read `CLAUDE.md`, then
+`.claude/skills/drive/SKILL.md`, then `.claude/skills/drive/codex.md`, in that
+order. Those files are the procedure; this file only points to them.

@@ -2,17 +2,9 @@
 //! brand-check, generic IDL accessors, the shared constructor
 //! dispatch, and the byte-level element read / write primitives.
 //!
-//! `%TypedArray%` is an abstract base class — not exposed as a global,
-//! reachable only via `Object.getPrototypeOf(Uint8Array)` etc. — that
-//! carries shared IDL attrs (`buffer` / `byteOffset` / `byteLength` /
-//! `length`) plus the prototype method suite (`fill` / `set` /
-//! `subarray` / …).  11 concrete subclasses (`Int8Array` /
-//! `Uint8Array` / `Uint8ClampedArray` / `Int16Array` / `Uint16Array` /
-//! `Int32Array` / `Uint32Array` / `Float32Array` / `Float64Array` /
-//! `BigInt64Array` / `BigUint64Array`) chain their prototype to
-//! `%TypedArray%.prototype` and differ only by the
-//! [`super::super::value::ElementKind`] tag baked into each
-//! instance's [`ObjectKind::TypedArray`] variant.
+//! The abstract constructor carries the shared static methods and species getter. Its
+//! prototype carries the accessors and instance methods. The VM registers eleven concrete
+//! constructors and their prototypes.
 //!
 //! ```text
 //! new Uint8Array(n)           ObjectKind::TypedArray { element_kind: Uint8, … }
@@ -176,27 +168,10 @@ pub(super) fn native_typed_array_get_length(
 // Shared constructor dispatch (ECMA-262 §23.2.5)
 // ---------------------------------------------------------------------------
 
-/// Shared body of every TypedArray subclass ctor.  Dispatches on
-/// `args[0]` shape per ECMA-262 §23.2.5:
-/// 1. `() / (undefined)` → empty view over fresh zero-byte buffer.
-/// 2. `(number)` → `ToIndex(n)`, fresh zero-filled buffer of
-///    `n * bpe` bytes (§23.2.5.1.1).
-/// 3. `(ArrayBuffer, byteOffset?, length?)` → share buffer bytes,
-///    validate alignment (`byteOffset % bpe === 0` — RangeError)
-///    and range (§23.2.5.1.3).
-/// 4. `(TypedArray)` → fresh buffer of `src.length * dst.bpe` bytes,
-///    element-copy with type conversion (§23.2.5.1.2).
-/// 5. Objects with a callable iterator method are collected with IteratorToList
-///    (§23.2.5.1.4 step 2.a). The iterator is exhausted before allocation
-///    and element conversion in steps 4–6.
-/// 6. Other objects with a nullish `@@iterator` use the array-like path
-///    (§23.2.5.1.4 steps 3–6). Other non-callable methods throw TypeError
-///    in GetMethod (§7.3.10 step 3).
-///
-/// The pre-allocated receiver carries `new.target.prototype` via
-/// `do_new`; we promote its `kind` in-place rather than reassigning
-/// `prototype`, so subclasses of our builtins (`class X extends
-/// Uint8Array`) inherit correctly (PR5a2 R7.2/R7.3 lesson).
+/// Zero arguments use step 5. Other primitives take ToIndex at step 9. For objects step 7.a
+/// allocates the typed-array object before source inspection. In the iterable branch the
+/// backing buffer is allocated after collection. The VM promotes the preallocated receiver and
+/// preserves the prototype already installed on it. (TypedArray ( ...args ) §23.2.5.1.)
 #[allow(clippy::similar_names)] // arg0/arg1/arg2 mirrors WebIDL parameter indexing
 pub(super) fn construct_typed_array(
     ctx: &mut NativeContext<'_>,

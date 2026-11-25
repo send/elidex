@@ -2,6 +2,8 @@
 
 PM 1087 advances C1b.2-pre to 3b.2-pre, after 3b.2 and before the standalone Flex write-retirement PR. Its style producer runs on the current computed-style types. The Flex collector currently changes the item's display and reinserts its entire computed style. The shared child dispatcher reads that display when deciding whether an auto-width inline container needs shrink-to-fit. Move the computed-display decision to style resolution so both pre-layout readers and the first child dispatch see the same value.
 
+PM 1090 makes the three-context shadow cascade a prerequisite: the assigned host resolves its element, slot and host declarations in CSS Cascade 5 §6.1 order before the style producer changes.
+
 ## §1. Carry the effective ancestor through style resolution
 
 Start the document walk with no effective ancestor. Carry the nearest flat-tree ancestor element's finalized display separately from the immediate inheritance parent's style. A document or shadow root introduces no element display. Derive child context from the finalized local value: ordinary Contents forwards the incoming ancestor, while every other display, including None, starts a new context. Restore the caller's context at each sibling.

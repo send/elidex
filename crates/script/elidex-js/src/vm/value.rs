@@ -461,11 +461,8 @@ pub enum ElementKind {
 }
 
 impl ElementKind {
-    /// Total number of TypedArray subclasses (ECMA-262 §23.2 table).
-    /// Sized for the per-subclass prototype array stored on
-    /// `VmInner` (`subclass_array_prototypes`); GC roots reach those
-    /// slots via a borrowed slice (`subclass_array_proto_roots`),
-    /// not the fixed-size `proto_roots` array.
+    /// Number of concrete TypedArray kinds implemented by this VM (11). The current
+    /// specification also lists Float16Array.
     pub const COUNT: usize = 11;
 
     /// Stable 0-based index in [`Self::COUNT`] range, used to
@@ -534,7 +531,7 @@ impl ElementKind {
         }
     }
 
-    /// Byte width of one element — `[[ElementSize]]` per ECMA-262 §23.2.1 table.
+    /// Byte width of this kind. TypedArrayElementSize uses Table 71 in §23.2.
     #[inline]
     #[must_use]
     pub const fn bytes_per_element(self) -> u8 {
