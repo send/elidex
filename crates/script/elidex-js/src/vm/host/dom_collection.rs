@@ -182,7 +182,7 @@ impl VmInner {
     }
 
     /// Allocate `HTMLOptionsCollection.prototype` chained to
-    /// [`Self::html_collection_prototype`] (HTML §4.10.10.2).
+    /// [`Self::html_collection_prototype`] (HTML §2.6.4.3).
     /// Inherits `length` / `item` / `namedItem` / `[Symbol.iterator]`
     /// from the parent prototype and adds the four Options-only
     /// members:

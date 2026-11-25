@@ -285,7 +285,7 @@ fn form_brand_check_throws_on_non_form_receiver() {
 
 // ---------------------------------------------------------------------------
 // R23 regressions — enumerated keyword attribute reflection
-// (HTML §4.10.18.6 / §4.10.18.7).  `form.method`, `form.enctype`,
+// (HTML §4.10.19.6 / §4.10.3).  `form.method`, `form.enctype`,
 // and `form.autocomplete` must canonicalise the content attribute
 // to lowercase, fall back to the missing-value default when no
 // attribute is present, and fall back to the invalid-value default
