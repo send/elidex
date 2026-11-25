@@ -211,7 +211,8 @@ fn typed_array_indexed_write_after_buffer_detach_is_silent_noop() {
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.u8 = new Uint8Array(buf);").unwrap();
     array_buffer_detach(&mut vm.inner, buf_id);
-    // Per §10.4.5.18 the write must NOT throw — silent no-op success.
+    // §10.4.5.18 steps 1–2 convert 99 successfully. Detachment then makes
+    // the index invalid, so step 3 skips the store.
     let probe = "
         var threw = false;
         try { u8[0] = 99; } catch (e) { threw = true; }
