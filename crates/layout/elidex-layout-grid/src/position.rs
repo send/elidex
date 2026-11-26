@@ -253,14 +253,15 @@ fn item_baseline(lb: &LayoutBox, x_axis: bool) -> f32 {
     }
 }
 
-fn measure_in_area(
+fn measure_in_area<'a>(
     dom: &mut EcsDom,
     item: &GridItem,
-    env: &LayoutEnv<'_>,
+    env: &LayoutEnv<'a>,
     rect: elidex_plugin::Rect,
-    subgrid: Option<&SubgridContext>,
+    subgrid: Option<&'a SubgridContext>,
     is_horizontal_wm: bool,
-) -> (elidex_layout_block::block::GridItemSizing, LayoutBox) {
+    style: &elidex_plugin::ComputedStyle,
+) -> (LayoutInput<'a>, LayoutBox) {
     let (area_width, area_height) = (rect.size.width, rect.size.height);
     let area = CssSize::definite(area_width, area_height);
     let item_inline_size = if is_horizontal_wm {
@@ -324,9 +325,9 @@ fn measure_in_area(
         item_context: elidex_layout_block::ItemContext::GridArea(sizing),
         ..prelim_input
     }
-    .resolve_item(&elidex_layout_block::get_style(dom, item.entity));
+    .resolve_item(style);
     prelim_lb.margin = measured.assigned.margins(prelim_lb.margin);
-    (sizing, prelim_lb)
+    (measured, prelim_lb)
 }
 
 /// Position each item within its grid area and perform final layout.
@@ -370,6 +371,7 @@ pub(crate) fn position_items(
                 placement.area(item),
                 subgrid.as_ref(),
                 is_horizontal_wm,
+                &style,
             );
             if align_bl {
                 let entry = row_baselines.entry(item.row_start).or_insert(0.0);
@@ -397,20 +399,15 @@ pub(crate) fn position_items(
         // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
         // formatter fits its content box in that area before alignment.
         let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let area = CssSize::definite(area_width, area_height);
-        let item_inline_size = if is_horizontal_wm {
-            area_width
-        } else {
-            area_height
-        };
         let child_subgrid_ctx = placement.child_subgrid(item, &child_style);
-        let (sizing, prelim_lb) = measure_in_area(
+        let (measured, prelim_lb) = measure_in_area(
             dom,
             item,
             env,
             rect,
             child_subgrid_ctx.as_ref(),
             is_horizontal_wm,
+            &child_style,
         );
         let outer = prelim_lb.margin_box().size;
         let (outer_inline, outer_block) = if is_horizontal_wm {
@@ -472,29 +469,13 @@ pub(crate) fn position_items(
             (block_offset, inline_offset)
         };
 
-        // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
-        // Final layout at resolved position.
-        // CSS Grid §11.3: margin/padding % resolves against the grid area's
-        // content-box dimension, consistent with preliminary passes.
-        let offset = Point::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
+        // Place the same resolved item whose margin box was aligned above.
         let final_input = LayoutInput {
-            available_height_if_indefinite: None,
-            containing_width_definite: true,
-            item_context: elidex_layout_block::ItemContext::GridArea(sizing),
-            assigned: elidex_layout_block::UsedAssignment::default(),
-            containing: area,
-            containing_inline_size: item_inline_size,
-            offset,
-            font_db: env.font_db,
-            depth: env.depth + 1,
-            float_ctx: None,
-            scroll_limits: env.scroll_limits,
+            offset: Point::new(rect.origin.x + x_offset, rect.origin.y + y_offset),
             viewport: None,
-            fragmentainer: None,
-            break_token: None,
-            subgrid: child_subgrid_ctx.as_ref(),
             layout_generation: env.layout_generation,
             is_probe: env.is_probe,
+            ..measured
         };
         (env.layout_child)(dom, item.entity, &final_input);
     }
