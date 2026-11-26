@@ -110,3 +110,124 @@ fn aligned_item_preserves_inline_placement_and_debits_block_entry_once() {
         }
     }
 }
+
+#[test]
+fn admitted_orthogonal_item_keeps_its_physical_extent() {
+    use elidex_plugin::WritingMode;
+    let fonts = FontDatabase::new();
+    let frag = page(100.);
+    for mode in [WritingMode::VerticalLr, WritingMode::VerticalRl] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Grid,
+                grid_template_columns: tracks(210.),
+                grid_template_rows: tracks(40.),
+                ..Default::default()
+            },
+        );
+        let item = element(
+            &mut dom,
+            Some(grid),
+            ComputedStyle {
+                writing_mode: mode,
+                width: Dimension::Length(210.),
+                ..sized(Display::Block, 40.)
+            },
+        );
+        // Continuous control, page count, then paint from the same initial state.
+        for (generation, room) in [(1, None), (2, Some(&frag)), (3, Some(&frag))] {
+            let input = LayoutInput {
+                fragmentainer: room,
+                layout_generation: generation,
+                ..contribution_input(&fonts, &frag)
+            };
+            let out = dispatch_layout_child(&mut dom, grid, &input);
+            assert!(out.end.is_complete());
+            assert!(out.contribution.is_finished(grid, item));
+            let lb = get_layout(&dom, item);
+            assert_eq!(lb.layout_generation, generation);
+            assert_eq!(lb.content.size, Size::new(210., 40.));
+        }
+    }
+}
+
+#[test]
+fn vertical_rows_map_to_the_current_fragment_edges() {
+    use elidex_plugin::{GridTrackList, TrackSection, TrackSize, WritingMode};
+    let fonts = FontDatabase::new();
+    let frag = page(50.);
+    for mode in [WritingMode::VerticalRl, WritingMode::VerticalLr] {
+        let mut dom = EcsDom::new();
+        let grid = element(
+            &mut dom,
+            None,
+            ComputedStyle {
+                writing_mode: mode,
+                display: Display::Grid,
+                grid_template_columns: tracks(30.),
+                grid_template_rows: GridTrackList::Explicit(TrackSection {
+                    tracks: vec![TrackSize::Length(50.); 2],
+                    line_names: vec![],
+                }),
+                ..Default::default()
+            },
+        );
+        let items = [(); 2].map(|()| {
+            element(
+                &mut dom,
+                Some(grid),
+                ComputedStyle {
+                    writing_mode: mode,
+                    display: Display::Block,
+                    ..Default::default()
+                },
+            )
+        });
+        let initial = contribution_input(&fonts, &frag);
+        let continuous = dispatch_layout_child(
+            &mut dom,
+            grid,
+            &LayoutInput {
+                fragmentainer: None,
+                ..initial
+            },
+        );
+        assert!(continuous.end.is_complete());
+        assert_eq!(continuous.layout_box.content.size.width, 100.);
+        let positions = items.map(|item| get_layout(&dom, item).content.origin.x);
+        assert_eq!(
+            positions,
+            if mode == WritingMode::VerticalRl {
+                [50., 0.]
+            } else {
+                [0., 50.]
+            }
+        );
+        let last_page = page(80.);
+        let mut saved = None;
+        for generation in [2, 4] {
+            for (i, &item) in items.iter().enumerate() {
+                let input = LayoutInput {
+                    fragmentainer: Some(if i == 0 { &frag } else { &last_page }),
+                    layout_generation: generation + u32::from(i == 1),
+                    break_token: if i == 0 { None } else { saved.as_ref() },
+                    ..initial
+                };
+                let out = dispatch_layout_child(&mut dom, grid, &input);
+                assert_eq!(out.layout_box.content.size.width, 50.);
+                let lb = get_layout(&dom, item);
+                assert_eq!(lb.layout_generation, input.layout_generation);
+                assert_eq!(lb.content.origin.x, 0.);
+                assert_eq!(lb.content.size.width, 50.);
+                assert!(out.contribution.is_finished(grid, item));
+                assert_eq!(out.end.is_complete(), i == 1);
+                if generation == 2 && i == 0 {
+                    saved = out.end.into_token();
+                }
+            }
+        }
+    }
+}

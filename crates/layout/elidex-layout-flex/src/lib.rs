@@ -569,6 +569,7 @@ pub fn layout_flex(
     }
 
     let mut contribution = elidex_layout_block::source_progress::SourceProgress::default();
+    // 3b.2f (Flex source cursor): an admitted item can still have an unfinished child.
     for item in admitted {
         contribution.finish_item(entity, item);
     }

@@ -735,6 +735,7 @@ pub fn layout_table(
 
     let table_content_height_from_rows = y;
 
+    // #11-table-fragment-source-cursor: publish only selected rows, at page-local offsets.
     // Now position each cell with final coordinates.
     // CSS 2.1 §17.1: in horizontal-tb, columns = inline (X), rows = block (Y).
     // In vertical modes, columns = inline (Y), rows = block (X).
@@ -800,6 +801,7 @@ pub fn layout_table(
             placement: input.placement,
             is_probe: input.is_probe,
         };
+        // #11-table-fragment-source-cursor: retain unfinished cell outcomes across pages.
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
         dom.set_layout_box(cell.entity, cell_lb);
     }

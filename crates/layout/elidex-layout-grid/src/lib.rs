@@ -582,6 +582,7 @@ pub fn layout_grid(
         outgoing: Vec::new(),
         block_extent: 0.0,
         incomplete: false,
+        reversed_items: Vec::new(),
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env, &mut fragment);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
@@ -633,6 +634,19 @@ pub fn layout_grid(
                     }),
                 });
             }
+        }
+    }
+    // In vertical-rl the physical left edge depends on both the final
+    // fragment width and the width actually published by the child.
+    for (item, reference_width) in fragment.reversed_items {
+        let shift = final_block - reference_width;
+        if shift != 0.0 {
+            elidex_layout_block::block::shift_descendants(
+                dom,
+                &[item],
+                elidex_plugin::Vector::new(shift, 0.0),
+                input.is_probe,
+            );
         }
     }
     let (final_content_width, final_content_height) = if is_horizontal_wm {

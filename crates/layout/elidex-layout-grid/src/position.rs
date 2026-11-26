@@ -132,6 +132,8 @@ pub(super) struct ItemFragmentation<'a> {
     pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
     pub block_extent: f32,
     pub incomplete: bool,
+    /// Item and the fragment width for which its published left edge is correct.
+    pub reversed_items: Vec<(elidex_ecs::Entity, f32)>,
 }
 
 impl GridPlacement<'_> {
@@ -374,7 +376,7 @@ pub(crate) fn position_items(
             is_horizontal_wm,
             &style,
         );
-        (input, lb, subgrid)
+        (input, lb, subgrid, style.writing_mode)
     };
     let mut baseline_items = HashMap::new();
 
@@ -414,7 +416,7 @@ pub(crate) fn position_items(
         };
         // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
         // formatter fits its content box in that area before alignment.
-        let (measured, prelim_lb, subgrid) = baseline_items
+        let (measured, prelim_lb, subgrid, child_mode) = baseline_items
             .remove(&item.entity)
             .unwrap_or_else(|| measure(dom, item, rect));
         let outer = prelim_lb.margin_box().size;
@@ -490,7 +492,7 @@ pub(crate) fn position_items(
             offset.x - placement.content_origin.x
         };
         let mut entry_offset = first_entry;
-        if entry.room.is_some() {
+        if let Some(room) = entry.room {
             let row_origin = if entry.resume_row == 0 {
                 0.
             } else {
@@ -509,13 +511,20 @@ pub(crate) fn position_items(
             if is_horizontal_wm {
                 offset.y += shift;
             } else if reversed {
-                offset.x -= shift;
+                // Use the current fragment's right edge. A split child or a
+                // shrink-wrapped last fragment can change either extent below.
+                offset.x = placement.content_origin.x + room.available_block_size
+                    - entry_offset
+                    - outer_block;
             } else {
                 offset.x += shift;
             }
         }
         let room = entry
             .room
+            // Fragmentainer room is measured along the Grid block axis. An
+            // orthogonal flow is monolithic in this direction (CSS Break 3 §4.1).
+            .filter(|_| child_mode.is_horizontal() == is_horizontal_wm)
             .map(|room| elidex_layout_block::FragmentainerContext {
                 available_block_size: (room.available_block_size - entry_offset).max(0.),
                 ..*room
@@ -534,6 +543,12 @@ pub(crate) fn position_items(
         };
         let outcome = (env.layout_child)(dom, item.entity, &final_input);
         let final_lb = outcome.layout_box;
+        if let Some(room) = entry.room.filter(|_| reversed) {
+            entry.reversed_items.push((
+                item.entity,
+                room.available_block_size + (final_lb.margin_box().size.width - outer_block),
+            ));
+        }
         entry.contribution.include(&outcome.contribution);
         if matches!(outcome.end, elidex_layout_block::FragmentEnd::Incomplete) {
             entry.incomplete = true;
@@ -545,7 +560,7 @@ pub(crate) fn position_items(
         } else {
             entry.contribution.finish_item(entry.owner, item.entity);
         }
-        if room.is_some() {
+        if entry.room.is_some() {
             let margin_box = final_lb.margin_box();
             let extent = if is_horizontal_wm {
                 margin_box.size.height
