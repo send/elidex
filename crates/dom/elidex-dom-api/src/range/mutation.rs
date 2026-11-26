@@ -443,7 +443,7 @@ impl Range {
     /// drove a snapshot+commit pattern in VM-side
     /// `native_range_insert_node` that committed stale boundary
     /// deltas over hook-adjusted live-range entries, losing the
-    /// §5.10 splitText migration and §4.2.3 insert adjustments.
+    /// DOM §4.11 split a Text node steps 7.2 / 7.3 and §4.2.3 insert adjustments.
     /// The caller is responsible for applying step 13 to the
     /// **registered** range (not a clone) when the pre-call range
     /// was collapsed; start and end migrations are handled by the

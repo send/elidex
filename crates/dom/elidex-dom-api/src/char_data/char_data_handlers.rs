@@ -305,7 +305,7 @@ impl DomApiHandler for ReplaceData {
 /// `text.splitText(offset)` — splits a Text node at the given offset.
 ///
 /// Delegates to the engine-independent [`split_text_at_offset`] which
-/// owns the canonical WHATWG DOM §4.10 "split a Text node" algorithm:
+/// owns the canonical WHATWG DOM §4.11 "split a Text node" algorithm:
 /// `insert new_node → fire_split_text → set_text_data(head)`.
 /// Range live-tracking via the [`elidex_ecs::MutationEvent::SplitText`]
 /// event (consumed by [`crate::LiveRangeBridge`] through

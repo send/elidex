@@ -271,7 +271,10 @@ impl EcsDom {
     }
 
     /// Fire [`MutationEvent::SplitText`] from a caller in another crate.
-    /// WHATWG DOM §4.11 Interface Text "split a Text node" step 7.
+    /// WHATWG DOM §4.11 Interface Text "split a Text node" step 7 — call
+    /// it only when `node` has a parent (`parent` / `node_index` are its
+    /// parent and pre-split index). `node_index` is `None` under the sibling
+    /// cap — see [`MutationEvent::SplitText`].
     ///
     /// **Caller ordering contract**: MUST be invoked AFTER `new_node`
     /// has been inserted as a sibling of `node` but BEFORE `node`'s
@@ -284,7 +287,7 @@ impl EcsDom {
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
-        parent: Option<Entity>,
+        parent: Entity,
         node_index: Option<usize>,
     ) {
         let event = MutationEvent::SplitText {

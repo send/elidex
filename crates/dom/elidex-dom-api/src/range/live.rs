@@ -227,34 +227,34 @@ impl LiveRangeBridge {
         }
     }
 
+    /// Runs only inside DOM §4.11 *split a Text node* step 7, so `parent` is
+    /// always present; `node_index` is `None` under the sibling cap — see
+    /// [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText).
     fn after_split_text(
         &mut self,
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
-        parent: Option<Entity>,
+        parent: Entity,
         node_index: Option<usize>,
     ) {
         // LiveRangeBridge runs AFTER the `insert_before` / `append_child` hook
         // (`after_insert`) has already fired with the new node's
         // post-insert index (`node_index + 1`). `after_insert` shifted
         // every parent-side boundary with `off > node_index + 1` by
-        // +1. The split-text rule (DOM §4.11 steps 7.1 + 7.4–7.5) wants `off >
-        // node_index` to shift — the only remaining slot is `off ==
-        // node_index + 1`, which we top up here.
+        // +1. The split-text rule (DOM §4.11 step 7.1 insert + steps
+        // 7.4–7.5) wants `off > node_index` to shift — the only
+        // remaining slot is `off == node_index + 1`, which we top up here.
         //
-        // Node-side migration: `off > offset` → `(new_node, off -
-        // offset)`, strict-greater per DOM §4.11 step 7.2 / 7.3 —
-        // boundaries at exactly `offset` stay on the original node at
-        // its new end (PR186 R2 #2). The helper applies that strict
-        // bound for the node-side rules; we pass null parent args to
-        // skip the helper's parent-side step, because the delta
-        // top-up above + the `after_insert` hook already cover
-        // §4.11 steps 7.1 + 7.4–7.5 (the parent-side rule) (`off > node_idx → +1`)
-        // exhaustively.
+        // Node-side migration (steps 7.2 / 7.3): `off > offset` →
+        // `(new_node, off - offset)`, strict-greater — boundaries at
+        // exactly `offset` stay on the original node at its new end
+        // (PR186 R2 #2). `adjust_ranges_for_split_text` is node-side only.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
-        if let (Some(parent), Some(node_idx)) = (parent, node_index) {
-            let equal_slot = node_idx + 1;
+        // The top-up is skipped when `node_index` is `None` (see the
+        // `MutationEvent::SplitText` doc).
+        if let Some(node_index) = node_index {
+            let equal_slot = node_index + 1;
             for range in guard.values_mut() {
                 if range.start_container == parent && range.start_offset == equal_slot {
                     range.start_offset += 1;
@@ -265,14 +265,7 @@ impl LiveRangeBridge {
             }
         }
         for range in guard.values_mut() {
-            adjust_ranges_for_split_text(
-                std::slice::from_mut(range),
-                node,
-                new_node,
-                offset_utf16,
-                None,
-                None,
-            );
+            adjust_ranges_for_split_text(std::slice::from_mut(range), node, new_node, offset_utf16);
         }
     }
 
