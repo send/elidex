@@ -4,8 +4,8 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.1, 2026-11-26
-(plan-review rounds 1 – 3 folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.2, 2026-11-26
+(plan-review rounds 1 – 3 and the Step 4.5 re-review of rev 3.1 folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
 `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes ran at
 `bf1cae35`; `git diff --stat 01426656 aeecf9b0 -- crates` is empty, so they hold at rev 2.2's head too). **Docs
 only.**
@@ -170,7 +170,8 @@ Each line names the ground rung that decides it.
   (`generated_content.rs:144`, `builder/walk.rs:134`) from LC-1 on only for the elements LC-1's one gate admits. In
   production that still includes every `ol` / `ul`: the walk's call has already written their reset, so "has a
   counter property" holds for them. A caller that attaches a hand-built `ComputedStyle` and relies on a driver site
-  to bake an `ol` / `ul` reset loses it in W1 – W2k; such callers are tests, and LC-1 updates them (§5.3). What
+  to bake an `ol` / `ul` reset loses it from W1 on, **permanently**: from LC-3 the reset is the UA rule's, written by
+the cascade, which a hand-built style never passes through. Such callers are tests, and LC-1 updates them (§5.3). What
   D-1 fixes for those windows is the direction: the bake only
   **loses** work whose producer has moved (LC-1: the increment arm with its guard, and the `li` count); it never
   gains an input, a guard or a second caller. *Rung 1*: CSS Lists 3 §4.6 ("This does not affect the specified or
@@ -195,7 +196,8 @@ Each line names the ground rung that decides it.
   **Where the derived value lives is LC-1's to decide, under one named criterion** — CLAUDE.md's *Side-store →
   component* rule, read at its precondition: it governs per-entity state **held** in an entity-keyed store beyond
   one computation. Its grounds (SameObject as a component get, GC as one query, despawn as automatic cleanup) are
-  about state that outlives the computation that made it, and its origin is the boa `HostBridge` caches. ECS first
+  about state that outlives the computation that made it, and the trap it names as typical is the literal port of
+the boa `HostBridge` side-store to the VM. ECS first
   principles say the same: a component is world data that other systems read. The value is a per-entity fact (one
   per reversed reset entry of an element), `Send + Sync`, and no per-VM handle. So: it is a **component** on the
   resetting entity when it **crosses systems** (computed by the pre-layout pass, read by the paged walk) or
@@ -319,12 +321,12 @@ then follow from it. DR-4 is not a fourth thing the spec offers; it is the reach
 | | **DR-1** — every engine mode is designated, for the whole section | **DR-2** — the designation is the engine mode: `BrowserCompat` is designated, `BrowserCore` / `App` are not | **DR-3** — no mode is designated | **DR-4** — every mode is held to §15, less a compat carve-out (quirks; legacy / obsolete features) |
 |---|---|---|---|---|
 | HTML §15 in `BrowserCompat` | every rule and every hint is a "must" | every rule and every hint is a "must" | advisory | every rule and every hint is a "must" (nothing is carved there) |
-| HTML §15 in `BrowserCore` / `App` | every rule and every hint is a "must", obsolete ones included | advisory: HTML requires neither rules nor hints there | advisory | a "must" for every unit the three-layer rule does not place in compat. Carved: the quirks rules, the rules of §16.2-obsolete elements (#408) less those HTML §16.3.3 equates with a conforming element (`dir` ≡ `ul` and four more: D-6, §7 F-12 — §16.3.3's "must" is outside §15, so no carve reaches them), and whichever hints the option of §1.6 carves |
+| HTML §15 in `BrowserCore` / `App` | every rule and every hint is a "must", obsolete ones included | advisory: HTML requires neither rules nor hints there | advisory | a "must" for every unit the three-layer rule does not place in compat. Carved: the quirks rules, the rules of §16.2-obsolete elements (#408) less `dir`'s, which HTML §16.3.3 equates with `ul` (D-6 — §16.3.3's "must" is outside §15, so no carve reaches it; the other four equivalences of §16.3.3 are not decided here: they are `IBP-ua-display`'s rung-1 input, §7 F-12), and whichever hints the option of §1.6 carves |
 | Where the core-mode "must" gets its force | HTML §2.1.8 | — | — | HTML §2.1.8 knows no partial designation. So DR-4 is either a designation with a recorded departure (the carve) — **rung 1, with a recorded nonconformance** — or no designation plus a ratified elidex rule (IBP §0.2 as applied) — **rung 2**; the ratifier names which. The reach is the same. Every later "under DR-4" ground in this memo carries these two forms ("DR-4's force") |
 | IBP §0.2 "HTML §15's *expected* is read as **must**" (`:664`–`:666`; a §0 premise, ratified by #526; stated without a mode; the cell test evaluates under the current, compat-included cascade, `:886`–`:887`) | consistent | consistent, as a `BrowserCompat`-only "must" | **contradicts** | consistent |
 | IBP's **applications** of that premise, all ratified (§0 premises and §0.6): §0.3 *Why* (`:706`–`:708`: rule (3) "is a must under the §15 normativity above", its missing alt-text rendering "a separate core gap"); §0.4 (`:717`–`:723`: the quirks disjunct "is compat and excluded from the core predicate"); §0.6 item 3 (`:803`–`:813`: §15.5.3's "expected" decides the core predicate). The facts they decide are mode-independent | consistent (the quirks disjunct never fires: elidex never enters quirks mode) | **strained**: the "must" these passages lean on would bind `BrowserCompat` only, and the one mode-independent predicate would follow it in core modes by rung 2 — a step IBP nowhere states, and "excluded from the **core** predicate" reads against | **contradicts** | consistent: this is the reading they apply |
 | E0 (core arm: "no legacy UA, no hints", §5 item 4) | **contradicts** (both halves of the gate) | consistent — E0's gate would be the designation switch | consistent | sheet half consistent (after #408 the gated sheet holds obsolete-element rules only). Hint half consistent **only if every hint is carved** (option A); with a carve by status it is amended for current-feature hints (the passages of §1.7) |
-| #408 (conforming-element rules in the core sheet "applied in every engine mode"; obsolete-element rules compat-gated) | **contradicts** its compat half (those rules are "must" in core modes too) | consistent; the core half is a rung-2 selection from an advisory section, not a §15 "must" | consistent, likewise | consistent, both halves, with `tt`'s reach exception and §16.3.3's equivalences outside the compat half; the core half is a "must" (DR-4's force) |
+| #408 (conforming-element rules in the core sheet "applied in every engine mode"; obsolete-element rules compat-gated) | **contradicts** its compat half (those rules are "must" in core modes too) | consistent; the core half is a rung-2 selection from an advisory section, not a §15 "must" | consistent, likewise | consistent, both halves, with `tt`'s reach exception and `dir` (HTML §16.3.3's `dir` ≡ `ul`) outside the compat half (the other four equivalences are §7 F-12's input to `IBP-ua-display`); the core half is a "must" (DR-4's force) |
 | CLAUDE.md *Whole-engine core / compat / deprecated consistency* | **contradicts** (legacy rendering in core) | consistent | consistent | consistent: it is the carve criterion |
 | D-6's UA rule in core modes | "must" | CSS Lists 3 §4.6 "should" + rung 2 | the same | "must", in DR-4's force: rung 1 with a recorded nonconformance, or rung 2 |
 
@@ -925,7 +927,7 @@ division must satisfy §5.2's constraints at nested-PR granularity. LC-0 is a me
 | **LC-0** | Touch-time split: `counter.rs` is 799 lines, 386 of them the `tests` module (`:414`–). Move the tests to `counter/tests.rs`. Standalone PR, no behaviour | — | — | nothing |
 | **LC-1** | The per-element step: §4's order (reset → increment → set); the implicit increment moved into the step **under the bake's key, the tag `li`**, read through one list-item predicate; explicit increments no longer negated; the absent-integer state through parser, resolve and `CounterResetEntry`; §4.4.2's initial value in the step; one boxless predicate for both drivers' gate and for the §4.4.2 walk. The bake loses its `li` increment arm with that arm's guard and `count_li_children` (its `ol[reversed]` arm passes the absent integer); the pre-layout gate's `is_list_tag` is replaced by the predicate | D-2 (the step), D-3 (order), D-4, D-9 | P1 (field), P4a (field), P4b, Q4c, Q4e, Q4f, Q4g, Q6, Q6b, Q13, Q20's and Q21's fields, W-O1, W-RV, W-BX; W-ML stays right | LC-0 |
 | **LC-2** | Author `counter-*` resolve for every element (N-1) | D-5 | P6, P4e, P19, P20, Q23; P4c, W-F2, W-F4 stay right | LC-1 |
-| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
+| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). **Conditionally**, one UA-sheet edit: if a form of §15.5.5's `summary` rule carrying `display: list-item` without `counter-increment: list-item 0` is in a UA sheet at LC-2k's base, LC-2k adds that declaration to the rule (§7 F-15 (b)); for the shadow form that sheet is CV-details', another program's file (OQ-6) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
 | **LC-3** | The UA rule (`ol, ul, menu, dir`); the list hints at the hint seam with HTML integer parsing; the bake, and all three call sites, deleted | D-1, D-6, D-7, D-8 | P2b / Q2b, P3a / Q3a, P5, P14, W-N1 / W-N2, W-NS, W-OV, PM 637 | LC-2 (c6), LC-1 (c7); LC-2k by choice (§5.2); **OQ-1 (P-1)**, OQ-2 |
 | **LC-4** | The scope model: §4.3 / §4.4.1 inheritance and §4.4.2's instantiate (replace / nest). Both drivers, `flatten` and `set_counter` audited against it | D-3 (scope), D-9 | P8b, P11a / Q11a, P11b, W-S1, W-S2, W-RS | LC-3 |
 | **LC-5** | HTML §15.3.7's remaining units (§4.3: U3, U4, U6, U9 – U12) | D-11 | P17, P18, R1, R3 (margins / padding), R4 | LC-3 for the hint source; **OQ-1** for U12's placement |
@@ -959,16 +961,18 @@ and wrong in a later window. Each hazard found is a **constraint** on the order 
 | c6 | N-1's removal ≼ the UA rule and the hints | a `counter-reset` on an `ol` that declares no `content` would be dropped by `resolve_content` (`box_model/mod.rs:416`): every list would lose its reset | rev 1 (implicit) |
 | c7 | the absent integer and §4.4.2 ≼ the `reversed` hint | step 3.2's `reversed(list-item)` has no integer to give | rev 1 |
 | c8 | the order fix ≼ the implicit increment's move into the step | P2a: 1, 5, 6 → 1, 6, 7 — under set → increment the step would add the implicit 1 after `li[value]`'s set (today the bake withholds the increment instead) | rev 2 |
-| c9 | the implicit increment's move into the step ≼ the end of the `li` arm's increment guard and push ≼ the sign change | the guard and the push gone before the move: P1 1, 2, 3 → 0, 0, 0 (nothing increments); the guard gone, the push kept: Q19 2, 4 → 3, 6 (the bake pushes its `list-item 1` beside the author's `list-item 2`). The sign change before the push is gone: P4a 3, 2, 1 → 5, 6, 7 (the bake's `+1` is an explicit increment, now applied as written). The move may land before the sign change only if the moved increment is `+1` and today's negation flips it; if LC-1's mechanism gives the moved increment its own sign, the move and the sign change co-land (P4a → 5, 6, 7 otherwise: the −1 is negated again) | rev 1; the guard half rev 3; restated as an order rev 3.1 (R3 B3-M1) |
+| c9 | the implicit increment's move into the step ≼ the end of the `li` arm's increment guard and push ≼ the sign change | the guard and the push gone before the move: P1 1, 2, 3 → 0, 0, 0 (nothing increments); the guard gone, the push kept: Q19 2, 4 → 3, 6 (the bake pushes its `list-item 1` beside the author's `list-item 2`). The sign change before the push is gone: P4a 3, 2, 1 → 5, 6, 7 (the bake's `+1` is an explicit increment, now applied as written). While the push stands it names `list-item` in the `li`'s computed increment, so D-2's suppression test withholds the moved increment whatever its sign: the move is free of the sign change. The end of the push may land before the sign change only if the moved increment is `+1` and today's negation (`counter.rs:117`) flips it; if LC-1's mechanism gives the moved increment its own sign and that increment still passes through today's negation, **the end of the guard and push and the sign change co-land** (P4a → 5, 6, 7 otherwise: from the push's end the moved −1 is the item's only increment, and it is negated) | rev 1; the guard half rev 3; restated as an order rev 3.1 (R3 B3-M1); co-landing pair corrected rev 3.2 (C-M1) |
 | c10 | `dir`'s `counter-reset` (LC-3, D-6) ≼ sibling scope | W-H5: b = 1 → 2 — as c3, for `dir` | rev 2 |
 | c11 | N-1's removal ≼ the list-item key's change to `display` | W-F4: 1, 1, 2 → 1, 2, 3 — a non-`li` element with `display: list-item` becomes a list item while its author `counter-increment: list-item 0` is still dropped (it declares no `content`), so the step's suppression test reads nothing and adds the implicit 1. (It returns to 1, 1, 2 when N-1 goes: a cell wrong only in the window between) | R2 finding A3-I1 |
 | c12 | the sign change ≼ §4.4.2's value | P4a: 3, 2, 1 → −5, −6, −7 — §4.4.2 reads each element's increment for the counter; while the implicit increment is a baked `list-item 1` whose sign the step fixes up, the walk reads +1 where the step applies −1 | rev 3 |
-| c13 | §4.4.2's value in the step ≼ the bake's `ol[reversed]` arm passing the absent integer | P4a: 3, 2, 1 → −1, −2, −3 — an absent integer with no §4.4.2 value instantiates at 0 (today's `unwrap_or(0)`, `box_model/mod.rs:529`), then each item applies −1 | rev 3.1 (R3 B3-M2) |
+| c13 | §4.4.2's value in the step ≼ the bake's `ol[reversed]` arm passing the absent integer | P4a: 3, 2, 1 → −1, −2, −3 — an absent integer with no §4.4.2 value instantiates at 0 — 0 is how an absent integer is encoded today (`resolve_counter_reset`'s `unwrap_or(0)`, `box_model/mod.rs:529`, for an author `reversed(name)` with no integer), and a step that has neither an integer nor a §4.4.2 value has only that to read — then each item applies −1 | rev 3.1 (R3 B3-M2) |
 
 **What the constraints force** (R2 finding A3-M6 asked for this explicitly).
 
 - *Co-landing* — none is forced by a cell. c9 is an order: rev 3 wrote it as one change of three parts, which its
-  witness (Q19) did not prove (R3 B3-M1). The move and the sign change co-land only under the mechanism c9 names.
+  witness (Q19) did not prove (R3 B3-M1). The end of the guard and push and the sign change co-land only under the
+  mechanism c9 names (rev 3.1 named the move: while the push stands the moved increment is suppressed, so the move
+  never meets the sign change; C-M1).
 - *Order*: order fix ≼ move ≼ the end of the guard and push ≼ sign change ≼ §4.4.2 ≼ the `ol[reversed]` arm's
   absent integer (c8, c9, c12, c13); §4.4.2 ≼ the key change (c5); the end of the guard and push, and the sign
   change, ≼ N-1's removal ≼ the key change (c4, c1, c11); N-1's removal and §4.4.2 ≼ the cascade inputs (c6, c7);
@@ -990,8 +994,8 @@ the bake never becomes a second writer of anything new":
 
 **Must LC-1 divide?** No. What the constraints force is that the key change is **not in** LC-1. LC-1's remaining
 changes may land as one PR; if its plan divides it, the nested order is: the order fix (c8) → the move → the end
-of the guard and push → the sign change (c9; the move and the sign change in one nested PR if the moved increment
-carries its own sign) → §4.4.2 (c12) → the `ol[reversed]` arm's absent integer (c13). Adjacent steps may share a
+of the guard and push → the sign change (c9; the end of the guard and push and the sign change in one nested PR if
+the moved increment carries its own sign and passes through today's negation) → §4.4.2 (c12) → the `ol[reversed]` arm's absent integer (c13). Adjacent steps may share a
 nested PR. The boxless predicate goes with the first nested PR that reads it.
 
 c6 puts LC-2 before the cascade inputs (LC-3). c2, c3 and c10 put the scope model after both — LC-4 — where
@@ -1030,7 +1034,7 @@ LC-2k's plan greps every UA sheet for `list-item` at its base — `crates/css/el
 `crates/dom/elidex-dom-compat/src/legacy_ua.rs`, and the `details` UA shadow sheet once CV-details has landed it
 (its file is CV-details' plan's to name: CV `:986`'s placeholder `<the UA shadow sheet's file>`) — and, for each
 form present, pins its cell; a form present without its `counter-increment` gets the declaration added in LC-2k's
-change (§7 F-15).
+change (§7 F-15; in CV-details' sheet that is a cross-program edit, OQ-6).
 
 **The exhaustive tables under that order.** Windows: W1 = after LC-1, W2 = after LC-2, W2k = after LC-2k, W3 =
 after LC-3, W4 = after LC-4, W6 = after LC-6 (LC-4, LC-5 and LC-6 are unordered; no unit of one is an input of
@@ -1098,7 +1102,8 @@ adds to Table 2 every unit its own mechanism introduces.
 
 - **LC-1**: the implicit increment is derived in the step from the list-item predicate — **one definition**, its
   body the tag `li` in this slice, read by the step, by the caller gate and by the §4.4.2 walk (I5; LC-2k changes
-  the body and points the marker reconcile at it, nothing else) — so both drivers get it; the caller gate becomes "has a counter property or is a list
+  the body and points the marker reconcile at it; its one other edit is §15.5.5's conditional declaration, §5.3
+  LC-2k) — so both drivers get it; the caller gate becomes "has a counter property or is a list
   item", one gate for both drivers; the boxless set is **one predicate**, read by that gate and by the §4.4.2 walk
   (I7 × I9, I6 × I7); state which of steps 2 – 4 a continuation fragment runs (I3 × I9); decide the parsed encoding
   of an omitted integer (today `parse_counter_list` stores the default as a number, so `reversed(foo)` and
@@ -1130,7 +1135,12 @@ adds to Table 2 every unit its own mechanism introduces.
   LC-3 and the UA rule's after it). Re-adding `ol` / `ul` to the gate would be a second key and is not allowed; audit §4.5's two branches this memo marks ✗ (a `content:
   none` pseudo; descendants of replaced elements); keep I11. The comment sweep (below) includes
   `crates/script/elidex-js/src/vm/host/html_olist_proto.rs:38`–`:41` ("(default = list length) live in cascade-time
-  evaluation"): false once the count is §4.4.2's, in the counter step. If its plan divides it, the nested order is
+  evaluation"): false once the count is §4.4.2's, in the counter step. **L1's files** (§7 F-16): LC-1 changes
+  the paged gate and the bake's call in `crates/core/elidex-render/src/builder/walk.rs` (`:131`, `:134`) and the
+  step the paged driver `crates/core/elidex-render/src/builder/paged.rs` runs, and L1's page children edit both
+  files (#785 among them); the plan re-greps both at its base, names the L1 work landed or in flight there, and
+  states any change it makes to what `set_counter("page" | "pages")` and `flatten` give the margin boxes, with the
+  cells L1's 3b.3 / 3b.4 would see (W-PG1, W-PG2) — F-16 (a) and (b). If its plan divides it, the nested order is
   §5.2's (c8, c9, c12, c13: order fix → move → guard and push end → sign change → §4.4.2 → the arm's absent
   integer).
 - **LC-2**: move the three counter resolves out of `resolve_content`'s early return; cover `style=""` (Q23); pin
@@ -1138,12 +1148,16 @@ adds to Table 2 every unit its own mechanism introduces.
 - **LC-2k**: change the predicate's body from the tag to computed `display` — the increment, the gate and the
   §4.4.2 walk follow through the one definition (if they do not, LC-1 left a second key: a finding against LC-1,
   not a second edit here) — and make the marker reconcile read the predicate in place of its inline `display` test
-  (`generated_content.rs:97`–`:98`; I5), keeping its `list-style-type` half; nothing else. Pin W-F3 and W-F4 as
+  (`generated_content.rs:97`–`:98`; I5), keeping its `list-style-type` half; nothing else in code, and in the UA
+  sheets only the conditional declaration below. Pin W-F3 and W-F4 as
   cells that stay right, P8a as the cell that turns right and P8b at 1, 1. Grep every UA sheet for `list-item` at
   its base (§5.2 cross-lane names the files, the `details` UA shadow sheet included once CV-details has landed it);
   for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form), and if a
   form carries `display: list-item` without `counter-increment: list-item 0`, add that declaration to the rule in
-  this change rather than exclude `summary` from the predicate (§7 F-15). Drop the predicate's defect note (§3.3).
+  this change rather than exclude `summary` from the predicate (§7 F-15). **Cross-program touch**: for the shadow
+  form the sheet is CV-details' UA shadow sheet (`docs/plans/2026-10-content-visibility.md`, CV `:986`'s
+  placeholder), a file another program owns; who makes that edit is OQ-6, and the plan follows its outcome. Drop
+  the predicate's defect note (§3.3).
 - **LC-3**: implement the OQ-1 / OQ-2 outcome; reuse one integer parser (SQ-1); delete the bake and its three call
   sites; put `dir` in the UA rule (D-6); read the element's `Namespace` in the hint source, so that only HTML
   elements get the hints (W-NS); clamp the hint's integers and the parser's result per §3.1 (W-OV); edit the rustdoc
@@ -1477,13 +1491,14 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   §4.6 keys the implicit increment on every list item, so excluding `summary` from the predicate would be a second
   key against the spec — and against One issue, one way): (a) whoever lands either form lands
   `counter-increment: list-item 0` in the same rule; (b) if a form carrying `display: list-item` without it is in a
-  UA sheet at LC-2k's base, LC-2k adds the declaration to that rule in its own change; (c) whoever lands second pins
+  UA sheet at LC-2k's base, LC-2k adds the declaration to that rule in its own change (for the shadow form a
+  cross-program edit of CV-details' sheet: who makes it is OQ-6); (c) whoever lands second pins
   the form's cell — W-SUM for the document form, W-SUM-D for the shadow form (§6): LC-2k if the rule is in its sheet
   at LC-2k's base, otherwise the rule's lander; (d) before LC-2 the `counter-increment` half is dropped by N-1 (it
   declares no `content`) and is harmless only because the list-item key is still the tag — so the rule must not be
   used as a reason to move the key earlier. To carry to: CV-details (the shadow form, now), and the eventual lander
   of IBP's slot member, through that slot's registration (`IBP-ua-display`'s plan) (OQ-4).
-- **F-16 — cross-lane, for the PM: L1's G′a-geo page children against LC-1, LC-3 and LC-4.** PM 1008
+- **F-16 — cross-lane, for the PM: L1's G′a-geo page children and L1's P1 (#785) against LC-1, LC-3 and LC-4.** PM 1008
   (`PORTFOLIO-archive-2026-W48.md`; recorded on this slot's ledger row, `project_open-defer-slots.md:1482`; the
   boundary text is `handoff/codex-lanes/l1/gageo-recut-pm1007.md`, "L2 と共有する範囲") draws the L1 ↔ L2 line:
   whether a line exists, decoration, text transforms, and **the list UA rule and counter order** are L2's (this
@@ -1494,8 +1509,12 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `set_counter("page" | "pages")` `:50`–`:53`, `:215`–`:216`; `flatten` `:270`) and
   `crates/core/elidex-render/src/builder/walk.rs` (the bake's call `:134`, the paged gate `:131`). LC-1 changes
   that gate and step (one gate and one step for both drivers, I9) and LC-4 re-audits `flatten` and `set_counter`.
-  L1's open PR #785 (`layout-block-fragment-contributions`, open on 2026-11-26) edits both files, and 3b.3's page
-  plan ("page counter と entry 数が一致") and 3b.4 read `page` / `pages`;
+  L1's open PR #785 (`layout-block-fragment-contributions`, open on 2026-11-26) edits both files. #785 is not one
+  of PM 1008's page children: it is **L1's P1**, the shared Block break token's coverage, which PM 1113 made a
+  standalone prerequisite PR before 3b.2f / 3b.2g (its plan delta ruled by PM 1114; the branch is named at W48's
+  #782 landing line), and PM 1123 makes P1 + P2 one landing unit (`PORTFOLIO-archive-2026-W48.md`; under PM 1113
+  the PM checks #785 against L2's `elidex-layout-block` branch before the merge go). PM 1008's boundary is F-16's other half: it is what 3b.3's
+  page plan ("page counter と entry 数が一致") and 3b.4, which read `page` / `pages`, rest on;
   (2) the print entry — `prepare_print_style` (`crates/css/elidex-style/src/page.rs:207`) and the shell's
   `build_paged_pipeline` (`crates/shell/elidex-shell/src/pipeline.rs:401`), which rows 4 – 5 of LC-3's entry table
   cover and which L1's 3b.1 reshaped (#773).
@@ -1580,7 +1599,9 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   CV-details (the shadow form) and `IBP-ua-display`'s plan, for the registration of its slot's `summary` member;
   §4.3 U13's three quirks rules → `#11-document-mode` (Layout); F-16 → the L1 lane and the PM's sequencing of L1's
   page children against LC-1 / LC-3 / LC-4; F-11 → the cite-sweep lane. Whether F-4 gets a record, and whether F-8
-  (no defect today; its trigger is §0.5 row 4's promotion rule) should.
+  (no defect today; its trigger is §0.5 row 4's promotion rule) should. And where §9 item 4's amendment (or
+  divergence) record goes when this slot closes: proposed, the closing PR's row of `memory/m4-12-landings-ledger.md`,
+  with E0's back-pointer re-pointed (§9 item 4 (v)).
 - **OQ-5 — under option A only**: LC-3 would make `BrowserCore` / `App`, and every hint-less cascade entry (the
   WPT harness, the benches, the print entry's fixture, the tests that call `resolve_styles` or
   `prepare_print_style`), stop honouring `start` / `value` / `reversed`, which they honour today — the one
@@ -1590,6 +1611,28 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   navigation rebuild hard-code `BrowserCompat`, so once a core session exists the same list is numbered from 1 in
   the top-level document and from its `start` in an iframe until that slot lands). Under A the divergence would be
   recorded against both.
+- **OQ-6 — LC-2k's conditional edit to another program's UA sheet.** §7 F-15 (b) has LC-2k add `counter-increment:
+  list-item 0` to a §15.5.5 `summary` rule that is in a UA sheet at LC-2k's base with `display: list-item` alone.
+  For the document form the sheet is one this program already edits (`ua.rs` / `legacy_ua.rs`); for the shadow form
+  it is CV-details' UA shadow sheet (`docs/plans/2026-10-content-visibility.md`; its file is CV `:986`'s placeholder
+  `<the UA shadow sheet's file>`), which CV-details' plan names and owns — so the edit is a cross-program touch.
+  What the rule must say is fixed at rung 1 under every option (§15.5.5 states the two declarations as one rule;
+  excluding `summary` from the predicate is rejected, F-15); what is open is who edits the file. Cell: W-SUM-D
+  (`<ol><li><details>x</details><li>b</ol>`; spec 1, 2; 1, 3 with `display` alone once LC-2k has landed).
+  (a) *LC-2k edits CV-details' sheet* in its own change. Rung 1: the rule is whole from LC-2k's change on, so
+  W-SUM-D is 1, 2 in every window whichever lands first. Cost: one program edits a file another program owns, and
+  CV-details' plan must take in a declaration it did not land.
+  (b) *CV-details lands the full rule* (`display: list-item` and `counter-increment: list-item 0` together), as
+  F-15 (a) and §9's CV-details input line ask. Rung 1, with rung 2's One issue, one way (one lander for one rule);
+  LC-2k's conditional edit then never fires for the shadow form, and W-SUM-D is 1, 2 in every window (§5.2's
+  cross-lane table, "rule whole"). Cost: CV-details takes a declaration beyond the scope its plan states (CV
+  `:880`: it builds "only" the default summary's display).
+  (c) *The PM sequences it*: the PM orders CV-details' shadow sheet against LC-2k and names, at that point, who adds
+  the declaration. No rung decides it: it is a lane-sequencing decision, F-16's kind. W-SUM-D is 1, 2 if the rule is
+  whole once both have landed; if the `display` declaration is in the sheet alone after LC-2k, W-SUM-D reads 1, 3
+  until the declaration lands (§5.2's cross-lane table, "`display` alone").
+  This memo does not choose. It blocks no slice's start; LC-2k's plan needs the outcome only if the shadow sheet is
+  in the tree at its base without the declaration.
 
 ---
 
@@ -1617,7 +1660,12 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   ledger or landing line (`/usr/bin/grep -c web-api-compat-split-design <memory dir>/m4-12-landings-ledger.md` → 0 on 2026-11-26;
   control `/usr/bin/grep -c -F '#406'` on the same file → 1),
   so (i)'s heading is its pointer; (iv) the ratifier's decision itself is the PM's decision line in the PORTFOLIO,
-  cited by number in (i). The two plan files are not edited; the rustdoc and comments of §1.7 are edited by LC-3.
+  cited by number in (i); (v) **the record outlives the slot**: (i) sits on an open-slot row, and a closed slot's
+  row leaves that ledger (the ledger's header banners record each closure as an entry removed), so the paragraph
+  must not go with it — when the PM closes the slot, the paragraph moves unchanged to the landings-ledger row of
+  the closing PR (`memory/m4-12-landings-ledger.md`), and E0's back-pointer of (ii) is re-pointed to it there. This
+  destination is **pending the PM's ruling** (sent with §8's open questions, OQ-4). The two plan files are not
+  edited; the rustdoc and comments of §1.7 are edited by LC-3.
   If A is ratified: no amendment record; OQ-5's divergence record instead, in the same place (i). Whatever the
   option, the reading the ratifier names is recorded once, in (i), against IBP's premise (§0.2), and goes to
   `IBP-layout` and `IBP-ua-display` as input lines (below), since they consume it.
@@ -1640,7 +1688,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   list item" for counters keys on a tag.
 - OQ-1's outcome is recorded (§9, item 4): under B0 / B / C the E0 / A0 amendment paragraph exists on this slot's
   ledger row, headed with both plan paths, with E0's back-pointer on its landings-ledger line; under A the
-  divergence record of OQ-5 exists there instead; the reading is recorded there against IBP's premise.
+  divergence record of OQ-5 exists there instead; the reading is recorded there against IBP's premise. The record
+  outlives the slot: when the row is closed, the paragraph is on the closing PR's row of
+  `memory/m4-12-landings-ledger.md` and E0's back-pointer names it there (§9 item 4 (v); destination pending the
+  PM's ruling).
 - `git grep -n 'list-counter-baking' -- crates` → 0 hits (the pointer comments are gone with their defects), and
   §5.3's concept sweep leaves no comment that describes the bake or a cascade-time count.
 - `getComputedStyle` returns the computed `counter-*` values (P10 / Q10), and `counter-*` have one parse and one
@@ -1649,6 +1700,34 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 
 ## Changelog
 
+- **Rev 3.2 (2026-11-26)** — folds the Step 4.5 focused re-review of rev 3.1 (`4fd8752a`; CRIT 0 / IMP 0 / MIN 7,
+  C-M1 – C-M7, plus two clerical notes). Each finding was checked against its evidence before it was applied; none
+  was wrong. No slice reordered, no section restructured. Code refs re-verified at `4fd8752a` (`git diff --stat
+  01426656 4fd8752a -- crates` is empty).
+  - **C-M1** — §5.2 c9, "What the constraints force", "Must LC-1 divide?": the pair that co-lands under the
+    own-sign mechanism is {the end of the guard and push, the sign change}, not {the move, the sign change}. Re-derived
+    from `counter.rs` (the bake's `li` arm pushes `list-item 1` into the computed increment, `:364`; the step negates
+    every increment on a reversed counter, `:117`) and Table 2's P4a / P1 / Q19 rows: while the push stands, D-2's
+    suppression test withholds the moved increment, so the move never meets the sign change. Every order c9 states
+    stays an order.
+  - **C-M2** — §5.3 LC-1: F-16's obligations (a) and (b), for `builder/walk.rs` (`:131`, `:134`) and
+    `builder/paged.rs`, as LC-3 and LC-4 carry theirs.
+  - **C-M3** — §7 F-16: #785 cited by its own PM decisions — L1's P1, PM 1113 (standalone prerequisite; the PM's
+    check against L2's `elidex-layout-block` branch), PM 1114 (its plan delta), PM 1123 (P1 + P2 one landing unit),
+    from `PORTFOLIO-archive-2026-W48.md`; PM 1008's boundary kept as F-16's other half; heading names #785.
+  - **C-M4** — §9 item 4 (v), §10, OQ-4: the amendment (or divergence) record outlives the slot; at closure it moves
+    to the closing PR's row of `memory/m4-12-landings-ledger.md`, with E0's back-pointer re-pointed; destination
+    pending the PM's ruling.
+  - **C-M5** — §5.1 LC-2k's "What it lands", §5.3 LC-1 and LC-2k ("nothing else" qualified), §5.2's cross-lane
+    paragraph, §7 F-15 (b): LC-2k's conditional UA-sheet edit stated, and flagged as a cross-program touch of
+    CV-details' UA shadow sheet; new OQ-6 with options (a) / (b) / (c), each with its rung and W-SUM-D; not chosen.
+  - **C-M6** — D-1: a hand-built-style caller loses the reset from W1 on, permanently (from LC-3 the reset is the
+    UA rule's, which a hand-built style bypasses); rev 3.1's "in W1 – W2k" implied it returned at W3.
+  - **C-M7** — §1.2's DR-4 carve cell and its #408 row narrowed to `dir`; `acronym`, `listing`, `plaintext` and
+    `xmp` stay `IBP-ua-display`'s rung-1 input, as F-12 says.
+  - Clerical — D-4: CLAUDE.md names the literal port of the boa `HostBridge` side-store as the rule's typical trap,
+    not its origin. §5.2 c13: the cite of `box_model/mod.rs:529` states its condition (`resolve_counter_reset`
+    encodes an absent integer of an author `reversed(name)` as 0).
 - **Rev 3.1 (2026-11-26)** — folds `/elidex-plan-review` round 3 on rev 3 (`7fcaffed`; CRIT 0 / IMP 5 / MIN 23, 21
   unique; change type DESIGN-AFFECTING, localized: no slice reordered, no section restructured). R3 finding IDs are
   the reviewers' (B*n*-I*n* / B*n*-M*n*). Every finding was checked against its evidence; two were partly wrong on a
