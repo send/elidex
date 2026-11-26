@@ -20,12 +20,10 @@ use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 /// stops at an invalid keyword and returns `false`. HTML §6.8.1 gives invalid
 /// and missing values the Inherit state, so both should continue the walk.
 ///
-/// Ancestor walk is capped at [`MAX_ANCESTOR_DEPTH`] parent-edges to
-/// defend against pathological trees.  The entity's own attribute is
-/// checked outside the cap; an ancestor at parent-edge distance up to
-/// and including `MAX_ANCESTOR_DEPTH` is reachable, anything beyond
-/// inherits `false`.  Mirrors the sibling walker convention in
-/// [`crate::element::is_option_disabled`].
+/// Defect (#11-ancestor-walk-depth-cap-default): after checking the element,
+/// the walker visits at most [`MAX_ANCESTOR_DEPTH`] parent edges. It returns
+/// `false` if it exhausts that limit before reaching an editable ancestor.
+/// HTML §6.8.1 applies inheritance at every depth.
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
     if let Some(b) = match_contenteditable(dom, entity) {
@@ -144,12 +142,9 @@ mod tests {
 
     #[test]
     fn caps_walk_at_max_ancestor_depth() {
-        // Build a chain so the root carrying `contenteditable="true"`
-        // sits `MAX_ANCESTOR_DEPTH + 1` parent-edges above the leaf —
-        // one past the reachable boundary.  Self-check + cap iterations
-        // (each visiting one ancestor) exhaust before reaching the root,
-        // so the leaf inherits the spec default (`false`).  Locks the
-        // intentional behaviour change introduced by this slot.
+        // HTML §6.8.1 makes this leaf editable through its editable root at
+        // any depth. The root is one edge beyond the walk limit, so the
+        // assertion records the cap's defect (#11-ancestor-walk-depth-cap-default).
         let chain_len = MAX_ANCESTOR_DEPTH + 2;
         let mut states: Vec<Option<&str>> = Vec::with_capacity(chain_len);
         states.push(Some("true"));

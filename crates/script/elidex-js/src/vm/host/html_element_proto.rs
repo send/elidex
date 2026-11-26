@@ -264,8 +264,11 @@ impl VmInner {
 /// on its own input paths). The old element's `FocusValueSnapshot` is
 /// deliberately left intact (not consumed) rather than discarded, so that once
 /// the slot lands the deferred dispatch can still read its first-focus value
-/// and mark and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
-/// is accepted and ignored (spec polish).
+/// and mark and fire `change`.
+///
+/// Defect (#11-html-focus-options-ignored): this method ignores its options.
+/// HTML `focus(options)` steps 3–4 consult `focusVisible` to decide whether
+/// to indicate focus and scroll the element into view when `preventScroll` is false.
 fn native_html_element_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -837,16 +840,17 @@ fn native_translate_set(
     Ok(JsValue::Undefined)
 }
 
-// ---- spellcheck (true / false, defaults to true unless inherited false) ----
+// ---- spellcheck ----
 fn native_spellcheck_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "spellcheck")?;
-    // §6.8.6 default-true: attr "true" / "" → true, "false" → false,
-    // missing / other → true (Phase 2 simplification; inheritance
-    // from ancestors is the spec rule but browsers diverge).
+    // Defect (#11-spellcheck-inherit-state): the getter returns true for a
+    // missing or invalid attribute. HTML §6.8.6 puts both in the Default
+    // state. An inherit-by-default child inherits its parent's spellcheck
+    // value, which can be false.
     let result = ctx
         .host()
         .dom()
