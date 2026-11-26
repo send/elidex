@@ -1,6 +1,6 @@
 //! Engine-independent WebSocket and EventSource protocol types.
 //!
-//! Provides connection state, URL validation, and readyState constants
+//! Provides connection state, URL and sub-protocol list validation, and readyState constants
 //! shared across script engine bindings. Does NOT depend on any JS engine.
 
 mod event_source;
@@ -8,6 +8,6 @@ mod websocket;
 
 pub use event_source::{es_keepalive, SseReadyState, SSE_READYSTATE_CONSTANTS};
 pub use websocket::{
-    is_mixed_content, normalize_ws_url, validate_ws_url, ws_keepalive, WsReadyState,
-    WS_READYSTATE_CONSTANTS,
+    is_mixed_content, normalize_ws_url, validate_ws_protocols, validate_ws_url, ws_keepalive,
+    WsReadyState, WS_READYSTATE_CONSTANTS,
 };
