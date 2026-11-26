@@ -1,6 +1,8 @@
 use super::*;
 use elidex_plugin::{AlignSelf, JustifySelf, WritingMode};
 
+mod boundaries;
+
 static FONTS: std::sync::LazyLock<FontDatabase> = std::sync::LazyLock::new(FontDatabase::new);
 
 fn add(dom: &mut EcsDom, parent: Option<Entity>, style: ComputedStyle) -> Entity {
@@ -27,6 +29,26 @@ fn geometry_with(
     child_width: f32,
     paged: bool,
     setup: impl FnOnce(&mut EcsDom, Entity, Entity),
+) -> LayoutBox {
+    geometry_with_root(
+        grid_style,
+        item_style,
+        child_width,
+        paged,
+        setup,
+        |dom, grid, _, input| {
+            dispatch_layout_child(dom, grid, input);
+        },
+    )
+}
+
+fn geometry_with_root(
+    grid_style: ComputedStyle,
+    item_style: ComputedStyle,
+    child_width: f32,
+    paged: bool,
+    setup: impl FnOnce(&mut EcsDom, Entity, Entity),
+    dispatch: impl FnOnce(&mut EcsDom, Entity, Entity, &LayoutInput<'_>),
 ) -> LayoutBox {
     use elidex_layout_block::{FragmentainerContext, FragmentationType};
     let mut dom = EcsDom::new();
@@ -87,7 +109,7 @@ fn geometry_with(
         is_probe: false,
     };
     let computed_height = elidex_layout_block::get_style(&dom, item).height;
-    dispatch_layout_child(&mut dom, grid, &input);
+    dispatch(&mut dom, grid, item, &input);
     assert_eq!(
         elidex_layout_block::get_style(&dom, item).height,
         computed_height
@@ -304,8 +326,8 @@ fn published_grid_area_matrix() {
 }
 
 #[test]
-fn normal_replaced_subgrid_and_auto_block_margin() {
-    use elidex_plugin::{BoxSizing, GridTrackList};
+fn normal_replaced_and_auto_block_margin() {
+    use elidex_plugin::BoxSizing;
     for paged in [false, true] {
         for (align, height, width) in [
             (JustifySelf::Normal, 30., 60.),
@@ -350,8 +372,13 @@ fn normal_replaced_subgrid_and_auto_block_margin() {
                 paged,
             );
             assert_eq!(
-                (lb.margin.top, lb.margin.bottom, lb.content.origin.y),
-                (margin, margin, 40. + margin)
+                (
+                    lb.margin.top,
+                    lb.margin.bottom,
+                    lb.content.origin.y,
+                    lb.content.size.height
+                ),
+                (margin, margin, 40. + margin, 100. - 2. * margin)
             );
         }
         for sizing in [BoxSizing::BorderBox, BoxSizing::ContentBox] {
@@ -365,41 +392,6 @@ fn normal_replaced_subgrid_and_auto_block_margin() {
             assert_eq!(
                 (lb.content.size.height, lb.border_box().size.height),
                 (80., 100.)
-            );
-        }
-        for (col, row) in [(true, false), (false, true), (true, true), (false, false)] {
-            let lb = geometry_with(
-                ComputedStyle::default(),
-                ComputedStyle {
-                    width: Dimension::Length(40.),
-                    height: Dimension::Length(40.),
-                    max_width: Dimension::Length(50.),
-                    max_height: Dimension::Length(50.),
-                    justify_self: JustifySelf::End,
-                    align_self: AlignSelf::End,
-                    ..Default::default()
-                },
-                0.,
-                paged,
-                |dom, _, item| {
-                    let mut style = dom.world_mut().get::<&mut ComputedStyle>(item).unwrap();
-                    style.display = Display::Grid;
-                    if col {
-                        style.grid_template_columns = GridTrackList::Subgrid { line_names: vec![] };
-                    }
-                    if row {
-                        style.grid_template_rows = GridTrackList::Subgrid { line_names: vec![] };
-                    }
-                },
-            );
-            let width = if col { 100. } else { 40. };
-            let height = if row { 100. } else { 40. };
-            assert_eq!(
-                (lb.content.origin, lb.content.size),
-                (
-                    Point::new(140. - width, 140. - height),
-                    Size::new(width, height)
-                )
             );
         }
     }
@@ -467,58 +459,6 @@ fn used_auto_inherits_parent_safety_and_scrollport_limits_omitted_end() {
                     assert_eq!(lb.content.origin, Point::new(pos, pos));
                 }
             }
-        }
-    }
-}
-
-#[test]
-fn authored_grid_uses_nearest_scroll_origin_after_relayout() {
-    use elidex_css::{parse_stylesheet, Origin};
-    let fonts = FontDatabase::new();
-    for paged in [false, true] {
-        let mut dom = EcsDom::new();
-        let root = add(&mut dom, None, ComputedStyle::default());
-        let scroller = add(&mut dom, Some(root), ComputedStyle::default());
-        let grid = add(&mut dom, Some(scroller), ComputedStyle::default());
-        let item = add(&mut dom, Some(grid), ComputedStyle::default());
-        let leaf = add(&mut dom, Some(item), ComputedStyle::default());
-        for (node, name) in [(scroller, "scroller"), (grid, "grid"), (item, "item")] {
-            dom.set_attribute(node, "id", name);
-        }
-        for (overflow, left, expected) in [
-            ("visible", 40, 20.),
-            ("hidden", 40, 40.),
-            ("hidden", 65, 65.),
-        ] {
-            let sheet=parse_stylesheet(&format!("div {{display:block}} #scroller {{overflow:{overflow};margin-left:{left}px;width:100px}} #grid {{display:grid;grid-template-columns:100px;grid-template-rows:100px;justify-items:end}} #item {{width:120px;justify-self:auto}}"),Origin::Author);
-            let viewport = Size::new(500., 500.);
-            elidex_style::resolve_styles(&mut dom, &[&sheet], viewport);
-            if paged {
-                let env = elidex_layout_block::LayoutEnv {
-                    font_db: &fonts,
-                    layout_child: dispatch_layout_child,
-                    depth: 0,
-                    viewport: Some(viewport),
-                    scroll_limits: elidex_layout_block::ScrollLimits::default(),
-                    layout_generation: 0,
-                    is_probe: false,
-                };
-                let input = LayoutInput {
-                    depth: 0,
-                    containing: CssSize::definite(500., 500.),
-                    is_probe: false,
-                    ..LayoutInput::probe(&env, 500.)
-                };
-                let page = elidex_layout_block::FragmentainerContext {
-                    available_block_size: 500.,
-                    fragmentation_type: elidex_layout_block::FragmentationType::Page,
-                };
-                assert_eq!(layout_fragmented(&mut dom, root, &input, page).len(), 1);
-            } else {
-                layout_tree(&mut dom, viewport, &fonts);
-            }
-            assert_eq!(get_layout(&dom, item).content.origin.x, expected);
-            assert_eq!(get_layout(&dom, leaf).content.origin.x, expected);
         }
     }
 }
@@ -633,22 +573,29 @@ fn constrained_area_budgets_and_formatter_dispatch() {
                 "{display:?}"
             );
         }
-        for (align, width, outer) in [
-            (JustifySelf::Start, 40., 80.),
-            (JustifySelf::Stretch, 60., 100.),
+        for (align, left, right, width, border, outer) in [
+            (JustifySelf::Start, 0., 0., 40., 60., 60.),
+            (JustifySelf::Start, 5., 15., 40., 60., 80.),
+            (JustifySelf::Stretch, 5., 15., 60., 80., 100.),
         ] {
             let mut item = ComputedStyle {
                 justify_self: align,
-                margin_left: Dimension::Length(5.),
-                margin_right: Dimension::Length(15.),
+                margin_left: Dimension::Length(left),
+                margin_right: Dimension::Length(right),
                 ..Default::default()
             };
             item.padding.left = Dimension::Length(10.);
             item.padding.right = Dimension::Length(10.);
             let lb = geometry(ComputedStyle::default(), item, 40., paged);
             assert_eq!(
-                (lb.content.size.width, lb.margin_box().size.width),
-                (width, outer)
+                (
+                    lb.content.size.width,
+                    lb.border_box().size.width,
+                    lb.margin_box().size.width,
+                    lb.margin.left,
+                    lb.margin.right
+                ),
+                (width, border, outer, left, right)
             );
         }
     }
