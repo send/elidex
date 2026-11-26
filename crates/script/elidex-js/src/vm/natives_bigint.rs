@@ -127,6 +127,7 @@ fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
 }
 
 /// Uses the `BigInt()` function (§21.2.1.1), which accepts integral Numbers.
+/// #11-vm-bigint-asintn-asuintn-tobigint
 /// VM defect: `asIntN` and `asUintN` call this helper even though step 2 of
 /// §§21.2.2.1–2 requires `ToBigInt` (§7.1.15), which rejects Numbers.
 fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
