@@ -4,10 +4,11 @@
 //! Three IDL attributes:
 //! - `reversed` — boolean reflect (presence of the `reversed` content
 //!   attribute).
-//! - `start` — long IDL with default 1; getter parses per HTML
-//!   §2.3.4.1 ("rules for parsing integers") via the engine-indep
-//!   [`elidex_dom_api::element::numeric_reflect::parse_long_or_default`]
-//!   helper.
+//! - `start` — the getter calls
+//!   [`elidex_dom_api::element::numeric_reflect::parse_long_or_default`] with default 1.
+//!   HTML §2.3.4.1 parses the integer, and §2.6.1 requires the getter to return 1
+//!   for a value outside the `long` range. The helper saturates, so an attribute
+//!   value of `2147483648` reads back as `2147483647` (#11-webidl-integer-conversion-canonical).
 //! - `type` — HTML §4.4.5 declares a reflected DOMString. The getter drops
 //!   unrecognized attribute values (#11-ol-type-reflect-plain-domstring).
 //!
@@ -124,12 +125,8 @@ fn ol_set_reversed(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // HTML §2.6.1 boolean reflect setter: ECMAScript ToBoolean →
-    // truthy sets attribute to "" (HTML legacy convention), falsy
-    // removes.  Routes through the shared `coerce::to_boolean` so
-    // `0n` → false (and any other ToBoolean spec edge stays in one
-    // place), rather than the previous local hand-rolled match
-    // which wrongly treated all BigInts as truthy.
+    // The shared ToBoolean conversion supplies the value for HTML §2.6.1
+    // boolean reflection. True sets the attribute to ""; false removes it.
     let raw = args.first().copied().unwrap_or(JsValue::Undefined);
     let truthy = to_boolean(ctx.vm, raw);
     let attr_sid = ctx.vm.strings.intern("reversed");
