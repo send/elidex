@@ -8,105 +8,37 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 #[test]
-fn flex_item_inline_blockified() {
-    let container = flex_container();
-    let inline_item = ComputedStyle {
-        display: Display::Inline,
-        width: Dimension::Length(100.0),
-        height: Dimension::Length(50.0),
-        ..Default::default()
-    };
-    let (mut dom, c, items) = make_flex_dom(container, &[inline_item]);
-    let font_db = FontDatabase::new();
-    do_layout_flex(
-        &mut dom,
-        c,
-        800.0,
-        None,
-        Point::ZERO,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let style = dom
-        .world()
-        .get::<&ComputedStyle>(items[0])
-        .map(|s| s.display)
-        .unwrap();
-    assert_eq!(
-        style,
-        Display::Block,
-        "inline should be blockified to block"
-    );
-}
-
-#[test]
-fn flex_item_inline_flex_to_flex() {
-    let container = flex_container();
-    let inline_flex = ComputedStyle {
-        display: Display::InlineFlex,
-        width: Dimension::Length(100.0),
-        height: Dimension::Length(50.0),
-        ..Default::default()
-    };
-    let (mut dom, c, items) = make_flex_dom(container, &[inline_flex]);
-    let font_db = FontDatabase::new();
-    do_layout_flex(
-        &mut dom,
-        c,
-        800.0,
-        None,
-        Point::ZERO,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let style = dom
-        .world()
-        .get::<&ComputedStyle>(items[0])
-        .map(|s| s.display)
-        .unwrap();
-    assert_eq!(
-        style,
-        Display::Flex,
-        "inline-flex should be blockified to flex"
-    );
-}
-
-#[test]
-fn flex_item_inline_table_to_table() {
-    let container = flex_container();
-    let inline_table = ComputedStyle {
-        display: Display::InlineTable,
-        width: Dimension::Length(100.0),
-        height: Dimension::Length(50.0),
-        ..Default::default()
-    };
-    let (mut dom, c, items) = make_flex_dom(container, &[inline_table]);
-    let font_db = FontDatabase::new();
-    do_layout_flex(
-        &mut dom,
-        c,
-        800.0,
-        None,
-        Point::ZERO,
-        &font_db,
-        0,
-        layout_block_only,
-    );
-
-    let style = dom
-        .world()
-        .get::<&ComputedStyle>(items[0])
-        .map(|s| s.display)
-        .unwrap();
-    assert_eq!(
-        style,
-        Display::Table,
-        "inline-table should be blockified to table"
-    );
+fn first_dispatch_consumes_the_published_display() {
+    for display in [Display::Block, Display::Flex, Display::Table] {
+        let style = ComputedStyle {
+            display,
+            ..flex_item(100.0, 50.0)
+        };
+        let (mut dom, container, items) = make_flex_dom(flex_container(), &[style]);
+        thread_local! { static FIRST: std::cell::Cell<Option<Display>> = const { std::cell::Cell::new(None) }; }
+        FIRST.set(None);
+        do_layout_flex(
+            &mut dom,
+            container,
+            800.0,
+            None,
+            Point::ZERO,
+            &FontDatabase::new(),
+            0,
+            |dom, item, input| {
+                let display = elidex_layout_block::get_style(dom, item).display;
+                if FIRST.get().is_none() {
+                    FIRST.set(Some(display));
+                }
+                layout_block_only(dom, item, input)
+            },
+        );
+        assert_eq!(FIRST.get(), Some(display));
+        assert_eq!(
+            elidex_layout_block::get_style(&dom, items[0]).display,
+            display
+        );
+    }
 }
 
 #[test]
@@ -589,5 +521,33 @@ fn flex_visibility_collapse_not_skipped() {
             dom.world().get::<&LayoutBox>(e).is_ok(),
             "item[{i}] should have LayoutBox (collapse ≠ display:none)",
         );
+    }
+}
+
+#[test]
+fn definite_nowrap_line_size_precedes_cross_auto_margin_distribution() {
+    for height in [30.0, 90.0] {
+        let (mut dom, parent, _) = make_flex_dom(
+            ComputedStyle {
+                height: Dimension::Length(70.0),
+                ..flex_container()
+            },
+            &[ComputedStyle {
+                margin_top: Dimension::Auto,
+                margin_bottom: Dimension::Auto,
+                ..flex_item(40.0, height)
+            }],
+        );
+        do_layout_flex(
+            &mut dom,
+            parent,
+            100.0,
+            None,
+            Point::ZERO,
+            &FontDatabase::new(),
+            0,
+            layout_block_only,
+        );
+        LINE_SIZES.with_borrow(|sizes| assert_eq!(sizes.as_slice(), &[70.0]));
     }
 }

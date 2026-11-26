@@ -266,7 +266,7 @@ fn slotted_element_not_retargeted() {
         )
         .unwrap();
     dom.world_mut()
-        .insert_one(light, elidex_ecs::SlottedMarker)
+        .insert_one(light, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     add_listener(&mut dom, root, "click", false);

@@ -6,11 +6,14 @@ use elidex_ecs::{Attributes, ElementState, PseudoElementMarker, ShadowRootMode, 
 use elidex_plugin::{BorderStyle, CssColor, CssValue, Dimension, Display, Overflow, Position};
 
 mod cascade;
+mod flex_grammar;
+mod item_display;
 mod overflow_propagation;
 mod properties;
 mod selectors_pseudo;
 mod shadow_compat;
 mod shorthand;
+mod substitution;
 
 fn build_simple_dom() -> (EcsDom, Entity, Entity, Entity) {
     let mut dom = EcsDom::new();

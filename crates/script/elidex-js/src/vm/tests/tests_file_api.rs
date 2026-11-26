@@ -179,7 +179,7 @@ fn name_empty_string_allowed() {
 #[test]
 fn name_slash_replaced_with_colon() {
     let mut vm = Vm::new();
-    // FileAPI §4.1 step 2 — `/` → `:` for filesystem path safety.
+    // This test records the VM’s slash-to-colon filename conversion.
     assert_eq!(
         eval_string(&mut vm, "new File([], 'a/b/c.txt').name;"),
         "a:b:c.txt"
@@ -454,8 +454,8 @@ fn bits_includes_typed_array_view() {
 #[test]
 fn endings_transparent_default_no_normalize() {
     let mut vm = Vm::new();
-    // No `\r` → `\n` collapse with default endings.  Spec §4.1 step 1
-    // says "transparent" leaves USVString bytes untouched.
+    // No `\r` → `\n` collapse with default endings.  File API §3.1.1
+    // applies newline conversion only when endings is "native".
     // `\r\n` is 2 bytes in UTF-8 ASCII.
     assert_eq!(
         eval_number(&mut vm, "new File(['a\\r\\nb'], 'g').size;"),

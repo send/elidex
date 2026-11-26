@@ -580,24 +580,12 @@ pub(super) fn native_array_to_string(
     super::natives_symbol::native_object_prototype_to_string(ctx, this, &[])
 }
 
-/// `Array.prototype.toLocaleString(locales?, options?)` — locale-
-/// aware string conversion (§23.1.3.32).  Per spec step 6 each
-/// non-nullish element is invoked as `? ToString(? Invoke(elem,
-/// "toLocaleString", « locales, options »))`, then joined with
-/// `","`.  Holes / undefined / null produce empty string per
-/// step 7.a.  elidex has no Intl yet, so the locale arguments
-/// flow through to per-element overrides unobserved by the
-/// built-in `Object.prototype.toLocaleString` (which redirects
-/// to `toString`).
-///
-/// Forwards `(locales, options)` to each per-element invocation
-/// so user overrides on `Number.prototype.toLocaleString` /
-/// `BigInt.prototype.toLocaleString` see them.  Throws TypeError
-/// on a present-but-non-callable `toLocaleString` per `Invoke`
-/// (§7.3.20); the `None` branch covers the user-reachable case
-/// where `toLocaleString` is absent (for example because
-/// `Object.prototype.toLocaleString` was deleted), which is part
-/// of the observable `Invoke` semantics.
+/// elidex joins the element strings with a comma and forwards locales and
+/// options as in ECMA-402 §20.5.1 step 3. ECMA-262 §23.1.3.32 delegates to
+/// the same JoinIndexedProperties operation without supplying method arguments.
+/// JoinIndexedProperties (§23.1.3.18.1) skips nullish values and invokes
+/// `toLocaleString` on each other value. elidex skips empty slots in its
+/// element snapshot. A missing or non-callable method throws via Invoke.
 ///
 /// Boxed-primitive wrappers are pinned in a single rooted stack
 /// slot across the property lookup + call points — same shape as
@@ -612,10 +600,7 @@ pub(super) fn native_array_to_locale_string(
     array_len(ctx, id)?;
     let elements = clone_elements(ctx, id);
     let to_locale_key = super::value::PropertyKey::String(ctx.vm.well_known.to_locale_string);
-    // §23.1.3.32 step 6 forwards exactly `« locales, options »` to
-    // each per-element `Invoke` — extra caller-supplied args must
-    // not reach the override.  Materialise the pair once outside the
-    // loop so every iteration calls with the same fixed-arity slice.
+    // Build the two arguments once and reuse them for each element.
     let invoke_args = [
         args.first().copied().unwrap_or(JsValue::Undefined),
         args.get(1).copied().unwrap_or(JsValue::Undefined),

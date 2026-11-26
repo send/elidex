@@ -422,7 +422,7 @@ fn parse_custom_property_color() {
     let decls = parse_single("--bg", "#0d1117");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "--bg");
-    assert_eq!(decls[0].value, CssValue::RawTokens("#0d1117".into()));
+    assert_eq!(decls[0].value, custom("#0d1117"));
 }
 
 #[test]
@@ -430,30 +430,22 @@ fn parse_custom_property_multi_token() {
     let decls = parse_single("--font-stack", "\"Courier New\", monospace");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "--font-stack");
-    assert_eq!(
-        decls[0].value,
-        CssValue::RawTokens("\"Courier New\", monospace".into())
-    );
+    assert_eq!(decls[0].value, custom("\"Courier New\", monospace"));
 }
 
 #[test]
 fn parse_custom_property_keyword() {
     let decls = parse_single("--display-mode", "flex");
     assert_eq!(decls.len(), 1);
-    assert_eq!(decls[0].value, CssValue::RawTokens("flex".into()));
+    assert_eq!(decls[0].value, custom("flex"));
 }
 
 #[test]
-fn parse_custom_property_whitespace_only_value() {
-    // A custom property with only whitespace content should store as RawTokens.
-    // Note: `--empty: ;` has the semicolon consumed as value by cssparser's
-    // tokenizer (not a declaration separator in this context).
-    // A truly empty custom property requires `--empty:;` with no space.
+fn custom_property_trims_boundary_whitespace() {
     let decls = parse_single("--x", "  spaces  ");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "--x");
-    // collect_remaining_tokens trims whitespace.
-    assert_eq!(decls[0].value, CssValue::RawTokens("spaces".into()));
+    assert_eq!(decls[0].value, custom("spaces"));
 }
 
 // --- var() references ---
@@ -474,57 +466,34 @@ fn parse_var_references() {
         let decls = parse_single(prop, &input);
         assert_eq!(decls.len(), 1, "{prop}: {input}");
         assert_eq!(decls[0].property, prop, "{prop}: {input}");
+        assert_eq!(decls[0].value, pending(&input), "{prop}: {input}");
+    }
+}
+
+#[test]
+fn pending_preserves_the_first_argument_and_full_fallback() {
+    for (property, text, fallback) in [
+        ("color", "var(--fg, #ff0000)", Some(" #ff0000")),
+        ("display", "var(--mode, block)", Some(" block")),
+        ("color", "var(--a, var(--b, red))", Some(" var(--b, red)")),
+        ("color", "var(--a)", None),
+        ("color", "var(--a,)", Some("")),
+        ("color", "var(--a, )", Some(" ")),
+    ] {
+        let decls = parse_single(property, text);
+        assert_eq!(decls[0].value.to_css_string(), text);
+        let CssValue::Pending(seq) = &decls[0].value else {
+            panic!("expected pending")
+        };
+        let (first, rest) = seq.arguments(0);
+        assert_eq!(first.len(), 1);
         assert_eq!(
-            decls[0].value,
-            CssValue::Var(var_name.into(), None),
-            "{prop}: {input}"
+            rest.map(|range| seq.items()[range]
+                .iter()
+                .map(|item| &seq.source()[item.span.clone()])
+                .collect::<String>()),
+            fallback.map(str::to_owned)
         );
-    }
-}
-
-#[test]
-fn parse_var_function_with_color_fallback() {
-    let decls = parse_single("color", "var(--text-color, #ff0000)");
-    assert_eq!(decls.len(), 1);
-    assert_eq!(decls[0].property, "color");
-    match &decls[0].value {
-        CssValue::Var(name, Some(fb)) => {
-            assert_eq!(name, "--text-color");
-            assert_eq!(**fb, CssValue::Color(CssColor::RED));
-        }
-        other => panic!("expected Var with fallback, got {other:?}"),
-    }
-}
-
-#[test]
-fn parse_var_function_with_keyword_fallback() {
-    let decls = parse_single("display", "var(--display-mode, block)");
-    assert_eq!(decls.len(), 1);
-    match &decls[0].value {
-        CssValue::Var(name, Some(fb)) => {
-            assert_eq!(name, "--display-mode");
-            assert_eq!(**fb, CssValue::Keyword("block".into()));
-        }
-        other => panic!("expected Var with fallback, got {other:?}"),
-    }
-}
-
-#[test]
-fn parse_var_function_nested() {
-    let decls = parse_single("color", "var(--a, var(--b, red))");
-    assert_eq!(decls.len(), 1);
-    match &decls[0].value {
-        CssValue::Var(name_a, Some(fb_a)) => {
-            assert_eq!(name_a, "--a");
-            match fb_a.as_ref() {
-                CssValue::Var(name_b, Some(fb_b)) => {
-                    assert_eq!(name_b, "--b");
-                    assert_eq!(**fb_b, CssValue::Color(CssColor::RED));
-                }
-                other => panic!("expected nested Var, got {other:?}"),
-            }
-        }
-        other => panic!("expected Var, got {other:?}"),
     }
 }
 
@@ -728,45 +697,43 @@ fn parse_text_decoration_overline() {
 // --- Compound var() in multi-token values (CSS Variables Level 1 §3) ---
 
 #[test]
-fn compound_var_stored_as_raw_tokens() {
-    // A compound value containing var() should be stored as RawTokens.
+fn compound_var_is_pending() {
     let decls = parse_single("border", "var(--bw) solid var(--bc)");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "border");
     assert!(
-        matches!(&decls[0].value, CssValue::RawTokens(raw) if raw.contains("var(")),
-        "compound var() should be stored as RawTokens, got {:?}",
+        matches!(&decls[0].value, CssValue::Pending(seq) if seq.contains_var()),
+        "compound var() should be pending, got {:?}",
         decls[0].value
     );
 }
 
 #[test]
-fn compound_var_margin_stored_as_raw_tokens() {
+fn compound_margin_is_pending() {
     let decls = parse_single("margin", "0 var(--x)");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "margin");
-    assert!(matches!(&decls[0].value, CssValue::RawTokens(_)));
+    assert!(matches!(&decls[0].value, CssValue::Pending(_)));
 }
 
 #[test]
-fn whole_value_var_still_parsed_as_var() {
-    // A single var() as the entire value should still use CssValue::Var.
+fn whole_value_var_is_pending() {
     let decls = parse_single("color", "var(--x)");
     assert_eq!(decls.len(), 1);
     assert!(
-        matches!(&decls[0].value, CssValue::Var(name, _) if name == "--x"),
-        "whole-value var() should use Var variant, got {:?}",
+        matches!(&decls[0].value, CssValue::Pending(seq) if seq.source() == "var(--x)"),
+        "whole-value var() should be pending, got {:?}",
         decls[0].value
     );
 }
 
 #[test]
-fn var_with_trailing_tokens_uses_raw_tokens() {
+fn pending_value_preserves_trailing_components() {
     // var() followed by extra tokens — not exhaustive, so compound path.
     let decls = parse_single("border", "var(--bw) solid red");
     assert_eq!(decls.len(), 1);
     assert!(
-        matches!(&decls[0].value, CssValue::RawTokens(raw) if raw.contains("var(")),
+        matches!(&decls[0].value, CssValue::Pending(seq) if seq.contains_var()),
         "var() with trailing tokens: {:?}",
         decls[0].value
     );

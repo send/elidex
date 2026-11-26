@@ -22,7 +22,7 @@ use elidex_plugin::ViewportOverflow;
 
 use elidex_plugin::{EngineMode, Size, Vector};
 
-use crate::animation::{create_animation_engine, sync_css_animations};
+use crate::animation::sync_css_animations;
 use crate::{
     create_css_property_registry, resolve_with_mode, PipelineResult, DEFAULT_VIEWPORT_HEIGHT,
     DEFAULT_VIEWPORT_WIDTH,
@@ -402,24 +402,26 @@ pub(super) fn build_paged_pipeline(
     dom: &mut EcsDom,
     stylesheets: &[Stylesheet],
     font_db: &elidex_text::FontDatabase,
-    page_ctx: &elidex_plugin::PagedMediaContext,
-    registry: &elidex_plugin::CssPropertyRegistry,
+    device: elidex_plugin::PageGeometry,
     engine_mode: EngineMode,
-) -> elidex_render::PagedDisplayList {
-    let stylesheet_refs: Vec<&Stylesheet> = stylesheets.iter().collect();
-    let viewport = Size::new(page_ctx.page_width, page_ctx.page_height);
-    // Paged/print output → `Medium::Print` so `@media print` rules apply and
-    // `@media screen` rules do not (mediaqueries-5 §2.3 / CSS Conditional §2).
-    resolve_with_mode(
-        dom,
-        &stylesheet_refs,
-        registry,
-        viewport,
-        Medium::Print,
-        engine_mode,
-    );
-
-    elidex_render::build_paged_display_lists_interleaved(dom, font_db, page_ctx)
+) -> (
+    elidex_render::PagedDisplayList,
+    elidex_plugin::PreparedPages,
+) {
+    let sheets: Vec<_> = stylesheets.iter().collect();
+    let pages = if engine_mode.style_compat_policy().presentational_compat() {
+        elidex_style::page::prepare_print_style(
+            dom,
+            &sheets,
+            &[crate::legacy_ua_stylesheet()],
+            &crate::get_presentational_hints,
+            device,
+        )
+    } else {
+        elidex_style::page::prepare_print_style(dom, &sheets, &[], &crate::no_hints, device)
+    };
+    let display = elidex_render::build_paged_display_lists_interleaved(dom, font_db, &pages);
+    (display, pages)
 }
 
 /// Dispatch lifecycle events on the document per the HTML spec.
@@ -610,7 +612,7 @@ pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -692,7 +694,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     );
 
     let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -787,7 +789,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     );
 
     let display_list = build_display_list(&dom, &font_db);
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -886,7 +888,7 @@ pub fn build_pipeline_from_loaded(
 
     let display_list = build_display_list(&dom, &font_db);
 
-    let animation_engine = create_animation_engine(&stylesheets);
+    let animation_engine = elidex_css_anim::engine::AnimationEngine::from_stylesheets(&stylesheets);
 
     let mut result = PipelineResult {
         display_list,
@@ -969,3 +971,6 @@ pub fn build_pipeline_from_url(
     result.broker_keepalive = Some(np); // Keep broker alive for pipeline lifetime.
     Ok(result)
 }
+
+#[cfg(test)]
+mod page_unit_tests;

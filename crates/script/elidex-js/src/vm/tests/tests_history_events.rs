@@ -278,10 +278,8 @@ fn traversal_across_fragment_fires_popstate_restored_and_hashchange() {
 
 #[test]
 fn traversal_to_no_state_entry_fires_popstate_null() {
-    // The §4.5 matrix row "traversal → same-document entry, NO state" (a plain-nav
-    // or boa-`None` entry): the outer `Some` still fires popstate (the entry
-    // changed — state-agnostic), with `state = null` (`Some(None)`). Distinct from
-    // `None` (which would SKIP popstate — spec-wrong for a changed entry).
+    // This fixture injects a changed entry without bytes: Some(None) fires
+    // popstate with null, while the outer None would suppress the event.
     setup_bound_vm!(vm, session, dom, doc);
     install_recorders(&mut vm);
 

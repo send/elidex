@@ -642,3 +642,19 @@ fn column_rule_mixed_important_is_none() {
         Some("solid".to_string())
     );
 }
+
+#[test]
+fn nested_functions_and_quoted_var_text_have_distinct_kinds() {
+    let mut margin = HashMap::from([
+        ("margin-top", "1px"),
+        ("margin-right", "1px"),
+        ("margin-bottom", "1px"),
+        ("margin-left", "calc(VAR(--n) + 1px)"),
+    ]);
+    assert_eq!(serialize("margin", &margin), Some(String::new()));
+    margin.insert("margin-left", r#""var(""#);
+    assert!(matches!(
+        crate::value_kind(margin["margin-left"]),
+        crate::Kind::Physical
+    ));
+}

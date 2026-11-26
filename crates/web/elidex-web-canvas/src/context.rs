@@ -196,7 +196,7 @@ impl Canvas2dContext {
     }
 
     /// Re-allocate the bitmap to `width`×`height` transparent black and
-    /// reset the drawing state (HTML §4.12.5 "set bitmap dimensions": setting
+    /// reset the drawing state (HTML §4.12.5.1 "set bitmap dimensions": setting
     /// `canvas.width`/`height` — even to the same value — clears the bitmap and
     /// resets context state, transform, and path).
     ///

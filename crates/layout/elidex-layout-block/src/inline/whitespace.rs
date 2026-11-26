@@ -24,7 +24,7 @@ use super::InlineItem;
 /// [`super::pack::LinePacker`], which carries the citation for the rule it
 /// implements. Naming a section here would restate it at a site that does not
 /// decide it, which is how both of this line's previous citations went wrong.
-pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
+pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem], track_source: bool) {
     // Cross-run collapse state: true when the previously emitted character (in any
     // earlier run of this IFC) was a collapsible space, so a following collapsible
     // space collapses to zero advance width (§4.1.1 step 4). Initialized to `true`
@@ -52,13 +52,21 @@ pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
             // text flow, so they neither emit nor reset collapse state.
             InlineItem::Placeholder(_) => continue,
         };
-        let (collapsed, trim_prev_trailing_space) =
-            collapse_run_text(&text, white_space, &mut prev_collapsible_space);
+        let mut positions = track_source.then(Vec::new);
+        let (collapsed, trim_prev_trailing_space) = collapse_run_text(
+            &text,
+            white_space,
+            &mut prev_collapsible_space,
+            &mut positions,
+        );
         if trim_prev_trailing_space {
             if let Some(j) = prev_text_idx {
                 if let InlineItem::Text(prev) = &mut items[j] {
                     if prev.text.ends_with(' ') {
                         prev.text.pop();
+                        if let Some(map) = &mut prev.source_positions {
+                            map.pop();
+                        }
                     }
                 }
             }
@@ -66,6 +74,7 @@ pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
         let collapsed_is_empty = collapsed.is_empty();
         if let InlineItem::Text(run) = &mut items[i] {
             run.text = collapsed;
+            run.source_positions = positions;
         }
         // Keep `prev_text_idx` pointing at the last run that actually emitted text. A
         // run that collapsed to empty holds no trailing space, so the cross-run
@@ -88,71 +97,45 @@ fn collapse_run_text(
     text: &str,
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
+    positions: &mut Option<Vec<crate::source_progress::SourcePosition>>,
 ) -> (String, bool) {
-    // Defensive normalization, not a spec-mandated step: HTML parsing already removes CR
-    // (HTML §13.2.3.5), and css-text-3 §4's note says the DOM gives U+000D no meaning and
-    // does not treat it as a segment break — so text that reached the DOM another way (a
-    // direct `create_text_with_owner`, say) is the only case this catches. Line endings are
-    // normalized before segment-break handling so a
-    // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
-    // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
-    // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.
-    // The common case has no CR, so only allocate when one is actually present.
-    let text: std::borrow::Cow<str> = if text.contains('\r') {
-        std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
-    } else {
-        std::borrow::Cow::Borrowed(text)
-    };
-    match white_space {
-        // Preserve values: apart from the line-ending normalization applied above,
-        // the text is preserved as-is (no space/tab collapsing, segment breaks kept
-        // as forced breaks). A non-empty preserved run is rendered content, so it
-        // resets the collapse state (a following collapsible run's leading space is a
-        // fresh separator, not collapsed into the run).
-        WhiteSpace::Pre | WhiteSpace::PreWrap => {
-            if !text.is_empty() {
-                *prev_collapsible_space = false;
-            }
-            (text.into_owned(), false)
+    let preserve = matches!(white_space, WhiteSpace::Pre | WhiteSpace::PreWrap);
+    let mut previous_trim = false;
+    let entry_space = *prev_collapsible_space;
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.char_indices().peekable();
+    while let Some((byte, mut c)) = chars.next() {
+        if c == '\r' {
+            chars.next_if(|(_, next)| *next == '\n');
+            c = '\n';
         }
-        WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine => {
-            let preserve_break = white_space == WhiteSpace::PreLine;
-            // Whether a collapsible space was pending from the previous run on entry
-            // (needed to remove it across the run boundary before a leading break).
-            let entry_prev_space = *prev_collapsible_space;
-            let mut out = String::with_capacity(text.len());
-            let mut trim_prev_trailing_space = false;
-            for c in text.chars() {
-                if c == '\n' && preserve_break {
-                    // §4.1.1 step 1 / §4.1.3: collapsible spaces around a preserved
-                    // segment break are removed.
-                    if out.ends_with(' ') {
-                        // The space is in this run's own output — drop it directly.
-                        out.pop();
-                    } else if out.is_empty() && entry_prev_space {
-                        // The space immediately preceding this break was emitted at
-                        // the end of the previous run; ask the caller to remove it.
-                        trim_prev_trailing_space = true;
-                    }
-                    out.push('\n');
-                    *prev_collapsible_space = true;
-                } else if is_collapsible_space(c) || c == '\n' {
-                    // A collapsible space/tab, or (for normal/nowrap) a segment break
-                    // transformed to a space (§4.1.3). Collapse runs to a single
-                    // space (step 4); a space following another collapsible space has
-                    // zero advance width and is dropped from the string.
-                    if !*prev_collapsible_space {
-                        out.push(' ');
-                        *prev_collapsible_space = true;
-                    }
-                } else {
-                    out.push(c);
-                    *prev_collapsible_space = false;
+        if preserve {
+            *prev_collapsible_space = false;
+        } else if c == '\n' && white_space == WhiteSpace::PreLine {
+            if output.ends_with(' ') {
+                output.pop();
+                if let Some(map) = positions {
+                    map.pop();
                 }
+            } else if output.is_empty() && entry_space {
+                previous_trim = true;
             }
-            (out, trim_prev_trailing_space)
+            *prev_collapsible_space = true;
+        } else if is_collapsible_space(c) || c == '\n' {
+            if *prev_collapsible_space {
+                continue;
+            }
+            *prev_collapsible_space = true;
+            c = ' ';
+        } else {
+            *prev_collapsible_space = false;
+        }
+        output.push(c);
+        if let Some(map) = positions {
+            map.push(crate::source_progress::SourcePosition::byte(byte));
         }
     }
+    (output, previous_trim)
 }
 
 /// CSS Text 3 collapsible space characters: space and tab. CR/CRLF are normalized

@@ -1,9 +1,6 @@
 //! `%TypedArray%.prototype.{reduce, reduceRight, sort}` tests
-//! (ECMA-262 §23.2.3.23/.24/.29).  Accumulator HOFs and the
-//! in-place sort kept together because they share the
-//! "atomic-on-throw" + GC-rooted-accumulator contracts that
-//! Copilot review iteratively hardened during SP8c-A
-//! (PR #123).
+//! (ECMA-262 §23.2.3.23/.24/.29). Covers accumulator rooting and
+//! propagation of comparator exceptions before sort writes back its result.
 //!
 //! Split from sibling [`super::tests_typed_array_methods`]
 //! (basic prototype methods) and
@@ -242,7 +239,7 @@ fn sort_default_handles_negative_numbers() {
 #[test]
 fn sort_default_places_nan_at_end_in_float_arrays() {
     let mut vm = Vm::new();
-    // Spec TypedArrayElementSortCompare sorts NaN to the end.
+    // CompareTypedArrayElements (§23.2.4.8 steps 3–5) sorts NaNs last.
     assert!(eval_bool(
         &mut vm,
         "var a = new Float64Array([3, NaN, 1, NaN, 2]); \
@@ -375,13 +372,8 @@ fn sort_validates_compare_fn_before_brand_check() {
 #[test]
 fn sort_compare_fn_propagates_throw_atomically() {
     let mut vm = Vm::new();
-    // Throwing comparefn surfaces as abrupt completion AND the
-    // receiver is left **unchanged** — `native_typed_array_sort`
-    // snapshots into a local Vec, sorts there, then writes back
-    // only after the sort completes, so an error during the sort
-    // means no write-back ever happens.  Spec §23.2.3.29 step 5
-    // (`SortIndexedProperties`) → step 7 ordering matches: an
-    // abrupt completion in step 5 short-circuits step 7.
+    // ECMA-262 §23.2.3.29 step 7 propagates the comparator's exception
+    // before step 9 can write any sorted elements back to the receiver.
     let result = vm.eval(
         "var a = new Uint8Array([3, 1, 2]); var captured = null; \
          try { a.sort(function() { throw new Error('boom'); }); } \

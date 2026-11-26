@@ -317,7 +317,7 @@ fn input_value_as_number_setter_writes_value() {
 
 #[test]
 fn input_value_as_number_setter_rejects_non_finite_infinity() {
-    // HTML §4.10.5.1.4 step 5 — non-finite values throw TypeError.
+    // HTML §4.10.5.4: setting valueAsNumber to infinity throws TypeError.
     let out = run("var i = document.createElement('input'); \
          i.type = 'number'; \
          try { i.valueAsNumber = Infinity; 'no-throw'; } \
@@ -709,7 +709,7 @@ fn input_files_returns_empty_file_list() {
 }
 
 // ---------------------------------------------------------------------------
-// list — HTML §4.10.5.1.16 IDREF to <datalist> in the input's tree
+// list — HTML §4.10.5.3.9 IDREF to <datalist> in the input's tree
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -777,7 +777,7 @@ fn input_list_returns_same_object_on_repeated_reads() {
 
 #[test]
 fn input_list_returns_null_for_inapplicable_types() {
-    // HTML §4.10.5.1.16 applicability table: `list` does not apply to
+    // HTML §4.10.5 applicability table: `list` does not apply to
     // hidden / checkbox / radio / file / submit / image / reset /
     // button / password.  Getter must return null even when a matching
     // `<datalist>` is in the same tree.

@@ -10,7 +10,7 @@ mod vello_backend;
 
 pub use builder::{
     build_display_list, build_display_list_with_caret, build_display_list_with_scroll,
-    build_paged_display_lists, build_paged_display_lists_interleaved,
 };
+pub use builder::{build_paged_display_lists, build_paged_display_lists_interleaved};
 pub use display_list::{DisplayItem, DisplayList, GlyphEntry, IframeDisplayList, PagedDisplayList};
 pub use vello_backend::{ContentPlacement, VelloRenderer};

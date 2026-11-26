@@ -251,7 +251,7 @@ fn resize_observer_deliver_fires_callback_with_entry() {
 
 #[test]
 fn resize_observer_content_rect_uses_element_local_coords() {
-    // W3C Resize Observer §2.3: `contentRect` is in the element's own
+    // W3C Resize Observer §3.3.1: `contentRect` is in the element's own
     // coordinate space — origin = padding offsets, NOT document
     // coordinates.  Regression for Copilot R2: passing `lb.content`
     // (document-coord) directly to `gather_observations` produced
@@ -312,9 +312,9 @@ fn resize_observer_content_rect_uses_element_local_coords() {
 
 #[test]
 fn resize_observer_deliver_box_less_target_delivers_initial_zero_once() {
-    // No LayoutBox attached → gather's `size_fn` returns None → spec
-    // mandates a single initial 0×0 observation (Resize Observer §2.1).
-    // The second deliver must not re-fire (last_size == ZERO).
+    // This target's first observed size (0×0) differs from the initial
+    // last-reported size (−1, −1). After broadcast, the same size is
+    // inactive (Resize Observer §§3.1, 3.4.1 and 3.4.5).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -398,7 +398,7 @@ fn resize_observer_disconnect_stops_delivery() {
 
 #[test]
 fn resize_observer_reobserve_after_disconnect() {
-    // W3C Resize Observer §3.5: `disconnect()` clears observation
+    // W3C Resize Observer §2.1: `disconnect()` clears observation
     // targets but the observer stays usable.  A subsequent
     // `observe(other)` must therefore re-arm delivery — regression
     // guard against eagerly removing callback / instance maps on

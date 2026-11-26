@@ -234,6 +234,34 @@ fn set_border_side(
     }
 }
 
+// CSS Backgrounds 3 §4.3. A suppressed border has zero computed width.
+fn computed_border_width(
+    style: &ComputedStyle,
+    side: usize,
+    declared: Option<&CssValue>,
+    ctx: &ResolveContext,
+) -> f32 {
+    if matches!(
+        border_style_by_side(style, side),
+        BorderStyle::None | BorderStyle::Hidden
+    ) {
+        0.0
+    } else {
+        declared.map_or(3.0, |value| resolve_to_px(value, ctx).max(0.0))
+    }
+}
+
+pub(super) fn initial_border_width(
+    property: &str,
+    target: &ComputedStyle,
+    ctx: &ResolveContext,
+) -> Option<f32> {
+    let side = BORDER_WIDTH_PROPS
+        .iter()
+        .position(|name| *name == property)?;
+    Some(computed_border_width(target, side, None, ctx))
+}
+
 /// Resolve all border properties (style, width, color) for all four sides.
 ///
 /// Resolution order: style first (width depends on style being none), then
@@ -259,19 +287,8 @@ pub(super) fn resolve_border_properties(
 
     // Border widths (special: 0 when style = none).
     for (side, prop) in BORDER_WIDTH_PROPS.iter().enumerate() {
-        // CSS spec: computed border-width is 0 when border-style is none or hidden.
-        let px = if matches!(
-            border_style_by_side(style, side),
-            BorderStyle::None | BorderStyle::Hidden
-        ) {
-            0.0
-        } else {
-            match get_resolved_winner(prop, winners, parent_style) {
-                // CSS Backgrounds §4.3: border-width cannot be negative.
-                Some(value) => resolve_to_px(&value, ctx).max(0.0),
-                None => 3.0, // medium
-            }
-        };
+        let declared = get_resolved_winner(prop, winners, parent_style);
+        let px = computed_border_width(style, side, declared.as_ref(), ctx);
         set_border_side(style, side, None, Some(px), None);
     }
 

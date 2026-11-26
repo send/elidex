@@ -323,10 +323,9 @@ fn insert_node_non_collapsed_preserves_hook_adjustments() {
 
 #[test]
 fn insert_node_document_fragment_fans_out_children() {
-    // Copilot R14 (#2): WHATWG §4.4 step 11 — for a DocumentFragment
-    // `node`, newOffset advances by the fragment's child count (not
-    // by 1).  The §4.2.3 `insert` algorithm pre-inserts each child
-    // and empties the fragment.
+    // DOM §5.6 insert into a live range, step 11, advances the offset by
+    // the fragment’s child count. DOM §4.2.3 insert removes the children
+    // from the fragment and inserts them in tree order.
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     vm.eval(

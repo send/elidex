@@ -264,3 +264,57 @@ fn nested_shadow_hosts_have_isolated_styles() {
         "inner host should be blue"
     );
 }
+
+#[test]
+fn assigned_host_display_obeys_tree_context_before_specificity() {
+    for (element_css, slot_css, host_css, expected) in [
+        (
+            "",
+            "::slotted(section) {display:grid}",
+            ":host(#assigned) {display:flex}",
+            Display::Grid,
+        ),
+        (
+            "",
+            "::slotted(#assigned) {display:grid !important}",
+            ":host {display:flex !important}",
+            Display::Flex,
+        ),
+        (
+            "section {display:table}",
+            "::slotted(section) {display:grid}",
+            ":host(#assigned) {display:flex}",
+            Display::Table,
+        ),
+        (
+            "#assigned {display:table !important}",
+            "::slotted(section) {display:grid !important}",
+            ":host {display:flex !important}",
+            Display::Flex,
+        ),
+        ("", "", ":host > section {display:none}", Display::Block),
+        (
+            "",
+            "::slotted(section) {display:grid !important}",
+            ":host > section {display:flex !important}",
+            Display::Grid,
+        ),
+        ("", "", ":host(#assigned) {display:flex}", Display::Flex),
+    ] {
+        let (mut dom, _, _, body) = build_simple_dom();
+        let outer = dom.create_element_ownerless_fixture("div", Attributes::default());
+        dom.append_child(body, outer);
+        let shadow = setup_shadow_with_style(&mut dom, outer, slot_css);
+        let slot = dom.create_element_ownerless_fixture("slot", Attributes::default());
+        dom.append_child(shadow, slot);
+        let mut attrs = Attributes::default();
+        attrs.set("id", "assigned");
+        let assigned = dom.create_element_ownerless_fixture("section", attrs);
+        dom.append_child(outer, assigned);
+        setup_shadow_with_style(&mut dom, assigned, host_css);
+
+        let sheet = parse_stylesheet(element_css, Origin::Author);
+        resolve_styles(&mut dom, &[&sheet], Size::new(200.0, 100.0));
+        assert_eq!(get_style(&dom, assigned).display, expected, "{slot_css}");
+    }
+}

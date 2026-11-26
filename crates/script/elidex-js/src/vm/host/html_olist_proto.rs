@@ -8,13 +8,8 @@
 //!   §2.4.4.1 ("rules for parsing integers") via the engine-indep
 //!   [`elidex_dom_api::element::numeric_reflect::parse_long_or_default`]
 //!   helper.
-//! - `type` — DOMString "limited to only known values" per HTML
-//!   §4.4.5: keywords `1` / `a` / `A` / `i` / `I` are case-sensitive
-//!   (`a` and `A` are distinct list-marker styles).  Routes through
-//!   [`elidex_dom_api::element::enumerated_reflect::canonicalize_limited_to_known_values`]
-//!   which is distinct from the ASCII-CI `canonicalize_enumerated_attr`
-//!   used by the T2a `referrerPolicy` family (those keywords differ
-//!   only by spelling).
+//! - `type` — HTML §4.4.5 declares a reflected DOMString. The getter currently
+//!   filters the content attribute through a case-sensitive keyword table.
 //!
 //! The deprecated `compact` attribute is intentionally not surfaced
 //! (defer slot `#11-tags-deprecated-attr-sweep`).
@@ -129,7 +124,7 @@ fn ol_set_reversed(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // HTML §6.5.5 boolean reflect setter: ECMAScript ToBoolean →
+    // HTML §2.6.1 boolean reflect setter: ECMAScript ToBoolean →
     // truthy sets attribute to "" (HTML legacy convention), falsy
     // removes.  Routes through the shared `coerce::to_boolean` so
     // `0n` → false (and any other ToBoolean spec edge stays in one
@@ -196,7 +191,7 @@ fn ol_set_start(
     )
 }
 
-// -- type (DOMString limited-to-only-known-values, case-sensitive) --------
+// The VM's type getter filters the attribute through its case-sensitive marker table.
 
 fn ol_get_type(
     ctx: &mut NativeContext<'_>,

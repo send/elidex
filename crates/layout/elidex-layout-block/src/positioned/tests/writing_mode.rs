@@ -679,6 +679,10 @@ fn vertical_rl_fixed_positioning() {
 
     // Use viewport 1024x768.
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(1024.0),
         containing_inline_size: 1024.0,
         offset: Point::ZERO,

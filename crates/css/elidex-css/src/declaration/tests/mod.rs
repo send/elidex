@@ -1,8 +1,10 @@
 use super::*;
 use elidex_plugin::{CssColor, LengthUnit};
 
+mod flex_grammar;
 mod grid_table;
 mod shorthand;
+mod substitution_tokens;
 mod values;
 
 fn parse_decls(css: &str) -> Vec<Declaration> {
@@ -235,7 +237,12 @@ fn value_for_property_custom_property() {
     // `;` inside a nested block is fine.
     assert!(parse_value_for_property("--x", "a; b", None).is_none());
     assert!(parse_value_for_property("--x", "var(--y, a)", None).is_some());
-    assert!(parse_value_for_property("--x", "", None).is_none());
+    assert_eq!(
+        parse_value_for_property("--x", " ", None).unwrap()[0]
+            .value
+            .to_css_string(),
+        " "
+    );
 }
 
 #[test]
@@ -321,7 +328,7 @@ fn custom_property_does_not_swallow_following_declarations() {
     let decls = parse_decls("--x: 1; color: red");
     assert_eq!(decls.len(), 2);
     assert_eq!(decls[0].property, "--x");
-    assert_eq!(decls[0].value, CssValue::RawTokens("1".into()));
+    assert_eq!(decls[0].value, custom("1"));
     assert_eq!(decls[1].property, "color");
 
     let style = parse_inline_style("--x: 1; color: red", None);
@@ -335,7 +342,7 @@ fn custom_property_important_flag_parsed() {
     // `!important` pass see the suffix instead of swallowing it.
     let decls = parse_decls("--x: foo !important");
     assert_eq!(decls.len(), 1);
-    assert_eq!(decls[0].value, CssValue::RawTokens("foo".into()));
+    assert_eq!(decls[0].value, custom("foo"));
     assert!(decls[0].important);
 }
 
@@ -350,10 +357,7 @@ fn var_value_does_not_swallow_following_declarations() {
     let decls = parse_decls("width: calc(var(--x) + 1px) !important");
     assert_eq!(decls.len(), 1);
     assert!(decls[0].important);
-    assert_eq!(
-        decls[0].value,
-        CssValue::RawTokens("calc(var(--x) + 1px)".into())
-    );
+    assert_eq!(decls[0].value, pending("calc(var(--x) + 1px)"));
 }
 
 #[test]
@@ -384,4 +388,12 @@ fn known_property_trailing_junk_dropped() {
     let decls = parse_decls("color: red blue; display: block");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "display");
+}
+
+fn custom(source: &str) -> CssValue {
+    CssValue::Custom(elidex_plugin::component_values::ComponentValues::capture(source).unwrap())
+}
+
+fn pending(source: &str) -> CssValue {
+    CssValue::Pending(elidex_plugin::component_values::ComponentValues::capture(source).unwrap())
 }

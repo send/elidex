@@ -115,7 +115,7 @@ fn signal_option_non_abort_signal_throws_type_error() {
     let mut dom = EcsDom::new();
     let _entity = bind_with_div(&mut vm, &mut session, &mut dom);
 
-    // §7.1.12 step 9 → §7.1.1.1 routes `String(e)` through the user-
+    // §7.1.19 step 10 → §7.1.1.1 routes `String(e)` through the user-
     // defined `toString()` for non-wrapper Objects, so the catch arm
     // can use either form interchangeably.
     let result = vm

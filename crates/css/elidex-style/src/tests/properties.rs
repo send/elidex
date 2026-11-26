@@ -7,8 +7,8 @@ fn root_custom_properties_inherited() {
     // The div should inherit custom properties from html (:root).
     let (_dom, _div, style) = resolve_single(":root { --text-color: #ff0000; }");
     assert_eq!(
-        style.custom_properties.get("--text-color"),
-        Some(&"#ff0000".to_string())
+        crate::serialize_resolved_value("--text-color", &style),
+        "#ff0000"
     );
 }
 

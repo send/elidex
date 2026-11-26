@@ -748,7 +748,7 @@ fn select_selected_options_explicit_selected_overrides_implicit() {
 }
 
 // -------------------------------------------------------------------
-// HTMLOptionsCollection mutable surface (HTML §4.10.10.2 — B-2).
+// HTMLOptionsCollection mutable surface (HTML §2.6.4.3 — B-2).
 // -------------------------------------------------------------------
 
 #[test]

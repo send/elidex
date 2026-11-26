@@ -6,6 +6,7 @@
 pub mod background;
 mod channel;
 mod color;
+pub mod component_values;
 mod computed_style;
 pub mod css_resolve;
 mod error;
@@ -31,14 +32,14 @@ pub use channel::{channel_pair, LocalChannel};
 /// CSS (`elidex-css`) and form (`elidex-form`) share one parse home.
 pub use color::parse_color;
 pub use computed_style::{
-    is_multicol, selectors_match, validate_area_rectangles, AlignContent, AlignItems, AlignSelf,
-    AlignmentSafety, AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak,
-    BoxSizing, BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan,
-    ComputedStyle, ContentItem, ContentValue, CounterResetEntry, Dimension, Direction, Display,
-    EmptyCells, FlexBasis, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine,
+    is_multicol, validate_area_rectangles, AlignContent, AlignItems, AlignSelf, AlignmentSafety,
+    AutoRepeatMode, BorderCollapse, BorderSide, BorderStyle, BoxDecorationBreak, BoxSizing,
+    BreakInsideValue, BreakValue, CaptionSide, Clear, ColumnFill, ColumnSpan, ComputedStyle,
+    ContentItem, ContentValue, CounterResetEntry, Dimension, Direction, Display, EmptyCells,
+    FlexBasis, FlexDirection, FlexWrap, Float, FontStyle, GridAutoFlow, GridLine,
     GridTemplateAreas, GridTrackList, JustifyContent, JustifyItems, JustifySelf, LineHeight,
-    ListStyleType, MarginBoxContent, MulticolInfo, NamedPageSize, Overflow, PageMargins, PageRule,
-    PageSelector, PageSize, PagedMediaContext, Position, TableLayout, TextAlign,
+    ListStyleType, MarginBoxContent, MulticolInfo, NamedPageSize, Overflow, PageGeometry,
+    PageSelector, Position, PreparedPage, PreparedPages, TableLayout, TextAlign,
     TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, TrackBreadth,
     TrackSection, TrackSize, UnicodeBidi, VerticalAlign, ViewportOverflow, Visibility, WhiteSpace,
     WritingMode,
@@ -68,7 +69,9 @@ pub use sandbox::{parse_sandboxing_directive, SandboxingFlagSet};
 /// [`CssPropertyHandler::serialize_shorthand`] implementations. Homed in the base
 /// crate so every handler crate can reach them (`elidex-css-flex` depends only on
 /// `elidex-plugin`, not `elidex-css`).
-pub use shorthand::{serialize_axis_pair, serialize_omit_initial, serialize_rectangular};
+pub use shorthand::{
+    declaration_wins, serialize_axis_pair, serialize_omit_initial, serialize_rectangular,
+};
 pub use spec_level::{
     CssSpecLevel, DomSpecLevel, EngineMode, EsSpecLevel, HtmlSpecLevel, SpecLevelPolicy,
     StyleCompatPolicy, WebApiSpecLevel,

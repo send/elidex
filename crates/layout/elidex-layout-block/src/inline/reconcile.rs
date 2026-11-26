@@ -189,8 +189,8 @@ pub(super) fn reconcile_flows(
     persist_flow: bool,
     candidate_keys: &[Entity],
     unoffset_origins: &HashMap<Entity, Point>,
-    flow_lines: HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>>,
-    relpos_atomic_placements: &[(Entity, f32, f32)],
+    flow_lines: HashMap<Entity, Vec<(usize, elidex_ecs::InlineFlowLine)>>,
+    relpos_atomic_placements: &[(usize, Entity, f32, f32)],
 ) {
     // Reconcile InlineFlow across the IFC's render-run-groups every pass: persist
     // each group's lines on its run-start key (the top-level run-start + one per
@@ -237,7 +237,7 @@ pub(super) fn reconcile_flows(
         }
         let lines: Vec<elidex_ecs::InlineFlowLine> = group_lines
             .into_iter()
-            .map(|mut line| {
+            .map(|(_, mut line)| {
                 line.block_start += block_origin;
                 for run in &mut line.runs {
                     *run.inline_start_mut() += inline_origin;
@@ -368,7 +368,7 @@ pub(super) fn reconcile_flows(
     } else if !env.is_probe {
         // Mid-break relpos/sticky atomics (terminal-Z C-2): NOT flow members, so
         // carry the SAME records out to the seam (the placements are already
-        // sliced+rebased to THIS column by `slice_and_rebase_fragment`).
+        // sliced+rebased to THIS column by `truncate_fragment`).
         // `position_column_fragments` adds the column inline offset and repositions,
         // preserving the baked relative offset.
         carrier_atomics.extend(relpos_records);

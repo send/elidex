@@ -1,6 +1,6 @@
 //! `StructuredSerializeForStorage` / `StructuredDeserialize` **byte** seam for
 //! the classic `history.state` (WHATWG HTML §7.2.5 "shared history push/replace
-//! state steps" step 3 → §2.7.5 `StructuredSerializeForStorage`, and the
+//! state steps" step 3 → §2.7.6 `StructuredSerializeForStorage`, and the
 //! *restore the history object state* step 2 `StructuredDeserialize`).
 //!
 //! Unlike [`super::structured_clone`] (a *fused* in-memory
@@ -11,9 +11,8 @@
 //!
 //! **Interim (JSON-shortcut)**: the bytes are UTF-8 JSON, produced by the SAME
 //! core the worker `postMessage` path uses
-//! ([`natives_json::stringify_to_string`](super::super::natives_json::stringify_to_string)
-//! — see [`super::worker_scope::serialize_message`]) — one encoder, two thin
-//! wrappers (`String` for the worker channel, `Vec<u8>` for history storage).
+//! ([`stringify_for_structured_shortcut`]; see [`super::worker_scope::serialize_message`]).
+//! Workers send the JSON string; history stores its UTF-8 bytes.
 //! Full `StructuredSerializeForStorage` (Blob / File / Map / Date / cyclic
 //! graphs to storage bytes) is deferred to
 //! `#11-history-state-structured-serialize-fidelity`, which folds with the
@@ -27,50 +26,28 @@ use super::super::value::{JsValue, NativeContext};
 use super::super::VmInner;
 
 /// `StructuredSerializeForStorage(value)` → **optional** storage bytes (WHATWG HTML
-/// §7.2.5 step 3 / §2.7.5, `forStorage = true`).
+/// §7.2.5 step 3 / §2.7.6, `forStorage = true`).
 ///
-/// Interim JSON-shortcut (UTF-8 JSON). The interim is **total — it never throws**;
-/// a representable value → `Some(bytes)`, anything else → `None` (no restorable
-/// state; a cross-document traversal / reload restores `null`). `JSON.stringify`'s
-/// error set does not match `StructuredSerializeForStorage`'s in either direction,
-/// so every mismatch degrades rather than surfacing as a `pushState` abort. The
-/// spec-fidelity gaps this leaves — all closed by the full structured-clone walker
-/// (`#11-history-state-structured-serialize-fidelity`), at which point the noted
-/// tests flip as visible landing signals — are:
+/// The interim UTF-8 JSON encoder returns bytes on success and `None` on
+/// failure or absent output. Successful JSON encoding can still lose ordinary
+/// properties. Full storage serialization is tracked in
+/// `#11-history-state-structured-serialize-fidelity`.
 ///
 /// - **BigInt / cyclic**: structured clone **succeeds** (both cloneable) but
 ///   `JSON.stringify` throws. Degrade to `None` rather than throw
 ///   `DataCloneError`, which would regress `pushState({v: 10n})` etc. that browsers
 ///   accept (CR-3).
-/// - **Date**: the one cloneable kind `JSON.stringify` does *not* fail on — it
-///   renders a Date through `toJSON` as an ISO String (ECMA-262 §21.4.4.37), so a
-///   traversal would silently restore a **String** where structured clone restores
-///   a Date. Caught **inside** the walk by
-///   [`stringify_for_structured_shortcut`]
-///   (before the `toJSON` hook, so an accessor-returned Date is caught too) and
-///   degraded to `None` here — the same policy as BigInt / cyclic, for the same
-///   CR-3 reason (a `pushState` that StructuredSerializeForStorage accepts must not start throwing).
-/// - **`function` / `symbol`**: structured clone must throw `DataCloneError`, but
-///   `JSON.stringify` renders them as `undefined` → `None`. The opposite-direction
-///   gap (succeeds where the spec throws).
-/// - **`undefined`**: a primitive that `StructuredSerializeInternal` round-trips as
-///   `undefined` (§2.7.3 step 4), but JSON cannot encode → collapses to `None`
-///   (restores `null`). Preserving it needs a tagged non-JSON encoding = the walker
-///   slot's codec, so it is NOT special-cased here (Codex R5; avoids a bespoke
-///   `undefined` sentinel over the "UTF-8 JSON" wire — One-issue-one-way).
-/// - **A throwing `toJSON`**: `StructuredSerializeInternal` serializes ordinary
-///   objects via enumerable-property `? Get` (§2.7.3 step 26.4, the Object branch
-///   entered at step 24) and **never invokes** JSON's `toJSON` hook, so a throwing
-///   `toJSON` does NOT abort real serialization. The JSON shortcut *does* call it
-///   and throws — a JSON-only exception that must degrade, not propagate and lose
-///   the history entry (Codex R5).
-/// - **A throwing property getter**: structured clone WOULD propagate it (via
-///   `? Get`, §2.7.3 step 26.4.1). The interim could tell it apart from the
-///   `toJSON` throw above only by a `toJSON`-skip that partially reimplements
-///   structured-clone semantics on the shared JSON encoder (which also backs
-///   `Worker.postMessage`) — a half-structured-clone mode the walker slot owns
-///   wholesale — so it degrades here too rather than growing that seam (deferred by
-///   design, not by impossibility; a gap the walker restores).
+/// - The encoder rejects a Date encountered during the walk, before its
+///   `toJSON` hook could replace it with a string or null.
+/// - A symbol or a value that remains callable after the `toJSON` hook yields
+///   no JSON text at the top level. An ordinary object property with such a
+///   value is omitted, so history can still store bytes for the enclosing object.
+/// - Top-level `undefined` produces no bytes here. As an ordinary property
+///   value it can disappear from JSON; HTML §2.7.4 step 5 preserves it.
+/// - On an ordinary object, HTML §2.7.4 step 28.4 reads each still-own
+///   enumerable string key. A throwing getter propagates; a callable value
+///   reaches step 22 and throws DataCloneError. JSON can invoke a `toJSON`
+///   method instead. History discards the bytes when the encoder throws.
 pub(in crate::vm) fn structured_serialize_for_storage(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -103,7 +80,7 @@ impl VmInner {
     /// **without** firing popstate). Used by `HostDriver::set_history_state` at
     /// document construction so a **cross-document traversal**'s rebuilt document
     /// reads the restored `history.state` before its initial scripts run (step
-    /// 8.4). `None` (a plain load, or the boa engine) → `null`.
+    /// 8.4). Absent bytes, including after a VM encoding failure, restore `null`.
     pub(crate) fn seed_history_state(&mut self, serialized_state: Option<Vec<u8>>) {
         self.navigation.current_state = match serialized_state {
             Some(bytes) => structured_deserialize(self, &bytes),

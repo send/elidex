@@ -15,11 +15,41 @@ use unicode_segmentation::UnicodeSegmentation;
 /// [`TextTransform`] enum and so are not handled here.
 #[must_use]
 pub fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
+    transform_text(text, transform, None)
+}
+
+/// Transform the entire run, reporting each input scalar and its output scalar
+/// count for clients preserving logical source boundaries through expansion.
+pub fn transform_with_source(
+    text: &str,
+    transform: TextTransform,
+    mut source: impl FnMut(usize, usize),
+) -> Cow<'_, str> {
+    transform_text(text, transform, Some(&mut source))
+}
+
+fn transform_text<'a>(
+    text: &'a str,
+    transform: TextTransform,
+    mut source: Option<&mut dyn FnMut(usize, usize)>,
+) -> Cow<'a, str> {
+    if let Some(report) = source.as_mut() {
+        if transform != TextTransform::Capitalize {
+            for (byte, c) in text.char_indices() {
+                let count = match transform {
+                    TextTransform::Lowercase => c.to_lowercase().count(),
+                    TextTransform::Uppercase => c.to_uppercase().count(),
+                    _ => 1,
+                };
+                report(byte, count);
+            }
+        }
+    }
     match transform {
         TextTransform::None => Cow::Borrowed(text),
         TextTransform::Uppercase => Cow::Owned(text.to_uppercase()),
         TextTransform::Lowercase => Cow::Owned(text.to_lowercase()),
-        TextTransform::Capitalize => Cow::Owned(capitalize_words(text)),
+        TextTransform::Capitalize => Cow::Owned(capitalize_words(text, source)),
     }
 }
 
@@ -33,9 +63,23 @@ pub fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str
 /// (each run is transformed independently), matching the existing per-segment
 /// behavior; §2.1.1's "inline box boundaries must not introduce a word
 /// boundary" across runs is a pre-existing gap.
-fn capitalize_words(text: &str) -> String {
+fn capitalize_words(text: &str, mut source: Option<&mut dyn FnMut(usize, usize)>) -> String {
     let mut result = String::with_capacity(text.len());
+    let mut offset = 0;
     for word in text.split_word_bounds() {
+        if let Some(report) = source.as_mut() {
+            for (byte, c) in word.char_indices() {
+                report(
+                    offset + byte,
+                    if byte == 0 && c.is_alphabetic() {
+                        c.to_uppercase().count()
+                    } else {
+                        1
+                    },
+                );
+            }
+        }
+        offset += word.len();
         let mut chars = word.chars();
         if let Some(first) = chars.next() {
             if first.is_alphabetic() {

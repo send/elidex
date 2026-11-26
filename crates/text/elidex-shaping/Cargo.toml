@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["browser-engine", "text", "shaping"]
 categories = ["web-programming"]
 
+[features]
+fixtures = []
+
 [dependencies]
 elidex-plugin.workspace = true
 fontdb.workspace = true

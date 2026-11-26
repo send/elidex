@@ -1,4 +1,4 @@
-//! CacheStorage operations (WHATWG Cache API §2.2).
+//! CacheStorage operations (W3C Service Workers §5.5).
 //!
 //! Manages named caches via the unified `caches` table (design doc §22.5.5).
 
@@ -58,7 +58,8 @@ pub fn delete(conn: &SqliteConnection, name: &str) -> Result<bool, CacheError> {
     Ok(deleted > 0)
 }
 
-/// List all cache names, in creation order.
+/// Service Workers §5.5.5 returns cache names in insertion order. This query
+/// uses creation time in whole seconds and breaks ties by name.
 pub fn keys(conn: &SqliteConnection) -> Result<Vec<String>, CacheError> {
     store::ensure_schema(conn)?;
     let mut stmt = conn

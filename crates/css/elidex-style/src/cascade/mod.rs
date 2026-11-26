@@ -5,8 +5,6 @@
 //! for each property based on origin, importance, specificity, and
 //! source order.
 
-use std::collections::HashMap;
-
 use elidex_css::media::{evaluate, MediaEnvironment};
 use elidex_css::{Declaration, Origin, PseudoElement, Specificity, Stylesheet};
 use elidex_ecs::{Attributes, EcsDom, Entity};
@@ -20,10 +18,23 @@ fn media_conditions_match(rule: &elidex_css::CssRule, env: &MediaEnvironment) ->
 }
 
 /// A single declaration entry in the cascade, annotated with priority metadata.
-struct CascadeEntry<'a> {
-    property: &'a str,
-    value: &'a CssValue,
+#[derive(Clone, Copy)]
+pub(crate) struct CascadeEntry<'a> {
+    pub(crate) property: &'a str,
+    pub(crate) value: &'a CssValue,
+    pub(crate) registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
+    block: usize,
+    position: usize,
+    important: bool,
     priority: CascadePriority,
+}
+
+/// CSS Cascade 5 §6.1. Ordered from inner to outer for normal declarations.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum TreeContext {
+    HostShadow,
+    Slot,
+    Element,
 }
 
 /// Cascade priority for comparing declarations.
@@ -40,9 +51,7 @@ struct CascadeEntry<'a> {
 struct CascadePriority {
     /// 0 = UA normal, 1 = Author normal, 2 = Author !important, 3 = UA !important.
     importance_layer: u8,
-    /// `true` for outer (light DOM) context rules, `false` for shadow-internal
-    /// (`:host` / `::slotted()`) rules.
-    is_outer_context: bool,
+    context: TreeContext,
     /// Inline styles beat selector-based styles at the same layer.
     is_inline: bool,
     /// Selector specificity.
@@ -61,11 +70,11 @@ impl Ord for CascadePriority {
                 // CSS Cascading L4 §6.1: For !important (importance_layer >= 2),
                 // inner context wins over outer (reversed from normal).
                 if self.importance_layer >= 2 {
-                    // Reversed: false (inner) > true (outer).
-                    other.is_outer_context.cmp(&self.is_outer_context)
+                    // Important declarations favor inner contexts.
+                    other.context.cmp(&self.context)
                 } else {
-                    // Normal: true (outer) > false (inner).
-                    self.is_outer_context.cmp(&other.is_outer_context)
+                    // Normal declarations favor outer contexts.
+                    self.context.cmp(&other.context)
                 }
             })
             .then_with(|| self.is_inline.cmp(&other.is_inline))
@@ -94,10 +103,10 @@ fn importance_layer(origin: Origin, important: bool) -> u8 {
 /// Source location metadata for cascade ordering.
 ///
 /// Groups the cascade source fields that are invariant per-declaration within
-/// a rule, reducing the argument count of [`push_cascade_entry`].
+/// a rule, reducing the argument count of [`push_block`].
 struct CascadeSource {
     origin: Origin,
-    is_outer_context: bool,
+    context: TreeContext,
     is_inline: bool,
     specificity: Specificity,
     stylesheet_index: u32,
@@ -105,53 +114,100 @@ struct CascadeSource {
 }
 
 /// Push a cascade entry for a declaration with the given source metadata.
-fn push_cascade_entry<'a>(
+fn push_block<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
-    decl: &'a Declaration,
+    declarations: &'a [Declaration],
+    registry: Option<&'a elidex_plugin::CssPropertyRegistry>,
     source: &CascadeSource,
 ) {
-    entries.push(CascadeEntry {
-        property: &decl.property,
-        value: &decl.value,
-        priority: CascadePriority {
-            importance_layer: importance_layer(source.origin, decl.important),
-            is_outer_context: source.is_outer_context,
-            is_inline: source.is_inline,
-            specificity: source.specificity,
-            stylesheet_index: source.stylesheet_index,
-            source_order: source.source_order,
-        },
-    });
+    let block = entries.len();
+    for (position, decl) in declarations.iter().enumerate() {
+        entries.push(CascadeEntry {
+            block,
+            position,
+            registry,
+            important: decl.important,
+            property: &decl.property,
+            value: &decl.value,
+            priority: CascadePriority {
+                importance_layer: importance_layer(source.origin, decl.important),
+                context: source.context,
+                is_inline: source.is_inline,
+                specificity: source.specificity,
+                stylesheet_index: source.stylesheet_index,
+                source_order: source.source_order,
+            },
+        });
+    }
 }
 
-/// Sort cascade entries by priority and return the last-wins per-property map.
-fn compute_winners<'a>(entries: &mut [CascadeEntry<'a>]) -> HashMap<&'a str, &'a CssValue> {
-    entries.sort_by_key(|e| e.priority);
-    let mut winners: HashMap<&str, &CssValue> = HashMap::with_capacity(entries.len());
-    for entry in entries.iter() {
-        winners.insert(entry.property, entry.value);
+pub(crate) fn push_page_block<'a>(
+    entries: &mut Vec<CascadeEntry<'a>>,
+    declarations: &'a [Declaration],
+    sheet: &'a Stylesheet,
+    sheet_index: u32,
+    rule_order: u32,
+    specificity: Specificity,
+) {
+    push_block(
+        entries,
+        declarations,
+        sheet.grammar_registry.as_deref(),
+        &CascadeSource {
+            origin: sheet.origin,
+            context: TreeContext::Element,
+            is_inline: false,
+            specificity,
+            stylesheet_index: sheet_index,
+            source_order: rule_order,
+        },
+    );
+}
+
+impl CascadeEntry<'_> {
+    pub(crate) fn wins(self, other: Self) -> bool {
+        if self.block == other.block {
+            elidex_plugin::declaration_wins(
+                self.important,
+                self.position,
+                other.important,
+                other.position,
+            )
+        } else {
+            self.priority >= other.priority
+        }
     }
-    winners
+}
+
+/// Ordinary sheets applicable to an element and the tree owning its author rules.
+#[derive(Clone, Copy)]
+pub(crate) struct ElementSheets<'a> {
+    pub(crate) list: &'a [&'a Stylesheet],
+    pub(crate) author_host: Option<Entity>,
+}
+
+impl<'a> ElementSheets<'a> {
+    pub(crate) fn document(list: &'a [&'a Stylesheet]) -> Self {
+        Self {
+            list,
+            author_host: None,
+        }
+    }
 }
 
 /// Shadow cascade context for `:host` and `::slotted()` rule participation.
 ///
 /// Determines how shadow-internal stylesheets participate in the cascade
 /// for a given element (CSS Scoping Module §3).
-pub(crate) enum ShadowCascade<'a> {
-    /// Normal cascade — no shadow rules participate (outer context).
-    Outer,
-    /// Shadow host cascade — `:host` rules from the shadow stylesheet participate
-    /// at `is_outer_context = false` (lower priority than outer rules).
-    Host(&'a Stylesheet),
-    /// Slotted node cascade — `::slotted()` rules from the shadow stylesheet
-    /// participate at `is_outer_context = false`.
-    Slotted(&'a Stylesheet),
+#[derive(Default)]
+pub(crate) struct ShadowCascade<'a> {
+    pub(crate) slot: Option<(Entity, &'a Stylesheet)>,
+    pub(crate) host: Option<&'a Stylesheet>,
 }
 
-/// Collect matching declarations and cascade to determine winners.
+/// Collect matching declarations with their cascade priority and block position.
 ///
-/// Returns a map from property name to the winning `CssValue` reference.
+/// Keep every candidate until pending shorthands expand in the producer’s grammar.
 ///
 /// `extra_declarations` are presentational hints (e.g. HTML attributes mapped to CSS).
 /// They participate at author-origin, specificity (0,0,0), ordered before all author
@@ -162,56 +218,58 @@ pub(crate) enum ShadowCascade<'a> {
 pub(crate) fn collect_and_cascade<'a>(
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     inline_declarations: &'a [Declaration],
     extra_declarations: &'a [Declaration],
     shadow_cascade: &ShadowCascade<'a>,
     env: &MediaEnvironment,
-) -> HashMap<&'a str, &'a CssValue> {
+) -> Vec<CascadeEntry<'a>> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
     // Collect presentational hints first — author origin, lowest specificity and
     // source_order=0 so any author stylesheet rule overrides them.
     let hint_source = CascadeSource {
         origin: Origin::Author,
-        is_outer_context: true,
+        context: TreeContext::Element,
         is_inline: false,
         specificity: Specificity::default(),
         stylesheet_index: 0,
         source_order: 0,
     };
-    for decl in extra_declarations {
-        push_cascade_entry(&mut entries, decl, &hint_source);
-    }
+    push_block(&mut entries, extra_declarations, None, &hint_source);
 
     // Collect from stylesheets (only selectors without pseudo-elements).
-    collect_matching_rules(&mut entries, entity, dom, stylesheets, None, true, env);
+    collect_matching_rules(
+        &mut entries,
+        entity,
+        dom,
+        stylesheets,
+        None,
+        TreeContext::Element,
+        env,
+    );
 
-    // Collect shadow-internal rules at lower priority (is_outer_context = false).
-    match shadow_cascade {
-        ShadowCascade::Host(shadow_sheet) => {
-            collect_shadow_rules(
-                &mut entries,
-                entity,
-                dom,
-                shadow_sheet,
-                elidex_css::Selector::has_host,
-                None,
-                env,
-            );
-        }
-        ShadowCascade::Slotted(shadow_sheet) => {
-            collect_shadow_rules(
-                &mut entries,
-                entity,
-                dom,
-                shadow_sheet,
-                elidex_css::Selector::has_slotted,
-                None,
-                env,
-            );
-        }
-        ShadowCascade::Outer => {}
+    if let Some(sheet) = shadow_cascade.slot {
+        collect_shadow_rules(
+            &mut entries,
+            entity,
+            dom,
+            sheet,
+            TreeContext::Slot,
+            elidex_css::Selector::has_slotted,
+            env,
+        );
+    }
+    if let Some(sheet) = shadow_cascade.host {
+        collect_shadow_rules(
+            &mut entries,
+            entity,
+            dom,
+            (entity, sheet),
+            TreeContext::HostShadow,
+            elidex_css::Selector::has_host,
+            env,
+        );
     }
 
     // Collect inline styles (highest specificity, treated as author origin).
@@ -219,17 +277,20 @@ pub(crate) fn collect_and_cascade<'a>(
     // come after any stylesheet declarations at the same priority.
     let inline_source = CascadeSource {
         origin: Origin::Author,
-        is_outer_context: true,
+        context: TreeContext::Element,
         is_inline: true,
         specificity: Specificity::default(),
         stylesheet_index: u32::MAX,
         source_order: u32::MAX,
     };
-    for decl in inline_declarations {
-        push_cascade_entry(&mut entries, decl, &inline_source);
-    }
+    push_block(
+        &mut entries,
+        inline_declarations,
+        Some(crate::default_css_property_registry()),
+        &inline_source,
+    );
 
-    compute_winners(&mut entries)
+    entries
 }
 
 /// Collect matching rules from stylesheets, filtered by pseudo-element.
@@ -237,21 +298,23 @@ pub(crate) fn collect_and_cascade<'a>(
 /// When `pseudo` is `None`, only selectors without pseudo-elements are matched.
 /// When `pseudo` is `Some(pe)`, only selectors with that specific pseudo-element
 /// are matched (against the originating element).
-///
-/// `is_outer_context` marks whether these rules come from the outer (light DOM)
-/// context (`true`) or from shadow-internal context (`false`).
 fn collect_matching_rules<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     pseudo: Option<&PseudoElement>,
-    is_outer_context: bool,
+    context: TreeContext,
     env: &MediaEnvironment,
 ) {
-    for (sheet_idx, stylesheet) in stylesheets.iter().enumerate() {
+    for (sheet_idx, stylesheet) in stylesheets.list.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation)] // Stylesheet count won't exceed u32::MAX.
         let sheet_index = sheet_idx as u32;
+        let host = if stylesheet.origin == Origin::Author {
+            stylesheets.author_host
+        } else {
+            None
+        };
         for rule in &stylesheet.rules {
             // CSS Conditional §2: skip a rule whose `@media` condition chain is
             // not satisfied by the current environment (unconditional rules pass).
@@ -267,8 +330,8 @@ fn collect_matching_rules<'a>(
                 .iter()
                 .filter(|sel| {
                     sel.pseudo_element.as_ref() == pseudo
-                        && !(is_outer_context && (sel.has_host() || sel.has_slotted()))
-                        && sel.matches(entity, dom)
+                        && !(context == TreeContext::Element && sel.has_shadow_pseudo())
+                        && sel.matches_in_context(entity, dom, host)
                 })
                 .map(|sel| sel.specificity)
                 .max();
@@ -278,15 +341,18 @@ fn collect_matching_rules<'a>(
 
             let source = CascadeSource {
                 origin: stylesheet.origin,
-                is_outer_context,
+                context,
                 is_inline: false,
                 specificity: max_specificity,
                 stylesheet_index: sheet_index,
                 source_order: rule.source_order,
             };
-            for decl in &rule.declarations {
-                push_cascade_entry(entries, decl, &source);
-            }
+            push_block(
+                entries,
+                &rule.declarations,
+                stylesheet.grammar_registry.as_deref(),
+                &source,
+            );
         }
     }
 }
@@ -299,10 +365,10 @@ fn collect_matching_rules<'a>(
 pub(crate) fn collect_and_cascade_pseudo<'a>(
     entity: Entity,
     dom: &EcsDom,
-    stylesheets: &'a [&'a Stylesheet],
+    stylesheets: ElementSheets<'a>,
     pseudo: PseudoElement,
     env: &MediaEnvironment,
-) -> HashMap<&'a str, &'a CssValue> {
+) -> Vec<CascadeEntry<'a>> {
     let mut entries: Vec<CascadeEntry<'a>> = Vec::new();
 
     collect_matching_rules(
@@ -311,30 +377,21 @@ pub(crate) fn collect_and_cascade_pseudo<'a>(
         dom,
         stylesheets,
         Some(&pseudo),
-        true,
+        TreeContext::Element,
         env,
     );
 
-    compute_winners(&mut entries)
+    entries
 }
 
 /// Collect shadow-internal rules matching a selector filter.
-///
-/// Used for both `:host` and `::slotted()` rule collection. Only rules
-/// where at least one selector passes `selector_filter` and matches the
-/// entity are collected, at `is_outer_context = false` so outer rules
-/// always win (CSS Scoping §3.1).
-///
-/// M4: `pseudo` controls pseudo-element filtering. Pass `None` for
-/// non-pseudo elements, or `Some(&pe)` for pseudo-element cascade
-/// (e.g. `::slotted(div)::before`).
 fn collect_shadow_rules<'a>(
     entries: &mut Vec<CascadeEntry<'a>>,
     entity: Entity,
     dom: &EcsDom,
-    shadow_sheet: &'a Stylesheet,
+    (host, shadow_sheet): (Entity, &'a Stylesheet),
+    context: TreeContext,
     selector_filter: fn(&elidex_css::Selector) -> bool,
-    pseudo: Option<&PseudoElement>,
     env: &MediaEnvironment,
 ) {
     for rule in &shadow_sheet.rules {
@@ -346,9 +403,9 @@ fn collect_shadow_rules<'a>(
             .selectors
             .iter()
             .filter(|sel| {
-                sel.pseudo_element.as_ref() == pseudo
+                sel.pseudo_element.is_none()
                     && selector_filter(sel)
-                    && sel.matches(entity, dom)
+                    && sel.matches_in_context(entity, dom, Some(host))
             })
             .map(|sel| sel.specificity)
             .max();
@@ -358,15 +415,18 @@ fn collect_shadow_rules<'a>(
 
         let source = CascadeSource {
             origin: shadow_sheet.origin,
-            is_outer_context: false,
+            context,
             is_inline: false,
             specificity: max_specificity,
             stylesheet_index: 0,
             source_order: rule.source_order,
         };
-        for decl in &rule.declarations {
-            push_cascade_entry(entries, decl, &source);
-        }
+        push_block(
+            entries,
+            &rule.declarations,
+            shadow_sheet.grammar_registry.as_deref(),
+            &source,
+        );
     }
 }
 

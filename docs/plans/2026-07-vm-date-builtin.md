@@ -30,7 +30,7 @@ ES2020 baseline の core surface — compat/deprecated ではなく **clean core
 
 ### timezone → **UTC-baseline** (full local-tz は follow-up)
 `CLAUDE.md intl-icu-deferral`（ICU/tz-database dep 禁止）ゆえ、正確な local timezone を持てない。
-baseline は **UTC-baseline**: `getTimezoneOffset()` = `+0`、local `get*`/`set*` == UTC `get*`/`set*`
+baseline は **UTC-baseline**: `getTimezoneOffset()` は有限の時刻値なら `+0`、無効な Date なら `NaN`、local `get*`/`set*` == UTC `get*`/`set*`
 （`LocalTime(t)` / `UTC(t)` AO は identity）。実行環境の tz に依存せず **決定的**。
 これは spec の local-time 解釈からの意図的逸脱で、`Date` の観測可能な値が host tz に依らないことを
 保証する documented baseline。full local-tz は tz-db 解禁後の follow-up slot。
@@ -55,9 +55,9 @@ implementation-defined ゆえ bounded surface として follow-up slot に carve
 - `format.rs` — `toISOString` / `toString` / `toDateString` 等の文字列生成
 
 ### Canonical AO (§21.4.1, webref 確認済)
-- `Day` §21.4.1.3 / `TimeWithinDay` §21.4.1.4 / `DayFromYear` §21.4.1.6 /
-  `YearFromTime` §21.4.1.8 / `MonthFromTime` §21.4.1.11 / `DateFromTime` §21.4.1.12 /
-  `WeekDay` §21.4.1.13 / `HourFromTime` §21.4.1.14 …
+- `Day` §21.4.1.3 / `TimeWithinDay` §21.4.1.4 / `DayFromYear` §21.4.1.5 /
+  `YearFromTime` §21.4.1.7 / `MonthFromTime` §21.4.1.10 / `DateFromTime` §21.4.1.11 /
+  `WeekDay` §21.4.1.12 / `HourFromTime` §21.4.1.13 …
 - `MakeTime` §21.4.1.27 / `MakeDay` §21.4.1.28 / `MakeDate` §21.4.1.29 / `TimeClip` §21.4.1.31
 - `LocalTime` §21.4.1.25 / `UTC` §21.4.1.26 → UTC-baseline では identity
 
@@ -211,7 +211,7 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
   wrapper の内部 slot を **直読み**して override を bypass する（spec はいずれも ToPrimitive →
   `OrdinaryToPrimitive` を通す）:
   - `coerce.rs:47` `to_number` の `NumberWrapper` arm — §7.1.4 ToNumber: Object → `ToPrimitive(number)`
-  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.18 ToString: Object → `ToPrimitive(string)`
+  - `coerce.rs:230` `to_string` の `NumberWrapper` arm — §7.1.19 ToString: Object → `ToPrimitive(string)`
   - `natives_json/stringify.rs` ×3 — §25.5.4 `SerializeJSONProperty` step 4 は `[[NumberData]]` →
     `? ToNumber(value)` / `[[StringData]]` → `? ToString(value)` を要求するが slot 直読み
     （value 本体 / replacer array / `space` 引数の 3 箇所）
@@ -231,7 +231,7 @@ helper 抽出し、`Date.prototype[Symbol.toPrimitive]` (§21.4.4.45 step 6) / `
 ### external-converge (Codex R9) 由来
 
 - `#11-vm-symbol-operand-coercion-throws` — **既存 VM bug (Date 無関係、下記 R9 fix の test 作成中に
-  発見)**。`coerce.rs` の `to_number` (§7.1.4) / `to_string` (§7.1.18) は Symbol → TypeError を
+  発見)**。`coerce.rs` の `to_number` (§7.1.4) / `to_string` (§7.1.19) は Symbol → TypeError を
   **正しく実装**しているが、VM の **opcode 経路がそれを迂回**し、primitive Symbol の coercion が
   throw せず string を返す。probe 実測 (いずれも spec では TypeError であるべき):
   `` `${Symbol('x')}` `` / `''+Symbol('x')` / `Number(Symbol('x'))` / `Symbol('x')*1` /

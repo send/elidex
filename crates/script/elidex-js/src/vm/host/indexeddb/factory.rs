@@ -2,8 +2,8 @@
 //! database open / upgrade orchestration (§5.1 / §5.7).
 //!
 //! `open` / `deleteDatabase` return an `IDBOpenDBRequest` immediately and
-//! deliver the result via a database task (§5.6); `databases` returns a
-//! Promise; `cmp` (Stage 4, needs full key marshalling) compares two keys.
+//! queue result delivery in their respective §4.3 algorithms (open step 5.3
+//! and deleteDatabase step 4.3). `databases` returns a Promise and `cmp` compares keys.
 //! All record/key algorithm lives in the `elidex-indexeddb` backend; this
 //! module marshals arguments + drives the request / upgrade lifecycle.
 

@@ -225,7 +225,7 @@ impl VmInner {
         // `timeStamp` is the monotonic ms elapsed since `Vm::new` —
         // shares `start_instant` with `performance.now()` so values
         // inside the same listener body are directly comparable
-        // (HR-Time §5: identical time origin).
+        // (DOM §2.5 / HR-Time §7.1: identical time origin).
         let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
         slots.push(PropertyValue::Data(JsValue::Number(timestamp_ms)));
         slots.push(PropertyValue::Data(JsValue::Boolean(event.composed)));
@@ -430,7 +430,7 @@ impl VmInner {
 
 /// Extract the required `type` first-argument from a ctor call.
 /// Absent arg → TypeError; Symbol or other non-string values pass
-/// through `coerce::to_string` (Symbol throws per ECMA-262 §7.1.18).
+/// through `coerce::to_string` (Symbol throws per ECMA-262 §7.1.19).
 pub(super) fn type_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],

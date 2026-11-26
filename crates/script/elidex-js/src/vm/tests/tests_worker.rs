@@ -864,9 +864,8 @@ fn main_worker_blob_url_rejected() {
 #[test]
 fn main_worker_post_message_circular_throws_data_clone() {
     with_main_vm(|vm| {
-        // A circular structure rejects as a `DataCloneError` DOMException —
-        // `e.name` must read "DataCloneError" and `e instanceof DOMException`
-        // hold (WHATWG WebIDL §3.14 / HTML §10.2.6.3), not a bare TypeError.
+        // The interim JSON path reports a cycle as a DataCloneError DOMException.
+        // HTML structured serialization would preserve the cycle.
         let name = eval_str_on(
             vm,
             r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
@@ -885,8 +884,7 @@ fn main_worker_post_message_circular_throws_data_clone() {
 
 #[test]
 fn worker_scope_post_message_circular_throws_data_clone() {
-    // Worker-side `self.postMessage` of a circular structure rejects as a
-    // `DataCloneError` DOMException (WHATWG HTML §10.2.1.2).
+    // The worker-global sender uses the same interim JSON cycle handling.
     with_worker_vm("", WORKER_URL, true, |vm| {
         assert_eq!(
             eval_str_on(
@@ -898,11 +896,8 @@ fn worker_scope_post_message_circular_throws_data_clone() {
     });
 }
 
-/// Regression (Copilot R13): a user exception thrown *during* serialization (a
-/// throwing `toJSON` / property getter) must propagate unchanged — NOT be
-/// masked as `DataCloneError`. WHATWG HTML postMessage runs StructuredSerialize,
-/// whose `[[Get]]` propagates getter throws; only structural "cannot represent"
-/// failures (circular / BigInt / depth) map to `DataCloneError`.
+/// An ordinary object's enumerable getter throws during the HTML property walk
+/// (§2.7.4 step 28.4). This fixture checks propagation of the original error.
 #[test]
 fn post_message_throwing_getter_propagates_original_error() {
     with_worker_vm("", WORKER_URL, true, |vm| {
@@ -914,7 +909,7 @@ fn post_message_throwing_getter_propagates_original_error() {
                try { postMessage(o); false }
                catch (e) { e instanceof TypeError && e.message === 'boom' }",
         ));
-        // Sanity: the structural circular case still maps to DataCloneError.
+        // The interim JSON encoder reports a circular object as DataCloneError.
         assert_eq!(
             eval_str_on(
                 vm,

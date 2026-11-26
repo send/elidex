@@ -326,21 +326,8 @@ fn destructure_view(vm: &super::super::VmInner, view_id: ObjectId) -> (ObjectId,
     }
 }
 
-/// `%TypedArray%.prototype.map(callbackfn, thisArg?)`
-/// (ECMA-262 §23.2.3.22).
-///
-/// Resolves `TypedArraySpeciesCreate(O, ⟨len⟩)` (§23.2.4.3) BEFORE
-/// the read/callback/write loop so a hostile species lookup that
-/// throws fires before any element is observed (matching the spec
-/// step ordering 4 → 6).  Reads each source element via
-/// [`read_element_raw`] (no `[[Get]]` round-trip — the receiver is
-/// brand-checked), invokes the callback with `(elem, index,
-/// receiver)`, and writes the result through the destination's
-/// per-element coercion via [`write_element_raw`].
-///
-/// The destination view is rooted on `vm.stack` for the duration of
-/// the loop so it stays live across the `to_number` / `to_bigint`
-/// GC points inside `write_element_raw`.
+/// Map step 5 performs TypedArraySpeciesCreate, before step 7 reads, maps and writes. The VM
+/// resolves kind/prototype and directly allocates. (%TypedArray%.prototype.map §23.2.3.22.)
 pub(crate) fn native_typed_array_map(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -456,33 +443,9 @@ pub(crate) fn native_typed_array_filter(
     Ok(JsValue::Object(dst_view_id))
 }
 
-/// `%TypedArray%.prototype.flatMap(callbackfn, thisArg?)` —
-/// per-element callback whose result is spliced (when a TypedArray)
-/// or pushed (otherwise) into a fresh species-allocated destination.
-///
-/// Not in ES2024 (the spec omits `flatMap` from `%TypedArray%.prototype`
-/// because flat-then-collect produces a length unknown to the
-/// destination until the callback loop finishes — incompatible with
-/// the spec's species-allocate-then-fill TypedArray method shape).
-/// elidex installs it as an extension that mirrors the
-/// [`super::super::natives_array_hof::native_array_flat_map`]
-/// shape with TypedArray-aware splicing: a callback returning a
-/// TypedArray (any subclass) splices each element through the
-/// destination's per-element coercion; any other return value is
-/// pushed as a singleton.  Mismatched BigInt/Number element brands
-/// surface naturally as a per-element `write_element_raw`
-/// TypeError during the splice (e.g. splicing a `BigInt64Array`
-/// into a `Uint8Array` destination).
-///
-/// Two-phase like `filter`: collect into a stack scope, then
-/// resolve species + write back.  Atomic-on-throw in two stages:
-/// a throwing callback or other collection-time failure surfaces
-/// before species resolution or any destination view allocation;
-/// per-element coercion / write failures (`write_element_raw`)
-/// surface later during the write-back loop, after the
-/// destination TypedArray has already been allocated, but still
-/// before any value is returned to the caller — so the receiver
-/// is never observably mutated either way.
+/// The VM flatMap extension splices typed-array results, then resolves species, allocates and
+/// writes. Conversion errors arise during write-back. The method writes its destination;
+/// callbacks and accessors may mutate the receiver. Filter also allocates after collection.
 pub(crate) fn native_typed_array_flat_map(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -588,11 +551,10 @@ pub(crate) fn native_typed_array_reduce_right(
 }
 
 /// Shared body of `reduce` / `reduceRight`.  Per spec
-/// §23.2.3.23/.24 the callback is invoked as `Call(callbackfn,
-/// undefined, ⟨acc, kValue, F(k), O⟩)` — `this` inside the
-/// callback is always `undefined` (no `thisArg` parameter).
+/// §23.2.3.23 and §23.2.3.24 step 10.b pass undefined as the callback's
+/// thisArgument and supply the accumulator, element value, index, and receiver.
 ///
-/// Initial-value handling per §23.2.3.23 step 4-7:
+/// Both algorithms select the initial accumulator in steps 5–9:
 /// - `initialValue` provided → `acc = initialValue`, scan all
 ///   elements (`[0..len)` forward / `[len-1..-1]` reverse).
 /// - `initialValue` absent + `len > 0` → `acc = O[start]`
@@ -711,7 +673,7 @@ fn reduce_impl(
 /// or `undefined` — anything else surfaces TypeError per spec
 /// §23.2.3.29 step 1.  Default ordering (no `compareFn`) is
 /// ascending numeric for non-`BigInt` element kinds with `NaN`
-/// sorted to the end (per spec `TypedArrayElementSortCompare`),
+/// sorted to the end (CompareTypedArrayElements, §23.2.4.8 steps 3–5),
 /// or ascending `BigInt::cmp` for `BigInt64Array` /
 /// `BigUint64Array` (no NaN concern).
 ///
@@ -720,16 +682,9 @@ fn reduce_impl(
 /// neither is GC-traced; `BigInt` allocations are deduplicated
 /// by value in `BigIntPool` so repeated reads don't grow the
 /// pool unboundedly), sort, write back via
-/// [`write_element_raw`].  Snapshot-then-write-back gives the
-/// receiver **atomic-on-throw** semantics — a throwing
-/// `compareFn` returns the abrupt completion *before* any
-/// write-back happens, so the receiver is left unchanged rather
-/// than exposing a half-sorted state.  This matches spec
-/// §23.2.3.29 step 5 → 7 ordering: `SortIndexedProperties`
-/// (step 5) collects sorted values into a list, then step 7
-/// writes them back — an abrupt completion in step 5 short-
-/// circuits before step 7 runs, so the receiver is never
-/// observed mid-sort either way.  `compareFn` branch uses a
+/// [`write_element_raw`]. ECMA-262 §23.2.3.29 step 7 propagates any error
+/// from `SortIndexedProperties` before step 9 writes the sorted list back.
+/// Side effects of the comparator itself remain observable. The `compareFn` branch uses a
 /// stable insertion sort (same shape as
 /// `Array.prototype.sort`); default branch uses Rust's stable
 /// `slice::sort_by`.
@@ -769,13 +724,8 @@ pub(crate) fn native_typed_array_sort(
         .collect();
 
     if let Some(fn_id) = compare_fn {
-        // Insertion sort with fallible comparator.  Pair-wise
-        // adjacent compares only — Array.prototype.sort uses the
-        // same shape, so we keep the per-PR mental model
-        // consistent.  Throwing `fn_id` propagates immediately;
-        // the swaps live on the local `snapshot`, not the
-        // receiver, so the early return leaves the receiver
-        // unchanged (atomic-on-throw — see fn-level docstring).
+        // Insertion sort swaps elements in the snapshot. If the comparator
+        // throws, sort skips its write-back. The comparator's own writes persist.
         for i in 1..snapshot.len() {
             let mut j = i;
             while j > 0 {
@@ -813,14 +763,11 @@ pub(crate) fn native_typed_array_sort(
 }
 
 /// Default ascending sort comparator for the no-`compareFn`
-/// branch of [`native_typed_array_sort`].  Matches spec
-/// `TypedArrayElementSortCompare` (§23.2.4.7 / .8):
+/// branch of [`native_typed_array_sort`]. CompareTypedArrayElements
+/// (§23.2.4.8 steps 3–10) places NaNs last and orders -0 before +0.
+/// Known VM P4 defect: the Number branch compares signed zeros as equal.
 ///
-/// - `Number / Number` → `<` ordering with `NaN` sorted to the
-///   end (`partial_cmp` is `None` for any NaN comparison; the
-///   fallback `Equal` only fires for the unreachable
-///   `NaN.cmp(NaN)` case which is already handled by the
-///   `is_nan` arms above).
+/// - `Number / Number` → handle NaNs first, then compare numerically.
 /// - `BigInt / BigInt` → `BigInt::cmp` ordering via the canonical
 ///   `BigIntPool` lookup.  BigInt values are permanent (per
 ///   `BigIntPool`'s "not garbage-collected" contract), so the

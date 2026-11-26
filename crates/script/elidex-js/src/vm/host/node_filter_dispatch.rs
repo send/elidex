@@ -1,6 +1,6 @@
 //! Shared NodeFilter callback dispatch — converts an opaque
 //! `ObjectId` bits handle to a typed callback, invokes it with the
-//! current node wrapper, applies WebIDL `ToUint16` coercion to the
+//! current node wrapper, applies Web IDL `unsigned short` conversion to the
 //! return value, and parses via
 //! [`NodeFilterResult::from_unsigned_short`].
 //!

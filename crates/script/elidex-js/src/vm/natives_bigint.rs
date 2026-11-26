@@ -43,6 +43,8 @@ pub(super) fn native_bigint_constructor(
         JsValue::String(id) => {
             let s = ctx.vm.strings.get_utf8(id);
             let s = super::coerce::trim_js(&s);
+            // StringToBigInt (§7.1.16) yields 0n for the empty string. The VM
+            // literal parser rejects an empty magnitude, so this path throws SyntaxError.
             crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
                 VmError::syntax_error(format!(
                     "Cannot convert \"{}\" to a BigInt",
@@ -123,7 +125,9 @@ fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
     super::coerce::to_index_u64(ctx, val, "BigInt", "bits")
 }
 
-/// Coerce a value to BigInt via ToBigInt (§7.1.14).
+/// Uses the `BigInt()` function (§21.2.1.1), which accepts integral Numbers.
+/// VM defect: `asIntN` and `asUintN` call this helper even though step 2 of
+/// §§21.2.2.1–2 requires `ToBigInt` (§7.1.15), which rejects Numbers.
 fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
     match val {
         JsValue::BigInt(_) => Ok(val),
@@ -131,7 +135,7 @@ fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmErr
     }
 }
 
-/// ECMA-262 §7.1.14 `ToBigInt` — strict variant that rejects `Number`
+/// ECMA-262 §7.1.15 `ToBigInt` — strict variant that rejects `Number`
 /// input with TypeError (vs the inner `to_bigint` helper above
 /// which mirrors the `BigInt()` constructor and coerces integer
 /// numbers).  Required by TypedArray / DataView BigInt setter
@@ -158,10 +162,10 @@ fn to_bigint_strict(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue
     }
 }
 
-/// ECMA-262 §7.1.16 `ToBigInt64` — coerce `val` to BigInt (strict, so
+/// ECMA-262 §7.1.17 `ToBigInt64` — coerce `val` to BigInt (strict, so
 /// Number rejects), then reduce modulo 2^64 and reinterpret the
 /// high-bit-set half as negative.  Used by `BigInt64Array` indexed
-/// writes + `DataView.setBigInt64`.  Strings / booleans / bigints
+/// writes + `DataView.setBigInt64`. Integer strings / booleans / bigints
 /// coerce successfully; numbers / null / undefined / symbols
 /// throw TypeError.
 #[cfg(feature = "engine")]
@@ -185,7 +189,7 @@ pub(crate) fn to_bigint64(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<i
     Ok(signed_to_i64(&signed))
 }
 
-/// ECMA-262 §7.1.17 `ToBigUint64` — coerce `val` to BigInt (strict, so
+/// ECMA-262 §7.1.18 `ToBigUint64` — coerce `val` to BigInt (strict, so
 /// Number rejects) then reduce modulo 2^64.  Used by
 /// `BigUint64Array` indexed writes + `DataView.setBigUint64`.
 #[cfg(feature = "engine")]

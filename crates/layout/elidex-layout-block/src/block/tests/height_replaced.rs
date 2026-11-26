@@ -460,3 +460,22 @@ fn ltr_overconstrained_no_auto() {
     assert!((lb.margin.left - 50.0).abs() < f32::EPSILON);
     assert!((lb.margin.right - 150.0).abs() < f32::EPSILON);
 }
+
+#[test]
+fn replaced_assignment_resolves_only_unestablished_axes() {
+    let (mut dom, image) = make_dom_with_image(block_style(), 60, 30);
+    let fonts = FontDatabase::new();
+    for (width, height, expected, solves) in [
+        (None, None, (60.0, 30.0), 2),
+        (Some(100.0), None, (100.0, 50.0), 1),
+        (None, Some(70.0), (140.0, 70.0), 1),
+        (Some(100.0), Some(70.0), (100.0, 70.0), 0),
+    ] {
+        let mut input = base_input(&fonts);
+        input.assigned.content = elidex_plugin::Size { width, height };
+        replaced::SOLVE_COUNT.set(0);
+        let lb = crate::layout_block_only(&mut dom, image, &input).layout_box;
+        assert_eq!((lb.content.size.width, lb.content.size.height), expected);
+        assert_eq!(replaced::SOLVE_COUNT.get(), solves);
+    }
+}

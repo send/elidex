@@ -1,4 +1,4 @@
-//! Cache API host bindings (WHATWG Service Workers §5; slot
+//! Cache API host bindings (W3C Service Workers §5; slot
 //! `#11-cache-api-vm` / D-19 PR-1).
 //!
 //! ```text

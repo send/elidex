@@ -38,7 +38,7 @@ pub(super) struct Tab {
     pub(super) display_list: DisplayList,
     pub(super) window_title: String,
     /// The serialized origin of the tab's current URL (e.g. `"https://example.com"`).
-    /// Used for same-origin filtering of `StorageEvent` broadcasts (WHATWG HTML §11.2.1).
+    /// Used for same-origin filtering of `StorageEvent` broadcasts (WHATWG HTML §12.2.1).
     pub(super) current_origin: Option<String>,
 }
 

@@ -20,12 +20,10 @@
 //! | `ArrayBuffer` (with `byteOffset?` / `length?`) | §23.2.5.1.3      | [`init_from_array_buffer`]   |
 //! | another `%TypedArray%`                | §23.2.5.1.2               | [`init_from_typed_array`]    |
 //! | iterable (callable `@@iterator`)      | §23.2.5.1.4               | [`init_from_iterable`]       |
-//! | other Object (array-like fallback)    | §23.2.5.1 steps 9-12      | reached via `init_from_iterable` → `init_from_array_like` |
+//! | Object with nullish `@@iterator`      | §23.2.5.1.4 steps 3–6      | reached via `init_from_iterable` → `init_from_array_like` |
 //!
-//! The fresh-zero-buffer arms (`()` / `(undefined)` / `(number)`) are
-//! handled inline in `construct_typed_array` because they don't
-//! consult the source object — they only call
-//! [`super::typed_array::allocate_fresh_buffer`] directly.
+//! No argument and undefined produce an empty view. For other non-object values the VM applies
+//! its u32 ToIndex helper before allocating.
 //!
 //! Low-level [`super::typed_array::read_element_raw`] /
 //! [`super::typed_array::write_element_raw`] live in the parent
@@ -53,9 +51,7 @@ pub(super) fn init_from_array_buffer(
 ) -> Result<(ObjectId, u32, u32), VmError> {
     let bpe = u32::from(ek.bytes_per_element());
     let buf_len_usize = super::array_buffer::array_buffer_byte_length(ctx.vm, buffer_id);
-    // Clamp the buffer byte length into `u32` — anything larger
-    // can't be addressed by the `[[ByteLength]]` slot anyway
-    // (u32 on the TypedArray variant).
+    // Reject a buffer length that exceeds the u32 view slot.
     let buf_len: u32 = buf_len_usize.try_into().map_err(|_| {
         VmError::range_error(format!(
             "Failed to construct '{}': ArrayBuffer is larger than 4 GiB",
@@ -73,15 +69,10 @@ pub(super) fn init_from_array_buffer(
             ek.name()
         )));
     }
-    // ECMA-262 §23.2.5.1.3 `InitializeTypedArrayFromArrayBuffer`
-    // step 6: "If IsDetachedBuffer(buffer) is true, throw a
-    // TypeError exception".  Spec ordering puts this check AFTER
-    // offset coercion (step 2) + modulo check (step 3) but BEFORE
-    // the buffer-length range checks (steps 9-10).  Throwing here
-    // ensures `new Uint8Array(detached)` / `new Uint8Array(detached,
-    // 4)` surfaces TypeError instead of either a spurious zero-length
-    // view (offset = 0 case) or a misleading RangeError (offset > 0
-    // case from `byte_offset > buf_len` with `buf_len = 0`).
+    // For fixed buffers, step 5.a coerces explicit length, step 6 tests detachment, step 7
+    // reads byte length and step 9 checks range. The VM reads length early and coerces
+    // explicit length after the detach and offset-range checks.
+    // (InitializeTypedArrayFromArrayBuffer §23.2.5.1.3.)
     super::array_buffer::array_buffer_require_attached(ctx.vm, buffer_id)?;
     if byte_offset > buf_len {
         return Err(VmError::range_error(format!(
@@ -146,20 +137,14 @@ pub(super) fn init_from_typed_array(
     else {
         unreachable!("caller confirmed TypedArray kind")
     };
-    // ECMA-262 §23.2.5.1.2 `InitializeTypedArrayFromTypedArray`
-    // step 8: "If IsTypedArrayOutOfBounds(srcRecord) is true, throw
-    // a TypeError exception" — IsTypedArrayOutOfBounds returns true
-    // when the source view's `[[ViewedArrayBuffer]]` is detached
-    // (via MakeTypedArrayWithBufferWitnessRecord).  Without this
-    // check, the per-element copy below would observe
-    // `read_element_raw` returning `JsValue::Undefined` on every
-    // index (F3 Stage 3 silent fall-through per
-    // §10.4.5.16 IsValidIntegerIndex) and silently build a
-    // zero-filled destination — divergent from the spec-mandated
-    // TypeError.
+    // Step 7 calls ValidateTypedArrayBounds, which rejects an out-of-bounds or detached
+    // source. Step 8 obtains its element length. Omitting the check can feed undefined into
+    // destination conversion; the result depends on destination kind.
+    // (InitializeTypedArrayFromTypedArray §23.2.5.1.2.)
     super::array_buffer::array_buffer_require_attached(ctx.vm, src_buf_id)?;
-    // Content-type compatibility: BigInt ↔ Number mixing throws
-    // TypeError per ECMA-262 §23.2.5.1.2 step 17 (subclass check).
+    // For differing element types, step 11.b rejects unequal content types after step 11.a
+    // allocation. The VM performs its brand check first. (InitializeTypedArrayFromTypedArray
+    // §23.2.5.1.2.)
     if src_ek.is_bigint() != dst_ek.is_bigint() {
         return Err(VmError::type_error(format!(
             "Failed to construct '{}': Cannot mix BigInt and other types",
@@ -205,9 +190,9 @@ pub(super) fn init_from_typed_array(
     Ok((dst_buf_id, dst_offset, dst_byte_len))
 }
 
-/// Variant 5: `new Xxx(object)`.  ECMA-262 §23.2.5.1 steps 7-12: if the
-/// source has a callable `@@iterator`, iterate; otherwise fall back
-/// to the array-like path (`length` + integer-indexed `[[Get]]`s).
+/// ECMA-262 §23.2.5.1.4 steps 1–3 select the iterable or array-like path.
+/// GetMethod (§7.3.10) accepts a callable iterator method, returns undefined
+/// for null or undefined, and throws TypeError for any other value.
 pub(super) fn init_from_iterable(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
@@ -216,7 +201,7 @@ pub(super) fn init_from_iterable(
     let JsValue::Object(src_id) = source else {
         unreachable!("init_from_iterable called on non-Object");
     };
-    // §23.2.5.1 step 7 / GetMethod(object, @@iterator): an absent
+    // §23.2.5.1.4 step 1 / GetMethod(object, @@iterator): an absent
     // or `undefined` / `null` value for `@@iterator` falls through
     // to the array-like branch rather than throwing.
     let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
@@ -331,10 +316,9 @@ fn init_from_iterable_body(
     Ok((buf_id, offset, byte_len))
 }
 
-/// Variant 5b: §23.2.5.1 array-like fallback when `source` has no
-/// callable `@@iterator`.  Reads `source.length` → `ToLength` →
-/// allocates buffer → drains `source[i]` through the shared property
-/// path (§23.2.5.1 steps 9-12).  `ToLength` clamps negative / NaN
+/// With a nullish iterator method, §23.2.5.1.4 steps 3–6 obtain
+/// LengthOfArrayLike(source), allocate the buffer, and read each indexed
+/// property from the source.  `ToLength` clamps negative / NaN
 /// lengths to `0` (an empty TypedArray) rather than throwing —
 /// `{length: -1}` / `{length: NaN}` produce `new Uint8Array(0)`.
 fn init_from_array_like(

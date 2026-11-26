@@ -38,11 +38,25 @@ pub(crate) enum InlineItem {
     Placeholder(Entity),
 }
 
+impl InlineItem {
+    pub(super) fn source(&self) -> (Entity, usize) {
+        match self {
+            Self::Text(run) => (run.source_item, run.source_len),
+            Self::Atomic { entity, .. } | Self::Placeholder(entity) => (*entity, 0),
+        }
+    }
+}
+
 /// A segment of text within an inline formatting context, preserving the
 /// originating element's style for measurement.
 pub struct StyledRun {
     /// Entity this text belongs to (element or pseudo-element).
     pub entity: Entity,
+    /// Source identity may differ from the element that owns the paint run.
+    pub(super) source_item: Entity,
+    pub(super) source_len: usize,
+    /// For fragmented runs, one original position per output scalar.
+    pub(super) source_positions: Option<Vec<crate::source_progress::SourcePosition>>,
     /// The text content.
     pub text: String,
     /// Font families for measurement.
@@ -80,12 +94,16 @@ impl StyledRun {
     /// Create a run from text content and a computed style.
     pub(super) fn from_style(
         entity: Entity,
+        source_item: Entity,
         text: String,
         style: &ComputedStyle,
         group_key: Option<Entity>,
     ) -> Self {
         Self {
             entity,
+            source_item,
+            source_len: text.len(),
+            source_positions: None,
             text,
             families: style.font_family.clone(),
             font_size: style.font_size,

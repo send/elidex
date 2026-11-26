@@ -47,6 +47,10 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
         offset: elidex_plugin::Point::ZERO,
@@ -93,6 +97,10 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
         offset: elidex_plugin::Point::ZERO,
@@ -145,6 +153,10 @@ fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
     );
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
         offset: elidex_plugin::Point::ZERO,
@@ -181,6 +193,10 @@ fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
     assert!(dom.screen_geometry().is_some(), "full pass published");
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
         offset: elidex_plugin::Point::ZERO,
@@ -233,6 +249,10 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
         fragmentation_type: elidex_layout_block::FragmentationType::Page,
     };
     let input = elidex_layout_block::LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
         offset: Point::ZERO,
@@ -277,12 +297,7 @@ fn layout_paged_invalidates_screen_geometry_provenance() {
     );
 
     let font_db = FontDatabase::new();
-    let page_ctx = elidex_plugin::PagedMediaContext {
-        page_width: 400.0,
-        page_height: 600.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
-        page_rules: Vec::new(),
-    };
+    let page_ctx = elidex_style::page::fixture(400.0, 600.0, 10.0, "");
     let _ = layout_paged(&mut dom, &page_ctx, &font_db);
 
     assert!(
@@ -332,12 +347,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
 
     let font_db = FontDatabase::new();
     // Margins exceed the page box ⇒ content_width/height <= 0 ⇒ the early return.
-    let degenerate = elidex_plugin::PagedMediaContext {
-        page_width: 10.0,
-        page_height: 10.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(20.0),
-        page_rules: Vec::new(),
-    };
+    let degenerate = elidex_style::page::fixture(10.0, 10.0, 20.0, "");
     let pages = layout_paged(&mut dom, &degenerate, &font_db);
 
     assert!(pages.is_empty(), "degenerate page box lays nothing out");
@@ -351,12 +361,7 @@ fn a_zero_write_paged_early_return_leaves_the_phase_alone() {
     // added the invalidate to this arm alone would pass.
     let mut empty_dom = EcsDom::new();
     empty_dom.screen_layout_pass(|_| {});
-    let sane = elidex_plugin::PagedMediaContext {
-        page_width: 400.0,
-        page_height: 600.0,
-        page_margins: elidex_plugin::EdgeSizes::uniform(10.0),
-        page_rules: Vec::new(),
-    };
+    let sane = elidex_style::page::fixture(400.0, 600.0, 10.0, "");
     let pages = layout_paged(&mut empty_dom, &sane, &font_db);
 
     assert!(pages.is_empty(), "no layout roots ⇒ nothing laid out");

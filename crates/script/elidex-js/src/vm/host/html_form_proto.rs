@@ -38,11 +38,9 @@
 //!   default-prevented, calls `elidex_form::reset_form` to roll
 //!   each form control back to its `default_value` /
 //!   `default_checked` (Group β F-7 + F-8 fold).
-//! - `checkValidity()` / `reportValidity()` — iterate the listed
-//!   elements, run `validate_control` on each candidate (skipping
-//!   disabled / `<input type=hidden>` per HTML §4.10.20.3), fire
-//!   the synthetic `invalid` event on every failing control, and
-//!   return `false` if any control failed.  Form-level methods are
+//! - `checkValidity()` / `reportValidity()` delegate to
+//!   [`run_form_check_validity`], which documents the control-set and
+//!   event-ordering gaps in form validation. Form-level methods are
 //!   NOT installed via the `install_constraint_validation_mixin`
 //!   helper because the form's behaviour is delegate-to-children
 //!   rather than the per-control single-state shape.
@@ -260,7 +258,7 @@ form_string_attr!(
 );
 form_string_attr!(form_get_rel, form_set_rel, "rel", "rel");
 
-// `form.method` — HTML §4.10.18.6: enumerated keyword attribute,
+// `form.method` — HTML §4.10.19.6: enumerated keyword attribute,
 // values `get` / `post` / `dialog`, missing-value default = "get",
 // invalid-value default = "get".  Setter stores the raw value
 // (which `value` returns the next time the IDL getter normalises).
@@ -297,7 +295,7 @@ fn form_set_method(
     Ok(JsValue::Undefined)
 }
 
-// `form.enctype` — HTML §4.10.18.6: enumerated keyword attribute,
+// `form.enctype` — HTML §4.10.19.6: enumerated keyword attribute,
 // values `application/x-www-form-urlencoded` / `multipart/form-data`
 // / `text/plain`, missing- and invalid-value default both
 // `application/x-www-form-urlencoded`.
@@ -534,15 +532,11 @@ fn native_form_request_submit(
         }
     };
 
-    // Step 3 (HTML §4.10.21.3 invokes the "interactively validate
-    // the constraints" substep defined in §4.10.20.3): if neither
-    // the form's `novalidate` nor the submitter's `formnovalidate`
-    // override the validation step,
-    // walk every submittable descendant via [`run_form_check_validity`]
-    // (which also fires synthetic `invalid` events on failing
-    // controls).  Validation failure aborts before any `submit`
-    // event fires — listeners on `submit` must NOT observe a request
-    // whose constraints failed.
+    // HTML §4.10.22.3 runs interactive validation unless the no-validate
+    // state applies. See `run_form_check_validity` for the current control
+    // set and dispatch order. A validation failure aborts submission.
+    // The per-form submission guard is tracked by
+    // `#11-form-requestsubmit-reentrancy-guard`.
     let skip_validation = {
         let dom = ctx.host().dom();
         dom.has_attribute(form_entity, "novalidate")
@@ -605,18 +599,15 @@ fn native_form_reset(
 }
 
 // ---------------------------------------------------------------------------
-// checkValidity / reportValidity (HTML §4.10.20.4)
+// checkValidity / reportValidity (HTML §4.10.3)
 // ---------------------------------------------------------------------------
 
-/// Walk every listed-element descendant of the form, calling
-/// `validate_control()` on each that is a candidate for constraint
-/// validation.  Per HTML §4.10.20.4 step 1, `invalid` must fire on
-/// EVERY failing control before the method returns; we therefore
-/// iterate the full set, dispatch the synthetic event on each
-/// failure, and return `false` if any control failed.  Mirrors the
-/// per-control `checkValidity()` shape installed by the
-/// ConstraintValidation mixin but iterates the form's submittable
-/// element set rather than a single entity.
+/// HTML §4.10.21.2 step 1 selects submittable elements by form owner.
+/// This walk uses descendants and can miss externally associated controls
+/// (`#11-form-owner-ecs-component`). Step 3 collects failing controls
+/// before step 6 fires their `invalid` events. This loop fires during
+/// validation, so a listener can change the outcome for later controls
+/// (`#11-form-validation-snapshot-before-invalid-events`).
 fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
     let mut coll = elidex_dom_api::LiveCollection::new(
         entity,
@@ -631,8 +622,9 @@ fn run_form_check_validity(ctx: &mut NativeContext<'_>, entity: Entity) -> Resul
         let Some(state) = dom.world().get::<&FormControlState>(control).ok() else {
             continue;
         };
-        // HTML §4.10.20.3 — bar non-candidates from validation,
-        // centralised in `elidex_form::is_constraint_validation_candidate`.
+        // HTML §4.10.21.2 static validation step 3.1 — skip
+        // non-candidates, centralised in
+        // `elidex_form::is_constraint_validation_candidate`.
         if !elidex_form::is_constraint_validation_candidate(&state, control, dom) {
             continue;
         }

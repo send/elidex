@@ -470,3 +470,44 @@ fn flex_item_max_width_prevents_grow() {
         lb1.content.size.width
     );
 }
+
+#[test]
+fn parsed_zero_grow_leaves_all_free_space_to_other_item() {
+    for (zero, one) in [
+        ("flex:0", "flex:1"),
+        (
+            "flex-grow:0;flex-shrink:1;flex-basis:0px",
+            "flex-grow:1;flex-shrink:1;flex-basis:0px",
+        ),
+    ] {
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let container = dom.create_element_ownerless_fixture("main", Attributes::default());
+        dom.append_child(root, container);
+        let first = dom.create_element_ownerless_fixture("div", Attributes::default());
+        let second = dom.create_element_ownerless_fixture("aside", Attributes::default());
+        dom.append_child(container, first);
+        dom.append_child(container, second);
+        let css = format!("main {{display:flex;width:100px}} div,aside {{display:block;min-width:0}} div {{{zero}}} aside {{{one}}}");
+        let sheet = elidex_css::parse_stylesheet(&css, elidex_css::Origin::Author);
+        elidex_style::resolve_styles(&mut dom, &[&sheet], elidex_plugin::Size::new(100., 100.));
+        for (item, grow) in [(first, 0.), (second, 1.)] {
+            assert_eq!(
+                dom.world().get::<&ComputedStyle>(item).unwrap().flex_grow,
+                grow
+            );
+        }
+        do_layout_flex(
+            &mut dom,
+            container,
+            100.,
+            None,
+            Point::ZERO,
+            &FontDatabase::new(),
+            0,
+            layout_block_only,
+        );
+        assert_eq!(get_lb(&dom, first).content.size.width, 0.);
+        assert_eq!(get_lb(&dom, second).content.size.width, 100.);
+    }
+}

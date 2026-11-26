@@ -165,7 +165,7 @@ impl FormControlKind {
     }
 
     /// Returns `true` if the `readonly` attribute applies to this kind
-    /// (HTML §4.10.5.3.3 "The readonly attribute").  `readonly` is
+    /// (HTML §4.10.5.3.3 for input and §4.10.11 for textarea).  `readonly` is
     /// meaningful for text-editable controls (`text`, `password`,
     /// `textarea`, `email`, `url`, `tel`, `search`) and the
     /// type-specific input subtypes that accept user editing (`number`,
@@ -173,7 +173,7 @@ impl FormControlKind {
     /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
     /// `file`, `hidden`, button-typed) the attribute exists but has
     /// no effect — including for the constraint-validation barring
-    /// rule of §4.10.20.3.
+    /// rule.
     #[must_use]
     pub fn readonly_applies(self) -> bool {
         matches!(
@@ -421,7 +421,7 @@ pub struct FormControlState {
     /// - `Some(Some(re))` — valid compiled regex.
     pub cached_pattern_regex: Option<Option<Arc<regex::Regex>>>,
     /// Custom validity message set via `setCustomValidity(message)`
-    /// (HTML §4.10.20.2).  `None` means no custom error;
+    /// (HTML §4.10.21.3).  `None` means no custom error;
     /// `Some(empty)` is also "no custom error" per spec — both
     /// trigger `customError = false`.
     pub custom_validity_message: Option<String>,
@@ -841,7 +841,7 @@ impl FormControlState {
 
     /// Parse `<input>` element attributes into form control state.
     fn from_input_element(attrs: &Attributes) -> Self {
-        // HTML spec §2.5.2: enumerated attributes are ASCII case-insensitive.
+        // HTML §2.3.3 matches enumerated attribute keywords ASCII case-insensitively.
         let kind = FormControlKind::from_tag_and_type_attr("input", attrs.get("type"))
             .unwrap_or(FormControlKind::TextInput);
         let raw_value = attrs.get("value").unwrap_or("").to_string();

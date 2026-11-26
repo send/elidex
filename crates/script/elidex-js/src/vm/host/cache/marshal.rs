@@ -269,7 +269,7 @@ pub(super) fn entry_from_response(
             "Cache.put: response argument is not a Response",
         ));
     }
-    // §5.4.5 step 2: a Response whose body is already consumed (`disturbed`)
+    // §5.4.5 step 8: a Response whose body is already consumed (`disturbed`)
     // or locked to a reader cannot be cached — reject before reading bytes
     // (otherwise the spent body would silently store as empty).
     if ctx.vm.disturbed.contains(&response_id)

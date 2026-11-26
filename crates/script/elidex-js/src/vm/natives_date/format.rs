@@ -1,7 +1,6 @@
 //! Time value → String formatting (ECMA-262 §21.4.4 `toString` family +
-//! `toISOString` / `toUTCString`). **UTC-baseline**: `LocalTime` is the
-//! identity and the timezone offset is always `+0000` (`getTimezoneOffset`
-//! returns `+0`); see [`super::algorithms`].
+//! `toISOString` / `toUTCString`). For the UTC baseline used when formatting local times,
+//! see [`super::algorithms`].
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,

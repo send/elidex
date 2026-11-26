@@ -192,9 +192,8 @@ pub(in crate::vm) fn route_custom_element_upgrade(
         .expect("CE registry mutex poisoned")
         .is_defined(&name);
     if is_defined {
-        // DOM §4.9 step 5.1.3.10: the sync autonomous branch nulls the
-        // is value (async-created elements keep theirs through the
-        // later define()-walk upgrade).
+        // DOM §4.9, create an element, step 5.1.4.10: a synchronously
+        // constructed autonomous element has a null is value.
         {
             // Phased (read → decide → clear) because the registry
             // mutex guard and the mutable DOM borrow cannot overlap;

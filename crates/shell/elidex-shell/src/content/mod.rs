@@ -42,7 +42,7 @@ const CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 struct ContentState {
     pipeline: PipelineResult,
     /// This content thread's clone of the process-wide `localStorage` backend
-    /// (WHATWG HTML §11.2). Threaded from the browser process at spawn so every
+    /// (WHATWG HTML §12.2.3). Threaded from the browser process at spawn so every
     /// same-origin tab shares ONE registry + disk tree. Held here so (a) the
     /// per-turn `flush_dirty` in the content event loop persists dirty origins,
     /// and (b) in-thread navigation / iframe rebuilds re-install the SAME manager
@@ -716,11 +716,11 @@ fn content_thread_main_url(
 // run_event_loop + pump_turn are in event_loop.rs; the BrowserToContent dispatch
 // (handle_message + chrome traversal) is in message_dispatch.rs.
 
-/// Dispatch a `storage` event on window (WHATWG HTML §11.2.1).
+/// Dispatch a `storage` event on window (WHATWG HTML §12.2.1).
 ///
 /// Fired when another tab changes `localStorage` for the same origin.
-/// Per spec this fires on `Window`; in our architecture window listeners
-/// are wired to the document entity, so targeting document is equivalent.
+/// The target is the runtime's Window entity, with the document entity
+/// as the fallback before the runtime binds.
 fn dispatch_storage_event(
     state: &mut ContentState,
     key: Option<String>,

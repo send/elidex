@@ -611,13 +611,12 @@ fn missing_import_surfaces_as_link_error() {
     vm.unbind();
 }
 
-/// DR-11 + ECMA-262 §10.4.5.18 TypedArraySetElement — writes
-/// through a TypedArray view over a detached buffer are silently
-/// no-ops; reads return `undefined` (legacy contract carried by F3's
-/// `is_detached_buffer` short-circuit in `byte_io::*_with_routing`).
+/// DR-11: after detachment, the indexed read returns `undefined` (§10.4.5.17).
+/// TypedArraySetElement (§10.4.5.18 steps 1–3) converts the RHS first, which
+/// can throw. Here 99 converts successfully and the detached view skips the store.
 /// This is the cross-view alias-safety guard for Memory.grow's
 /// detach: an `Uint8Array` view captured before grow keeps reporting
-/// `byteLength === 0` and rejects further writes while the fresh
+/// `byteLength === 0` and its elements stay unchanged while the fresh
 /// view over the post-grow backing observes pre-grow content
 /// unchanged.
 #[test]
@@ -808,9 +807,9 @@ fn gc_retains_wasm_memory_via_buffer_alias() {
     vm.unbind();
 }
 
-/// I32 wasm param coerce uses ECMA-262 §7.1.7 ToInt32 (mod-2^32
-/// wrap), not Rust `as` saturation.  `Infinity` / `NaN` → 0 per
-/// step 2; `2^32` and `-2^32` wrap to 0.
+/// WebAssembly i32 conversion uses ECMA-262 §7.1.8, ToInt32.
+/// ToIntegerOrInfinity maps NaN to zero. ToFixedSizeInteger maps
+/// infinity to zero and wraps finite integers modulo 2^32.
 #[test]
 fn i32_param_coerce_uses_to_int32() {
     let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();

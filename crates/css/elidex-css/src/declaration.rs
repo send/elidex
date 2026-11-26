@@ -9,8 +9,9 @@ use elidex_plugin::{CssPropertyRegistry, CssValue};
 
 use elidex_plugin::parse_color;
 
-use crate::values::{
-    parse_global_keyword, parse_length_or_percentage, parse_length_percentage_or_auto,
+use crate::values::parse_global_keyword;
+use elidex_plugin::css_resolve::strict::{
+    parse_length_or_percentage, parse_length_percentage_or_auto,
     parse_non_negative_length_or_percentage,
 };
 
@@ -20,6 +21,8 @@ mod font;
 mod grid;
 mod grid_shorthand;
 mod misc;
+pub(crate) mod substitution;
+pub use substitution::parse_var_function;
 
 // CSSOM-facing inline-style entry points live in a submodule so this
 // parser-dispatcher file stays under the 1000-line growth guard.
@@ -167,23 +170,32 @@ fn skip_to_semicolon(input: &mut Parser) {
 /// known properties with unparseable values. The caller (e.g.
 /// `DeclarationListParser`) treats an empty result as an error, which
 /// triggers cssparser's standard error recovery (skip the declaration).
-#[allow(clippy::too_many_lines)]
-// Single match dispatcher over token/AST variants.
 pub(crate) fn parse_property_value(
     name: &str,
     input: &mut Parser,
     registry: Option<&CssPropertyRegistry>,
 ) -> Vec<Declaration> {
-    // Custom properties (--*): store the value as raw tokens —
-    // scoped to the <declaration-value> run so a following declaration
-    // or `!important` is not swallowed into the value.
     if name.starts_with("--") {
-        let raw = collect_declaration_value_tokens(input);
-        if raw.is_empty() {
-            return Vec::new();
-        }
-        return single_decl(name, CssValue::RawTokens(raw));
+        return substitution::capture(substitution::source(input))
+            .map(|seq| single_decl(name, CssValue::Custom(seq)))
+            .unwrap_or_default();
     }
+
+    let Some(grammar) = PropertyGrammar::select(name, registry) else {
+        return Vec::new();
+    };
+    let start = input.state();
+    let source = substitution::source(input);
+    match elidex_plugin::component_values::ComponentValues::inspect_variables(source) {
+        None => return Vec::new(),
+        Some(true) => {
+            return substitution::capture(source)
+                .map(|value| single_decl(name, CssValue::Pending(value)))
+                .unwrap_or_default()
+        }
+        Some(false) => {}
+    }
+    input.reset(&start);
 
     // Check for global keywords first.
     if let Ok(val) = input.try_parse(|i| {
@@ -191,90 +203,159 @@ pub(crate) fn parse_property_value(
         parse_global_keyword(ident.as_ref()).ok_or(())
     }) {
         // Shorthand properties must expand global keywords into longhand declarations.
-        return expand_global_keyword(name, val);
+        return grammar
+            .members(name)
+            .into_iter()
+            .map(|member| Declaration::new(member, val.clone()))
+            .collect();
     }
 
-    // Check for var() function as the entire value.
-    if let Ok(var_val) = input.try_parse(|i| {
-        let v = parse_var_function(i)?;
-        // Only match when var() is the entire value (exhaustive).
-        if !i.is_exhausted() {
-            return Err(());
+    grammar.parse(name, input)
+}
+
+/// CSS Values §A: the longhands receiving a pending substitution's result
+/// (or unset on failure), as defined by the admitting grammar.
+#[must_use]
+pub fn declaration_members(name: &str, registry: Option<&CssPropertyRegistry>) -> Vec<String> {
+    PropertyGrammar::select(name, registry).map_or_else(Vec::new, |grammar| grammar.members(name))
+}
+
+/// Members and owning handler of a shorthand as admitted by its grammar.
+pub struct ShorthandFamily<'a> {
+    pub members: Vec<String>,
+    pub registered_handler: Option<&'a dyn elidex_plugin::CssPropertyHandler>,
+}
+
+/// CSSOM §6.6.1 uses the admitting grammar for shorthand operations.
+#[must_use]
+pub fn shorthand_family<'a>(
+    name: &str,
+    registry: Option<&'a CssPropertyRegistry>,
+) -> Option<ShorthandFamily<'a>> {
+    let grammar = PropertyGrammar::select(name, registry)?;
+    let members = grammar.members(name);
+    if members.is_empty() || matches!(members.as_slice(), [single] if single == name) {
+        return None;
+    }
+    let registered_handler = match grammar {
+        PropertyGrammar::Builtin(_) => None,
+        PropertyGrammar::Registered(handler) => Some(handler),
+    };
+    Some(ShorthandFamily {
+        members,
+        registered_handler,
+    })
+}
+
+type BuiltinParser = fn(&str, &mut Parser) -> Vec<Declaration>;
+
+enum PropertyGrammar<'a> {
+    Builtin(BuiltinParser),
+    Registered(&'a dyn elidex_plugin::CssPropertyHandler),
+}
+
+impl<'a> PropertyGrammar<'a> {
+    fn select(name: &str, registry: Option<&'a CssPropertyRegistry>) -> Option<Self> {
+        builtin_parser(name)
+            .map(Self::Builtin)
+            .or_else(|| registry?.resolve(name).map(Self::Registered))
+    }
+
+    fn members(&self, name: &str) -> Vec<String> {
+        match self {
+            Self::Builtin(_) => {
+                let members = shorthand_longhands(name);
+                if members.is_empty() {
+                    vec![name.to_owned()]
+                } else {
+                    members
+                }
+            }
+            Self::Registered(handler) => handler
+                .declaration_members(name)
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
         }
-        Ok(v)
-    }) {
-        return single_decl(name, var_val);
     }
 
-    // CSS Variables Level 1 §3: If the value contains var() references mixed
-    // with other tokens, store the value as raw tokens for deferred
-    // substitution at computed-value time — scoped to the
-    // <declaration-value> run (stop before a top-level `;`/`!`) so the
-    // block parser still sees a following declaration / `!important`,
-    // and the setProperty trailing-input injection guard still fires.
-    if let Ok(raw) = input.try_parse(|i| -> Result<String, ()> {
-        let raw = collect_declaration_value_tokens(i);
-        if raw.contains("var(") {
-            Ok(raw)
-        } else {
-            Err(())
+    fn parse(&self, name: &str, input: &mut Parser) -> Vec<Declaration> {
+        match self {
+            Self::Builtin(parse) => parse(name, input),
+            Self::Registered(handler) => handler
+                .parse(name, input)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|decl| Declaration::new(decl.property, decl.value))
+                .collect(),
         }
-    }) {
-        return single_decl(name, CssValue::RawTokens(raw));
     }
+}
 
-    match name {
+#[allow(clippy::too_many_lines)]
+fn builtin_parser(name: &str) -> Option<BuiltinParser> {
+    Some(match name {
         // --- Shorthand properties ---
-        "margin" => box_model::expand_four_sides(input, "margin", parse_length_percentage_or_auto),
-        "padding" => box_model::expand_four_sides(input, "padding", parse_length_or_percentage),
-        "border" => box_model::parse_border_shorthand(input),
-        "border-top" => box_model::parse_border_side_shorthand(input, "top"),
-        "border-right" => box_model::parse_border_side_shorthand(input, "right"),
-        "border-bottom" => box_model::parse_border_side_shorthand(input, "bottom"),
-        "border-left" => box_model::parse_border_side_shorthand(input, "left"),
-        "background" => misc::parse_background_shorthand(input),
+        "margin" => |_, input| {
+            box_model::expand_four_sides(input, "margin", parse_length_percentage_or_auto)
+        },
+        "padding" => {
+            |_, input| box_model::expand_four_sides(input, "padding", parse_length_or_percentage)
+        }
+        "border" => |_, input| box_model::parse_border_shorthand(input),
+        "border-top" => |_, input| box_model::parse_border_side_shorthand(input, "top"),
+        "border-right" => |_, input| box_model::parse_border_side_shorthand(input, "right"),
+        "border-bottom" => |_, input| box_model::parse_border_side_shorthand(input, "bottom"),
+        "border-left" => |_, input| box_model::parse_border_side_shorthand(input, "left"),
+        "background" => |_, input| misc::parse_background_shorthand(input),
 
         // --- Keyword properties ---
-        "display" => parse_keyword_property(
-            input,
-            name,
-            &[
-                "block",
-                "inline",
-                "inline-block",
-                "none",
-                "flex",
-                "inline-flex",
-                "list-item",
-                "grid",
-                "inline-grid",
-                "table",
-                "inline-table",
-                "table-caption",
-                "table-row",
-                "table-cell",
-                "table-row-group",
-                "table-header-group",
-                "table-footer-group",
-                "table-column",
-                "table-column-group",
-                "contents",
-            ],
-        ),
-        "position" => parse_keyword_property(
-            input,
-            name,
-            &["static", "relative", "absolute", "fixed", "sticky"],
-        ),
-        "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
+        "display" => |name, input| {
             parse_keyword_property(
                 input,
                 name,
                 &[
-                    "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge",
-                    "inset", "outset",
+                    "block",
+                    "inline",
+                    "inline-block",
+                    "none",
+                    "flex",
+                    "inline-flex",
+                    "list-item",
+                    "grid",
+                    "inline-grid",
+                    "table",
+                    "inline-table",
+                    "table-caption",
+                    "table-row",
+                    "table-cell",
+                    "table-row-group",
+                    "table-header-group",
+                    "table-footer-group",
+                    "table-column",
+                    "table-column-group",
+                    "contents",
                 ],
             )
+        },
+        "position" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["static", "relative", "absolute", "fixed", "sticky"],
+            )
+        },
+        "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
+            |name, input| {
+                parse_keyword_property(
+                    input,
+                    name,
+                    &[
+                        "none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge",
+                        "inset", "outset",
+                    ],
+                )
+            }
         }
 
         // --- Color properties ---
@@ -284,263 +365,296 @@ pub(crate) fn parse_property_value(
         | "border-right-color"
         | "border-bottom-color"
         | "border-left-color"
-        | "text-decoration-color" => parse_color_property(input, name),
+        | "text-decoration-color" => |name, input| parse_color_property(input, name),
 
         // --- Length/percentage/auto properties ---
         "width" | "height" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
-            parse_value_property(input, name, parse_length_percentage_or_auto)
+            |name, input| parse_value_property(input, name, parse_length_percentage_or_auto)
         }
 
         // --- Length/percentage properties (no auto) ---
         "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
-            parse_value_property(input, name, parse_length_or_percentage)
+            |name, input| parse_value_property(input, name, parse_length_or_percentage)
         }
 
         // --- Border width ---
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
-            box_model::parse_border_width_property(input, name)
+            |name, input| box_model::parse_border_width_property(input, name)
         }
 
         // --- Font shorthand ---
-        "font" => font::parse_font_shorthand(input),
+        "font" => |_, input| font::parse_font_shorthand(input),
 
         // --- Font properties ---
-        "font-size" => font::parse_font_size(input),
-        "font-weight" => font::parse_font_weight(input),
-        "font-style" => parse_keyword_property(input, name, &["normal", "italic", "oblique"]),
-        "font-family" => font::parse_font_family(input),
+        "font-size" => |_, input| font::parse_font_size(input),
+        "font-weight" => |_, input| font::parse_font_weight(input),
+        "font-style" => {
+            |name, input| parse_keyword_property(input, name, &["normal", "italic", "oblique"])
+        }
+        "font-family" => |_, input| font::parse_font_family(input),
 
         // --- Line height ---
-        "line-height" => font::parse_line_height(input),
+        "line-height" => |_, input| font::parse_line_height(input),
 
         // --- Box model ---
-        "box-sizing" => parse_keyword_property(input, name, &["content-box", "border-box"]),
-        "border-radius" => misc::parse_border_radius(input),
+        "box-sizing" => {
+            |name, input| parse_keyword_property(input, name, &["content-box", "border-box"])
+        }
+        "border-radius" => |_, input| misc::parse_border_radius(input),
         "border-top-left-radius"
         | "border-top-right-radius"
         | "border-bottom-right-radius"
         | "border-bottom-left-radius" => {
-            parse_value_property(input, name, parse_non_negative_length_or_percentage)
+            |name, input| parse_value_property(input, name, parse_non_negative_length_or_percentage)
         }
-        "opacity" => misc::parse_opacity(input),
+        "opacity" => |_, input| misc::parse_opacity(input),
 
         // --- Text alignment ---
-        "text-align" => misc::parse_text_align(input),
+        "text-align" => |_, input| misc::parse_text_align(input),
 
         // --- Text transform ---
-        "text-transform" => parse_keyword_property(
-            input,
-            name,
-            &["none", "uppercase", "lowercase", "capitalize"],
-        ),
+        "text-transform" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["none", "uppercase", "lowercase", "capitalize"],
+            )
+        },
 
         // --- Text decoration ---
-        "text-decoration-line" => misc::parse_text_decoration_line(input),
-        "text-decoration" => misc::parse_text_decoration_shorthand(input),
-        "text-decoration-style" => parse_keyword_property(
-            input,
-            name,
-            &["solid", "double", "dotted", "dashed", "wavy"],
-        ),
+        "text-decoration-line" => |_, input| misc::parse_text_decoration_line(input),
+        "text-decoration" => |_, input| misc::parse_text_decoration_shorthand(input),
+        "text-decoration-style" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["solid", "double", "dotted", "dashed", "wavy"],
+            )
+        },
         // --- Letter/word spacing ---
-        "letter-spacing" => misc::parse_spacing(input, "letter-spacing"),
-        "word-spacing" => misc::parse_spacing(input, "word-spacing"),
+        "letter-spacing" => |_, input| misc::parse_spacing(input, "letter-spacing"),
+        "word-spacing" => |_, input| misc::parse_spacing(input, "word-spacing"),
 
         // --- White-space ---
-        "white-space" => parse_keyword_property(
-            input,
-            name,
-            &["normal", "pre", "nowrap", "pre-wrap", "pre-line"],
-        ),
+        "white-space" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["normal", "pre", "nowrap", "pre-wrap", "pre-line"],
+            )
+        },
 
         // --- Overflow ---
-        "overflow" => misc::parse_overflow(input),
-        "overflow-x" | "overflow-y" => parse_keyword_property(
-            input,
-            name,
-            &["visible", "hidden", "scroll", "auto", "clip"],
-        ),
+        "overflow" => |_, input| misc::parse_overflow(input),
+        "overflow-x" | "overflow-y" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["visible", "hidden", "scroll", "auto", "clip"],
+            )
+        },
 
         // --- Min/max sizing ---
-        "min-width" | "min-height" => {
+        "min-width" | "min-height" => |name, input| {
             if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
                 return single_decl(name, val);
             }
             parse_value_property(input, name, parse_non_negative_length_or_percentage)
-        }
-        "max-width" | "max-height" => misc::parse_max_dimension(input, name),
+        },
+        "max-width" | "max-height" => |name, input| misc::parse_max_dimension(input, name),
 
         // --- List style ---
-        "list-style-type" => parse_keyword_property(
-            input,
-            name,
-            &["disc", "circle", "square", "decimal", "none"],
-        ),
-        "list-style" => misc::parse_list_style_shorthand(input),
+        "list-style-type" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["disc", "circle", "square", "decimal", "none"],
+            )
+        },
+        "list-style" => |_, input| misc::parse_list_style_shorthand(input),
 
         // --- Gap properties ---
-        "row-gap" | "column-gap" => parse_value_property(input, name, misc::parse_gap_value),
-        "gap" => misc::parse_gap_shorthand(input),
+        "row-gap" | "column-gap" => {
+            |name, input| parse_value_property(input, name, misc::parse_gap_value)
+        }
+        "gap" => |_, input| misc::parse_gap_shorthand(input),
 
         // --- Flex keyword properties ---
-        "flex-direction" => parse_keyword_property(
-            input,
-            name,
-            &["row", "row-reverse", "column", "column-reverse"],
-        ),
-        "flex-wrap" => parse_keyword_property(input, name, &["nowrap", "wrap", "wrap-reverse"]),
-        "justify-content" => parse_keyword_property(
-            input,
-            name,
-            &[
-                "normal",
-                "flex-start",
-                "flex-end",
-                "center",
-                "space-between",
-                "space-around",
-                "space-evenly",
-            ],
-        ),
-        "align-items" => parse_keyword_property(
-            input,
-            name,
-            &["stretch", "flex-start", "flex-end", "center", "baseline"],
-        ),
-        "align-self" => parse_keyword_property(
-            input,
-            name,
-            &[
-                "auto",
-                "stretch",
-                "flex-start",
-                "flex-end",
-                "center",
-                "baseline",
-            ],
-        ),
-        "align-content" => parse_keyword_property(
-            input,
-            name,
-            &[
-                "normal",
-                "stretch",
-                "flex-start",
-                "flex-end",
-                "center",
-                "space-between",
-                "space-around",
-                "space-evenly",
-            ],
-        ),
+        "flex-direction" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["row", "row-reverse", "column", "column-reverse"],
+            )
+        },
+        "flex-wrap" => {
+            |name, input| parse_keyword_property(input, name, &["nowrap", "wrap", "wrap-reverse"])
+        }
+        "justify-content" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "normal",
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "space-between",
+                    "space-around",
+                    "space-evenly",
+                ],
+            )
+        },
+        "align-items" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["stretch", "flex-start", "flex-end", "center", "baseline"],
+            )
+        },
+        "align-self" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "auto",
+                    "stretch",
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "baseline",
+                ],
+            )
+        },
+        "align-content" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "normal",
+                    "stretch",
+                    "flex-start",
+                    "flex-end",
+                    "center",
+                    "space-between",
+                    "space-around",
+                    "space-evenly",
+                ],
+            )
+        },
 
         // --- Flex number properties ---
-        "flex-grow" | "flex-shrink" => flex::parse_non_negative_number(input, name),
-        "order" => flex::parse_integer_property(input, name),
+        "flex-grow" | "flex-shrink" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_factor)
+        },
+        "order" => |name, input| flex::parse_integer_property(input, name),
 
         // --- Flex basis ---
-        "flex-basis" => flex::parse_flex_basis(input),
+        "flex-basis" => |name, input| {
+            parse_value_property(input, name, elidex_plugin::css_resolve::parse_flex_basis)
+        },
 
         // --- Flex shorthands ---
-        "flex" => flex::parse_flex_shorthand(input),
-        "flex-flow" => flex::parse_flex_flow_shorthand(input),
+        "flex" => |_, input| flex::parse_flex_shorthand(input),
+        "flex-flow" => |_, input| flex::parse_flex_flow_shorthand(input),
 
         // --- Grid container properties ---
-        "grid-template-columns" | "grid-template-rows" => grid::parse_grid_template(input, name),
-        "grid-template-areas" => grid_shorthand::parse_grid_template_areas(input),
-        "grid-auto-flow" => grid_shorthand::parse_grid_auto_flow(input),
+        "grid-template-columns" | "grid-template-rows" => {
+            |name, input| grid::parse_grid_template(input, name)
+        }
+        "grid-template-areas" => |_, input| grid_shorthand::parse_grid_template_areas(input),
+        "grid-auto-flow" => |_, input| grid_shorthand::parse_grid_auto_flow(input),
         "grid-auto-columns" | "grid-auto-rows" => {
-            grid_shorthand::parse_grid_auto_track(input, name)
+            |name, input| grid_shorthand::parse_grid_auto_track(input, name)
         }
 
         // --- Grid item properties ---
         "grid-column-start" | "grid-column-end" | "grid-row-start" | "grid-row-end" => {
-            grid_shorthand::parse_grid_line(input, name)
+            |name, input| grid_shorthand::parse_grid_line(input, name)
         }
 
         // --- Grid shorthands ---
-        "grid-column" | "grid-row" => grid_shorthand::parse_grid_line_shorthand(input, name),
-        "grid-area" => grid_shorthand::parse_grid_area(input),
-        "grid-template" => grid_shorthand::parse_grid_template_shorthand(input),
-        "grid" => grid_shorthand::parse_grid_shorthand(input),
+        "grid-column" | "grid-row" => {
+            |name, input| grid_shorthand::parse_grid_line_shorthand(input, name)
+        }
+        "grid-area" => |_, input| grid_shorthand::parse_grid_area(input),
+        "grid-template" => |_, input| grid_shorthand::parse_grid_template_shorthand(input),
+        "grid" => |_, input| grid_shorthand::parse_grid_shorthand(input),
 
         // --- Multi-column shorthands ---
-        "column-rule" => misc::parse_column_rule_shorthand(input),
-        "columns" => misc::parse_columns_shorthand(input),
+        "column-rule" => |_, input| misc::parse_column_rule_shorthand(input),
+        "columns" => |_, input| misc::parse_columns_shorthand(input),
 
         // --- Writing mode / BiDi properties ---
-        "direction" => parse_keyword_property(input, name, &["ltr", "rtl"]),
-        "unicode-bidi" => parse_keyword_property(
-            input,
-            name,
-            &[
-                "normal",
-                "embed",
-                "bidi-override",
-                "isolate",
-                "isolate-override",
-                "plaintext",
-            ],
-        ),
-        "writing-mode" => parse_keyword_property(
-            input,
-            name,
-            &["horizontal-tb", "vertical-rl", "vertical-lr"],
-        ),
+        "direction" => |name, input| parse_keyword_property(input, name, &["ltr", "rtl"]),
+        "unicode-bidi" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &[
+                    "normal",
+                    "embed",
+                    "bidi-override",
+                    "isolate",
+                    "isolate-override",
+                    "plaintext",
+                ],
+            )
+        },
+        "writing-mode" => |name, input| {
+            parse_keyword_property(
+                input,
+                name,
+                &["horizontal-tb", "vertical-rl", "vertical-lr"],
+            )
+        },
         "text-orientation" => {
-            parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
+            |name, input| parse_keyword_property(input, name, &["mixed", "upright", "sideways"])
         }
 
         // --- Position offsets ---
-        "top" | "right" | "bottom" | "left" => {
+        "top" | "right" | "bottom" | "left" => |name, input| {
             if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
                 return single_decl(name, val);
             }
             parse_value_property(input, name, parse_length_or_percentage)
-        }
-        "z-index" => {
+        },
+        "z-index" => |name, input| {
             if let Ok(val) = try_keyword_value(input, "auto", &CssValue::Auto) {
                 return single_decl(name, val);
             }
             flex::parse_integer_property(input, name)
-        }
+        },
 
         // --- Float/clear/visibility ---
-        "float" => parse_keyword_property(input, name, &["none", "left", "right"]),
-        "clear" => parse_keyword_property(input, name, &["none", "left", "right", "both"]),
-        "visibility" => parse_keyword_property(input, name, &["visible", "hidden", "collapse"]),
-        "vertical-align" => misc::parse_vertical_align(input),
+        "float" => |name, input| parse_keyword_property(input, name, &["none", "left", "right"]),
+        "clear" => {
+            |name, input| parse_keyword_property(input, name, &["none", "left", "right", "both"])
+        }
+        "visibility" => {
+            |name, input| parse_keyword_property(input, name, &["visible", "hidden", "collapse"])
+        }
+        "vertical-align" => |_, input| misc::parse_vertical_align(input),
 
         // --- Table properties ---
-        "border-collapse" => parse_keyword_property(input, name, &["separate", "collapse"]),
-        "border-spacing" => misc::parse_border_spacing(input),
-        "table-layout" => parse_keyword_property(input, name, &["auto", "fixed"]),
-        "caption-side" => {
-            parse_keyword_property(input, name, &["top", "bottom", "block-start", "block-end"])
+        "border-collapse" => {
+            |name, input| parse_keyword_property(input, name, &["separate", "collapse"])
         }
+        "border-spacing" => |_, input| misc::parse_border_spacing(input),
+        "table-layout" => |name, input| parse_keyword_property(input, name, &["auto", "fixed"]),
+        "caption-side" => |name, input| {
+            parse_keyword_property(input, name, &["top", "bottom", "block-start", "block-end"])
+        },
 
         // --- Content property ---
-        "content" => misc::parse_content(input),
+        "content" => |_, input| misc::parse_content(input),
 
         // --- Counter properties ---
-        "counter-reset" | "counter-set" => misc::parse_counter_list(input, name, 0),
-        "counter-increment" => misc::parse_counter_list(input, name, 1),
+        "counter-reset" | "counter-set" => |name, input| misc::parse_counter_list(input, name, 0),
+        "counter-increment" => |name, input| misc::parse_counter_list(input, name, 1),
 
-        // --- Fallback: dispatch to plugin handler registry ---
-        _ => {
-            if let Some(reg) = registry {
-                if let Some(handler) = reg.resolve(name) {
-                    if let Ok(decls) = handler.parse(name, input) {
-                        return decls
-                            .into_iter()
-                            .map(|d| Declaration::new(&d.property, d.value))
-                            .collect();
-                    }
-                }
-            }
-            Vec::new()
-        }
-    }
+        _ => return None,
+    })
 }
 
 /// Create a single-declaration `Vec`.
@@ -624,93 +738,6 @@ pub(super) fn parse_value_property(
             Ok(single_decl(name, val))
         })
         .unwrap_or_default()
-}
-
-// --- var() function parsing ---
-
-/// Parse a `var(--name)` or `var(--name, fallback)` function call.
-#[must_use = "parsing result should be used"]
-#[allow(clippy::result_unit_err)] // cssparser convention: Parser methods return Result<T, ()>.
-pub fn parse_var_function(input: &mut Parser) -> Result<CssValue, ()> {
-    input.expect_function_matching("var").map_err(|_| ())?;
-    input
-        .parse_nested_block(|args| -> Result<CssValue, cssparser::ParseError<'_, ()>> {
-            // Expect the custom property name (an ident starting with --).
-            let name_token = args.expect_ident().map_err(cssparser::ParseError::from)?;
-            let name = name_token.as_ref().to_string();
-            if !name.starts_with("--") {
-                return Err(args.new_custom_error(()));
-            }
-
-            // Optional comma + fallback.
-            let fallback = if args.try_parse(|i| i.expect_comma().map_err(|_| ())).is_ok() {
-                // Try to parse fallback as a nested var().
-                if let Ok(nested_var) = args.try_parse(parse_var_function) {
-                    Some(Box::new(nested_var))
-                } else {
-                    // Collect remaining tokens as raw fallback string and re-parse.
-                    let raw = collect_remaining_tokens(args);
-                    if raw.is_empty() {
-                        None
-                    } else {
-                        Some(Box::new(crate::parse_raw_token_value(&raw)))
-                    }
-                }
-            } else {
-                None
-            };
-
-            Ok(CssValue::Var(name, fallback))
-        })
-        .map_err(|_: cssparser::ParseError<'_, ()>| ())
-}
-
-/// Collect all remaining tokens from a parser into a trimmed string.
-fn collect_remaining_tokens(input: &mut Parser) -> String {
-    let start = input.position();
-    // Consume all remaining tokens.
-    while input.next().is_ok() {}
-    let slice = input.slice_from(start);
-    slice.trim().to_string()
-}
-
-/// Collect a `<declaration-value>` token run into a trimmed string:
-/// consumes tokens up to — but NOT including — a *top-level* `;` or `!`
-/// (nested blocks/functions are skipped whole, so `;`/`!` inside them
-/// are collected). Backs the custom-property and var()-carrying raw
-/// values inside a declaration block: an unscoped collector would
-/// swallow the following declaration (`--x: 1; color: red` losing
-/// `color`) or the `!important` suffix, and on the `setProperty` path
-/// would defeat the trailing-input injection guard.
-fn collect_declaration_value_tokens(input: &mut Parser) -> String {
-    let start = input.position();
-    loop {
-        let state = input.state();
-        let token = match input.next() {
-            Ok(t) => t.clone(),
-            Err(_) => break,
-        };
-        match token {
-            Token::Semicolon | Token::Delim('!') => {
-                input.reset(&state);
-                break;
-            }
-            // Eagerly consume a nested block: cssparser skips an
-            // unentered block only on the NEXT `next()` call, so a
-            // saved state taken after the opening token would point
-            // inside the block and a later `reset` would truncate the
-            // slice mid-block. `parse_nested_block` always positions
-            // the parser after the matching closer on return.
-            Token::Function(_)
-            | Token::ParenthesisBlock
-            | Token::SquareBracketBlock
-            | Token::CurlyBracketBlock => {
-                let _ = input.parse_nested_block(|_| Ok::<(), cssparser::ParseError<'_, ()>>(()));
-            }
-            _ => {}
-        }
-    }
-    input.slice_from(start).trim().to_string()
 }
 
 // --- Shorthand expansion helpers ---
@@ -820,17 +847,4 @@ pub fn shorthand_longhands(name: &str) -> Vec<String> {
         // Longhand properties: not a shorthand.
         _ => Vec::new(),
     }
-}
-
-/// Expand a global keyword (inherit/initial/unset) for shorthand properties into
-/// their longhand equivalents. Longhand properties produce a single declaration.
-fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
-    let longhands = shorthand_longhands(name);
-    if longhands.is_empty() {
-        return single_decl(name, val);
-    }
-    longhands
-        .iter()
-        .map(|p| Declaration::new(p.clone(), val.clone()))
-        .collect()
 }

@@ -21,8 +21,22 @@ const MAX_EVENTS_PER_TICK: usize = 10_000;
 /// very large relative to duration.
 const MAX_ITERATION_EVENTS_PER_TICK: u32 = 1000;
 
-/// Epsilon for comparing keyframe offsets (floating-point tolerance).
-const KEYFRAME_OFFSET_EPSILON: f32 = 1e-6;
+mod keyframe_index;
+mod stylesheets;
+use keyframe_index::IndexedRule;
+use std::sync::Arc;
+
+/// Inputs captured for one target before this frame's animation publication.
+pub struct KeyframeTarget<'a> {
+    /// Computed values supplying implicit boundary keyframes.
+    pub underlying: Option<&'a HashMap<String, elidex_plugin::CssValue>>,
+    /// References for ordinary length endpoints.
+    pub lengths: &'a elidex_plugin::ResolveContext,
+    /// References for font-size endpoints, including the flat-tree parent's font.
+    pub font_lengths: &'a elidex_plugin::ResolveContext,
+    /// Resolve an explicit initial, inherit or unset marker to a computed value.
+    pub defaulted: &'a dyn Fn(&str, &elidex_plugin::CssValue) -> elidex_plugin::CssValue,
+}
 
 /// The animation engine ticks all running animations and transitions,
 /// producing interpolated values for the style system.
@@ -40,7 +54,9 @@ pub struct AnimationEngine {
     /// Running animation instances per entity.
     animations: HashMap<EntityId, Vec<AnimationInstance>>,
     /// Registered `@keyframes` rules by name.
-    keyframes: HashMap<String, KeyframesRule>,
+    standalone: HashMap<String, IndexedRule>,
+    stylesheet_rules: HashMap<String, Arc<IndexedRule>>,
+    sheets: Vec<stylesheets::SheetCapture>,
     /// Cached result of `has_running()`. `None` means invalidated (needs recomputation).
     has_running_cache: Option<bool>,
 }
@@ -53,7 +69,9 @@ impl AnimationEngine {
             timeline: DocumentTimeline::new(),
             transitions: HashMap::new(),
             animations: HashMap::new(),
-            keyframes: HashMap::new(),
+            standalone: HashMap::new(),
+            stylesheet_rules: HashMap::new(),
+            sheets: Vec::new(),
             has_running_cache: None,
         }
     }
@@ -66,13 +84,29 @@ impl AnimationEngine {
 
     /// Register a `@keyframes` rule.
     pub fn register_keyframes(&mut self, rule: KeyframesRule) {
-        self.keyframes.insert(rule.name.clone(), rule);
+        self.register_keyframes_with_registry(rule, None);
+    }
+
+    /// Index declared shorthand members from the original grammar, including pending members.
+    pub fn register_keyframes_with_registry(
+        &mut self,
+        rule: KeyframesRule,
+        registry: Option<&elidex_plugin::CssPropertyRegistry>,
+    ) {
+        self.standalone
+            .insert(rule.name.clone(), IndexedRule::new(rule, registry));
     }
 
     /// Look up a `@keyframes` rule by name.
     #[must_use]
     pub fn get_keyframes(&self, name: &str) -> Option<&KeyframesRule> {
-        self.keyframes.get(name)
+        self.indexed_rule(name).map(|entry| &entry.rule)
+    }
+
+    fn indexed_rule(&self, name: &str) -> Option<&IndexedRule> {
+        self.standalone
+            .get(name)
+            .or_else(|| self.stylesheet_rules.get(name).map(Arc::as_ref))
     }
 
     /// Add a transition for an entity.
@@ -428,120 +462,18 @@ impl AnimationEngine {
             .copied()
     }
 
-    /// Look up keyframe values for a named animation at a given progress.
-    ///
-    /// Finds the surrounding keyframes and interpolates each declared property.
-    /// Returns an empty `Vec` if the animation name is not registered.
-    ///
-    /// `anim_timing` is the animation-level timing function, used as fallback
-    /// when a keyframe does not declare its own `animation-timing-function`.
-    /// Per CSS Animations L1 §3.9.1, per-keyframe timing functions apply to
-    /// the interval starting at the `before` keyframe.
-    ///
-    /// `underlying_values`, when provided, supplies the element's non-animated
-    /// computed values. Properties declared only in the `before` keyframe will
-    /// interpolate toward the underlying value per CSS Animations L1 §5.
-    #[must_use]
-    pub fn keyframe_values(
+    /// Sample only the surrounding declarations of each longhand for this target.
+    pub fn keyframe_values_for_target(
         &self,
         name: &str,
         progress: f64,
         anim_timing: Option<&crate::timing::TimingFunction>,
-        underlying_values: Option<&std::collections::HashMap<String, elidex_plugin::CssValue>>,
+        target: &KeyframeTarget<'_>,
     ) -> Vec<(String, elidex_plugin::CssValue)> {
-        let Some(rule) = self.keyframes.get(name) else {
-            return Vec::new();
-        };
-        if rule.keyframes.is_empty() {
-            return Vec::new();
-        }
-
         #[allow(clippy::cast_possible_truncation)]
-        let p = progress.clamp(0.0, 1.0) as f32;
-
-        // Find surrounding keyframes.
-        let (before, after) = find_surrounding_keyframes(&rule.keyframes, p);
-
-        // If same keyframe, just return its declarations directly.
-        if (before.offset - after.offset).abs() < KEYFRAME_OFFSET_EPSILON {
-            return before
-                .declarations
-                .iter()
-                .map(|d| (d.property.clone(), d.value.clone()))
-                .collect();
-        }
-
-        // Interpolate between surrounding keyframes.
-        let range = after.offset - before.offset;
-        let raw_local_t = if range.abs() < KEYFRAME_OFFSET_EPSILON {
-            1.0
-        } else {
-            let t = (p - before.offset) / range;
-            // Guard against NaN/Infinity from near-zero division.
-            if t.is_finite() {
-                t.clamp(0.0, 1.0)
-            } else {
-                1.0
-            }
-        };
-
-        // CSS Animations L1 §3.9.1: apply per-keyframe timing function if present,
-        // otherwise fall back to the animation's overall timing function.
-        let interval_timing = before.timing_function.as_ref().or(anim_timing);
-        let local_t = if let Some(tf) = interval_timing {
-            tf.sample(raw_local_t)
-        } else {
-            raw_local_t
-        };
-
-        // Build a lookup from `before` declarations for O(1) access.
-        let before_map: std::collections::HashMap<&str, &elidex_plugin::CssValue> = before
-            .declarations
-            .iter()
-            .map(|d| (d.property.as_str(), &d.value))
-            .collect();
-
-        let mut result = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        // For each property declared in `after`, try to find matching `from` in `before`.
-        for decl in &after.declarations {
-            seen.insert(decl.property.as_str());
-            if let Some(from) = before_map.get(decl.property.as_str()) {
-                if let Some(interp) =
-                    crate::interpolate::interpolate(from, &decl.value, local_t, &decl.property)
-                {
-                    result.push((decl.property.clone(), interp));
-                }
-            } else {
-                result.push((decl.property.clone(), decl.value.clone()));
-            }
-        }
-        // CSS Animations L1 §5: properties only in `before` interpolate
-        // toward the underlying (non-animated) computed value.
-        for decl in &before.declarations {
-            if !seen.contains(decl.property.as_str()) {
-                if let Some(underlying) = underlying_values.and_then(|uv| uv.get(&decl.property)) {
-                    if let Some(interp) = crate::interpolate::interpolate(
-                        &decl.value,
-                        underlying,
-                        local_t,
-                        &decl.property,
-                    ) {
-                        result.push((decl.property.clone(), interp));
-                    } else {
-                        result.push((decl.property.clone(), decl.value.clone()));
-                    }
-                } else {
-                    result.push((decl.property.clone(), decl.value.clone()));
-                }
-            }
-        }
-
-        // Deduplicate by property name (last wins), in case the same property
-        // appears multiple times within a single keyframe's declarations.
-        deduplicate_by_property(&mut result);
-
-        result
+        let progress = progress.clamp(0.0, 1.0) as f32;
+        self.indexed_rule(name)
+            .map_or_else(Vec::new, |rule| rule.sample(progress, anim_timing, target))
     }
 
     /// Remove all animations and transitions for an entity.
@@ -577,7 +509,7 @@ impl AnimationEngine {
             .values()
             .flat_map(|anims| anims.iter().map(AnimationInstance::name))
             .collect();
-        self.keyframes
+        self.standalone
             .retain(|name, _| referenced.contains(name.as_str()));
     }
 
@@ -667,44 +599,6 @@ impl AnimationEngine {
         self.transitions.clear();
         self.animations.clear();
     }
-}
-
-/// Deduplicate property values by name, keeping the last occurrence (last wins).
-fn deduplicate_by_property(values: &mut Vec<(String, elidex_plugin::CssValue)>) {
-    if values.len() <= 1 {
-        return;
-    }
-    let mut seen = std::collections::HashSet::new();
-    // Walk from the end so the last occurrence is kept.
-    let mut i = values.len();
-    while i > 0 {
-        i -= 1;
-        if !seen.insert(values[i].0.clone()) {
-            values.remove(i);
-        }
-    }
-}
-
-/// Find the surrounding keyframes for a given progress value.
-///
-/// Returns `(before, after)` where `before.offset <= progress <= after.offset`.
-/// Assumes keyframes are sorted by offset.
-fn find_surrounding_keyframes(
-    keyframes: &[crate::parse::Keyframe],
-    progress: f32,
-) -> (&crate::parse::Keyframe, &crate::parse::Keyframe) {
-    debug_assert!(
-        !keyframes.is_empty(),
-        "find_surrounding_keyframes called with empty keyframes"
-    );
-    let last = keyframes.len().saturating_sub(1);
-    // Find the first keyframe with offset > progress.
-    let after_idx = keyframes
-        .iter()
-        .position(|k| k.offset > progress + KEYFRAME_OFFSET_EPSILON)
-        .unwrap_or(last);
-    let before_idx = if after_idx > 0 { after_idx - 1 } else { 0 };
-    (&keyframes[before_idx], &keyframes[after_idx.min(last)])
 }
 
 /// Push a transition event to the events list.

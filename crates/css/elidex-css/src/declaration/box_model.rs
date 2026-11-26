@@ -12,7 +12,7 @@ use elidex_plugin::{CssValue, LengthUnit};
 
 use elidex_plugin::parse_color;
 
-use crate::values::parse_length_or_percentage;
+use elidex_plugin::css_resolve::strict::parse_length_or_percentage;
 
 use super::{try_parse_keyword, Declaration};
 

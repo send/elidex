@@ -18,11 +18,10 @@ use elidex_plugin::{
 
 pub(crate) use helpers::PropertyMap;
 
-use var_resolution::{build_custom_properties, merge_winners, resolve_var_references};
+pub(crate) use var_resolution::{resolve_candidates, resolve_in_context};
 
-use font::{
-    resolve_background_color, resolve_color, resolve_font_and_text_properties, resolve_font_size,
-};
+pub(crate) use font::resolve_font_size;
+use font::{resolve_background_color, resolve_color, resolve_font_and_text_properties};
 
 use box_model::{
     resolve_border_properties, resolve_box_dimensions, resolve_box_model_extras, resolve_content,
@@ -35,6 +34,24 @@ use grid::resolve_grid_properties;
 
 /// Context for resolving relative CSS values (re-exported from elidex-plugin).
 pub(crate) type ResolveContext = elidex_plugin::ResolveContext;
+
+/// Project an explicit initial value using the target's computed dependencies.
+#[must_use]
+pub fn get_computed_initial(
+    property: &str,
+    target: &ComputedStyle,
+    defaults: &ComputedStyle,
+    registry: &elidex_plugin::CssPropertyRegistry,
+    ctx: &elidex_plugin::ResolveContext,
+) -> CssValue {
+    if let Some(width) = box_model::initial_border_width(property, target, ctx) {
+        return CssValue::Length(width, LengthUnit::Px);
+    }
+    if registry.resolve(property).is_some_and(|handler| matches!(handler.initial_value(property), CssValue::Keyword(k) if k == "currentcolor")) {
+        return CssValue::Color(target.color);
+    }
+    get_computed_with_registry(property, defaults, registry)
+}
 
 /// Extract a property's computed value using the CSS property registry.
 ///
@@ -53,8 +70,10 @@ pub fn get_computed_with_registry(
     // Custom properties are not handled by plugin handlers.
     if property.starts_with("--") {
         return match style.custom_properties.get(property) {
-            Some(raw) => CssValue::RawTokens(raw.clone()),
-            None => CssValue::RawTokens(String::new()),
+            Some(elidex_plugin::component_values::ComputedCustom::Value(seq)) => {
+                CssValue::Custom(seq.clone())
+            }
+            _ => CssValue::RawTokens(String::new()),
         };
     }
     // Compound shorthand: border-spacing (two longhands → single/pair value).
@@ -93,61 +112,101 @@ pub(crate) fn build_computed_style(
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
 ) -> ComputedStyle {
-    // Phase 1: Build custom properties map (inherit from parent + override).
-    let mut style = ComputedStyle {
-        custom_properties: build_custom_properties(winners, parent_style),
-        ..ComputedStyle::default()
-    };
+    build_style_for_subject(winners, parent_style, ctx, StyleSubject::Element, None)
+}
 
-    // Phase 2: Resolve var() references in winners.
-    let resolved_winners = resolve_var_references(winners, &style.custom_properties);
-    let winners = merge_winners(winners, &resolved_winners);
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StyleSubject {
+    Element,
+    DocumentElement,
+    UnusualHtml,
+}
 
+pub(crate) fn build_style_for_subject(
+    winners: &PropertyMap<'_>,
+    parent_style: &ComputedStyle,
+    ctx: &ResolveContext,
+    subject: StyleSubject,
+    effective_parent: Option<Display>,
+) -> ComputedStyle {
+    let mut style = ComputedStyle::default();
     // Phase 3: Font-size first (em units in all other properties depend on it).
-    let element_font_size = resolve_font_size(&winners, parent_style, ctx);
+    let element_font_size = resolve_font_size(winners, parent_style, ctx);
     style.font_size = element_font_size;
     let elem_ctx = ctx.with_em_base(element_font_size);
 
     // Phase 4: Font, text, and color properties.
-    resolve_font_and_text_properties(&mut style, &winners, parent_style, &elem_ctx);
-    style.color = resolve_color(&winners, parent_style);
-    resolve_background_color(&mut style, &winners, parent_style);
+    resolve_font_and_text_properties(&mut style, winners, parent_style, &elem_ctx);
+    style.color = resolve_color(winners, parent_style);
+    resolve_background_color(&mut style, winners, parent_style);
 
     // Phase 5: Display, positioning, overflow.
-    resolve_display(&mut style, &winners, parent_style);
-    resolve_position(&mut style, &winners, parent_style);
-    resolve_position_offsets(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_overflow(&mut style, &winners, parent_style);
+    resolve_display(&mut style, winners, parent_style);
+    resolve_position(&mut style, winners, parent_style);
+    resolve_position_offsets(&mut style, winners, parent_style, &elem_ctx);
+    resolve_overflow(&mut style, winners, parent_style);
 
     // Phase 6: Box model — dimensions, margin, padding, border, extras.
-    resolve_box_dimensions(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_border_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_box_model_extras(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_box_dimensions(&mut style, winners, parent_style, &elem_ctx);
+    resolve_border_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_box_model_extras(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 7: Flex, grid, and gap properties.
-    resolve_flex_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_grid_properties(&mut style, &winners, parent_style, &elem_ctx);
-    resolve_gap_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_flex_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_grid_properties(&mut style, winners, parent_style, &elem_ctx);
+    resolve_gap_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 8: Content property (non-inherited).
-    resolve_content(&mut style, &winners, parent_style);
+    resolve_content(&mut style, winners, parent_style);
 
     // Phase 9: Table properties.
-    resolve_table_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_table_properties(&mut style, winners, parent_style, &elem_ctx);
 
     // Phase 10: Writing mode / BiDi properties.
-    resolve_writing_mode_properties(&mut style, &winners, parent_style);
+    resolve_writing_mode_properties(&mut style, winners, parent_style);
 
     // Phase 11: Float, clear, visibility, vertical-align.
-    resolve_float_visibility_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_float_visibility_properties(&mut style, winners, parent_style, &elem_ctx);
+
+    adjust_display(&mut style, subject, effective_parent);
 
     // Phase 12: Background layers (CSS Backgrounds Level 3).
-    resolve_background_layers(&winners, &mut style);
+    resolve_background_layers(winners, &mut style);
 
     // Phase 13: Transform properties (CSS Transforms L1/L2, will-change).
-    resolve_transform_properties(&mut style, &winners, parent_style, &elem_ctx);
+    resolve_transform_properties(&mut style, winners, parent_style, &elem_ctx);
 
     style
+}
+
+fn adjust_display(
+    style: &mut ComputedStyle,
+    subject: StyleSubject,
+    effective_parent: Option<Display>,
+) {
+    // CSS Display §2.8 and Appendix B, before choosing the child box context.
+    if style.display == Display::Contents {
+        style.display = match subject {
+            StyleSubject::DocumentElement => Display::Block,
+            StyleSubject::UnusualHtml => Display::None,
+            StyleSubject::Element => Display::Contents,
+        };
+    }
+    // CSS 2 §9.7; CSS Flexbox §4 and Grid §6.1.
+    let positioned = matches!(style.position, Position::Absolute | Position::Fixed);
+    if positioned {
+        style.float = Float::None;
+    }
+    if positioned
+        || style.float != Float::None
+        || subject == StyleSubject::DocumentElement
+        || matches!(
+            effective_parent,
+            Some(Display::Flex | Display::InlineFlex | Display::Grid | Display::InlineGrid)
+        )
+    {
+        style.display = blockify_display(style.display);
+    }
 }
 
 /// Resolve float, clear, visibility, and vertical-align properties.
@@ -173,16 +232,6 @@ fn resolve_float_visibility_properties(
     // float — non-inherited
     if let Some(f) = resolve_keyword_enum("float", winners, parent_style, Float::from_keyword) {
         style.float = f;
-    }
-
-    // CSS 2.1 §9.7 (applied in spec order):
-    // Step 2: position: absolute/fixed → blockify display AND force float to none.
-    // Step 3: float is not 'none' → blockify display.
-    if matches!(style.position, Position::Absolute | Position::Fixed) {
-        style.display = blockify_display(style.display);
-        style.float = Float::None;
-    } else if style.float != Float::None {
-        style.display = blockify_display(style.display);
     }
 
     // clear — non-inherited
@@ -343,8 +392,8 @@ fn resolve_background_layers(winners: &PropertyMap<'_>, style: &mut ComputedStyl
     let get_list = |prop: &str| -> Vec<&CssValue> {
         match winners.get(prop).copied() {
             Some(CssValue::List(items)) => items.iter().collect(),
+            None | Some(CssValue::Initial | CssValue::Unset) => vec![],
             Some(v) => vec![v],
-            None => vec![],
         }
     };
 
@@ -430,13 +479,18 @@ mod tests {
         let style = ComputedStyle {
             custom_properties: {
                 let mut m = HashMap::new();
-                m.insert("--my-color".to_string(), "red".to_string());
+                m.insert(
+                    "--my-color".to_string(),
+                    elidex_plugin::component_values::ComputedCustom::Value(
+                        elidex_plugin::component_values::ComponentValues::capture("red").unwrap(),
+                    ),
+                );
                 m
             },
             ..ComputedStyle::default()
         };
         let val = crate::get_computed("--my-color", &style);
-        assert_eq!(val, CssValue::RawTokens("red".to_string()));
+        assert_eq!(val.to_css_string(), "red");
     }
 
     #[test]
@@ -527,6 +581,7 @@ mod tests {
             ..ComputedStyle::default()
         };
         resolve_float_visibility_properties(&mut style, &winners, &parent, &ctx);
+        adjust_display(&mut style, StyleSubject::Element, None);
         assert_eq!(
             style.float,
             Float::None,

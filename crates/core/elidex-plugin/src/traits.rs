@@ -86,9 +86,17 @@ impl PropertyDeclaration {
 pub trait CssPropertyHandler: Send + Sync {
     /// Returns the CSS property names this handler covers.
     ///
-    /// Longhand names only — shorthand expansion is handled internally
-    /// by [`parse`](Self::parse).
+    /// Includes supported shorthands, whose longhands are returned by
+    /// [`parse`](Self::parse) and [`declaration_members`](Self::declaration_members).
     fn property_names(&self) -> &[&str];
+
+    /// Members whose declarations participate in cascade for this spelling.
+    ///
+    /// CSS Values 5 Appendix A: a pending shorthand affects every member even
+    /// when substitution fails before the receiving grammar can expand it.
+    fn declaration_members<'a>(&'a self, property: &'a str) -> Vec<&'a str> {
+        vec![property]
+    }
 
     /// Returns the specification level of this property handler.
     fn spec_level(&self) -> CssSpecLevel {

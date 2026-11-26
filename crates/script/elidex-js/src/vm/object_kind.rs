@@ -564,36 +564,28 @@ pub enum ObjectKind {
     /// collected; Computed wrappers are not cached so no prune needed.
     #[cfg(feature = "engine")]
     CSSStyleDeclaration { source: u8, key_bits: u64 },
-    /// `CSSStyleSheet` instance (CSSOM §6.2) — wraps a `<style>` element
-    /// entity; `cssRules` / `insertRule` / `deleteRule` route to the
-    /// per-`<style>` parsed `Stylesheet` snapshot in
-    /// `SessionCore::cssom_sheets`.  Identity preserved via
-    /// `VmInner::stylesheet_wrapper_cache` keyed by owner `Entity` so
-    /// `el.sheet === el.sheet`.
+    /// `CSSStyleSheet` instance (CSSOM §6.1.2) for a style or loaded link element.
+    /// The shared wrapper interner keys the sheet by its owner entity.
     ///
-    /// GC contract: payload-free in trace terms (`entity_bits` carries
-    /// no `ObjectId` reference).  Sweep tail prunes
-    /// `stylesheet_wrapper_cache` entries whose value `ObjectId` was
-    /// collected.
+    /// GC contract: the owner bits carry no object reference. Sweep removes
+    /// entries for collected wrappers from the shared wrapper store.
     #[cfg(feature = "engine")]
     CSSStyleSheet { entity_bits: u64 },
-    /// `CSSRuleList` instance (CSSOM §6.3) — `[[Indexed]]` legacy
+    /// `CSSRuleList` instance (CSSOM §6.4.1) — `[[Indexed]]` legacy
     /// platform object backing `CSSStyleSheet.cssRules`.  Fresh-alloc
-    /// on every `cssRules` read (matches WPT identity rules — repeated
-    /// reads do NOT preserve the same reference; framework code rarely
-    /// holds the rule list anyway).
+    /// on every `cssRules` read. CSSOM §6.1.2 requires repeated reads
+    /// to return the same list object.
     ///
     /// GC contract: same as [`Self::CSSStyleSheet`] — payload-free.
     #[cfg(feature = "engine")]
     CSSRuleList { sheet_entity_bits: u64 },
-    /// `CSSStyleRule` instance (CSSOM §6.4 / §6.6) — opaque rule wrapper
+    /// `CSSStyleRule` instance (CSSOM §6.4.3) — opaque rule wrapper
     /// keyed by `(sheet entity, rule_id)` where `rule_id` is the stable
     /// id issued by [`elidex_css::Stylesheet::next_rule_id`] at parse /
-    /// `insertRule` time.  Identity preserved via
-    /// `VmInner::css_style_rule_wrapper_cache` keyed by `(Entity, u64)`.
+    /// `insertRule` time. The shared wrapper interner uses both parts of the key.
     ///
-    /// GC contract: payload-free.  Sweep tail prunes
-    /// `css_style_rule_wrapper_cache` entries whose value was collected.
+    /// GC contract: the rule key carries no object reference. Sweep removes
+    /// collected wrappers as described for [`Self::CSSStyleSheet`].
     #[cfg(feature = "engine")]
     CSSStyleRule {
         sheet_entity_bits: u64,
@@ -623,11 +615,10 @@ pub enum ObjectKind {
         sheet_entity_bits: u64,
         rule_id: u64,
     },
-    /// `StyleSheetList` instance (CSSOM §6.8) — `[[Indexed]]` legacy
+    /// `StyleSheetList` instance (CSSOM §6.2.2) — `[[Indexed]]` legacy
     /// platform object backing `document.styleSheets`.  Fresh-alloc
     /// on every read (mirrors `CSSRuleList`).  The walker enumerates
-    /// `<style>` descendants of the document; `<link rel="stylesheet">`
-    /// is deferred to slot `#11-link-stylesheet-loading`.
+    /// style elements and loaded stylesheet link elements in tree order.
     ///
     /// GC contract: payload-free.
     #[cfg(feature = "engine")]
@@ -942,22 +933,16 @@ pub enum ObjectKind {
         observer_id: u64,
     },
     /// `Storage` instance backing `window.localStorage` /
-    /// `window.sessionStorage` (WHATWG HTML §11.2).
+    /// `window.sessionStorage` (WHATWG HTML §12.2.2 and §12.2.3).
     ///
     /// Carries the area discriminator inline (`is_local: true` for
-    /// localStorage, `false` for sessionStorage). Identity is preserved
-    /// via `VmInner::storage_local_instance` /
-    /// `VmInner::storage_session_instance` — the Window getters return
-    /// the cached `ObjectId` so `localStorage === localStorage` (WebIDL
-    /// `[SameObject]`). The wrapper itself is stateless; every method
-    /// reads through to `HostData::web_storage` (origin-scoped JSON
-    /// persistence) for `Local` and `HostData::session_storage`
-    /// (per-VM in-memory `IndexMap`) for `Session`.
+    /// localStorage, `false` for sessionStorage). For the wrapper cache
+    /// lifetime, see `VmInner::storage_local_instance`. Methods use
+    /// `HostData::web_storage` (origin-scoped JSON persistence) for
+    /// `Local` and `HostData::session_storage` (per-VM in-memory
+    /// `IndexMap`) for `Session`.
     ///
-    /// GC contract: payload-free in trace terms (`is_local: bool` is
-    /// not an `ObjectId`); the caches in `VmInner` are cleared on
-    /// `Vm::unbind` so a retained reference cannot leak the previous
-    /// origin's data after a rebind.
+    /// GC contract: the area discriminator contains no object references.
     ///
     /// A2: gated by `compat-webapi` (in addition to `engine`) — the whole
     /// Web Storage surface is `Legacy`, so an `App`-profile build that compiles
@@ -967,7 +952,7 @@ pub enum ObjectKind {
     /// tightening the gate needs no new catch-all arm.
     #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     Storage { is_local: bool },
-    /// `StorageEvent` instance (WHATWG HTML §11.4.2). Subclass of
+    /// `StorageEvent` instance (WHATWG HTML §12.2.4). Subclass of
     /// `Event`; the `key` / `oldValue` / `newValue` / `url` /
     /// `storageArea` attributes live as own-data props at terminal
     /// shape `precomputed_event_shapes.storage`.  No side-table state
@@ -981,7 +966,7 @@ pub enum ObjectKind {
     /// Web Storage surface, dropped from the `App`-profile binary.
     #[cfg(all(feature = "engine", feature = "compat-webapi"))]
     StorageEvent,
-    /// `ValidityState` wrapper (HTML §4.10.20.3).  Carries the
+    /// `ValidityState` wrapper (HTML §4.10.21.3).  Carries the
     /// owning form-control entity so brand-checked accessor natives
     /// can re-read [`elidex_form::FormControlState`] each time —
     /// no flag mirroring on the JS side.
@@ -994,15 +979,15 @@ pub enum ObjectKind {
     /// wrapper is reachable via `HostData::wrapper_cache`.
     #[cfg(feature = "engine")]
     ValidityState { entity_bits: u64 },
-    /// `DataTransfer` instance (HTML DnD §6.2) — the transferable
+    /// `DataTransfer` instance (HTML §6.11.3) — the
     /// data container for clipboard / drag-and-drop events.
     /// Payload-free; the mutable state (drop-effect / effect-allowed
-    /// enum, ordered entry list, `[SameObject]` wrapper caches for
+    /// enum, ordered entry list, wrapper caches for
     /// `items` / `files`, drag-image entity + offsets) lives
     /// out-of-band in `super::VmInner::data_transfer_states`
     /// keyed by this object's `ObjectId`.
     ///
-    /// `new DataTransfer()` is exposed per HTML §6.2 since 2018 and
+    /// The `DataTransfer()` constructor (HTML §6.11.3)
     /// creates an empty container.  UA-fired drag / clipboard events
     /// receive a populated instance (UA fire path deferred to slot
     /// `#11-event-dispatch-extra`).
@@ -1015,7 +1000,7 @@ pub enum ObjectKind {
     /// state map because `drag_image_entity` is cross-DOM.
     #[cfg(feature = "engine")]
     DataTransfer,
-    /// `DataTransferItem` wrapper (HTML DnD §6.3).  Carries the
+    /// `DataTransferItem` wrapper (HTML §6.11.3.2).  Carries the
     /// owning [`Self::DataTransfer`] `ObjectId` plus the entry index
     /// inline; the actual entry data lives on the parent's state
     /// (`items: Vec<DataTransferEntry>`).  Identity is preserved via
@@ -1028,7 +1013,7 @@ pub enum ObjectKind {
     /// prunes entries whose value `ObjectId` was collected).
     #[cfg(feature = "engine")]
     DataTransferItem { parent_dt_id: ObjectId, index: u32 },
-    /// `DataTransferItemList` wrapper (HTML DnD §6.3).  Indexed
+    /// `DataTransferItemList` wrapper (HTML §6.11.3.1).  Indexed
     /// platform object reflecting the parent DataTransfer's item
     /// list.  Payload-free apart from the parent reference; every
     /// read consults the parent's state.  Identity preserved via
@@ -1038,16 +1023,13 @@ pub enum ObjectKind {
     /// GC contract: trace marks `parent_dt_id`.
     #[cfg(feature = "engine")]
     DataTransferItemList { parent_dt_id: ObjectId },
-    /// `Touch` instance (Touch Events §5).  Payload-free; the
-    /// 12 IDL members (identifier / target / coordinates / radii /
+    /// `Touch` instance (Touch Events §3).  Payload-free; the
+    /// 12 implemented attributes (identifier / target / coordinates / radii /
     /// rotation / force) live in
     /// `super::VmInner::touch_states` keyed by this object's
     /// `ObjectId`.
     ///
-    /// `new Touch(init)` is exposed per Touch Events §5.5 since
-    /// 2014.  UA-fired touch events are deferred to slot
-    /// `#11-event-dispatch-extra` (UA fire path still routes
-    /// `EventPayload::Mouse`).
+    /// Touch Events §3 defines `new Touch(init)`.
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId` (any EventTarget — Element / Document / Window /
@@ -1055,12 +1037,10 @@ pub enum ObjectKind {
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     Touch,
-    /// `TouchList` instance (Touch Events §5.6).  Indexed platform
-    /// object backing TouchEvent.touches / targetTouches /
-    /// changedTouches.  Payload-free; the ordered list of
-    /// [`Self::Touch`] `ObjectId`s lives in
-    /// `super::VmInner::touch_list_states`.  No constructor (per
-    /// IDL); allocated by the TouchEvent ctor and by UA dispatch.
+    /// `TouchList` instance (Touch Events §4). The TouchEvent constructor allocates
+    /// these lists for touches, targetTouches and changedTouches.
+    /// `length` and `item()` read the ordered Touch IDs from
+    /// `super::VmInner::touch_list_states`. Bracket access is unimplemented.
     ///
     /// GC contract: trace marks every `Touch` ObjectId in the
     /// state entry's `items` Vec.  Sweep tail prunes entries
