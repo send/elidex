@@ -1,6 +1,6 @@
 //! Constructor — URL validation + `protocols` argument.
 
-use crate::vm::tests::assert_eval_number;
+use crate::vm::tests::{assert_eval_number, assert_eval_string};
 use crate::vm::value::JsValue;
 
 use super::with_ws_vm;
@@ -147,60 +147,91 @@ fn ctor_accepts_array_of_protocols() {
     });
 }
 
+/// Construct a WebSocket with `protocols_js` (a JS expression) inside `try`, evaluate
+/// `catch_expr` on the caught `e`, and assert it equals `expected`.
+fn assert_ctor_protocols_throw(protocols_js: &str, catch_expr: &str, expected: &str) {
+    with_ws_vm(false, |vm| {
+        vm.eval(&format!(
+            "try {{ new WebSocket('ws://example.com/socket', {protocols_js}) }} catch (e) {{ globalThis.r = {catch_expr} }}"
+        ))
+        .expect("eval ok");
+        assert_eval_string(vm, "r", expected);
+    });
+}
+
 #[test]
 fn ctor_rejects_empty_protocol() {
-    with_ws_vm(false, |vm| {
-        let err = vm
-            .eval("new WebSocket('ws://example.com/socket', '');")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("Syntax") && msg.contains("empty"),
-            "expected SyntaxError for empty protocol, got: {msg}"
-        );
-    });
+    assert_ctor_protocols_throw(
+        "''",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': empty sub-protocol is not allowed",
+    );
 }
 
 #[test]
 fn ctor_rejects_protocol_with_separator() {
-    // RFC 7230 §3.2.6: comma is a separator, not a token char.
-    with_ws_vm(false, |vm| {
-        let err = vm
-            .eval("new WebSocket('ws://example.com/socket', 'bad,protocol');")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("Syntax") && msg.contains("token"),
-            "expected SyntaxError for bad token, got: {msg}"
-        );
-    });
+    // RFC 9110 §5.6.2 `token`: a comma is a delimiter, not a tchar.
+    assert_ctor_protocols_throw(
+        "'bad,protocol'",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad,protocol' contains a character not allowed by RFC 7230 token ABNF",
+    );
 }
 
 #[test]
 fn ctor_rejects_protocol_with_space() {
-    // Space (0x20) is below the 0x21..=0x7E token range.
-    with_ws_vm(false, |vm| {
-        let err = vm
-            .eval("new WebSocket('ws://example.com/socket', 'bad protocol');")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("Syntax"),
-            "expected SyntaxError for space in protocol, got: {msg}"
-        );
-    });
+    // RFC 9110 §5.6.2 `token`: SP is not a tchar.
+    assert_ctor_protocols_throw(
+        "'bad protocol'",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': sub-protocol 'bad protocol' contains a character not allowed by RFC 7230 token ABNF",
+    );
 }
 
 #[test]
 fn ctor_rejects_duplicate_protocols() {
+    assert_ctor_protocols_throw(
+        "['chat', 'chat']",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': duplicate sub-protocol 'chat'",
+    );
+}
+
+#[test]
+fn ctor_protocol_collect_precedes_validation() {
+    assert_ctor_protocols_throw(
+        "['', {toString() { throw new TypeError('t') }}]",
+        "e.name + '|' + e.message",
+        "TypeError|t",
+    );
+}
+
+/// The error is an ECMAScript `SyntaxError`, not a `DOMException` (the kind
+/// `#11-host-syntaxerror-domexception`'s PR must flip). `e instanceof SyntaxError`
+/// cannot pin this today: every NativeError shares one `.prototype`, so it is
+/// true for any thrown error (`#11-vm-native-error-prototypes`).
+#[test]
+fn ctor_protocol_error_is_ecmascript_syntaxerror() {
+    assert_ctor_protocols_throw(
+        "''",
+        "(e instanceof DOMException) + '|' + e.name",
+        "false|SyntaxError",
+    );
+}
+
+#[test]
+fn ctor_protocol_duplicate_comparison_is_exact() {
     with_ws_vm(false, |vm| {
-        let err = vm
-            .eval("new WebSocket('ws://example.com/socket', ['chat', 'chat']);")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("Syntax") && msg.contains("duplicate"),
-            "expected SyntaxError for duplicate, got: {msg}"
-        );
+        vm.eval("new WebSocket('ws://example.com/socket', ['chat', 'Chat']);")
+            .expect("case-distinct protocols are not duplicates");
     });
+}
+
+#[test]
+fn ctor_protocol_validation_order() {
+    assert_ctor_protocols_throw(
+        "['chat', '', 'chat']",
+        "e.name + '|' + e.message",
+        "SyntaxError|Failed to construct 'WebSocket': empty sub-protocol is not allowed",
+    );
 }

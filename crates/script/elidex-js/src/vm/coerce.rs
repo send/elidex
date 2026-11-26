@@ -814,6 +814,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
         }
 
+        // #11-vm-loose-equality-symbol-and-nullish-object
         // VM defect: this arm also rejects Symbol/Object pairs. §7.2.13
         // steps 11–12 require converting that object before comparison.
         (JsValue::Symbol(_), _) | (_, JsValue::Symbol(_)) => false,
@@ -828,6 +829,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             abstract_eq(vm, a, JsValue::Number(n))?
         }
 
+        // #11-vm-loose-equality-symbol-and-nullish-object
         // §7.2.13 steps 11–12 convert the object when paired with a String,
         // Number, BigInt or Symbol. VM defect: these arms also convert an
         // ordinary object paired with null or undefined. Step 14 returns false.

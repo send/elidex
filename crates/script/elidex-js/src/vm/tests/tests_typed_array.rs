@@ -614,6 +614,7 @@ fn out_of_range_write_is_no_op() {
     let mut vm = Vm::new();
     // The index remains absent. Known VM P4 defect: the VM returns before
     // converting the RHS (§10.4.5.18 steps 1–3). Literal 99 masks the difference.
+    // #11-vm-typed-array-invalid-index-store-skips-conversion
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] = 99; \

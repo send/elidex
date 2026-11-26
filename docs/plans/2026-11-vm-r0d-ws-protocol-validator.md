@@ -148,6 +148,7 @@ WebSocket state and the `RendererToNetwork::WebSocketOpen` message, and R-0d doe
 | `H/websocket.rs:354` (comment) | unchanged (§0.2) |
 | new validator docstring (`W/websocket.rs`) | "WebSockets §3.1 constructor step 9" (§1.1) |
 | `ctor.rs:163` at `353af4a9` (comment, was `// RFC 7230 §3.2.6: comma is a separator, not a token char.`) | "// RFC 9110 §5.6.2 `token`: a comma is a delimiter, not a tchar." |
+| `ctor.rs` `ctor_rejects_protocol_with_space` (comment, was `// Space (0x20) is below the 0x21..=0x7E token range.`, which described the deleted predicate; code-PR erratum) | "// RFC 9110 §5.6.2 `token`: SP is not a tchar." |
 | `headers.rs:64-67` | "Validate a header name: Fetch §2.2.2 *header name*, the `field-name` production of RFC 9110's field names (`field-name = token`), whose `token` is RFC 9110 §5.6.2. It must not be empty." |
 
 "§3.1": `webref dfn websockets 'WebSocket(url, protocols)'` → `§3.1 Interface definition #dom-websocket-websocket`.
@@ -171,7 +172,7 @@ What R-0d preserves, observable from script, with the cells that pin each in §3
 
 | Part | Today (`H/websocket.rs` at `c3c78070`) | After R-0d |
 |---|---|---|
-| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2): `e.name` is `"SyntaxError"` and `e instanceof SyntaxError` is true | the same constructor, at the `map_err` in `parse_protocols` |
+| Error kind | `VmError::syntax_error` (ECMAScript `SyntaxError`; §0.2): `e.name` is `"SyntaxError"` and `e instanceof DOMException` is false (`instanceof SyntaxError` cannot tell kinds apart: see the code-PR erratum in the Changelog) | the same constructor, at the `map_err` in `parse_protocols` |
 | Collect before validate | every value is coerced by ToString first (`:461-494`); a throwing `toString` wins over an invalid earlier value | unchanged (the call follows the collect) |
 | Order | per value in list order: empty, then token; then duplicates over the list | the same, inside the validator |
 | Messages | `Failed to construct 'WebSocket': ` + one of `empty sub-protocol is not allowed` / `sub-protocol '<s>' contains a character not allowed by RFC 7230 token ABNF` / `duplicate sub-protocol '<a>'` | byte-identical: the validator's `Err` is the suffix, and the host adds the prefix with the same `format!` as `:350` / `:352` |
@@ -251,7 +252,7 @@ the mixed-content gate; no new harness). Each runs
 | V2′ `ctor_rejects_protocol_with_space` (tightened) | `'bad protocol'` → the same message naming `'bad protocol'` |
 | V3 `ctor_rejects_duplicate_protocols` (tightened) | `['chat', 'chat']` → `SyntaxError\|Failed to construct 'WebSocket': duplicate sub-protocol 'chat'` |
 | V4 new, collect before validate | `['', {toString() { throw new TypeError('t') }}]` → `TypeError\|t` |
-| V5 new, error kind | `''`, with `<expr>` = `e instanceof SyntaxError` → `true` |
+| V5 new, error kind | `''`, with `<expr>` = `(e instanceof DOMException) + '\|' + e.name` → `false\|SyntaxError` (code-PR erratum; was `e instanceof SyntaxError`) |
 | V6 new, duplicate comparison | `['chat', 'Chat']`, run without the `try`, as the `ctor_accepts_*` cells → `Ok` |
 | V7 new, order | `['chat', '', 'chat']` → `SyntaxError\|Failed to construct 'WebSocket': empty sub-protocol is not allowed` |
 
@@ -296,9 +297,11 @@ Before push: `cargo fmt --all`, `cargo test -p elidex-api-ws`, `cargo test -p el
 
 ## §5. Coupled sites and open questions
 
-- `#11-http-token-predicate-unification` (PM 786, owner VM P4). It shares no source file with R-0d. If that slot makes
-  the host or `elidex-net` call `is_valid_header_name`, both PRs touch `headers.rs`'s docstring region or `Cargo.lock`.
-  The later one rebases (umbrella §5.2).
+- `#11-http-token-predicate-unification` (PM 786, owner VM P4). R-0d touches one of its sites: the docstring of
+  `is_valid_header_name` in `headers.rs` (§1, comment only), which by the slot's own trigger wording fires it (the order
+  is PM 811's: the later PR rebases, umbrella §5.2). R-0d also gives `is_valid_header_name` a new consumer,
+  `elidex-api-ws`, through which `elidex-js` now reaches `elidex-api-fetch`; a later move of the predicate keeps that
+  consumer able to reach it. (Corrected at the code PR: Rev 2.1 said the two share no source file.)
 - R-NAT host chapter (umbrella §4.4, L3). It rewrites the constructor (`:329`) after R-0d and cites post-move anchors.
   It also re-measures `H/websocket.rs` (umbrella §7).
 - **O-1 (decided, PM 958)**: `#11-host-syntaxerror-domexception` owns the host's `VmError::syntax_error` sites where
@@ -347,3 +350,4 @@ rejected `elidex-plugin` home, and the other two `token` spellings. O-1 was a qu
 | 1 | 2026-11-23. First draft at `c3c78070`. O-1 homed: `#11-host-syntaxerror-domexception` (§0.2, §1, §5). | PM 958 |
 | 2 | 2026-11-23. plan-review R1 at `18524ebb` (CRIT 0 / IMP 3 / MIN 9 / FP 2). F1 ECS judgement (§1.1); F2 cells to `ctor.rs` via R-0d-pre (§0, §1, §3, §4); F3 O-1 scope (§5); F4 non-Array iterables (§1 Out); F5 broker slot (§2.2, §5); F6 error kind (§2 row, V5, M10); F7 case-distinct duplicates (§1.1, §2 row, §2.2, U8, M11); F8 `headers.rs:64-67` (§0.2, §1); F9 field-name / `token` wording (§0.2, §1.1); F10 Fetch quote (§2); F11 cite table (§1.2; with it §1 Out's neighbour sentence and §0.2's `:354` note); F12 CS inventory (§5). | PM 960 |
 | 2.1 | 2026-11-23. Step 4.5 re-review of Rev 2 (CRIT 0 / IMP 0 / MIN 6). G1 `protocol` grep count (§0.2, §3); G2 `:47-48` (§0.1, §1, §1.2); G3 V6 / V7 in commit (1), M6 / M11 (§3); G4 R-0d-pre gate and `contains` check (§0, §6); G5 `ctor.rs` named, its comment cite (§1, §1.2, §3, §4); G6 changelog, §4 `tests_realtime.rs` sentence dropped. | — |
+| code-PR erratum (no rev bump) | 2026-11-23, measured on the code PR's head. Also §5's `#11-http-token-predicate-unification` bullet (the shared `headers.rs` site). **V5 (§3)**: `e instanceof SyntaxError` is true for every thrown error, because the NativeError constructors share one `.prototype` (`#11-vm-native-error-prototypes`). So the cell as written could not catch M8 or M10: M8 left it green, M10 left every cell green. V5 now checks `(e instanceof DOMException) + '\|' + e.name` → `false\|SyntaxError`, green on the pre-move and the post-move code. **§3 mutants, measured** (one at a time, `-j 2`, tree clean after each): every row turns its listed cells red, with one exception that the M5 row already allows: M5b (adjacent pairs only) is red at U5 (non-adjacent) and green on the VM cells. M7 / M8 / M10 also turn V7 red (it checks the message). | PM OK (11-23) |

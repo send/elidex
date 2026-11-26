@@ -328,7 +328,7 @@ pub(in crate::vm) fn call_wasm_exported_function(
 /// - `I64`: `ToBigInt64` (§7.1.17) uses `ToBigInt` (§7.1.15), then takes the
 ///   signed low 64 bits. BigInts, booleans and strings accepted by `StringToBigInt`
 ///   are valid primitive inputs. A Number throws TypeError. The VM’s string parser
-///   rejects the empty string where §7.1.16 requires 0n.
+///   rejects the empty string where §7.1.16 requires 0n (#11-vm-strict-bigint-empty-string).
 /// - `F32` / `F64`: `ToNumber`.
 /// - `V128`: synchronous TypeError per F1 F13 (no JS surface to
 ///   construct a v128 value).

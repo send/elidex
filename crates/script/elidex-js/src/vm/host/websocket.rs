@@ -44,8 +44,9 @@
 //!
 //! - `new WebSocket(url, protocols?)` — URL parse + WHATWG §9.3.1
 //!   scheme promotion (`normalize_ws_url`) + validation
-//!   (`validate_ws_url`) + RFC 7230 §3.2.6 token-ABNF protocols
-//!   coercion + mixed-content gate (`is_mixed_content`) + eager
+//!   (`validate_ws_url`) + protocols coercion and validation
+//!   (`elidex_api_ws::validate_ws_protocols`, WebSockets §3.1 constructor
+//!   step 9) + mixed-content gate (`is_mixed_content`) + eager
 //!   `WebSocketOpen` to broker + side-table + reverse map insert.
 //! - `readyState` accessor (CONNECTING=0 / OPEN=1 / CLOSING=2 /
 //!   CLOSED=3).
@@ -304,8 +305,8 @@ pub(super) fn require_websocket_this(
 ///    only), fragment rejection (§9.3.1 step 7), engine-local SSRF
 ///    gate.  Any failure → SyntaxError.
 /// 4. Parse `protocols` arg (`DOMString | sequence<DOMString>`) and
-///    validate each against RFC 7230 §3.2.6 `<token>` ABNF.  Empty /
-///    non-token / duplicate → SyntaxError.
+///    validate it with `elidex_api_ws::validate_ws_protocols` (WebSockets
+///    §3.1 constructor step 9).  Empty / non-token / duplicate → SyntaxError.
 /// 5. Mixed-content gate via `is_mixed_content(document_origin(), ws_url)`
 ///    — secure page + `ws://` target → `SecurityError`.
 /// 6. Allocate `conn_id` via `HostData::alloc_ws_conn_id()`.
@@ -449,14 +450,14 @@ fn native_websocket_constructor(
 ///   precedent.  Note this is NOT a full iterator-protocol consumer
 ///   (Set / Map / user iterables fall through to the String branch
 ///   below — Phase 1 accepts Array literals + DOMString only, the
-///   real-world case for `new WebSocket(url, protocols)`).
+///   real-world case for `new WebSocket(url, protocols)`; the WebIDL
+///   sequence conversion is `#11-webidl-sequence-dense-array-fast-path`'s).
 /// - Any other value (String, number, plain Object, etc.) → coerce
 ///   via `ToString` and treat as a single-element list, per WebIDL
 ///   union-type resolution against the `DOMString` arm.
 ///
-/// Each element is validated against RFC 7230 §3.2.6 `<token>` ABNF
-/// (`is_valid_protocol_token_char`); empty / non-token / duplicate
-/// values throw `SyntaxError` per WHATWG WebSockets §9.3.1.
+/// The collected list is validated by `elidex_api_ws::validate_ws_protocols`
+/// (WebSockets §3.1 constructor step 9); its `Err` becomes a `SyntaxError`.
 fn parse_protocols(ctx: &mut NativeContext<'_>, arg: JsValue) -> Result<Vec<String>, VmError> {
     let mut out: Vec<String> = Vec::new();
 
@@ -493,68 +494,12 @@ fn parse_protocols(ctx: &mut NativeContext<'_>, arg: JsValue) -> Result<Vec<Stri
         }
     }
 
-    // RFC 7230 §3.2.6 token-ABNF validation + duplicate check.  Done
-    // post-collect so a SyntaxError surfaces the offending value
-    // rather than failing mid-iteration.
-    for s in &out {
-        if s.is_empty() {
-            return Err(VmError::syntax_error(
-                "Failed to construct 'WebSocket': empty sub-protocol is not allowed",
-            ));
-        }
-        if !s.chars().all(is_valid_protocol_token_char) {
-            return Err(VmError::syntax_error(format!(
-                "Failed to construct 'WebSocket': sub-protocol '{s}' \
-                 contains a character not allowed by RFC 7230 token ABNF"
-            )));
-        }
-    }
-    // O(n²) duplicate detection — protocol lists are tiny (1-5 entries
-    // in practice); a HashSet would burn more allocation than it saves.
-    for (i, a) in out.iter().enumerate() {
-        for b in &out[i + 1..] {
-            if a == b {
-                return Err(VmError::syntax_error(format!(
-                    "Failed to construct 'WebSocket': duplicate sub-protocol '{a}'"
-                )));
-            }
-        }
-    }
+    // An ECMAScript SyntaxError, where WebSockets §3.1 step 9 throws a "SyntaxError"
+    // DOMException: `#11-host-syntaxerror-domexception`.
+    elidex_api_ws::validate_ws_protocols(&out)
+        .map_err(|e| VmError::syntax_error(format!("Failed to construct 'WebSocket': {e}")))?;
 
     Ok(out)
-}
-
-/// RFC 7230 §3.2.6 `<token>` character predicate.
-///
-/// `tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" /
-///          "." / "^" / "_" / `` ` `` / "|" / "~" / DIGIT / ALPHA`
-///
-/// Equivalently: visible ASCII (0x21..=0x7E) EXCLUDING the 16
-/// separators `( ) < > @ , ; : \ " / [ ] ? = { }`.  Space (0x20) and
-/// horizontal tab (0x09) are excluded automatically by the lower
-/// bound 0x21.
-fn is_valid_protocol_token_char(c: char) -> bool {
-    let b = c as u32;
-    (0x21..=0x7E).contains(&b)
-        && !matches!(
-            c,
-            '"' | '('
-                | ')'
-                | ','
-                | '/'
-                | ':'
-                | ';'
-                | '<'
-                | '='
-                | '>'
-                | '?'
-                | '@'
-                | '['
-                | '\\'
-                | ']'
-                | '{'
-                | '}'
-        )
 }
 
 // ---------------------------------------------------------------------------
