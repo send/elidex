@@ -4,8 +4,9 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.3, 2026-11-26
-(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's rulings folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.4, 2026-11-26
+(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's and PM 1148's rulings folded; changelog at
+the end). Branch `layout-list-counter-hints-plan`, worktree
 `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes ran at
 `bf1cae35`; `git diff --stat 01426656 aeecf9b0 -- crates` is empty, so they hold at rev 2.2's head too). **Docs
 only.**
@@ -670,7 +671,7 @@ the reason.
 | WHATWG HTML §16.1 Obsolete but conforming features | "Authors should not specify … CSS should be used instead" | the features with a §15 mapping (`border` on `img`) | classification input to P-1b: compat | ✗ (no list attribute is in §16.1) | yes |
 | WHATWG HTML §16.2 Non-conforming features | obsolete attributes: `type on li elements`, `type on ul elements`; the `dir` element | — | classification input to P-1 (LC-5) | ✗ (the list rows only) | yes |
 | WHATWG HTML §16.3.3 Other elements, attributes and APIs | "User agents must treat dir elements in a manner equivalent to ul elements in terms of semantics and for purposes of rendering" | the `dir` sentence | §4.3: `dir` gets every rule `ul` has, in `ul`'s sheet and in every mode — its `counter-reset` in LC-3 (D-6, U7), the other non-`display` units in LC-5; `display` is `IBP-ua-display`'s (§7 F-12, with the section's sibling sentences) | ✗ (that sentence only) | no |
-| WHATWG HTML §15.5.5 The details and summary elements | `details > summary:first-of-type { display: list-item; counter-increment: list-item 0; … }` and, in `details`' UA shadow tree, `:host summary { display: list-item; counter-increment: list-item 0; … }` | document form / shadow form (the default summary) | none in this program: the document form's `display` is the member of IBP's unregistered `#11-ua-sheet-html-rendering-display-fidelity`, the shadow form is CV-details'; the `counter-increment` half is in no plan; ordered against LC-2k in §5.2 (cross-lane) and §7 F-15 | ✗ (those two rules only) | no |
+| WHATWG HTML §15.5.5 The details and summary elements | `details > summary:first-of-type { display: list-item; counter-increment: list-item 0; … }` and, in `details`' UA shadow tree, `:host summary { display: list-item; counter-increment: list-item 0; … }` | document form / shadow form (the default summary) | none in this program: the shadow form's counter pair (`display: list-item`, `counter-increment: list-item 0`) is CV-details' (PM 1146, PM 1148); the document form's `display` is the member of IBP's unregistered `#11-ua-sheet-html-rendering-display-fidelity`, and its `counter-increment` is held to that form's lander (F-15 (a), PM 1148); both forms' `list-style` declaration and `[open]` rule are F-17's (PM 1148); ordered against LC-2k in §5.2 (cross-lane) and §7 F-15 | ✗ (those two rules only) | no |
 | CSS Lists 3 §4 Automatic Numbering With Counters | steps 1–5; the clamp to the UA's value range | the order; out-of-range reset / set / increment | `CounterState::process_element` (LC-1); the hint's integers (LC-3) (§3.1) | ✓ | yes |
 | CSS Lists 3 §4.1 Creating Counters: the counter-reset property | value grammar; *Computed value* line | `none`; name; name + integer; `reversed()`; `reversed()` + integer; several entries (the last of a name is honoured) | `parse_counter_list`, `resolve_counter_reset`, `CounterResetEntry` (LC-1) | ✓ | yes |
 | CSS Lists 3 §4.2 Manipulating Counter Values: the counter-increment and counter-set properties | instantiate-if-absent; several entries of one name; the *Computed value* lines ("the keyword none or a list, each item an identifier paired with an integer") and the *Initial* (`none`) / *Inherited* (`no`) lines | increments compound; last set wins; `none` / list | `CounterState::process_element` (LC-1); the resolve and the handler's `get_computed`, `initial_value`, `is_inherited` (LC-6) | ✓ | yes |
@@ -793,9 +794,15 @@ the HTML rows only (its label table has no CSS-module labels, `#11-preflight-css
   the author origin."
 - `# source: https://html.spec.whatwg.org/multipage/rendering.html#the-details-and-summary-elements` — "details >
   summary:first-of-type { display: list-item; counter-increment: list-item 0; list-style: disclosure-closed inside;
-  }"; and, for `details`' UA shadow tree, "The third child element is either a link or style element with the
-  following styles for the default summary: :host summary { display: list-item; counter-increment: list-item 0;
-  list-style: disclosure-closed inside; }"
+  } details[open] > summary:first-of-type { list-style-type: disclosure-open; }"; and, for `details`' UA shadow
+  tree, "The third child element is either a link or style element with the following styles for the default
+  summary: :host summary { display: list-item; counter-increment: list-item 0; list-style: disclosure-closed inside;
+  } :host([open]) summary { list-style-type: disclosure-open; }"
+- `# source: https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic` (§6.3 Symbolic: disc, circle, square,
+  disclosure-open, disclosure-closed; F-17) — "For the disclosure-open and disclosure-closed counter styles, the
+  marker must be an image or character suitable for indicating the open and closed states of a disclosure widget,
+  such as HTML’s details element. If the image is directional, it must respond to the writing mode of the element,
+  similar to the bidi-sensitive images feature of the Images 4 module."
 - `# source: https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#signed-integers` — "4. Skip ASCII
   whitespace within input given position. … 8. Collect a sequence of code points that are ASCII digits from input
   given position, and interpret the resulting sequence as a base-ten integer."
@@ -928,7 +935,7 @@ division must satisfy §5.2's constraints at nested-PR granularity. LC-0 is a me
 | **LC-0** | Touch-time split: `counter.rs` is 799 lines, 386 of them the `tests` module (`:414`–). Move the tests to `counter/tests.rs`. Standalone PR, no behaviour | — | — | nothing |
 | **LC-1** | The per-element step: §4's order (reset → increment → set); the implicit increment moved into the step **under the bake's key, the tag `li`**, read through one list-item predicate; explicit increments no longer negated; the absent-integer state through parser, resolve and `CounterResetEntry`; §4.4.2's initial value in the step; one boxless predicate for both drivers' gate and for the §4.4.2 walk. The bake loses its `li` increment arm with that arm's guard and `count_li_children` (its `ol[reversed]` arm passes the absent integer); the pre-layout gate's `is_list_tag` is replaced by the predicate | D-2 (the step), D-3 (order), D-4, D-9 | P1 (field), P4a (field), P4b, Q4c, Q4e, Q4f, Q4g, Q6, Q6b, Q13, Q20's and Q21's fields, W-O1, W-RV, W-BX; W-ML stays right | LC-0 |
 | **LC-2** | Author `counter-*` resolve for every element (N-1) | D-5 | P6, P4e, P19, P20, Q23; P4c, W-F2, W-F4 stay right | LC-1 |
-| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). No UA-sheet edit: each form of §15.5.5's `summary` rule is landed whole by its own lander — the shadow form by CV-details (PM 1146, OQ-6 (b)) — and LC-2k checks W-SUM-D (and W-SUM, if the document form is in a sheet at its base) assuming that landing (§7 F-15) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
+| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). No UA-sheet edit, in either form: each form's counter pair (`display: list-item` and `counter-increment: list-item 0`, together) is its own lander's — the shadow form's CV-details' (PM 1146, OQ-6 (b); PM 1148), the document form's whoever lands IBP's slot member (PM 1148) — and LC-2k checks W-SUM-D (and W-SUM, if the document form is in a sheet at its base) assuming that landing (§7 F-15); each form's `list-style` declaration and `[open]` rule are F-17's (PM 1148) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
 | **LC-3** | The UA rule (`ol, ul, menu, dir`); the list hints at the hint seam with HTML integer parsing; the bake, and all three call sites, deleted | D-1, D-6, D-7, D-8 | P2b / Q2b, P3a / Q3a, P5, P14, W-N1 / W-N2, W-NS, W-OV, PM 637 | LC-2 (c6), LC-1 (c7); LC-2k by choice (§5.2); **OQ-1 (P-1)**, OQ-2 |
 | **LC-4** | The scope model: §4.3 / §4.4.1 inheritance and §4.4.2's instantiate (replace / nest). Both drivers, `flatten` and `set_counter` audited against it | D-3 (scope), D-9 | P8b, P11a / Q11a, P11b, W-S1, W-S2, W-RS | LC-3 |
 | **LC-5** | HTML §15.3.7's remaining units (§4.3: U3, U4, U6, U9 – U12) | D-11 | P17, P18, R1, R3 (margins / padding), R4 | LC-3 for the hint source; **OQ-1** for U12's placement |
@@ -1006,10 +1013,13 @@ constraint**: it is unblocked while LC-3 waits on OQ-1, and a fixed position let
 against the final key only.
 
 **Cross-lane: HTML §15.5.5's `summary` rule, in its two forms.** HTML §15.5.5 gives `display: list-item` and
-`counter-increment: list-item 0` in **one rule**, for the document (`details > summary:first-of-type { … }`) and for
-the default summary in `details`' UA shadow tree (`:host summary { … }`) (§3.2). The shadow form is in a plan
-whole: PM 1146 (OQ-6 (b)) has CV-details land it with both declarations, one rule and one lander, and Layout adds
-that line to the E26 memo (`docs/plans/2026-10-content-visibility.md`, whose §8 row for
+`counter-increment: list-item 0` — **the counter pair** — in **one rule**, for the document
+(`details > summary:first-of-type { … }`) and for the default summary in `details`' UA shadow tree
+(`:host summary { … }`) (§3.2). The rule's third declaration, `list-style: disclosure-closed inside`, and the
+second rule of each form (`[open]` → `list-style-type: disclosure-open`) set the marker's style, not its number,
+and are F-17's (PM 1148): elidex has no `disclosure-*` counter style. The shadow form's counter pair is in a plan:
+PM 1146 (OQ-6 (b)) and PM 1148 have CV-details land the two declarations together, and Layout has added that line
+to the E26 memo (`docs/plans/2026-10-content-visibility.md`, Erratum 2, on this branch; its §8 row for
 `#11-ua-sheet-html-rendering-display-fidelity` said at `678d4abe` that CV-details builds "only" the default
 summary's display). The document form is not: IBP's slot `#11-ua-sheet-html-rendering-display-fidelity` holds its
 `display` declaration alone (IBP `:1964`); §7 F-15 has the facts. Each form does the two things c11 is
@@ -1021,23 +1031,25 @@ crates/css/elidex-style/src/ua.rs crates/dom/elidex-dom-compat/src/legacy_ua.rs`
 `summary` adds 0); W-SUM-D, `<ol><li><details>x</details><li>b</ol>`, spec 1, 2 (the default summary adds 0; it is
 in the flattened element tree, so it takes the `ol`'s counter, I4 × I7).
 
-| The rule (either form) lands… | W-SUM / W-SUM-D, rule whole | the same, `display` alone |
+| The rule (either form) lands… | W-SUM / W-SUM-D, counter pair together | the same, `display` alone |
 |---|---|---|
 | before LC-2 | stays 1, 2 — `summary` is not an `li`, so the tag-keyed predicate does not increment it; N-1 drops its `counter-increment`, harmlessly | stays 1, 2, until LC-2k |
 | between LC-2 and LC-2k | stays 1, 2 — tag key; the declaration is now resolved and adds 0 | stays 1, 2, until LC-2k |
 | after LC-2k | stays 1, 2 — `display` makes it a list item, and the visible `list-item 0` suppresses the implicit increment | **1, 3** — the implicit increment applies |
 
-So **under this order either form is order-free against this program, on one condition: it lands whole** (rung 1:
-§15.5.5 states the two declarations as one rule). A `display: list-item` without its `counter-increment:
+So **under this order either form is order-free against this program, on one condition: its counter pair lands
+together** (rung 1: §15.5.5 states the two declarations in one rule; F-17's declarations do not change a number). A
+`display: list-item` without its `counter-increment:
 list-item 0` turns W-SUM or W-SUM-D wrong at LC-2k, or at once if LC-2k has landed. Excluding `summary` from the
 list-item predicate instead would be a second key against CSS Lists 3 §4.6's "every list item" — rejected at rung
-1, and by One issue, one way. Under rev 2's order — the `display` key in LC-1, before N-1's removal — the whole
-rule landing between LC-1 and LC-2 would have turned the cells wrong: c11's hazard, reached through another lane.
+1, and by One issue, one way. Under rev 2's order — the `display` key in LC-1, before N-1's removal — the counter
+pair landing between LC-1 and LC-2 would have turned the cells wrong: c11's hazard, reached through another lane.
 LC-2k's plan greps every UA sheet for `list-item` at its base — `crates/css/elidex-style/src/ua.rs`,
 `crates/dom/elidex-dom-compat/src/legacy_ua.rs`, and the `details` UA shadow sheet once CV-details has landed it
 (its file is CV-details' plan's to name: the E26 memo's §11 placeholder `<the UA shadow sheet's file>`) — and, for
-each form present, pins its cell. LC-2k edits no UA sheet for this rule (PM 1146, OQ-6 (b)): it checks W-SUM-D
-assuming CV-details' landing of the shadow form whole; a form present without its `counter-increment` is a finding
+each form present, pins its cell. LC-2k edits no UA sheet for this rule, in either form (PM 1146, OQ-6 (b), for the shadow
+form; PM 1148, for the document form): it checks W-SUM-D assuming CV-details' landing of the shadow form's counter
+pair, and W-SUM if the document form is present; a form present without its `counter-increment` is a finding
 against that form's lander, not an edit in LC-2k's change (§7 F-15).
 
 **The exhaustive tables under that order.** Windows: W1 = after LC-1, W2 = after LC-2, W2k = after LC-2k, W3 =
@@ -1156,10 +1168,12 @@ adds to Table 2 every unit its own mechanism introduces.
   cells that stay right, P8a as the cell that turns right and P8b at 1, 1. Grep every UA sheet for `list-item` at
   its base (§5.2 cross-lane names the files, the `details` UA shadow sheet included once CV-details has landed it);
   for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form). **W-SUM-D
-  is checked assuming CV-details' landing** (PM 1146, OQ-6 (b)): CV-details lands the shadow form whole, both
-  declarations in one rule, and LC-2k does not edit CV-details' UA shadow sheet. A form found carrying
-  `display: list-item` without `counter-increment: list-item 0` is reported as a finding against its lander (§7
-  F-15 (a)); `summary` is not excluded from the predicate. Drop the predicate's defect note (§3.3).
+  is checked assuming CV-details' landing** (PM 1146, OQ-6 (b); PM 1148): CV-details lands the shadow form's
+  counter pair together, and LC-2k does not edit CV-details' UA shadow sheet — nor the document form's sheet
+  (PM 1148). A form found, in either form, carrying `display: list-item` without `counter-increment: list-item 0`
+  is reported as a finding against its lander (§7 F-15 (a), PM 1148); a form without its `list-style` declaration
+  or `[open]` rule is not a finding here (F-17's, PM 1148); `summary` is not excluded from the predicate. Drop the
+  predicate's defect note (§3.3).
 - **LC-3**: implement the OQ-1 / OQ-2 outcome; reuse one integer parser (SQ-1); delete the bake and its three call
   sites; put `dir` in the UA rule (D-6); read the element's `Namespace` in the hint source, so that only HTML
   elements get the hints (W-NS); clamp the hint's integers and the parser's result per §3.1 (W-OV); edit the rustdoc
@@ -1301,8 +1315,8 @@ reading (§0.1), and the owning slice runs each at its base.
 | W-PG1 (paged): a `display: contents` element with `counter-increment: c`, read in a margin box | the element does not increment | by reading: the paged walk increments (`builder/walk.rs:131`); not run | LC-1 |
 | W-PG2 (paged): an element with `counter-reset: c` continued on a second page, `c` read in the second page's margin box | LC-1's plan derives it (I3 × I9) | by reading: the continuation resets again; not run | LC-1 |
 | W-F4: `<ol><li>a<div style="display:list-item;counter-increment:list-item 0">x</div><li>b</ol>` | 1, 1, 2 | 1, 1, 2 (the `div` is not an `li`; its `counter-increment` is dropped, N-1) | stays: LC-2, LC-2k (c11) |
-| W-SUM: `<ol><li><details><summary>s</summary></details><li>b</ol>` | 1, 2 (with HTML §15.5.5's rule, the `summary` adds 0) | 1, 2 (no such rule; `summary` is `display: block`) | stays: LC-2k, when the rule is in the sheet at its base (§5.2, cross-lane) |
-| W-SUM-D: `<ol><li><details>x</details><li>b</ol>` | 1, 2 (the default summary, in `details`' UA shadow tree, is a list item that adds 0) | 1, 2 (no UA shadow tree is built) | stays: LC-2k, assuming CV-details lands the shadow rule whole (PM 1146, OQ-6 (b)); if CV-details lands after LC-2k, CV-details pins it (§7 F-15 (c)). With `display` alone after LC-2k it would read 1, 3 — excluded by that landing |
+| W-SUM: `<ol><li><details><summary>s</summary></details><li>b</ol>` | 1, 2 (with HTML §15.5.5's rule, the `summary` adds 0) | 1, 2 (no such rule; `summary` is `display: block`) | stays: LC-2k, when the rule is in the sheet at its base (§5.2, cross-lane); LC-2k does not edit that sheet, and a form there without its `counter-increment` is a finding against its lander (PM 1148) |
+| W-SUM-D: `<ol><li><details>x</details><li>b</ol>` | 1, 2 (the default summary, in `details`' UA shadow tree, is a list item that adds 0) | 1, 2 (no UA shadow tree is built) | stays: LC-2k, assuming CV-details lands the shadow rule's counter pair together (PM 1146, OQ-6 (b); PM 1148); if CV-details lands after LC-2k, CV-details pins it (§7 F-15 (c)). With `display` alone after LC-2k it would read 1, 3 — excluded by that landing |
 | W-ML: `#o { counter-reset: reversed(a) b 2 } #o::before { content: counter(b) }` | 2; `getComputedStyle(#o).counterReset` is `reversed(a) b 2` | 0 (N-1); with `content: normal` on `#o`: 2 (the parser stores a number after every name) | stays: LC-1 (the absent-integer encoding must not make the resolve take `b` as `a`'s integer), LC-2 (the no-`content` form); the serialization LC-6 |
 | W-BX: `#o { counter-reset: reversed(foo) } p { counter-increment: foo -1 } p::before { content: counter(foo) }`, three `p`, the second `display: none` | 2, –, 1 | 0, –, 0 (N-1); with `content: normal` on `#o` and `p`: 1, –, 2 | LC-1 (the `content`-declaring form) / LC-2 |
 | W-K1: `#o { counter-increment: c 2 } #i { counter-increment: inherit } #i::before { content: counter(c) }`, `#i` a child of `#o` | 4 | 0 (N-1); 2 from LC-2 (the `inherit` resolves to the empty list) | LC-6 |
@@ -1335,7 +1349,8 @@ increments it, so it stays 0 and `counters()` prints it first.
 with name, *Gap*, *Why not this program's*, *Trigger*, *Owner* and *Re-eval-date*; names, owners and dates are
 proposals for the PM. **PM 1146 (OQ-4)**: the three facets (F-3, F-7, F-14) and the input lines are approved; the
 four new slots (F-2, F-6, F-9, F-10) are not yet registered — the PM checks each premise at `file:line` first; F-4
-becomes a slot; F-8 gets none. Existing slots were searched first, in memory `project_open-defer-slots.md` on
+becomes a slot; F-8 gets none. **PM 1148**: F-17 becomes a new slot (owner Layout), drafted below. Existing slots were
+searched first, in memory `project_open-defer-slots.md` on
 2026-11-26: `/usr/bin/grep -n -o -i -E` for slot ids containing any of `direction`, `dir-`, `match-parent`,
 `text-align`, `logical`, `handler`, `layer`, `revert`, `namespace` (control: the bare slot-id pattern finds 1031
 ids) — the hits used are named where they apply. The drafts are prose by choice, not rows of the slot-table
@@ -1493,10 +1508,13 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `@namespace` support entering the CSS parser. *Owner*: L3 (the slot's). *Re-eval-date*: 2026-12-31 (the
   slot's).
 - **F-15 — cross-lane, for the PM: HTML §15.5.5's `summary` rule against LC-2k** (§5.2 cross-lane; approved, PM
-  1146, with OQ-6 ruled (b)). The facts, at `7fcaffed` unless dated:
-  (1) HTML §15.5.5 states `display: list-item` and `counter-increment: list-item 0` as **one rule**, in two forms:
-  `details > summary:first-of-type { … }` for the document, and `:host summary { … }` for the default summary in
-  `details`' UA shadow tree (§3.2).
+  1146, with OQ-6 ruled (b); narrowed by PM 1148). The facts, at `7fcaffed` unless dated:
+  (1) HTML §15.5.5 states `display: list-item` and `counter-increment: list-item 0` — the counter pair — in **one
+  rule**, in two forms: `details > summary:first-of-type { … }` for the document, and `:host summary { … }` for the
+  default summary in `details`' UA shadow tree (§3.2). The rule's third declaration, `list-style:
+  disclosure-closed inside`, and each form's `[open]` rule (`list-style-type: disclosure-open`) are **F-17's**,
+  their only remaining lander (PM 1148): elidex has no `disclosure-*` counter style, and they set the marker's
+  style, not a number.
   (2) IBP's slot `#11-ua-sheet-html-rendering-display-fidelity` holds the document form's **`display` declaration
   alone**: its member is "`details > summary:first-of-type { display: list-item }`" (IBP `:1964`; rev 10, `:596`:
   "the slot keeps `details > summary:first-of-type` alone"). Its repair needs `:first-of-type`, which elidex lacks
@@ -1508,23 +1526,30 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   placeholder `<the UA shadow sheet's file>`, CV `:986` at `678d4abe`). At `678d4abe` the E26 memo scoped it to the
   `display` declaration: "CV-details builds only §15.5.5's shadow `:host summary` (the default summary's display)"
   (`docs/plans/2026-10-content-visibility.md:880`, its §8 row for `#11-ua-sheet-html-rendering-display-fidelity`).
-  **PM 1146 (OQ-6 (b))** widens that: CV-details lands the shadow rule whole, `display: list-item` and
-  `counter-increment: list-item 0` in one rule — one rule, one lander — and Layout adds that line to the E26 memo.
+  **PM 1146 (OQ-6 (b))** widens that, and **PM 1148** fixes how far: CV-details lands the shadow rule's counter
+  pair, `display: list-item` and `counter-increment: list-item 0`, together; the `list-style` declaration and the
+  `:host([open]) summary` rule go to F-17. Layout has added that line to the E26 memo (its Erratum 2, on this
+  branch).
   (4) At `7fcaffed` the `counter-increment: list-item 0` half was in **no plan** (`git grep -l 'counter-increment:
   list-item 0' 7fcaffed -- docs` → this memo only; 0 lines in the open-slot ledger, `/usr/bin/grep -c`); since PM
-  1146 the shadow form's half is CV-details', and the document form's half is still in no plan.
+  1146 the shadow form's half is CV-details'; the document form's half is held to that form's lander by (a) (PM
+  1148), whose slot is not registered.
   **Constraint, for the PM** (decided at rung 1: §15.5.5 states the two declarations as one rule, and CSS Lists 3
   §4.6 keys the implicit increment on every list item, so excluding `summary` from the predicate would be a second
-  key against the spec — and against One issue, one way): (a) whoever lands either form lands
-  `counter-increment: list-item 0` in the same rule — one rule, one lander (PM 1146); (b) LC-2k edits no UA sheet
-  for this rule (PM 1146, OQ-6 (b)): it checks W-SUM-D assuming CV-details' landing of the shadow form whole, and a
-  form found at its base without the declaration is a finding against that form's lander; (c) whoever lands second
+  key against the spec — and against One issue, one way): (a) whoever lands either form's
+  `display: list-item` lands `counter-increment: list-item 0` in the same rule — one lander for the counter pair
+  (PM 1146; PM 1148 for the document form), and F-17 is the one lander of the rest (PM 1148); (b) LC-2k edits no
+  UA sheet for this rule, in either form (PM 1146, OQ-6 (b); PM 1148 for the document form): it checks W-SUM-D
+  assuming CV-details' landing of the shadow form's counter pair, and W-SUM against the document form if present,
+  and a form found at its base without `counter-increment: list-item 0` is a finding against that form's
+  lander; (c) whoever lands second
   pins the form's cell — W-SUM for the document form, W-SUM-D for the shadow form (§6): LC-2k if the rule is in its
   sheet at LC-2k's base, otherwise the rule's lander; (d) before LC-2 the `counter-increment` half is dropped by N-1
   (it declares no `content`) and is harmless only because the list-item key is still the tag — so the rule must not
   be used as a reason to move the key earlier. Carried to (input lines approved, PM 1146): CV-details (the shadow
-  form, whole — PM 1146; Layout adds the line to the E26 memo), and the eventual lander of IBP's slot member,
-  through that slot's registration (`IBP-ua-display`'s plan).
+  form's counter pair — PM 1146, PM 1148; the E26 memo's Erratum 2), the eventual lander of IBP's slot member,
+  through that slot's registration (`IBP-ua-display`'s plan; the counter pair, PM 1148), and F-17 (both forms'
+  `list-style` declaration and `[open]` rule, PM 1148).
 - **F-16 — cross-lane, for the PM: L1's G′a-geo page children and L1's P1 (#785) against LC-1, LC-3 and LC-4.** PM 1008
   (`PORTFOLIO-archive-2026-W48.md`; recorded on this slot's ledger row, `project_open-defer-slots.md:1482`; the
   boundary text is `handoff/codex-lanes/l1/gageo-recut-pm1007.md`, "L2 と共有する範囲") draws the L1 ↔ L2 line:
@@ -1554,6 +1579,39 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `set_counter("page" | "pages")` and `flatten` give the margin boxes, with the cells L1's 3b.3 / 3b.4 would see
   (W-PG1, W-PG2 are this program's); (c) LC-3's plan re-reads the print entry at its base (§5.3 LC-3).
   **Approved (PM 1146)**, as is F-15; the PM decides F-16's order once each per-slice plan has re-grepped on its base.
+- **F-17 — new slot (PM 1148): `#11-disclosure-counter-styles`** (name proposed). No existing slot holds it:
+  `/usr/bin/grep -n -F 'disclosure-'` over memory `project_open-defer-slots.md` → 0 lines on 2026-11-26 (control:
+  `#11-content-visibility-auto` → its
+  rows, `:670`, `:698`); elsewhere in the memory directory it finds only notes on the disclosure *widget*'s focus
+  and the Layout lane's own note of PM 1148; `/usr/bin/grep -c -i 'counter-style'` on the ledger → 0. *Defect*
+  (against CSS
+  Counter Styles 3 §6.3 Symbolic, `#simple-symbolic`, and HTML §15.5.5, §3.2): §6.3 predefines `disclosure-open`
+  and `disclosure-closed`, whose marker "must be an image or character suitable for indicating the open and closed
+  states of a disclosure widget" and, if directional, "must respond to the writing mode of the element"; elidex
+  has neither, so HTML §15.5.5's `list-style: disclosure-closed inside` (both forms' first rule) and its `[open]`
+  rules' `list-style-type: disclosure-open` cannot be written in a UA sheet: the parsers reject the declaration and
+  `summary`'s marker shows no open / closed state. The declaration also sets `list-style-position: inside`, which
+  elidex does not parse at all (`git grep -c -F 'list-style-position' 678d4abe -- crates` → 0; control
+  `git grep -l -F 'list-style-type' 678d4abe -- crates | wc -l` → 16, verified 2026-11-26), and the `list-style`
+  shorthand takes one keyword and rejects a second token.
+  *Where*: `crates/core/elidex-plugin/src/computed_style/text.rs` `ListStyleType` (no `disclosure-*` variant);
+  `crates/css/elidex-css/src/declaration.rs` the built-in `"list-style-type"` entry and
+  `crates/css/elidex-css/src/declaration/misc.rs` `parse_list_style_shorthand` (both accept `disc | circle | square |
+  decimal | none` only); `crates/css/elidex-css-text/src/lib.rs` the handler's `"list-style-type"` parse arm (the
+  same five); `crates/css/elidex-style/src/counter.rs` `format_counter_value`;
+  `crates/core/elidex-render/src/builder/paint/mod.rs`
+  `emit_list_marker_with_counter` (the symbol markers). *Why deferred*: no number depends on it — the counter pair
+  is what W-SUM / W-SUM-D read, and CV-details (shadow form) and the document form's lander land that pair now
+  (PM 1148); the repair is counter-style support in the property system and the marker painter (two predefined
+  styles, their writing-mode-sensitive glyphs, and `list-style-position` for `inside`), which neither this program
+  nor CV-details owns. **F-17 is the only remaining lander of those declarations**, in both forms — the document
+  `details > summary:first-of-type` / `details[open] > summary:first-of-type` and the shadow `:host summary` /
+  `:host([open]) summary` (PM 1148) — so each declaration of §15.5.5's rules has one lander; whether
+  `list-style-position` rides F-17 or a slot of its own is the PM's at registration. *Trigger*: the first of —
+  CV-details landing `details`' UA shadow sheet (its `:host summary` rule then has the counter pair only); the
+  document form's counter pair landing; the next change to `list-style-type` parsing or to the marker painter.
+  *Owner*: **Layout**, as E26's successor (PM 1148). **Re-eval-date**: 2026-12-31. Slot text with the premise
+  check at `file:line`: the session scratchpad (`lch/slot-text-f17.md`), for the PM.
 
 **Scout questions (facts the slices' plans need; not blocking this memo):**
 
@@ -1623,8 +1681,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 - **OQ-4 — owners and records for the findings.** **Ruled: PM 1146** —
   (i) *facets approved*: F-3 → `#11-css-wide-revert-keyword` (L1); F-7 → `#11-form-numeric-attr-html-integer-parsing`,
   owner **L3** (PM 1146, process (b)); F-14 → `#11-html-element-type-tests-without-namespace` (L3);
-  (ii) *input lines approved*: F-5 and F-12 → `IBP-ua-display`; F-15 → CV-details (the shadow form, whole: OQ-6 (b))
-  and `IBP-ua-display`'s plan, for the registration of its slot's `summary` member; §4.3 U13's three quirks rules →
+  (ii) *input lines approved*: F-5 and F-12 → `IBP-ua-display`; F-15 → CV-details (the shadow form's counter pair:
+  OQ-6 (b),
+  PM 1148) and `IBP-ua-display`'s plan, for the registration of its slot's `summary` member (its counter pair, PM
+  1148); §4.3 U13's three quirks rules →
   `#11-document-mode` (Layout); F-16 → the L1 lane, the PM deciding its order once each per-slice plan has re-grepped
   on its base; F-11 → the cite-sweep lane;
   (iii) *new slots not yet registered*: F-2 (`#11-dir-attribute-ua-rule-in-core`), F-6
@@ -1635,7 +1695,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   (v) *F-8 gets no slot* (no defect today); it stays in this memo as §0.5 row 4's trigger;
   (vi) *where the E0 / A0 record lives* (process (a)): in one place — this memo's §9 plus the PM decision that rules
   it; the slot row and the landings ledger carry pointers only (§9 item 4, §10). Rev 3.2's proposal (the record as a
-  paragraph of the slot row, moved to the landings ledger at closure) is withdrawn.
+  paragraph of the slot row, moved to the landings ledger at closure) is withdrawn;
+  (vii) *F-17 becomes a slot* (**PM 1148**): `#11-disclosure-counter-styles` (name proposed), owner **Layout** as
+  E26's successor, the only remaining lander of HTML §15.5.5's `list-style` declaration and `[open]` rules in both
+  forms (§7 F-17).
 - **OQ-5 — under option A only**: **OPEN — with the user (PM 1146)**; it goes to the user only if the user picks A
   in OQ-1. LC-3 would make `BrowserCore` / `App`, and every hint-less cascade entry (the
   WPT harness, the benches, the print entry's fixture, the tests that call `resolve_styles` or
@@ -1646,9 +1709,13 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   navigation rebuild hard-code `BrowserCompat`, so once a core session exists the same list is numbered from 1 in
   the top-level document and from its `start` in an iframe until that slot lands). Under A the divergence would be
   recorded against both.
-- **OQ-6 — LC-2k's conditional edit to another program's UA sheet.** **Ruled: PM 1146 — (b)**: CV-details lands
-  HTML §15.5.5's `:host summary` rule whole, both declarations — one rule, one lander; Layout adds that line to its
-  E26 memo; LC-2k does not edit that sheet and checks W-SUM-D assuming that landing (§5.1, §5.3 LC-2k, §6, §7 F-15).
+- **OQ-6 — LC-2k's conditional edit to another program's UA sheet.** **Ruled: PM 1146 — (b)**, narrowed by **PM
+  1148**: CV-details
+  lands HTML §15.5.5's `:host summary` rule with its counter pair, `display: list-item` and `counter-increment:
+  list-item 0`, together; the rule's `list-style: disclosure-closed inside` and the `:host([open]) summary` rule go
+  to F-17, their only remaining lander (PM 1148); Layout has added that line to its E26 memo (Erratum 2); LC-2k
+  does not edit that sheet and checks W-SUM-D assuming that landing, and the document form gets the same treatment
+  (PM 1148) (§5.1, §5.3 LC-2k, §6, §7 F-15, F-17).
   The question as it was put (rev 3.2): rev 3.2's §7 F-15 (b) had LC-2k add `counter-increment:
   list-item 0` to a §15.5.5 `summary` rule that is in a UA sheet at LC-2k's base with `display: list-item` alone.
   For the document form the sheet is one this program already edits (`ua.rs` / `legacy_ua.rs`); for the shadow form
@@ -1705,8 +1772,12 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   premise (§0.2), and goes to `IBP-layout` and `IBP-ua-display` as input lines (below), since they consume it.
 - `IBP-layout` input lines: P-1's outcome and the designation reading (F-1); `IBP-ua-display` input lines: `menu`
   (F-5); HTML §16.3.3's five equivalences, `dir` among them (F-12); the `summary` rule's unit and pin (F-15), for
-  the registration of its slot's member; CV-details input line: the shadow form's rule lands whole, both declarations
-  (PM 1146, OQ-6 (b); Layout adds the line to the E26 memo), and W-SUM-D (F-15).
+  the registration of its slot's member (its counter pair; the rest is F-17's, PM 1148); CV-details input line: the
+  shadow form's rule lands with its counter pair together (PM 1146, OQ-6 (b); PM 1148; the E26 memo's Erratum 2),
+  and W-SUM-D (F-15).
+- New slot (PM 1148): F-17, `#11-disclosure-counter-styles` (name proposed), owner Layout as E26's successor,
+  Re-eval-date 2026-12-31; the ledger text and its premise check are the PM's input (§7 F-17). It is the only
+  remaining lander of §15.5.5's `list-style` declaration and `[open]` rules, both forms.
 - `#11-document-mode` input line: §15.3.7's three quirks-mode list rules (§4.3 U13).
 - F-16: no ledger write — PM 1008's boundary is already on this slot's row (`project_open-defer-slots.md:1482`);
   the PM sequences L1's page children against LC-1, LC-3 and LC-4 when their plans name them.
@@ -1735,6 +1806,15 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 
 ## Changelog
 
+- **Rev 3.4 (2026-11-26)** — folds **PM 1148**, which narrows PM 1146's OQ-6 (b): the §15.5.5 `summary` rule has
+  three declarations, and CV-details lands the counter pair (`display: list-item`, `counter-increment: list-item 0`)
+  now; the third declaration (`list-style: disclosure-closed inside`) and the `[open]` rule go to a new slot, F-17
+  (`#11-disclosure-counter-styles`, owner Layout, E26's successor), named as their only remaining lander, in both
+  forms; the document form gets the shadow form's treatment (LC-2k edits no sheet; a missing declaration is a
+  finding against that form's lander). New §7 F-17; F-15 (1), (3), (4), (a), (b) and its carried-to line; §3's
+  §15.5.5 row and §3.2's quotes (the `[open]` rules, CSS Counter Styles 3 §6.3); §5.1 / §5.2 / §5.3 LC-2k and §6
+  W-SUM / W-SUM-D ("whole" → "the counter pair together"); §7's lead; OQ-4 (ii), (vii); OQ-6's ruled text; §9. The
+  E26 memo's Erratum 2 lands on this branch as its own commit. No slice reordered.
 - **Rev 3.3 (2026-11-26)** — folds **PM 1146**, the PM's rulings on rev 3.2 (`d3c122d6`). No slice reordered, no
   section restructured; no code ref re-anchored except where dated `678d4abe`.
   - **OQ-1, OQ-2, OQ-5** — kept OPEN, marked "with the user (PM 1146)": every answer but A amends the user-ratified
