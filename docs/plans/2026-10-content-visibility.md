@@ -51,6 +51,38 @@ fixes (PM 348) are marked "(R1b-*n*)", *n* = 1–10.
 Re-grounded K5 / K16 residue / P2-R5 on spec, PM 431; the record is commit `516c5bd5`'s diff. **The rule, stated once here**: a browser measurement is [evidence], never a spec ground (B26).
 Focused-review fixes (2026-11-06; the record is this commit's diff): host pseudo order into P2-3/C26; K5 cites; the evidence rule's one home; the P2-R3 edge into §8's PM writes.
 
+**Erratum 2** (2026-11-26; PM 1146 — OQ-6 (b) of the list-counter umbrella memo
+`docs/plans/2026-11-list-counter-ua-rule-and-hints.md` — and PM 1148) — corrected **in place**, by those decisions, as
+Erratum 1's exception; sites marked "erratum 2026-11-26 (PM 1146 / PM 1148)". HTML §15.5.5 gives the default summary
+one rule of three declarations and a second rule for the open state:
+
+```
+# source: https://html.spec.whatwg.org/multipage/rendering.html#the-details-and-summary-elements
+:host summary {
+  display: list-item;
+  counter-increment: list-item 0;
+  list-style: disclosure-closed inside;
+}
+:host([open]) summary {
+  list-style-type: disclosure-open;
+}
+```
+
+Rev 8 scoped CV-details to the `display` declaration. CV-details lands the `:host summary` rule's two counter
+declarations, `display: list-item` and `counter-increment: list-item 0`, together (PM 1146, OQ-6 (b); PM 1148). The
+third declaration, `list-style: disclosure-closed inside`, and the `:host([open]) summary` rule are **not
+CV-details'**: elidex has no `disclosure-closed` / `disclosure-open` counter style (CSS Counter Styles 3 §6.3), so
+they go to the slot drafted as F-17 in the list-counter memo's §7, `#11-disclosure-counter-styles` (owner Layout, as
+E26's successor; PM 1148), which is their **only remaining lander** — each declaration of §15.5.5's rules has one
+lander. The document form (`details > summary:first-of-type` and its `details[open]` rule) is not this program's; the
+same split holds for it (the list-counter memo's §7 F-15 and F-17, PM 1148).
+
+The `counter-increment: list-item 0` declaration keeps the default summary from taking the implicit `list-item` increment
+once the list-counter program's LC-2k keys list items on computed `display` (its cell W-SUM-D,
+`<ol><li><details>x</details><li>b</ol>` → 1, 2, §6 of that memo); LC-2k edits no UA shadow sheet and checks W-SUM-D
+assuming this landing. Decision change: §8's `#11-ua-sheet-html-rendering-display-fidelity` row, §5.1's CV-details
+row, §11's D7 check.
+
 **Revision 8** (2026-10-24) — final clerical pass; **USER DECIDED 2026-10-24: no review round after rev 8** — residual
 risks ride the sibling and nested plan-reviews. Folds the terminal re-check of rev 7 (IMP-1, IMP-2, MIN-1–5) by lowering
 altitude, with the user's adjustments (via PM): FU keeps only what its own landing can check — **FU-6** (cell C30, a test
@@ -630,7 +662,7 @@ CV-details moves it to a queued task.
 | **CV-a11y** | a11y omission (§4.6) |
 | **CV-focus** (two legs, in order; erratum 2026-11-04 (7); an unqualified "CV-focus" means both legs, R1-m) | the focus reader (K15; `focus()` fresh per K15, through FU's point after A2c, R1-m): **CV-focus-1** S2 beside HEAD's attribute test, K15's obligation and the fixup moved after style, right after CV-render (c12; R1-E4); **CV-focus-2** K1's state split, after A2c (§5.2) |
 | **CV-readers** | U1: scrolling operations, IntersectionObserver, ResizeObserver, animations/transitions (K16; the skipped-at-last-style-change marker, defined here; script sampling through FU's point) |
-| **CV-details** (node) | the shadow surfaces it consumes (U2; §8's per-slot table); the UA shadow template and instantiation (D7, K12); `details`' assignment rule over P2 (K13); `details`' steps, `summary` and default-summary activation behaviours and keyboard subwidget on P1's mechanisms (D6, K13); the reveal `details` arm (D5); the second slot's style rule, last (K9) |
+| **CV-details** (node) | the shadow surfaces it consumes (U2; §8's per-slot table); the UA shadow template and instantiation (D7, K12); `details`' assignment rule over P2 (K13); `details`' steps, `summary` and default-summary activation behaviours and keyboard subwidget on P1's mechanisms (D6, K13); the reveal `details` arm (D5); the default summary's `:host summary` rule with its two counter declarations, `display: list-item` and `counter-increment: list-item 0` (erratum 2026-11-26 (PM 1146 / PM 1148); its `list-style` declaration and the `:host([open]) summary` rule are F-17's, `#11-disclosure-counter-styles`); the second slot's style rule, last (K9) |
 
 Not in this list: the sibling programs FU (D12), P1 (D6) and P2 (D8, D11), whose edges into this program are §5.2's.
 
@@ -877,7 +909,7 @@ path's *get the parent* / `composedPath` (P2's, D11).
 | `#11-content-visibility-skip-contents` (home, opened 2026-09-30) | its trigger ("the approval PR lands — authoring of its umbrella memo starts") has fired; restate at approval: *Trigger* = each nested landing in §5.2's order; discharged by the last; re-eval per the timing rule. This memo is its umbrella |
 | `#11-element-lifecycle-hooks` (NEW, P1); `#11-shadow-slot-assignment-flat-tree` (NEW, P2) | **registered at the E26 approval PR**; owners USER DECIDED 2026-10-24 (via PM): P1 the L3 DOM/form lane, P2 the Layout lane; homes = their planned umbrellas, which inherit D6's / D11's invariants and §5.3's risks for them; this memo records only their consumer edges. *Trigger*: the owner's start — P1: the L3 lane's return to DOM/form after #527/#501 land; P2: the Layout lane's scheduling after E26's approval. *Re-eval*: approval merge + 1 month. P1's MO overlap (P1-3): `#11-tree-mutation-record-pipeline`, `#11-method-driven-attribute-records`, `#11-ce-reaction-mutation-observer-ordering` stay open; whether P1 absorbs any is decided by P1's plan-review alone (PM ledger, 2026-10-24). P2 absorbs `#11-shadow-slotchange-named-mode-detection` (cited in code, not in the ledger, B25), `#11-shadow-slot-flatten` (unledgered; recorded by the PM) and the writer part of `#11-shadow-light-tree-distribution-rendering` |
 | `#11-forced-style-layout-flush-on-script-read` (#388) | **not this program's**: the PM re-pointed it (2026-10-24; home = the FU umbrella; owner the Layout lane); id kept, not an item-11 amendment; this memo records only FU's consumer edges and D12's contract; FU discharges it |
-| `#11-ua-sheet-html-rendering-display-fidelity` | **not registered** at HEAD (registered by IBP-ua-display only if a remainder exists, parent `:587`, `:1693`). Its `summary` member is the document-level `details > summary:first-of-type { display: list-item }` (light DOM; needs `:first-of-type`, parent `:1961-1965`), which **stays** there. CV-details builds only §15.5.5's shadow `:host summary` (the default summary's display): it touches only a default-summary facet, and only if that slot exists |
+| `#11-ua-sheet-html-rendering-display-fidelity` | **not registered** at HEAD (registered by IBP-ua-display only if a remainder exists, parent `:587`, `:1693`). Its `summary` member is the document-level `details > summary:first-of-type { display: list-item }` (light DOM; needs `:first-of-type`, parent `:1961-1965`), which **stays** there. CV-details lands §15.5.5's shadow `:host summary` rule with `display: list-item` **and** `counter-increment: list-item 0` together (erratum 2026-11-26 (PM 1146 / PM 1148); the list-counter memo's cell W-SUM-D, `docs/plans/2026-11-list-counter-ua-rule-and-hints.md` §6, is checked by its LC-2k assuming this landing); the rule's `list-style: disclosure-closed inside` and the `:host([open]) summary` rule are not CV-details' — their only remaining lander is F-17, `#11-disclosure-counter-styles` (that memo's §7; owner Layout, PM 1148): it touches only a default-summary facet of that slot, and only if that slot exists |
 | `#11-iframe-fragment-navigation` | cross-reference: CV-reveal's initial-load path covers iframe documents' loads (D5), and at HEAD a same-document iframe fragment navigation reaches it through a load (§5.3) — overlap with the slot's OOP-iframe re-tag, recorded for its owner |
 | `#11-css-containment` | append: when it lands, S1's element gets the used `contain` value (size, layout, style, paint); K6's ancestry rule stays the readers' rule |
 | `#11-content-visibility-auto` | append: S1's `auto` arm; relevance reads focus, selection and the top layer (`#11-dialog-top-layer`); §4.5 items 3, 4, 6; **K1's reader-arm table** — when `auto` lands, every reader classified hidden-arm-only gets the hidden-arm form; the any-skip readers keep S1/S2 |
@@ -979,7 +1011,9 @@ Moved to the owning nested PR's plan-review, or to a sibling umbrella:
   - D6 (consumer side): `git grep -n -F 'collect_open_details_by_name(' -- crates/script` = 0 hits (no VM call; the setter
     is marshalling);
   - D7: a test parses the core UA sheet and the UA shadow sheet and finds their `content-visibility` rules (the
-    until-found rule; the second slot's positive pair; erratum 2026-11-04 (11): a line-based grep cannot see a declaration
+    until-found rule; the second slot's positive pair) and the `:host summary` rule carrying both `display: list-item`
+    and `counter-increment: list-item 0` (erratum 2026-11-26 (PM 1146 / PM 1148); the list-counter memo's W-SUM-D;
+    the rule's `list-style` declaration is F-17's, not checked here; erratum 2026-11-04 (11): a line-based grep cannot see a declaration
     inside a multi-line raw string such as `UA_CSS`, `ua.rs:14`), and no non-UA writer (R1-E10): `git grep -l -P
     '"[^"\n]*content-visibility\s*:|"content-visibility"' -- crates ':(exclude)*/tests/*' ':(exclude)*tests.rs'
     ':(exclude)crates/css/elidex-css-contain/src/lib.rs' ':(exclude)crates/css/elidex-css-anim/src/interpolate.rs'
