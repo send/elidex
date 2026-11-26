@@ -298,7 +298,7 @@ fn measure_in_area<'a>(
         subgridded: physical_axes(item.is_subgrid_cols, item.is_subgrid_rows),
         inner_inline,
         replaced: natural.is_some(),
-        intrinsic: Size {
+        measured: Size {
             width: None,
             height: None,
         },
@@ -320,7 +320,7 @@ fn measure_in_area<'a>(
     )
     .layout_box;
     let sizing = elidex_layout_block::block::GridItemSizing {
-        intrinsic: Size {
+        measured: Size {
             width: Some(prelim_lb.content.size.width),
             height: Some(prelim_lb.content.size.height),
         },

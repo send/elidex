@@ -376,6 +376,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
                         top: Some(2.0),
                         bottom: Some(-3.0),
                     },
+                    ..Default::default()
                 },
                 containing: CssSize::width_only(100.0),
                 containing_inline_size: 100.0,

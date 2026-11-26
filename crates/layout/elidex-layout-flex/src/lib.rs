@@ -303,7 +303,7 @@ pub fn layout_flex(
     } = margin;
 
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+    let content_width = input.assigned.target().width.unwrap_or_else(|| {
         elidex_layout_block::resolve_content_width(
             &style,
             containing_width,
@@ -329,7 +329,7 @@ pub fn layout_flex(
                 content_width,
                 resolved_height: input
                     .assigned
-                    .content
+                    .target()
                     .height
                     .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,
@@ -357,7 +357,7 @@ pub fn layout_flex(
     // Container's own definite height for children's percentage height resolution.
     let resolved_height = input
         .assigned
-        .content
+        .target()
         .height
         .or_else(|| resolve_explicit_height(&style, containing_height));
 
@@ -504,7 +504,7 @@ pub fn layout_flex(
         };
 
     // --- Container LayoutBox ---
-    let content_height = input.assigned.content.height.unwrap_or_else(|| {
+    let content_height = input.assigned.target().height.unwrap_or_else(|| {
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross)
     });
 

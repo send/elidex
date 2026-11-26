@@ -128,7 +128,7 @@ pub fn layout_grid(
     let margin_right = margin.right;
 
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+    let content_width = input.assigned.target().width.unwrap_or_else(|| {
         elidex_layout_block::resolve_content_width(
             &style,
             containing_width,
@@ -148,7 +148,7 @@ pub fn layout_grid(
         // Horizontal: inline = width, block = height
         let avail_h = input
             .assigned
-            .content
+            .target()
             .height
             .or_else(|| resolve_explicit_height(&style, containing_height));
         (content_width, avail_h)
@@ -177,8 +177,8 @@ pub fn layout_grid(
         };
         // Block available = content_width (physical width = block direction).
         (
-            input.assigned.content.height.unwrap_or(inline_h),
-            input.assigned.content.width.or_else(|| {
+            input.assigned.target().height.unwrap_or(inline_h),
+            input.assigned.target().width.or_else(|| {
                 (style.width != elidex_plugin::Dimension::Auto).then_some(content_width)
             }),
         )
@@ -205,7 +205,7 @@ pub fn layout_grid(
                 content_width,
                 resolved_height: input
                     .assigned
-                    .content
+                    .target()
                     .height
                     .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,

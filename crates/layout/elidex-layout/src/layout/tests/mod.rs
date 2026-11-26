@@ -38,7 +38,7 @@ pub(super) fn record_flex_dispatch(
             formatter,
             incoming_width: input.containing.width,
             containing_width: effective.containing.width,
-            assigned_width: effective.assigned.content.width,
+            assigned_width: effective.assigned.target().width,
             shrink_to_fit: !std::ptr::eq(input, effective),
         }));
     }

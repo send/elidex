@@ -94,8 +94,8 @@ pub struct GridItemSizing {
     pub inner_inline: crate::IntrinsicSizes,
     /// Replaced auto axes defer to the formatter's natural size and aspect-ratio rules.
     pub replaced: bool,
-    /// An unmeasured auto axis stays content-sized during the measurement pass.
-    pub intrinsic: Size<Option<f32>>,
+    /// Measured content box for distributing auto margins after formatter reconciliation.
+    pub measured: Size<Option<f32>>,
 }
 
 impl GridItemSizing {
@@ -109,7 +109,7 @@ impl GridItemSizing {
                     available: f32,
                     pb: f32,
                     stretch: bool,
-                    intrinsic: Option<f32>,
+                    measured: Option<f32>,
                     start_dim,
                     end_dim,
                     start: f32,
@@ -127,7 +127,7 @@ impl GridItemSizing {
                     room,
                 ))
             } else {
-                intrinsic
+                None
             };
             let subgridded = if width {
                 self.subgridded.width
@@ -143,7 +143,9 @@ impl GridItemSizing {
                 Some(sizing.constrained(size, available, pb, false))
             };
             // CSS Grid 2 §11.2: auto margins absorb positive space before self-alignment.
-            let free = content.map_or(0.0, |size| (available - pb - start - end - size).max(0.0));
+            let free = measured
+                .or(content)
+                .map_or(0.0, |size| (available - pb - start - end - size).max(0.0));
             let share = if start_auto && end_auto {
                 free / 2.0
             } else {
@@ -160,7 +162,7 @@ impl GridItemSizing {
             area.width,
             padding.horizontal() + border.horizontal(),
             self.stretch.width,
-            self.intrinsic.width,
+            self.measured.width,
             style.margin_left,
             style.margin_right,
             margin.left,
@@ -171,14 +173,14 @@ impl GridItemSizing {
             area.height.expect("definite grid area"),
             padding.vertical() + border.vertical(),
             self.stretch.height,
-            self.intrinsic.height,
+            self.measured.height,
             style.margin_top,
             style.margin_bottom,
             margin.top,
             margin.bottom,
         );
         UsedAssignment {
-            content: Size { width, height },
+            fit: crate::FitTarget::GridArea(Size { width, height }),
             margin: EdgeSizes {
                 top,
                 right,

@@ -100,7 +100,8 @@ fn shrink_to_fit_input<'a>(
     if matches!(
         style.display,
         Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
-    ) && assigned_inline.is_none()
+    ) && matches!(input.assigned.fit, elidex_layout_block::FitTarget::None)
+        && assigned_inline.is_none()
         && inline_size == elidex_plugin::Dimension::Auto
     {
         let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
@@ -113,11 +114,10 @@ fn shrink_to_fit_input<'a>(
         let mut fitted = *input;
         let extent =
             elidex_layout_block::block::fit_inline_content(style, input, available_inline, &inner);
-        if horizontal {
-            fitted.assigned.content.width = Some(extent);
-        } else {
-            fitted.assigned.content.height = Some(extent);
-        }
+        fitted.assigned.fit = elidex_layout_block::FitTarget::ShrinkToFit(Size {
+            width: horizontal.then_some(extent),
+            height: (!horizontal).then_some(extent),
+        });
         Some(fitted)
     } else {
         None

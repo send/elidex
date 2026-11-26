@@ -263,8 +263,8 @@ pub fn layout_table(
                 offset_x + margin.left + border.left + padding.left,
                 offset_y + margin.top + border.top + padding.top,
             ),
-            input.assigned.content.width.unwrap_or(0.0),
-            input.assigned.content.height.unwrap_or(0.0),
+            input.assigned.target().width.unwrap_or(0.0),
+            input.assigned.target().height.unwrap_or(0.0),
             None,
         );
         dom.set_layout_box(entity, lb.clone());
@@ -402,7 +402,7 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let width = input.assigned.content.width.unwrap_or_else(|| {
+        let width = input.assigned.target().width.unwrap_or_else(|| {
             let natural = if is_horizontal_wm {
                 content_width
             } else if style.width != elidex_plugin::Dimension::Auto {
@@ -419,7 +419,7 @@ pub fn layout_table(
                 style.box_sizing,
             )
         });
-        let height = input.assigned.content.height.unwrap_or_else(|| {
+        let height = input.assigned.target().height.unwrap_or_else(|| {
             let natural = resolve_table_height(&style, containing_height, v_pb, caption_top_height);
             helpers::constrain_empty_extent(
                 natural,
@@ -810,10 +810,16 @@ pub fn layout_table(
     // Determine final table height.
     let total_caption_height = caption_top_height + caption_bottom_height;
     let min_content_height = total_caption_height + table_content_height_from_rows;
-    let mut content_height = assigned_block.unwrap_or_else(|| {
+    let preferred = assigned_block.unwrap_or_else(|| {
         resolve_table_height(&style, containing_height, v_pb, min_content_height)
-            .max(min_content_height)
     });
+    // CSS 2.1 §17.5.3: rows and captions set a minimum for the table's preferred height.
+    let established = if is_horizontal_wm {
+        input.assigned.content.height
+    } else {
+        input.assigned.content.width
+    };
+    let mut content_height = established.unwrap_or_else(|| preferred.max(min_content_height));
 
     // If fragmentation produced a break, clamp content height to consumed size.
     if let Some(ref bt) = result_break_token {

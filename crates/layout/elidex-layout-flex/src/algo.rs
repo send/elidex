@@ -464,6 +464,7 @@ fn relayout_item_at_position(
                 height: !ctx.horizontal || stretched || item.definite_preferred_cross,
             },
             margin,
+            ..Default::default()
         },
         containing: CssSize {
             width: child_containing_width,

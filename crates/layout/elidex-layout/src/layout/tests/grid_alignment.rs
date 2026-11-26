@@ -2,6 +2,7 @@ use super::*;
 use elidex_plugin::{AlignSelf, JustifySelf, WritingMode};
 
 mod boundaries;
+mod formatter_sizing;
 
 static FONTS: std::sync::LazyLock<FontDatabase> = std::sync::LazyLock::new(FontDatabase::new);
 

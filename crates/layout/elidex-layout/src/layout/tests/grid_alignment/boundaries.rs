@@ -72,7 +72,7 @@ fn subgrid_area_probe_and_publication_agree() {
     }
 }
 
-fn layout_authored(dom: &mut EcsDom, root: Entity, viewport: Size, paged: bool) {
+pub(super) fn layout_authored(dom: &mut EcsDom, root: Entity, viewport: Size, paged: bool) {
     if paged {
         let env = elidex_layout_block::LayoutEnv {
             font_db: &FONTS,

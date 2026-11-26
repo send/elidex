@@ -178,11 +178,23 @@ pub struct SubgridContext {
 // Layout input and dispatch
 // ---------------------------------------------------------------------------
 
+/// Content-box sizing input which the receiving formatter reconciles with its own metrics.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum FitTarget {
+    #[default]
+    None,
+    /// Intrinsic fit on the inline axis. Replaced boxes resolve that axis from their ratio.
+    ShrinkToFit(Size<Option<f32>>),
+    /// Preferred dimensions resolved against the occupied grid area.
+    GridArea(Size<Option<f32>>),
+}
+
 /// Used content dimensions and margins established by the parent formatter.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UsedAssignment {
     /// Independently established physical content axes.
     pub content: Size<Option<f32>>,
+    pub fit: FitTarget,
     /// Whether each assigned content axis is definite for descendant percentages.
     pub definite_for_percentages: Size<bool>,
     /// Used physical margins, measured from the margin-box origin.
@@ -196,6 +208,7 @@ impl Default for UsedAssignment {
                 width: None,
                 height: None,
             },
+            fit: FitTarget::None,
             definite_for_percentages: Size {
                 width: true,
                 height: true,
@@ -206,13 +219,26 @@ impl Default for UsedAssignment {
 }
 
 impl UsedAssignment {
-    /// Physical assignments in the requested inline/block order.
+    /// Prefer established axes; otherwise use the formatter's fit target.
+    #[must_use]
+    pub fn target(self) -> Size<Option<f32>> {
+        match self.fit {
+            FitTarget::None => self.content,
+            FitTarget::ShrinkToFit(fit) | FitTarget::GridArea(fit) => Size {
+                width: self.content.width.or(fit.width),
+                height: self.content.height.or(fit.height),
+            },
+        }
+    }
+
+    /// Physical sizing targets in the requested inline/block order.
     #[must_use]
     pub fn axes(self, horizontal: bool) -> (Option<f32>, Option<f32>) {
+        let target = self.target();
         if horizontal {
-            (self.content.width, self.content.height)
+            (target.width, target.height)
         } else {
-            (self.content.height, self.content.width)
+            (target.height, target.width)
         }
     }
 
