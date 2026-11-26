@@ -258,7 +258,7 @@ fn js_value_to_wasm_value(
         WasmValueType::I64 => {
             // ToBigInt64 (§7.1.17) accepts booleans and strings parsed by StringToBigInt
             // (§7.1.16). VM defect: the shared helper rejects the empty string, which
-            // the specification converts to 0n. A Number throws TypeError.
+            // the specification converts to 0n (#11-vm-strict-bigint-empty-string). A Number throws TypeError.
             Ok(WasmValue::I64(to_bigint64(ctx, val)?))
         }
         WasmValueType::F32 => {

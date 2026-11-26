@@ -275,6 +275,7 @@ fn push_color_attr(
 /// Parse a presentational hint using the HTML §2.3.6 legacy color rules.
 #[must_use]
 fn parse_html_color(value: &str) -> Option<CssColor> {
+    // #11-dom-compat-legacy-color-whitespace-empty-order
     // Defect against HTML §2.3.6 steps 1–2: trim() also strips non-ASCII
     // whitespace, and the empty check rejects whitespace-only input after trimming.
     // Step 1 tests the original input. Step 10 pads an empty remainder to black.
@@ -283,6 +284,7 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
         return None;
     }
 
+    // #11-dom-compat-legacy-color-named-colors
     // Defect against step 4: this table covers only a subset of CSS named colors.
     let named = [
         ("black", CssColor::BLACK),
@@ -344,11 +346,13 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         }
     }
 
+    // #11-dom-compat-legacy-color-code-points
     // Defect against step 7: the 128-code-point limit is applied to UTF-8 bytes.
     if s.len() > 128 {
         s.truncate(128);
     }
 
+    // #11-dom-compat-legacy-color-whitespace-empty-order
     // Step 8 removes a leading '#'. Defect: rejecting an empty remainder here
     // skips step 10, which pads it to three zeros.
     let s = s.strip_prefix('#').unwrap_or(&s);
@@ -356,6 +360,7 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         return None;
     }
 
+    // #11-dom-compat-legacy-color-code-points
     // Defect against step 9: this emits one zero per non-hex byte. The rule
     // emits one zero per non-hex code point.
     let mut digits: Vec<u8> = s
@@ -766,6 +771,7 @@ mod tests {
     #[test]
     fn parse_html_color_empty_returns_none() {
         assert!(parse_html_color("").is_none());
+        // #11-dom-compat-legacy-color-whitespace-empty-order
         // Records the post-trim empty-input defect in parse_html_color.
         assert!(parse_html_color("   ").is_none());
     }
