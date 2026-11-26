@@ -295,7 +295,7 @@ fn insert_node_rejection_does_not_split_text() {
 fn insert_node_non_collapsed_preserves_hook_adjustments() {
     // Copilot R13 (#2): for a non-collapsed range, `insertNode`
     // must NOT commit a stale snapshot over the hook-adjusted
-    // live-range entry.  WHATWG §5.10 splitText migrates the
+    // live-range entry.  WHATWG DOM §4.11 split a Text node steps 7.2 / 7.3 migrate the
     // boundaries past the split offset to the new tail node; if
     // VM-side commit-back overwrote that, the end would point
     // back at the now-truncated head Text node.

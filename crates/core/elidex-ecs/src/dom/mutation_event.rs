@@ -125,8 +125,8 @@ pub struct AdoptedContents {
 ///
 /// - [`Self::SplitText`] — fired by `EcsDom::fire_split_text` AFTER
 ///   `new_node` is inserted as a sibling of `node` but BEFORE `node`'s
-///   text is truncated. Source spec: **WHATWG DOM §4.11** Interface
-///   Text "split a Text node" step 7. Boundary migration ordering
+///   text is truncated, only when `node` has a parent. Source spec:
+///   **WHATWG DOM §4.11** Interface Text "split a Text node" step 7. Boundary migration ordering
 ///   contract: consumer MUST migrate boundaries on `node` with
 ///   `off > offset` to `(new_node, off - offset)` BEFORE the
 ///   subsequent `set_text_data(node, head)` fires
@@ -276,6 +276,11 @@ pub enum MutationEvent<'a> {
     /// A `Text.splitText(offset)` operation (WHATWG DOM §4.11
     /// Interface Text "split a Text node" step 7).
     ///
+    /// Fired inside step 7 only, i.e. when `node` has a parent: an orphan
+    /// Text fires no `SplitText` (only step 8, *replace data*, touches its
+    /// live ranges, via [`Self::TextChange`]). Hence `parent` is always
+    /// present.
+    ///
     /// **Ordering invariant**: fired AFTER `new_node` is inserted as a
     /// sibling of `node` but BEFORE `node`'s text is truncated.
     /// Boundary-on-`node` boundaries with `off > offset` MUST be
@@ -294,11 +299,19 @@ pub enum MutationEvent<'a> {
     ///   via strict-greater compare against the inserted-at index —
     ///   consumer MUST ONLY apply the missing `idx == node_idx + 1`
     ///   increment to avoid double-shifting).
+    ///
+    /// `parent` is non-Option: the event fires only inside step 7 (parent
+    /// non-null). `node_index` is `None` only when
+    /// `EcsDom::index_in_parent` gives up on a sibling list longer than
+    /// `MAX_ANCESTOR_DEPTH` — a known defect owned by slot
+    /// `#11-index-in-parent-sibling-cap`, which removes this `Option` when
+    /// it fixes the cap. Consumers skip the parent-side top-up then and
+    /// still do the node-side migration.
     SplitText {
         node: Entity,
         new_node: Entity,
         offset_utf16: usize,
-        parent: Option<Entity>,
+        parent: Entity,
         node_index: Option<usize>,
     },
 

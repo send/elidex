@@ -45,6 +45,7 @@ pub(super) fn native_bigint_constructor(
             let s = super::coerce::trim_js(&s);
             // StringToBigInt (§7.1.16) yields 0n for the empty string. The VM
             // literal parser rejects an empty magnitude, so this path throws SyntaxError.
+            // #11-vm-strict-bigint-empty-string
             crate::vm::dispatch_helpers::parse_bigint_literal(s).ok_or_else(|| {
                 VmError::syntax_error(format!(
                     "Cannot convert \"{}\" to a BigInt",
@@ -126,6 +127,7 @@ fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
 }
 
 /// Uses the `BigInt()` function (§21.2.1.1), which accepts integral Numbers.
+/// #11-vm-bigint-asintn-asuintn-tobigint
 /// VM defect: `asIntN` and `asUintN` call this helper even though step 2 of
 /// §§21.2.2.1–2 requires `ToBigInt` (§7.1.15), which rejects Numbers.
 fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {

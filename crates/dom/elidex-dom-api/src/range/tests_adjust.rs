@@ -204,8 +204,8 @@ fn adjust_ranges_for_replace_data_other_container_unchanged() {
 
 #[test]
 fn adjust_ranges_for_split_text_migrates_past_offset() {
-    // WHATWG §4.10 "split text" step 8: boundary on node at off >
-    // offset migrates to (new_node, off - offset).
+    // DOM §4.11 "split a Text node" steps 7.2 / 7.3: boundary on node at
+    // off > offset migrates to (new_node, off - offset).
     let mut dom = EcsDom::new();
     let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
     let node = dom.create_text_ownerless_fixture("hello world");
@@ -218,7 +218,7 @@ fn adjust_ranges_for_split_text_migrates_past_offset() {
     r.set_end(node, 8); // "hello wo|rld"
     let mut ranges = [r];
     // split at offset 5 ("hello" | " world").
-    super::adjust_ranges_for_split_text(&mut ranges, node, new_node, 5, Some(parent), Some(0));
+    super::adjust_ranges_for_split_text(&mut ranges, node, new_node, 5);
 
     // start_offset 3 ≤ 5 → stays on `node`.
     assert_eq!(ranges[0].start_container, node);
@@ -226,48 +226,6 @@ fn adjust_ranges_for_split_text_migrates_past_offset() {
     // end_offset 8 > 5 → migrates to (new_node, 3).
     assert_eq!(ranges[0].end_container, new_node);
     assert_eq!(ranges[0].end_offset, 3);
-}
-
-#[test]
-fn adjust_ranges_for_split_text_parent_boundary_increments() {
-    // splitText adds one child between node and node_idx+1; parent
-    // boundaries at idx > node_idx → +1.
-    let mut dom = EcsDom::new();
-    let parent = dom.create_element_ownerless_fixture("p", Attributes::default());
-    let n0 = dom.create_text_ownerless_fixture("hello");
-    let n1 = dom.create_text_ownerless_fixture("world");
-    dom.append_child(parent, n0);
-    dom.append_child(parent, n1);
-    let new_node = dom.create_text_ownerless_fixture("tail");
-    dom.append_child(parent, new_node);
-
-    // Splitting n0 (at index 0) inserts new_node at index 1; boundary
-    // on parent at offset > 0 increments.
-    let mut r = Range::new(parent);
-    r.set_start(parent, 1);
-    r.set_end(parent, 2);
-    let mut ranges = [r];
-    super::adjust_ranges_for_split_text(&mut ranges, n0, new_node, 3, Some(parent), Some(0));
-
-    assert_eq!(ranges[0].start_offset, 2);
-    assert_eq!(ranges[0].end_offset, 3);
-}
-
-#[test]
-fn adjust_ranges_for_split_text_orphan_node_skips_parent() {
-    // No parent → only the node-side migration runs.
-    let mut dom = EcsDom::new();
-    let node = dom.create_text_ownerless_fixture("hello");
-    let new_node = dom.create_text_ownerless_fixture("");
-
-    let mut r = Range::new(node);
-    r.set_start(node, 4);
-    r.set_end(node, 4);
-    let mut ranges = [r];
-    super::adjust_ranges_for_split_text(&mut ranges, node, new_node, 2, None, None);
-
-    assert_eq!(ranges[0].start_container, new_node);
-    assert_eq!(ranges[0].start_offset, 2);
 }
 
 #[test]
