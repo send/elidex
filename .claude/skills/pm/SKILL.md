@@ -129,13 +129,14 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
 
 ### 3.3 決める前・聞く前 (毎回)
 
-1. **lens block を書く** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。原則は repo `CLAUDE.md` の Development Rules。
-2. **根拠の段 (振る舞いの決定すべて)** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。elidex の決定行の書き方 — `根拠: [spec] <仕様 + §/AO>` / `根拠: elidex 原則 <原則名>` (仕様が沈黙の時) /
+1. **lens block を書く** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。原則は repo `CLAUDE.md` の Development Rules。PM が自分で決める時も毎回書く (user に聞くかの判定のためだけではない)。lens は決定文に載せて pmo に渡す — 決定文に lens 行の無い決定は lens を通していない。owner の割り当て・起動設定のような小さい判断にも 1 行の lens を付ける (user 11-27、PM 1160 [history] — PM 1155 / 1157–1159 で lens を省き、PM 1155 は user に覆された)。
+2. **lens の前に選択肢を出し切る**: 理想の最終形と、そこへの道 (今やる / 前提として先に通す / 後で一括) を並べてから lens を書く。並べた案が足りなければ、行が揃っても lens は効かない (11-27 OQ-2 [history] — X / Y だけを比べて「F-4 を前提として先に通す」Z を落とし、user の押し返しで出た)。
+3. **根拠の段 (振る舞いの決定すべて)** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。elidex の決定行の書き方 — `根拠: [spec] <仕様 + §/AO>` / `根拠: elidex 原則 <原則名>` (仕様が沈黙の時) /
    `[evidence] <測定>` (両方で決まらない時だけ)。既存ブラウザの振る舞いを目標・受け入れ条件・
    テスト期待値にした案は lens で棄却する (順位の本文は repo `CLAUDE.md`)。
-3. **手段の問いの前に目的を問う**: lane が「X をどうやるか」(測り方・環境) を上げてきたら、X 自体が
+4. **手段の問いの前に目的を問う**: lane が「X をどうやるか」(測り方・環境) を上げてきたら、X 自体が
    lens で要るかを先に決める (PM 420/422 [history] — 測定が要らない場面で測り方を user に聞いた)。
-4. **先例を grep**: 決定の種類の語で決定ログ全体 (§0、archive を含む) / 台帳 / memory を引き、コマンドを残す。
+5. **先例を grep**: 決定の種類の語で決定ログ全体 (§0、archive を含む) / 台帳 / memory を引き、コマンドを残す。
    先例があれば適用。reviewer finding は repro の形と症状の語で先に引く。0 件が「先例なし」を決めるので、
    決定ログは control と一緒に引く:
    ```sh
@@ -144,21 +145,21 @@ gh api --paginate 'repos/send/elidex/dependabot/alerts?state=open&per_page=100' 
    /usr/bin/grep -l '^- \*\*PM 528 (11-08)\*\*' /Users/kazuaki/repos/send.sh/elidex-pm-trial/PORTFOLIO-*.md
    ```
    control の出力が `PORTFOLIO-archive-2026-W45.md` の 1 行だけでなければ「先例なし」と読まない。
-5. 規則の「読み」を問う時の先例の示し方は `~/.claude/CLAUDE.md`「判断と確認」。先例は 4 の grep で決定ログ全体から引く。
-6. 選択肢に lens が棄却する案 (real finding の defer 等) を混ぜない。
-7. lens の記録 (`lens-attest.sh`、規則は `~/.claude/CLAUDE.md`「判断と確認」) は **PM session の primary cwd で** 走らせる。
-8. **文言の承認を求める前に、着地先のファイル全体を読む** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。
+6. 規則の「読み」を問う時の先例の示し方は `~/.claude/CLAUDE.md`「判断と確認」。先例は 5 の grep で決定ログ全体から引く。
+7. 選択肢に lens が棄却する案 (real finding の defer 等) を混ぜない。
+8. lens の記録 (`lens-attest.sh`、規則は `~/.claude/CLAUDE.md`「判断と確認」) は **PM session の primary cwd で** 走らせる。
+9. **文言の承認を求める前に、着地先のファイル全体を読む** (規則は `~/.claude/CLAUDE.md`「判断と確認」)。
    elidex では **origin/main 版で全文** 読み (`git show origin/main:<path>`。memory は disk 上の file)、
    重複の列挙は次の 2 本:
    `git -C /Users/kazuaki/orca/workspaces/elidex/main grep -n '<語>' origin/main -- CLAUDE.md '.claude/skills/**'`
    と `/usr/bin/grep -rn '<語>' $MEM`
    (PM 448 — 承認文が既存の bullet と skill 2c の再掲だった)。
-9. 推奨案ばかり選ばれ続けたら、聞きすぎの信号として自己点検する。
-10. **聞き方 — 質問パネルで他の仕事を止めない** (user 11-08, PM 488): AskUserQuestion のパネルは user が答えるまで
+10. 推奨案ばかり選ばれ続けたら、聞きすぎの信号として自己点検する。
+11. **聞き方 — 質問パネルで他の仕事を止めない** (user 11-08, PM 488): AskUserQuestion のパネルは user が答えるまで
    PM の turn を止め、その間に届いた lane のメッセージも処理できない。既定は **本文で聞く**: 問いを turn 最後の
    `止まる理由` に「user の返事待ち: <問い>」として書いて turn を終え、答えが来るまで毎 turn の `止まる理由` に
    残す。聞く前に、その問いに関係ない lane への返事・agent への依頼を同じ turn で先に出し切る。パネルは、選択肢を
-   並べて見比べてもらう価値があり、かつ PM の手元に急ぎの仕事が無い時だけ。本文で聞く時も 7 の lens の記録は書く
+   並べて見比べてもらう価値があり、かつ PM の手元に急ぎの仕事が無い時だけ。本文で聞く時も 8 の lens の記録は書く
    (hook は本文の問いを見ない)。
 
 ### 3.4 relay・記録・who-asks / who-edits
@@ -337,7 +338,7 @@ python3 -I /Users/kazuaki/repos/send.sh/elidex-pm-trial/tools/portfolio_archive.
 - [ ] **lane が出した slot の文案**: PM が前提を確かめてから登録する。文案の前提を lane の報告のまま採らない
       (PM 583 — `#11-no-engine-eventtarget-stubs-nonconforming` は前提が偽だった。由来は PM が確かめずに登録したこと)
 - [ ] **lane を止める・parked と書く前**: MEMORY / lane SSoT の再開条件を読み、満たされていないことを確かめる
-- [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・決定ログ全体 (§3.3 の 4) を引き、
+- [ ] **削除を提案する前**: `git grep -n '<name>' origin/main -- docs/plans` と台帳・決定ログ全体 (§3.3 の 5) を引き、
       `git diff --stat origin/main...<branch>` と branch にしか無い memo を添える。tip の sha でも grep する
 - [ ] **agent の事実を使う前**: `~/.claude/CLAUDE.md`「検証の作法」の claim の確かめ
 - [ ] **driver にツールを走らせる前**: 対象範囲 (docstring / SCHEMAS) を読み、対象外なら指示しない (PM 172)
