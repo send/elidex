@@ -11,7 +11,7 @@
 //!   full identifier including the leading `&` (e.g. `"&amp;"`), value is
 //!   the replacement character(s).
 //! - `MAX_ENTITY_NAME_LEN: usize` — the longest key length in `char`s,
-//!   used to bound the §13.2.5.73 longest-match probe.
+//!   used to bound the §13.2.5.78 longest-match probe.
 
 use std::env;
 use std::fs;

@@ -510,6 +510,19 @@ fn css_escape_leading_digit() {
 fn css_supports_known_property() {
     let out = run("CSS.supports('color', 'red') ? 'yes' : 'no';");
     assert_eq!(out, "yes");
+    for value in ["1in", "var(--x)"] {
+        assert_eq!(
+            run(&format!(
+                "CSS.supports('width', '{value}') ? 'true' : 'false'"
+            )),
+            "true"
+        );
+    }
+    for unit in "ex rex cap rcap ch rch ic ric lh rlh vi vb lvi lvb svw svh svi svb svmin svmax dvw dvh dvi dvb dvmin dvmax".split_whitespace() {
+        for value in [format!("1{unit}"), format!("calc(1{unit})")] {
+            assert_eq!(run(&format!("CSS.supports('width', '{value}') ? 'true' : 'false'")), "false", "{value}");
+        }
+    }
 }
 
 #[test]
@@ -684,4 +697,15 @@ fn set_attribute_then_remove_property_takes_effect() {
          (s.indexOf('color') < 0 && s.indexOf('display') >= 0) \
              ? 'removed' : s;");
     assert_eq!(out, "removed");
+}
+
+#[test]
+fn css_supports_requires_a_supported_property_and_valid_var_syntax() {
+    for (expression, expected) in [
+        ("CSS.supports('not-a-real-property','var(--x)')", "no"),
+        ("CSS.supports('width','var()')", "no"),
+        ("CSS.supports('width','var(123,5px)')", "yes"),
+    ] {
+        assert_eq!(run(&format!("{expression} ? 'yes' : 'no';")), expected);
+    }
 }

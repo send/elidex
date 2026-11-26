@@ -21,7 +21,7 @@ pub(super) struct InlineRunResult {
     pub block_extent: f32,
     pub first_baseline: Option<f32>,
     /// If fragmentation was applied, the line index after which to break.
-    pub break_after_line: Option<usize>,
+    pub continuation: Option<crate::source_progress::SourceProgress>,
 }
 
 /// Flush an inline run as an anonymous block box (CSS 2.1 §9.2.1.1).
@@ -31,8 +31,7 @@ pub(super) struct InlineRunResult {
 /// Writing-mode-aware: uses inline-axis size for the line width and
 /// positions the content origin based on the block cursor.
 ///
-/// `skip_lines` is set when resuming an inline run after a fragmentation
-/// break — it tells the inline layout engine how many line boxes to skip.
+/// Resume from the committed source intervals for this run.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn flush_inline_run(
     dom: &mut EcsDom,
@@ -44,7 +43,8 @@ pub(super) fn flush_inline_run(
     cursor_block_origin: f32,
     env: &crate::LayoutEnv<'_>,
     static_positions: &mut HashMap<Entity, Point>,
-    skip_lines: usize,
+    progress: Option<crate::source_progress::SourceProgress>,
+    column_runs: &mut elidex_ecs::ColumnFlowSlice,
 ) -> InlineRunResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let is_horizontal = wm.is_horizontal();
@@ -54,7 +54,7 @@ pub(super) fn flush_inline_run(
     let inline_size = if is_horizontal {
         input.containing.width
     } else {
-        input.containing.height_or_width()
+        input.available_height().unwrap_or(input.containing.width)
     };
 
     // Content origin: inline-start position is fixed, block position is the cursor.
@@ -71,7 +71,7 @@ pub(super) fn flush_inline_run(
             available_block: (frag.available_block_size - consumed).max(0.0),
             orphans: parent_style.orphans,
             widows: parent_style.widows,
-            skip_lines,
+            progress,
             fragmentation_type: frag.fragmentation_type,
         }
     });
@@ -85,6 +85,17 @@ pub(super) fn flush_inline_run(
         env,
         frag_constraint.as_ref(),
     );
+    // Collect each anonymous run's independently keyed groups before the next
+    // flush uses the same block owner for its transient carrier.
+    if let Ok(slice) = dom
+        .world_mut()
+        .remove_one::<elidex_ecs::ColumnFlowSlice>(parent_entity)
+    {
+        column_runs.flow_groups.extend(slice.flow_groups);
+        column_runs
+            .atomic_repositions
+            .extend(slice.atomic_repositions);
+    }
     static_positions.extend(result.static_positions);
 
     // In vertical modes, layout_inline_context returns the total column width
@@ -92,7 +103,7 @@ pub(super) fn flush_inline_run(
     InlineRunResult {
         block_extent: result.height,
         first_baseline: result.first_baseline,
-        break_after_line: result.break_after_line,
+        continuation: result.continuation,
     }
 }
 
@@ -275,6 +286,14 @@ pub(super) fn layout_float(
 
     // Layout the float's contents at a temporary position.
     let temp_input = LayoutInput {
+        available_height_if_indefinite: if is_horizontal {
+            input.available_height_if_indefinite
+        } else {
+            None
+        },
+        containing_width_definite: is_horizontal || input.containing_width_definite,
+        is_flex_item: false,
+        assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize {
             width: if is_horizontal {
                 shrink_inline.max(0.0)

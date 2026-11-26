@@ -114,8 +114,8 @@ fn details_set_open(
         JsValue::Boolean(true)
     );
     let state_changed = prior_open != new_open;
-    // 2. Apply attribute mutation UNCONDITIONALLY (HTML §6.13.1
-    //    "reflect a boolean attribute" — the setter normalises the
+    // 2. Apply attribute mutation UNCONDITIONALLY (HTML §2.6.1,
+    //    boolean setter steps — the setter normalises the
     //    content attribute: present-with-empty-value when true,
     //    absent when false, regardless of whether the boolean state
     //    actually changed).  This means

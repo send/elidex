@@ -1,6 +1,6 @@
 //! Column filling algorithms: sequential and balanced.
 //!
-//! CSS Multi-column Layout Level 1 §7 (column-fill) and §8 (overflow columns).
+//! CSS Multi-column Layout Level 1 §7.1 (column-fill) and §8.2 (overflow columns).
 
 use elidex_ecs::{BoxFragment, ColumnFlowSlice, EcsDom, Entity, ImageData, InlineFlowLine};
 use elidex_layout_block::block::stack_block_children;
@@ -169,23 +169,17 @@ pub fn fill_columns_sequential(
             extract_child_index(result.break_token.as_ref()).unwrap_or(children.len());
         let prev_child_idx = extract_child_index(carry_break_token.as_ref()).unwrap_or(0);
 
-        // Precise per-column "the break-out child was laid PARTIALLY here" signal
-        // (P3): the break token carries a `child_break_token`, which
-        // `stack_block_children` sets ONLY when it fragmented a child mid-way. A
-        // clean inter-sibling break (`break-before`/`break-after: column`) or a
-        // monolithic deferral leaves it `None` and lays the child whole in ONE
-        // column (where the I-multicol shifted `LayoutBox` suffices). This single
-        // signal drives BOTH the `col_children` shift membership below AND the
-        // box-fragment snapshot — converged (Z-1b-0). Using the coarse
-        // `result.break_token.is_some()` positional proxy here instead would
-        // misclassify a `break-before: column` resume point (where `next == prev`
-        // but no child split) as mid-break and additively double-shift the
-        // deferred child.
+        // Only a split inside a child snapshots that child's per-column box.
         let break_out_child = result
             .break_token
             .as_ref()
-            .filter(|bt| bt.child_break_token.is_some())
-            .and_then(|_| children.get(next_child_idx).copied());
+            .and_then(|bt| match &bt.mode_data {
+                Some(BreakTokenData::Block {
+                    continuation: elidex_layout_block::BlockContinuation::InterruptedChild(child),
+                    ..
+                }) => Some(child.entity),
+                _ => None,
+            });
 
         // Build the children list for this column fragment.
         //
@@ -461,14 +455,18 @@ fn build_column_input<'a>(
 ) -> LayoutInput<'a> {
     let is_horizontal = wm.is_horizontal();
     LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: if is_horizontal {
                 geom.width
             } else {
                 input.containing.width
             },
-            // Column box is an independent formatting context (§3.1):
-            // percentage heights resolve against the column height, not the parent's.
+            // The column box forms the containing block for its non-positioned
+            // children (CSS Multicol §2).
             height: if is_horizontal {
                 Some(frag_ctx.available_block_size)
             } else {
@@ -479,7 +477,7 @@ fn build_column_input<'a>(
         offset: col_pos,
         font_db: input.font_db,
         depth: input.depth + 1,
-        float_ctx: None, // Each column resets float context (§3)
+        float_ctx: None, // Each column establishes an independent block formatting context (§2).
         viewport: input.viewport,
         fragmentainer: Some(frag_ctx),
         break_token,

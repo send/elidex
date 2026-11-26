@@ -1,7 +1,7 @@
 //! Tests for `new PromiseRejectionEvent` / `ErrorEvent` /
 //! `HashChangeEvent` / `PopStateEvent` / `AnimationEvent` /
 //! `TransitionEvent` / `CloseEvent` (HTML §8 + CSS Animations §4.2 +
-//! CSS Transitions §6 + WHATWG HTML §10.4).
+//! CSS Transitions §6 + WebSockets §6).
 //!
 //! Covers:
 //! - `[Constructor]` gate (call-mode throws TypeError)
@@ -594,7 +594,7 @@ fn transition_event_survives_gc() {
 }
 
 // ---------------------------------------------------------------------------
-// CloseEvent (WHATWG HTML §10.4)
+// CloseEvent (WebSockets §6)
 // ---------------------------------------------------------------------------
 
 #[test]

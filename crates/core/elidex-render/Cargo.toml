@@ -24,6 +24,8 @@ vello.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+elidex-style = { workspace = true, features = ["fixtures"] }
+elidex-shaping = { path = "../../text/elidex-shaping", features = ["fixtures"] }
 elidex-ecs = { workspace = true, features = ["fixtures"] }
 
 [lints]

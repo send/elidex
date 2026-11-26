@@ -221,6 +221,23 @@ pub(crate) fn resolve_table_height(
     explicit.unwrap_or(min_height).max(min_height)
 }
 
+/// Clamp the unassigned physical content extent of an empty table.
+pub(super) fn constrain_empty_extent(
+    natural: f32,
+    min: Dimension,
+    max: Dimension,
+    reference: f32,
+    edges: f32,
+    sizing: BoxSizing,
+) -> f32 {
+    let mut lower = elidex_layout_block::resolve_min_max(min, reference, 0.0);
+    let mut upper = elidex_layout_block::resolve_min_max(max, reference, f32::INFINITY);
+    if sizing == BoxSizing::BorderBox {
+        elidex_layout_block::adjust_min_max_for_border_box(&mut lower, &mut upper, edges);
+    }
+    elidex_layout_block::clamp_min_max(natural, lower, upper)
+}
+
 // ---------------------------------------------------------------------------
 // Column width computation
 // ---------------------------------------------------------------------------

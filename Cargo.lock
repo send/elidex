@@ -1027,9 +1027,9 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "cookie"
-version = "0.18.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "time",
  "version_check",
@@ -2077,6 +2077,7 @@ name = "elidex-layout"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "elidex-css",
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-layout-flex",
@@ -2084,6 +2085,7 @@ dependencies = [
  "elidex-layout-multicol",
  "elidex-layout-table",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
 ]
 
@@ -2094,6 +2096,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-form",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 
@@ -2101,9 +2104,11 @@ dependencies = [
 name = "elidex-layout-flex"
 version = "0.1.0"
 dependencies = [
+ "elidex-css",
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-style",
  "elidex-text",
 ]
 
@@ -2124,6 +2129,7 @@ dependencies = [
  "elidex-ecs",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-text",
 ]
 
@@ -2213,6 +2219,7 @@ dependencies = [
  "elidex-layout",
  "elidex-layout-block",
  "elidex-plugin",
+ "elidex-shaping",
  "elidex-style",
  "elidex-text",
  "fontdb",
@@ -2319,6 +2326,7 @@ name = "elidex-style"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "cssparser",
  "elidex-css",
  "elidex-css-anim",
  "elidex-css-background",

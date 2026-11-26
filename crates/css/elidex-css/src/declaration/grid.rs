@@ -9,7 +9,9 @@
 use cssparser::{Parser, Token};
 use elidex_plugin::{CssValue, LengthUnit};
 
-use crate::values::{parse_length_or_percentage, parse_non_negative_length_or_percentage};
+use elidex_plugin::css_resolve::strict::{
+    parse_length_or_percentage, parse_non_negative_length_or_percentage,
+};
 
 use super::{single_decl, Declaration};
 

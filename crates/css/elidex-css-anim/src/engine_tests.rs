@@ -503,3 +503,92 @@ fn has_running_cache_invalidated() {
     engine.remove_entity(2);
     assert!(!engine.has_running());
 }
+
+#[test]
+fn duplicate_offset_overrides_expanded_member_and_sets_interval_timing() {
+    let rule = crate::parse::parse_keyframes("test", "from {flex:0 0 auto} 50% {flex:2 4 auto} 50% {flex-grow:6; animation-timing-function:steps(1,end)} to {flex:10 8 auto}");
+    let mut engine = AnimationEngine::new();
+    engine.register_keyframes(rule);
+    for (p, grow, shrink) in [(0.25, 3., 2.), (0.75, 6., 4.)] {
+        let values = engine.keyframe_values("test", p, Some(&TimingFunction::Linear), None);
+        assert!(values.contains(&("flex-grow".into(), CssValue::Number(grow))));
+        assert!(values.contains(&("flex-shrink".into(), CssValue::Number(shrink))));
+    }
+}
+
+impl AnimationEngine {
+    #[must_use]
+    pub(crate) fn keyframe_values(
+        &self,
+        name: &str,
+        progress: f64,
+        anim_timing: Option<&crate::timing::TimingFunction>,
+        underlying_values: Option<&std::collections::HashMap<String, elidex_plugin::CssValue>>,
+    ) -> Vec<(String, elidex_plugin::CssValue)> {
+        let ctx = elidex_plugin::ResolveContext::default();
+        self.keyframe_values_for_target(
+            name,
+            progress,
+            anim_timing,
+            &KeyframeTarget {
+                underlying: underlying_values,
+                lengths: &ctx,
+                font_lengths: &ctx,
+                defaulted: &|_, _| panic!("test requires a target for explicit defaulting"),
+            },
+        )
+    }
+}
+
+#[test]
+fn stylesheet_order_selects_existing_captures() {
+    let sheet = |v| {
+        Arc::new(elidex_css::parse_stylesheet(
+            &format!("@keyframes same {{to {{order:{v}}}}}"),
+            elidex_css::Origin::Author,
+        ))
+    };
+    let first = sheet(1);
+    let second = sheet(2);
+    let mut engine = AnimationEngine::new();
+    engine.sync_stylesheets(std::slice::from_ref(&first));
+    let initial = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    engine.sync_stylesheets(&[Arc::clone(&first), Arc::clone(&second)]);
+    let overriding = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    assert_ne!(initial, overriding);
+    engine.sync_stylesheets(&[second, first]);
+    assert_eq!(
+        initial,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.prune_unused_keyframes();
+    assert_eq!(
+        initial,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.sync_stylesheets(&[]);
+    assert!(engine.get_keyframes("same").is_none());
+}
+
+#[test]
+fn pruning_standalone_override_reveals_original_sheet_capture() {
+    let sheet = Arc::new(elidex_css::parse_stylesheet(
+        "@keyframes same {to {order:1}}",
+        elidex_css::Origin::Author,
+    ));
+    let sheets = std::slice::from_ref(&sheet);
+    let mut engine = AnimationEngine::new();
+    engine.sync_stylesheets(sheets);
+    let captured = std::ptr::from_ref(engine.get_keyframes("same").unwrap());
+    engine.register_keyframes(crate::parse::parse_keyframes("same", "to {order:2}"));
+    assert_ne!(
+        captured,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+    engine.prune_unused_keyframes();
+    engine.sync_stylesheets(sheets);
+    assert_eq!(
+        captured,
+        std::ptr::from_ref(engine.get_keyframes("same").unwrap())
+    );
+}

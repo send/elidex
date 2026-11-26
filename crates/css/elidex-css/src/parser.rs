@@ -8,11 +8,11 @@ use cssparser::{
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
 };
 
-use elidex_plugin::{CssPropertyRegistry, PageRule};
+use elidex_plugin::CssPropertyRegistry;
 
 use crate::declaration::{parse_property_value, Declaration, Origin};
 use crate::media::{parse_media_query_list, MediaQueryList};
-use crate::page::parse_page_rules;
+use crate::page::{self, PageAlternative, PageRule};
 use crate::selector::{parse_selector_list, Selector};
 
 /// Maximum `@media` (conditional group rule) block-nesting depth before a
@@ -26,6 +26,9 @@ const MAX_AT_RULE_NESTING_DEPTH: usize = 32;
 /// A parsed CSS stylesheet.
 #[derive(Clone, Debug, Default)]
 pub struct Stylesheet {
+    /// Grammar used to admit declarations (CSS Cascade §5). A missing registry
+    /// selects the built-in-only parser when reparsing a substituted value.
+    pub grammar_registry: Option<std::sync::Arc<CssPropertyRegistry>>,
     /// The cascade origin of this stylesheet.
     pub origin: Origin,
     /// Rules in source order.
@@ -39,7 +42,7 @@ pub struct Stylesheet {
     /// Parsed `@page` rules (CSS Paged Media Level 3).
     pub page_rules: Vec<PageRule>,
     /// Next [`CssRule::rule_id`] to issue when CSSOM `insertRule` extends
-    /// this stylesheet at run time (CSSOM §6.4 / §6.5). Set to one past
+    /// this stylesheet at run time (CSSOM §6.1.2). Set to one past
     /// the highest `rule_id` issued during parse so that `insertRule`-
     /// produced rules never collide with parse-time rules.
     pub next_rule_id: u64,
@@ -99,10 +102,9 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
     parse_stylesheet_with_registry(css, origin, None)
 }
 
-/// Parse a single CSS rule for CSSOM `CSSStyleSheet.insertRule(text)` (CSSOM
-/// §6.4 step 2). Returns `Some(rule)` when `text` parses as exactly one
-/// qualified rule; returns `None` for empty / invalid / multi-rule input
-/// (the caller is expected to throw `SyntaxError` per CSSOM §6.4).
+/// Parse one qualified rule for `CSSStyleSheet.insertRule`. CSSOM §6.1.2
+/// steps 3–4 parse a rule and throw `SyntaxError` for a syntax error.
+/// This helper also returns `None` for at-rules it does not support.
 ///
 /// The returned rule has `rule_id = 0` and `source_order = 0`. The
 /// caller (`CSSStyleSheet.insertRule`) overwrites `rule_id` with the
@@ -113,6 +115,15 @@ pub fn parse_stylesheet(css: &str, origin: Origin) -> Stylesheet {
 /// `source_order` values across all rules.
 #[must_use]
 pub fn parse_single_rule(css: &str) -> Option<CssRule> {
+    parse_single_rule_with_registry(css, None)
+}
+
+/// Parse an inserted rule using its owning stylesheet's declaration grammar.
+#[must_use]
+pub fn parse_single_rule_with_registry(
+    css: &str,
+    registry: Option<&CssPropertyRegistry>,
+) -> Option<CssRule> {
     let trimmed = css.trim();
     if trimmed.is_empty() {
         return None;
@@ -125,9 +136,7 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
     let mut keyframes_raw = Vec::new();
     let mut page_rules = Vec::new();
     // Strict: the input must be exactly one qualified rule, then end-of-stream.
-    // - Any `Err` (parse error / unrecognized at-rule) = skipped content
-    //   → `insertRule` must reject per CSSOM §6.4 SyntaxError, despite the
-    //   broader `parse_stylesheet` path's CSS error-recovery.
+    // - A parse error or unsupported at-rule makes this helper reject the input.
     // - `@keyframes` / `@page` populate the side-channel vecs; `@media` makes
     //   the at-rule yield `Err` (its `parse_block` returns Err after flattening)
     //   AND pushes inner rules with non-empty `media_conditions` — both reject:
@@ -140,7 +149,7 @@ pub fn parse_single_rule(css: &str) -> Option<CssRule> {
             next_rule_id: &mut next_rule_id,
             keyframes_raw: &mut keyframes_raw,
             page_rules: &mut page_rules,
-            registry: None,
+            registry,
         };
         let mut iter = StyleSheetParser::new(&mut input, &mut rule_parser);
         let first = iter.next();
@@ -197,6 +206,7 @@ pub fn parse_stylesheet_with_registry(
     }
 
     Stylesheet {
+        grammar_registry: registry.map(|r| std::sync::Arc::new(r.snapshot())),
         origin,
         rules,
         keyframes_raw,
@@ -230,7 +240,7 @@ enum AtRuleKind {
     /// `@keyframes <name>` — name is the keyframes identifier.
     Keyframes(String),
     /// `@page <selectors>` — prelude text for page pseudo-classes.
-    Page(String),
+    Page(Vec<PageAlternative>),
     /// `@media <media-query-list>` — the parsed condition (CSS Conditional
     /// Rules §5). The block's inner rules are flattened into [`Stylesheet::rules`]
     /// each tagged with this condition appended to the ancestor chain.
@@ -281,11 +291,7 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
             Ok(AtRuleKind::Keyframes(keyframes_name))
         } else if name.eq_ignore_ascii_case("page") {
             // CSS Paged Media L3 §4: @page <page-selector-list>? { ... }
-            // Consume the rest of the prelude as raw text for selector parsing.
-            let start_pos = input.position();
-            while input.next_including_whitespace_and_comments().is_ok() {}
-            let prelude_text = input.slice_from(start_pos).trim().to_string();
-            Ok(AtRuleKind::Page(prelude_text))
+            page::alternatives(input).map(AtRuleKind::Page)
         } else if name.eq_ignore_ascii_case("media") {
             // CSS Conditional Rules §5: @media <media-query-list> { <rule-list> }.
             // Parse the prelude (raw text) via the engine-independent SSoT
@@ -341,16 +347,11 @@ impl<'i> AtRuleParser<'i> for RuleListParser<'_> {
                     self.keyframes_raw.push((name, body));
                 }
             }
-            AtRuleKind::Page(prelude_text) => {
-                let start_pos = input.position();
-                while input.next_including_whitespace_and_comments().is_ok() {}
-                // Same as `@keyframes`: `@page` is side-channeled without a media
-                // condition, so a `@page` nested inside `@media` is dropped rather
-                // than fed to paged layout unconditionally (`#11-css-media-conditional-side-rules`).
+            AtRuleKind::Page(alternatives) => {
+                // Conditional side rules remain scoped to #11-css-media-conditional-side-rules.
                 if self.media_stack.is_empty() {
-                    let body = input.slice_from(start_pos).to_string();
-                    let rules = parse_page_rules(&prelude_text, &body);
-                    self.page_rules.extend(rules);
+                    self.page_rules
+                        .push(page::parse_body(input, alternatives, self.registry));
                 }
             }
         }
@@ -430,8 +431,8 @@ impl<'i> QualifiedRuleParser<'i> for RuleListParser<'_> {
     }
 }
 
-struct DeclarationListParser<'a> {
-    registry: Option<&'a CssPropertyRegistry>,
+pub(crate) struct DeclarationListParser<'a> {
+    pub(crate) registry: Option<&'a CssPropertyRegistry>,
 }
 
 impl<'i> DeclarationParser<'i> for DeclarationListParser<'_> {

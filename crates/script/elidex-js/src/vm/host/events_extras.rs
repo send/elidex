@@ -616,7 +616,7 @@ fn native_transition_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// CloseEvent (WHATWG HTML §10.4 — paired with WebSocket / EventSource)
+// CloseEvent (WebSockets §6)
 // ---------------------------------------------------------------------------
 
 fn native_close_event_constructor(
@@ -630,8 +630,8 @@ fn native_close_event_constructor(
     let base = parse_event_init(ctx, init_arg, "CloseEvent")?;
     let opts_id = opts_object_id(init_arg);
     // Slot order matches `event_shapes.rs::CloseEvent` payload installer:
-    // code, reason, wasClean.  WHATWG HTML §10.4 defaults: code=0 (no
-    // status, ToUint16 of the IDL default), reason="", wasClean=false.
+    // code, reason, wasClean. WebSockets §6 defines the CloseEventInit
+    // defaults as 0, the empty string, and false, respectively.
     let (code, reason_sid, was_clean) = if let Some(opts_id) = opts_id {
         let k_code = ctx.vm.well_known.code;
         let k_reason = ctx.vm.well_known.reason;

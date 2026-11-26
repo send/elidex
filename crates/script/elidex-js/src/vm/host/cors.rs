@@ -310,7 +310,7 @@ fn cors_check_passes(
 /// applied, preserving each retained header's original
 /// name/value pair.
 ///
-/// Forbidden-response-header names (§2.2.6 — `Set-Cookie` /
+/// Forbidden-response-header names (§2.2.2 — `Set-Cookie` /
 /// `Set-Cookie2`) are **always dropped**, regardless of
 /// `Access-Control-Expose-Headers` content (Copilot R2 — without
 /// this guard, a server that explicitly listed `Set-Cookie` in
@@ -353,13 +353,7 @@ pub(crate) fn filter_headers_for_cors_response(
         .collect()
 }
 
-/// WHATWG Fetch §2.2.6 — names that must never be exposed to
-/// cross-origin script.  `Set-Cookie` / `Set-Cookie2` carry
-/// HttpOnly cookies whose exposure would defeat the HttpOnly
-/// guarantee.  The CORS filter at
-/// [`filter_headers_for_cors_response`] drops these
-/// unconditionally so a misconfigured `Access-Control-Expose-
-/// Headers` value cannot leak them.
+/// Match the forbidden response-header names from WHATWG Fetch §2.2.2.
 fn is_forbidden_response_header(name_lowercase: &str) -> bool {
     matches!(name_lowercase, "set-cookie" | "set-cookie2")
 }

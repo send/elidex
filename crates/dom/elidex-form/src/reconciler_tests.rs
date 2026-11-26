@@ -69,7 +69,7 @@ fn e3_set_form_attribute_reflects_form_owner() {
 #[test]
 fn e4_required_boolean_presence_and_removal() {
     let (mut dom, e) = setup("input", &[]);
-    // Empty-string presence per HTML §2.5.2 boolean-attribute rule.
+    // A present boolean attribute represents true (HTML §2.3.2).
     assert!(dom.set_attribute(e, "required", "").did_set);
     with_fcs(&dom, e, |s| assert!(s.required));
     // Removal resets to default (false).
@@ -689,7 +689,7 @@ fn range_reclamps_on_min_max_step_change() {
 
 #[test]
 fn dirty_range_recorrects_on_value_attr_step_base_change() {
-    // §4.10.5.1.13 + §4.10.5.3.7: with no `min`, the `value` content
+    // §4.10.5.1.13 + §4.10.5.3.8: with no `min`, the `value` content
     // attribute is the Range step base.  Changing it shifts the grid, so
     // a dirty live value that was on the old grid must be re-corrected.
     let (mut dom, e) = setup(

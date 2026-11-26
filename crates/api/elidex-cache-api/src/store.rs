@@ -1,4 +1,4 @@
-//! Individual cache store operations (WHATWG Cache API §2.3).
+//! Individual cache store operations (W3C Service Workers §5.4).
 //!
 //! Uses a unified `caches` + `entries` schema (design doc §22.5.5)
 //! instead of per-cache tables. All entries are stored in a single
@@ -305,7 +305,8 @@ pub fn keys(conn: &SqliteConnection, cache_name: &str) -> Result<Vec<CachedEntry
     load_all_entries(raw, cache_id)
 }
 
-/// Atomically add all entries (WHATWG Cache API §2.3.2).
+/// Write prepared entries in one transaction. W3C Service Workers §5.4.4
+/// calls Batch Cache Operations after fetching the responses.
 pub fn add_all(
     conn: &SqliteConnection,
     cache_name: &str,

@@ -1,5 +1,5 @@
 //! `HTMLImageElement.prototype` intrinsic — per-tag prototype layer
-//! for `<img>` wrappers (HTML §4.8.4, slot `#11-tags-T2a-url-bearing`).
+//! for `<img>` wrappers (HTML §4.8.3, slot `#11-tags-T2a-url-bearing`).
 //!
 //! ## Layering
 //!

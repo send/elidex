@@ -23,7 +23,7 @@
 //!
 //! ## Async model (W3C IDB §5.6 / §5.9 / §2.7.1)
 //!
-//! `IDBRequest` is a non-Node `EventTarget` (NOT a Promise).  A request's
+//! `IDBRequest` is a non-Node `EventTarget`. For a store, index or cursor request, the
 //! operation runs synchronously against the SQLite backend, but its result
 //! is delivered via a **database task** (§5.6 step 5.6 "queue a database
 //! task") — [`super::pending_tasks::PendingTask::IdbDeliver`] drained at the
@@ -164,9 +164,7 @@ pub(crate) struct IdbTransactionState {
     pub(crate) request_list: Vec<ObjectId>,
     /// The `DOMException` that caused an abort (§4.10 `error`), else `None`.
     pub(crate) error: Option<ObjectId>,
-    /// For an upgrade transaction, the associated open request `ObjectId`
-    /// (so commit can fire `success` at it and clear `request.transaction`,
-    /// §5.4 step 2.5.4).  `None` for a normal transaction.
+    /// The open request associated with an upgrade transaction, if any.
     pub(crate) upgrade_request: Option<ObjectId>,
     /// Backend database handle for an upgrade transaction (needed by
     /// `finish_upgrade` / `abort_upgrade`).  `None` for a normal txn.

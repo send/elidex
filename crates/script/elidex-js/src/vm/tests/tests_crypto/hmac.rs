@@ -247,7 +247,7 @@ fn generate_key_enforce_range_rejects_below_lower_bound() {
 
 #[test]
 fn import_jwk_empty_usages_bad_use_rejects_syntax_error() {
-    // HjoA3 / §31.6.4 step 7: the JWK `use` check only fires when usages
+    // §31.6.4, JWK branch of step 5, substep 7: the JWK `use` check only fires when usages
     // is non-empty.  With empty usages, a present `use:'enc'` does NOT
     // pre-empt with DataError — the generic empty-secret-usages
     // SyntaxError (§14.3.9) is the correct rejection.
@@ -273,7 +273,7 @@ fn import_jwk_non_sequence_oth_rejects_type_error() {
 
 #[test]
 fn import_raw_sub_byte_length_masks_then_signs_consistently() {
-    // HjoA1 / §31.6.4 step 8: importing 4 raw bytes with length=25 keeps
+    // §31.6.4 steps 8–9: importing 4 raw bytes with length=25 keeps
     // the first 25 bits (top bit of the 4th octet), so exporting returns
     // the masked material.
     let src = "globalThis.r = 'pending'; \
@@ -369,7 +369,7 @@ fn generate_key_name_getter_fires_twice_during_normalization() {
 
 #[test]
 fn import_jwk_key_ops_allows_extension_values() {
-    // Hlnbe / RFC 7517 §4.3 + §31.6.4 step 8: `key_ops` may carry
+    // RFC 7517 §4.3 and §31.6.4, JWK branch of step 5, substep 8: `key_ops` may carry
     // extension operations beyond WebCrypto's usages; as long as it is a
     // valid JWK array (no duplicates) containing every requested usage,
     // unknown entries are ignored, not rejected.
@@ -395,7 +395,7 @@ fn import_jwk_key_ops_duplicate_rejects_data_error() {
 
 #[test]
 fn import_jwk_key_ops_missing_requested_usage_rejects_data_error() {
-    // Hlnbe: §31.6.4 step 8 still requires key_ops to contain every
+    // The JWK import check requires key_ops to contain every
     // requested usage — `['verify']` lacks the requested `sign`.
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.importKey('jwk', \

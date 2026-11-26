@@ -82,6 +82,10 @@ pub fn layout_block(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: crate::UsedAssignment::default(),
         containing: CssSize::width_only(containing_width),
         containing_inline_size: containing_width,
         offset,
@@ -111,6 +115,10 @@ pub fn layout_block_with_height(
     font_db: &FontDatabase,
 ) -> LayoutBox {
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: crate::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
             height: containing_height,
@@ -148,6 +156,7 @@ pub fn layout_block_inner(
     layout_child: crate::ChildLayoutFn,
 ) -> crate::LayoutOutcome {
     let containing_width = input.containing.width;
+    let width_reference = input.containing_width_definite.then_some(containing_width);
     let containing_height = input.containing.height;
     let offset_x = input.offset.x;
     let offset_y = input.offset.y;
@@ -158,6 +167,8 @@ pub fn layout_block_inner(
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
     let is_horizontal = wm.is_horizontal();
 
+    let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal);
+
     // --- Containing dimensions for inline and block axes ---
     // `containing_inline` is for margin/padding % (CSS Box Model L3 §5.3),
     // determined by the **containing block's** writing mode.
@@ -165,7 +176,7 @@ pub fn layout_block_inner(
     let containing_block: Option<f32> = if is_horizontal {
         input.containing.height
     } else {
-        Some(input.containing.width)
+        width_reference
     };
     // Available inline space for auto inline-size resolution.
     // This is the containing block's dimension along **this element's** inline axis.
@@ -175,7 +186,7 @@ pub fn layout_block_inner(
     } else {
         // Vertical element: inline axis = Y. Available = containing height.
         // If indefinite, fall back to containing width (approximate).
-        containing_height.unwrap_or(containing_width)
+        input.available_height().unwrap_or(containing_width)
     };
 
     // --- Resolve padding and border (protect against NaN/infinity/negative) ---
@@ -188,10 +199,15 @@ pub fn layout_block_inner(
     let l_border = LogicalEdges::from_physical(border, wm);
 
     // --- Resolve margins (all four sides, then map to inline/block) ---
-    let margin_top = resolve_margin(style.margin_top, containing_inline);
-    let margin_bottom = resolve_margin(style.margin_bottom, containing_inline);
-    let margin_left_raw = resolve_margin(style.margin_left, containing_inline);
-    let margin_right_raw = resolve_margin(style.margin_right, containing_inline);
+    let margin = input
+        .assigned
+        .margins(crate::resolve_margins(&style, containing_inline));
+    let EdgeSizes {
+        top: margin_top,
+        right: margin_right_raw,
+        bottom: margin_bottom,
+        left: margin_left_raw,
+    } = margin;
 
     // Block-axis margins (for collapse). Physical: top/bottom in horizontal,
     // left/right (depending on block direction) in vertical.
@@ -204,10 +220,20 @@ pub fn layout_block_inner(
     };
 
     // Inline-axis margin dimensions (for auto centering).
-    let (margin_inline_start_dim, margin_inline_end_dim) = if is_horizontal {
-        (style.margin_left, style.margin_right)
+    let (start_dim, end_dim, assigned_start, assigned_end) = if is_horizontal {
+        (
+            style.margin_left,
+            style.margin_right,
+            input.assigned.margin.left,
+            input.assigned.margin.right,
+        )
     } else {
-        (style.margin_top, style.margin_bottom)
+        (
+            style.margin_top,
+            style.margin_bottom,
+            input.assigned.margin.top,
+            input.assigned.margin.bottom,
+        )
     };
     let margin_inline_start_raw = if is_horizontal {
         margin_left_raw
@@ -221,7 +247,13 @@ pub fn layout_block_inner(
     };
 
     // --- Check for replaced element (e.g. <img> with decoded ImageData) ---
-    let intrinsic = crate::get_intrinsic_size(dom, entity);
+    let established = input
+        .assigned
+        .content
+        .width
+        .zip(input.assigned.content.height)
+        .map(|(w, h)| elidex_plugin::Size::new(w, h));
+    let intrinsic = crate::helpers::replaced_size(dom, entity, established);
 
     // --- Resolve inline-size ---
     // CSS: `width` and `height` are physical properties. In vertical modes,
@@ -231,21 +263,39 @@ pub fn layout_block_inner(
     } else {
         style.height
     };
+    let inline_reference = if is_horizontal {
+        width_reference
+    } else {
+        containing_height
+    };
+    let inline_size_dim = match inline_size_dim {
+        Dimension::Percentage(_) if inline_reference.is_none() => Dimension::Auto,
+        dimension => dimension,
+    };
     let inline_extra = margin_inline_start_raw + margin_inline_end_raw + i_pb;
-    let mut content_inline = if let Some(intr) = intrinsic {
+    let mut content_inline = if let Some(size) = assigned_inline {
+        size
+    } else if let Some(intr) = intrinsic {
         // Replaced element: resolve physical dimensions, then extract inline-axis.
         let phys_w = resolve_replaced_width(
             &style,
-            containing_width,
-            intr.width,
-            intr.height,
+            width_reference,
+            intr,
+            input.assigned.content,
             &padding,
             &border,
         );
         if is_horizontal {
             phys_w
         } else {
-            resolve_replaced_height(&style, phys_w, intr.width, intr.height, &padding, &border)
+            resolve_replaced_height(
+                &style,
+                phys_w,
+                intr,
+                input.assigned.content,
+                &padding,
+                &border,
+            )
         }
     } else {
         sanitize(resolve_dimension_value(
@@ -255,7 +305,8 @@ pub fn layout_block_inner(
         ))
     };
     // box-sizing: border-box — subtract inline p+b from specified inline-size.
-    if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
+    if assigned_inline.is_none() && style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none()
+    {
         if let Dimension::Length(_) | Dimension::Percentage(_) = inline_size_dim {
             content_inline = (content_inline - i_pb).max(0.0);
         }
@@ -267,7 +318,7 @@ pub fn layout_block_inner(
     } else {
         (style.min_height, style.max_height)
     };
-    {
+    if assigned_inline.is_none() {
         let mut min_i = resolve_min_max(min_inline_dim, containing_inline, 0.0);
         let mut max_i = resolve_min_max(max_inline_dim, containing_inline, f32::INFINITY);
         if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
@@ -283,26 +334,32 @@ pub fn layout_block_inner(
             (margin_inline_start_raw, margin_inline_end_raw)
         } else {
             apply_margin_auto_centering(
-                margin_inline_start_dim,
-                margin_inline_end_dim,
+                assigned_start.map_or(start_dim, Dimension::Length),
+                assigned_end.map_or(end_dim, Dimension::Length),
                 available_inline,
                 used_inline,
                 style.direction,
             )
         };
 
+    let margin_inline_start = assigned_start.unwrap_or(margin_inline_start);
+    let margin_inline_end = assigned_end.unwrap_or(margin_inline_end);
+
     // --- Compute physical content position ---
     // Inline position: offset along inline axis + inline-start margin/border/padding.
     // Block position: offset along block axis + block-start margin/border/padding.
-    let (content_x, content_y);
-    if is_horizontal {
-        content_x = offset_x + margin_inline_start + border.left + padding.left;
-        content_y = offset_y + margin_block_start + border.top + padding.top;
+    let left = if is_horizontal {
+        margin_inline_start
     } else {
-        // Vertical: inline axis = Y, block axis = X.
-        content_x = offset_x + margin_block_start + l_border.block_start + l_padding.block_start;
-        content_y = offset_y + margin_inline_start + l_border.inline_start + l_padding.inline_start;
-    }
+        margin_left_raw
+    };
+    let top = if is_horizontal {
+        margin_top
+    } else {
+        margin_inline_start
+    };
+    let content_x = offset_x + left + border.left + padding.left;
+    let content_y = offset_y + top + border.top + padding.top;
 
     // --- Layout children (stop recursion at depth limit) ---
     let children = crate::composed_children_flat(dom, entity);
@@ -311,7 +368,16 @@ pub fn layout_block_inner(
 
     // Compute definite block-size for children's percentage resolution.
     // In horizontal: explicit height. In vertical: explicit width.
-    let child_containing_block = if is_horizontal {
+    let child_containing_block = if assigned_block.is_some() {
+        let definite = input.assigned.definite_for_percentages;
+        assigned_block.filter(|_| {
+            if is_horizontal {
+                definite.height
+            } else {
+                definite.width
+            }
+        })
+    } else if is_horizontal {
         crate::resolve_explicit_height(&style, containing_height)
     } else {
         // In vertical mode, block-size = physical width. If style.width is explicit,
@@ -338,16 +404,26 @@ pub fn layout_block_inner(
         }
     };
 
-    // Physical dimensions for child containing block.
-    let (child_phys_width, child_phys_height) = if is_horizontal {
-        (content_inline, child_containing_block)
+    // Keep available space for layout independent of the reference used by percentages.
+    let inline_definite = if assigned_inline.is_some() {
+        let definite = input.assigned.definite_for_percentages;
+        if is_horizontal {
+            definite.width
+        } else {
+            definite.height
+        }
     } else {
-        // Vertical: inline-size = physical height, block-size = physical width.
-        // content_inline is the inline-size (physical height).
-        // child_containing_block is the block-size (physical width) if known.
+        matches!(inline_size_dim, Dimension::Length(_)) || inline_reference.is_some()
+    };
+    let (child_phys_width, child_width_definite, child_phys_height) = if is_horizontal {
+        (content_inline, inline_definite, child_containing_block)
+    } else {
         (
-            child_containing_block.unwrap_or(containing_width),
-            Some(content_inline),
+            assigned_block
+                .or(child_containing_block)
+                .unwrap_or(containing_width),
+            child_containing_block.is_some(),
+            inline_definite.then_some(content_inline),
         )
     };
 
@@ -356,8 +432,8 @@ pub fn layout_block_inner(
     let mut child_break_token: Option<crate::BreakToken> = None;
     let mut propagated_break_before: Option<elidex_plugin::BreakValue> = None;
     let mut propagated_break_after: Option<elidex_plugin::BreakValue> = None;
-    // Inline-only break line (separate from child_break_token to avoid double-wrapping).
-    let mut inline_break_after_line: Option<usize> = None;
+    // Direct inline layout can interrupt inside its single local run.
+    let mut inline_progress = None;
     let mut inline_content_block: f32 = 0.0;
 
     // --- Fragmentation: compute child fragmentainer context ---
@@ -378,22 +454,23 @@ pub fn layout_block_inner(
     });
 
     let content_block = if let Some(intr) = intrinsic {
-        // Replaced element: resolve block-size from physical dimensions.
-        if is_horizontal {
+        if let Some(size) = assigned_block {
+            size
+        } else if is_horizontal {
             resolve_replaced_height(
                 &style,
                 content_inline,
-                intr.width,
-                intr.height,
+                intr,
+                input.assigned.content,
                 &padding,
                 &border,
             )
         } else {
             resolve_replaced_width(
                 &style,
-                containing_width,
-                intr.width,
-                intr.height,
+                width_reference,
+                intr,
+                input.assigned.content,
                 &padding,
                 &border,
             )
@@ -406,12 +483,20 @@ pub fn layout_block_inner(
             child_phys_width,
             child_phys_height,
         );
-        // Extract child break token for stack_block_children resumption.
-        // layout_block_inner wraps stack's BreakToken as child_break_token in its own.
-        let child_bt_for_stack = input
-            .break_token
-            .and_then(|bt| bt.child_break_token.as_deref());
+        let child_bt_for_stack = input.break_token;
         let child_input = LayoutInput {
+            available_height_if_indefinite: if child_phys_height.is_none() {
+                if is_horizontal {
+                    assigned_block
+                } else {
+                    Some(content_inline)
+                }
+            } else {
+                None
+            },
+            containing_width_definite: child_width_definite,
+            is_flex_item: false,
+            assigned: crate::UsedAssignment::default(),
             containing: CssSize {
                 width: child_phys_width,
                 height: child_phys_height,
@@ -428,7 +513,7 @@ pub fn layout_block_inner(
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,
         };
-        let is_bfc = establishes_bfc(&style);
+        let is_bfc = input.is_flex_item || establishes_bfc(&style);
         let mut result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
@@ -512,17 +597,15 @@ pub fn layout_block_inner(
             // is vertical (height). Use containing height when known.
             child_phys_height.unwrap_or(content_inline)
         };
-        // Extract inline resume skip_lines from break token (H2: inline resume).
-        let inline_skip_lines = input
+        let progress = input
             .break_token
-            .and_then(|bt| bt.mode_data.as_ref())
-            .and_then(|md| match md {
-                crate::BreakTokenData::Block {
-                    inline_break_line, ..
-                } => *inline_break_line,
+            .and_then(|token| match token.mode_data.as_ref() {
+                Some(crate::BreakTokenData::Block {
+                    continuation: crate::BlockContinuation::LocalRun { first, progress },
+                    ..
+                }) if children.first() == Some(first) => Some(progress.clone()),
                 _ => None,
-            })
-            .unwrap_or(0);
+            });
         // Build fragmentation constraint for inline layout if fragmentainer is active.
         let inline_frag_constraint =
             child_fragmentainer
@@ -531,7 +614,7 @@ pub fn layout_block_inner(
                     available_block: frag.available_block_size,
                     orphans: style.orphans,
                     widows: style.widows,
-                    skip_lines: inline_skip_lines,
+                    progress,
                     fragmentation_type: frag.fragmentation_type,
                 });
         let env = crate::LayoutEnv::from_input(input, layout_child);
@@ -548,7 +631,9 @@ pub fn layout_block_inner(
         block_first_baseline = inline_result.first_baseline;
         // Record inline break for later (handled after LayoutBox is built,
         // without going through the child_break_token wrapping path).
-        inline_break_after_line = inline_result.break_after_line;
+        inline_progress = inline_result
+            .continuation
+            .map(|progress| (children[0], progress));
         inline_content_block = inline_result.height;
         // inline_result.height is always the block-axis extent:
         // horizontal-tb: physical height (line boxes stacked vertically)
@@ -557,15 +642,17 @@ pub fn layout_block_inner(
     };
 
     // --- Resolve block-size ---
-    let block_size = resolve_block_height(
-        &style,
-        content_block,
-        containing_block,
-        &padding,
-        &border,
-        intrinsic.is_some(),
-        &wm,
-    );
+    let block_size = assigned_block.unwrap_or_else(|| {
+        resolve_block_height(
+            &style,
+            content_block,
+            containing_block,
+            &padding,
+            &border,
+            intrinsic.is_some(),
+            &wm,
+        )
+    });
 
     // --- Build physical LayoutBox ---
     // Convert inline/block sizes and positions to physical (x, y, width, height).
@@ -573,18 +660,6 @@ pub fn layout_block_inner(
         (content_inline, block_size)
     } else {
         (block_size, content_inline)
-    };
-
-    // Recompute content position using collapsed block-start margin.
-    let (final_x, final_y) = if is_horizontal {
-        let fx = offset_x + margin_inline_start + border.left + padding.left;
-        let fy = offset_y + collapsed_margin_block_start + border.top + padding.top;
-        (fx, fy)
-    } else {
-        let fx =
-            offset_x + collapsed_margin_block_start + l_border.block_start + l_padding.block_start;
-        let fy = offset_y + margin_inline_start + l_border.inline_start + l_padding.inline_start;
-        (fx, fy)
     };
 
     // Build physical margin EdgeSizes. Block-axis margins may have been collapsed.
@@ -612,6 +687,8 @@ pub fn layout_block_inner(
         )
     };
 
+    let final_x = offset_x + margin.left + border.left + padding.left;
+    let final_y = offset_y + margin.top + border.top + padding.top;
     let lb = LayoutBox {
         content: Rect::new(final_x, final_y, phys_width, phys_height),
         padding,
@@ -622,6 +699,10 @@ pub fn layout_block_inner(
     };
 
     dom.set_layout_box(entity, lb.clone());
+
+    if intrinsic.is_some() {
+        return lb.into();
+    }
 
     // Layout positioned descendants owned by this containing block.
     let is_root = dom.get_parent(entity).is_none();
@@ -647,16 +728,15 @@ pub fn layout_block_inner(
 
     // Inline-only fragmentation break: return directly without wrapping
     // (no child_break_token nesting — mode_data goes on the top-level token).
-    if let Some(break_line) = inline_break_after_line {
+    if let Some((first, progress)) = inline_progress {
         return crate::LayoutOutcome {
             layout_box: lb,
             break_token: Some(crate::BreakToken {
                 entity,
                 consumed_block_size: inline_content_block + block_start_pb,
-                child_break_token: None,
                 mode_data: Some(crate::BreakTokenData::Block {
                     child_index: 0,
-                    inline_break_line: Some(break_line),
+                    continuation: crate::BlockContinuation::LocalRun { first, progress },
                 }),
             }),
             propagated_break_before,
@@ -664,16 +744,12 @@ pub fn layout_block_inner(
         };
     }
 
-    // If stack_block_children produced a break token, wrap it in a parent break token.
-    if let Some(child_bt) = child_break_token {
+    // The stack token already belongs to this block. Include its leading decoration.
+    if let Some(mut child_bt) = child_break_token {
+        child_bt.consumed_block_size += block_start_pb;
         return crate::LayoutOutcome {
             layout_box: lb,
-            break_token: Some(crate::BreakToken {
-                entity,
-                consumed_block_size: child_bt.consumed_block_size + block_start_pb,
-                child_break_token: Some(Box::new(child_bt)),
-                mode_data: None,
-            }),
+            break_token: Some(child_bt),
             propagated_break_before,
             propagated_break_after,
         };

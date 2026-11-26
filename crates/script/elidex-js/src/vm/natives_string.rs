@@ -352,16 +352,17 @@ pub(super) fn native_string_split(
 ) -> Result<JsValue, VmError> {
     let sid = coerce_this_string(ctx, this)?;
     let sep_id = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    // §21.1.3.19 step 6: limit defaults to 2^32 - 1; `ToUint32(limit)` when
-    // provided.  §7.1.7 ToUint32 maps NaN/±Infinity to 0.  limit = 0 yields
-    // empty array (spec step 10).
+    // ECMA-262 §22.1.3.23 step 5 defaults an undefined limit to 2^32 - 1
+    // and applies ToUint32 (§7.1.9) otherwise. Step 7 returns an empty
+    // array for a zero limit.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let limit: usize = match args.get(1).copied() {
         None | Some(JsValue::Undefined) => u32::MAX as usize,
         Some(val) => {
             let n = ctx.to_number(val)?;
             if n.is_finite() {
-                // ToUint32: modulo 2^32 truncation.
+                // Taking the remainder before truncating gives incorrect limits for negative
+                // fractions: ToUint32(-0.5) is zero, while this path produces 4294967295.
                 let modded = n.rem_euclid(4_294_967_296.0);
                 modded.trunc() as usize
             } else {
@@ -704,7 +705,7 @@ pub(super) fn native_string_search(
     Ok(JsValue::Number(result.map_or(-1.0, |i| i as f64)))
 }
 
-// -- String.prototype.valueOf / toString (§21.1.3.32 / §21.1.3.25) ----------
+// -- String.prototype.valueOf / toString (§22.1.3.35 / §22.1.3.29) ----------
 
 /// `String.prototype.valueOf()` — return the primitive string value.
 /// Works on both string primitives and StringWrapper objects.
@@ -730,13 +731,10 @@ pub(crate) fn native_string_value_of(
     }
 }
 
-// §21.1.3.25 String.prototype.toString shares the valueOf implementation —
-// registered twice in globals.rs with different `name` attributes.
+// -- String constructor (§22.1.1) -------------------------------------------
 
-// -- String constructor (§21.1.1) -------------------------------------------
-
-/// `String(value)` as a function call returns a primitive string (§21.1.1.1
-/// step 1 when NewTarget is undefined).  `new String(value)` promotes the
+/// `String(value)` as a function call returns a primitive string (§22.1.1.1,
+/// steps 2–3).  `new String(value)` promotes the
 /// pre-allocated Ordinary instance (passed as `this` by `do_new`) to a
 /// StringWrapper in-place, avoiding a second allocation.  For symbol input
 /// on the call path, `SymbolDescriptiveString` semantics apply.
@@ -750,7 +748,7 @@ pub(crate) fn native_string_constructor(
     } else if ctx.is_construct() {
         ctx.to_string_val(args[0])?
     } else {
-        // §21.1.1.1 step 2: `String(Symbol(...))` returns descriptive string,
+        // §22.1.1.1 step 2.1: `String(Symbol(...))` returns descriptive string,
         // not a TypeError.  Handle specially; all other values via ToString.
         if let JsValue::Symbol(sid) = args[0] {
             return Ok(JsValue::String(symbol_to_descriptive_string(ctx, sid)));

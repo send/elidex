@@ -17,6 +17,8 @@ elidex-text.workspace = true
 elidex-layout-block = { path = "../elidex-layout-block" }
 
 [dev-dependencies]
+elidex-css.workspace = true
+elidex-style.workspace = true
 elidex-ecs = { workspace = true, features = ["fixtures"] }
 
 [lints]

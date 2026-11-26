@@ -230,8 +230,9 @@ pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
 /// `body_data.remove(&id)`.  Subsequent
 /// [`array_buffer_byte_length`] then returns `0` naturally via the
 /// missing-entry path, while membership in `detached_buffers` lets
-/// the slice / DataView / TypedArray hot paths short-circuit with
-/// the spec-prescribed TypeError / undefined / silent-no-op.
+/// slice and DataView operations detect detachment. A TypedArray indexed read
+/// returns undefined. An indexed write converts the RHS first and can throw
+/// before the detached check skips the store (§10.4.5.18 steps 1–3).
 ///
 /// Idempotent — re-detaching is a no-op (the second
 /// `body_data.remove` is also a no-op).
@@ -268,14 +269,10 @@ pub(crate) fn array_buffer_detach(vm: &mut VmInner, id: ObjectId) {
     }
 }
 
-/// Throw `TypeError` if `id` refers to a detached ArrayBuffer per
-/// [`is_detached_buffer`], else `Ok(())`.  Used at spec sites that
-/// require buffer-attached witness before touching backing bytes /
-/// length state — currently the TypedArray ctor
-/// (ECMA-262 §23.2.5.1.3 step 6) and the DataView ctor
-/// (ECMA-262 §25.3.2.1 step 4).  Mirrors the same single-helper
-/// pattern as `data_view_require_attached` (see `data_view.rs`) —
-/// one canonical brand-+-attach check site per spec consumer.
+/// Buffer initialization checks detachment at step 6. Typed-source initialization validates
+/// bounds at step 7. The VM callers check attachment before copying or accepting a view; the
+/// buffer helper already sampled byte length. (InitializeTypedArrayFromArrayBuffer
+/// §23.2.5.1.3.)
 pub(crate) fn array_buffer_require_attached(vm: &VmInner, id: ObjectId) -> Result<(), VmError> {
     if is_detached_buffer(vm, id) {
         return Err(VmError::type_error("operation on a detached ArrayBuffer"));
@@ -645,7 +642,7 @@ fn native_array_buffer_slice(
 
 /// Clamp `n` to `[0, len]`, applying the spec
 /// `ToIntegerOrInfinity` truncation first (ECMA-262 §7.1.5 —
-/// sign-preserving truncation toward zero, NaN → 0) so fractional
+/// truncation toward zero, NaN → 0) so fractional
 /// arguments match browser semantics: `slice(-1.9)` is `slice(-1)`
 /// not `slice(-1.9)`.  Matches the slice-range helper used by
 /// `ArrayBuffer.prototype.slice` (ECMA-262 §25.1.6.7) and

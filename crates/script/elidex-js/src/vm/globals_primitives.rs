@@ -67,7 +67,8 @@ impl VmInner {
             ("match", native_string_match),
             ("search", native_string_search),
             ("valueOf", native_string_value_of),
-            // §21.1.3.25: String.prototype.toString is identical to valueOf.
+            // toString and valueOf both call ThisStringValue (§§22.1.3.29, 22.1.3.35).
+            // Register each method with its own name and the shared Rust callback.
             ("toString", native_string_value_of),
         ]);
         // String.prototype[Symbol.iterator] = native_string_iterator
@@ -229,7 +230,7 @@ impl VmInner {
     }
 
     pub(super) fn register_symbol_global(&mut self) {
-        // The Symbol "constructor" is callable but not constructable.
+        // The VM installs Symbol with CallShape::CallableOnly.
         // Register it as a native function, then attach static methods and
         // well-known symbol properties.
         let sym_fn_id = self.create_native_function("Symbol", native_symbol_constructor);
@@ -304,7 +305,7 @@ impl VmInner {
             native_bigint_to_string, native_bigint_value_of,
         };
 
-        // BigInt is callable but NOT constructable (like Symbol).
+        // The VM installs BigInt with CallShape::CallableOnly.
         let bigint_fn = self.create_native_function("BigInt", native_bigint_constructor);
 
         // Static methods: BigInt.asIntN, BigInt.asUintN

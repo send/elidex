@@ -228,8 +228,8 @@ fn native_resize_observer_disconnect(
     }
     let (dom, observers) = ctx.host().split_dom_mut_and_resize_observers();
     observers.disconnect(dom, id);
-    // `disconnect()` per W3C Resize Observer §3.5 only clears
-    // observation targets; the observer stays usable so a subsequent
+    // `disconnect()` per W3C Resize Observer §2.1 clears the observed and
+    // active target lists; the observer stays usable so a subsequent
     // `ro.observe(other)` works.  The callback / instance maps must
     // therefore NOT be removed here — doing so would let a later
     // delivery's `(callback, instance)` lookup return `None` and
@@ -433,14 +433,11 @@ impl VmInner {
 }
 
 /// Build a single-element JS Array containing one `ResizeObserverSize`
-/// object (W3C Resize Observer §4.2).  The spec defines `contentBoxSize`
-/// / `borderBoxSize` as `FrozenArray<ResizeObserverSize>`; a fragmented
-/// layout box could produce multiple entries, but the current engine
-/// only tracks a single content box per element so the sequence has
-/// exactly one member.
+/// object. Resize Observer §2.3 defines `contentBoxSize` and `borderBoxSize`
+/// as frozen arrays with a single size for the first fragment.
 ///
 /// inlineSize / blockSize follow the writing-mode mapping (W3C Resize
-/// Observer §4.2): for the default horizontal writing mode,
+/// Observer §3.4.8): for the default horizontal writing mode,
 /// `inlineSize` = width, `blockSize` = height.  Writing-mode-aware
 /// inversion is tracked along with `devicePixelContentBoxSize` under
 /// `#11-resize-observer-device-pixel-box`.

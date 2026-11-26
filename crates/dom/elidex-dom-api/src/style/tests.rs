@@ -9,6 +9,27 @@ fn setup() -> (EcsDom, Entity, SessionCore) {
 }
 
 #[test]
+fn registered_transition_priority_and_removal_use_all_four_members() {
+    let (mut dom, elem, mut session) = setup();
+    dom.set_attribute(elem, "style", "transition: initial !important; color: red");
+    let property = [JsValue::String("transition".into())];
+    assert_eq!(
+        StyleGetPropertyPriority
+            .invoke(elem, &property, &mut session, &mut dom)
+            .unwrap(),
+        JsValue::String("important".into())
+    );
+    let removed = StyleRemoveProperty
+        .invoke(elem, &property, &mut session, &mut dom)
+        .unwrap();
+    assert_eq!(removed, JsValue::String("initial".into()));
+    assert_eq!(
+        dom.world().get::<&Attributes>(elem).unwrap().get("style"),
+        Some("color: #ff0000")
+    );
+}
+
+#[test]
 fn set_and_get_property() {
     let (mut dom, elem, mut session) = setup();
     StyleSetProperty
@@ -608,4 +629,44 @@ fn css_text_invalid_clears() {
         .invoke(elem, &[], &mut session, &mut dom)
         .unwrap();
     assert_eq!(len, JsValue::Number(0.0));
+}
+
+#[test]
+fn flex_setter_and_inline_block_agree_on_members_and_priority() {
+    for use_setter in [false, true] {
+        let (mut dom, elem, mut session) = setup();
+        dom.set_attribute(elem, "style", "flex:10px 2 3 !important; width:5px");
+        if use_setter {
+            dom.set_attribute(elem, "style", "width:5px");
+            StyleSetProperty
+                .invoke(
+                    elem,
+                    &["flex", "10px 2 3", "important"].map(|v| JsValue::String(v.into())),
+                    &mut session,
+                    &mut dom,
+                )
+                .unwrap();
+        }
+        for (name, text) in [
+            ("flex-grow", "2"),
+            ("flex-shrink", "3"),
+            ("flex-basis", "10px"),
+            ("width", "5px"),
+        ] {
+            let args = [JsValue::String(name.into())];
+            assert_eq!(
+                StyleGetPropertyValue
+                    .invoke(elem, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(text.into())
+            );
+            let priority = if name == "width" { "" } else { "important" };
+            assert_eq!(
+                StyleGetPropertyPriority
+                    .invoke(elem, &args, &mut session, &mut dom)
+                    .unwrap(),
+                JsValue::String(priority.into())
+            );
+        }
+    }
 }

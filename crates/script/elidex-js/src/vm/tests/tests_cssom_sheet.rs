@@ -842,7 +842,7 @@ fn link_sheet_identity_preserved() {
 fn link_sheet_null_without_loaded_component() {
     // A `<link rel="stylesheet">` whose resource has NOT loaded (no
     // `LinkStylesheet` component) has no associated CSS style sheet —
-    // `link.sheet` is null (HTML §4.6.7 / CSSOM LinkStyle.sheet).
+    // `link.sheet` is null (HTML §4.6.8.23 / CSSOM §6.3.2 LinkStyle.sheet).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -936,7 +936,7 @@ fn document_style_sheets_includes_loaded_link() {
 #[test]
 fn document_style_sheets_link_and_style_in_document_order() {
     // <link> precedes <style> in <head>; document.styleSheets must list
-    // them in tree order (CSSOM §6.8): [0] = link, [1] = style.
+    // them in tree order (CSSOM §6.2): [0] = link, [1] = style.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

@@ -1,7 +1,4 @@
-//! `document.createElement(localName, options)` option-flattening tests
-//! (DOM §4.5 "flatten element creation options" + §4.9 step 6.3 / step
-//! 5.1.3.10) — split out of `tests_custom_elements.rs` per the
-//! 1000-line file rule.
+//! DOM §4.5 element creation options and §4.9 handling of the is value.
 
 #![cfg(feature = "engine")]
 
@@ -98,7 +95,7 @@ fn create_element_is_with_custom_element_registry_throws_not_supported() {
 
 #[test]
 fn sync_autonomous_create_element_nulls_is_value() {
-    // DOM §4.9 create-an-element step 5.1.3.10: when an autonomous
+    // DOM §4.9 create-an-element step 5.1.4.10: when an autonomous
     // definition is already registered, the synchronously created
     // element's is value is null — outerHTML must NOT emit a
     // synthetic is for it. (The async path — definition registered

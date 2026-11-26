@@ -41,10 +41,8 @@ pub struct EcdhPeer {
 /// copied by the VM); `tag_length` is the AES-GCM `octet`; `salt` / `info`
 /// are the HKDF `BufferSource` members (`salt` shared with PBKDF2) and
 /// `iterations` is the PBKDF2 `unsigned long` (WebCrypto §33.3 `HkdfParams`
-/// / §34.3 `Pbkdf2Params`, snapshot-copied by the VM).  Which members the
-/// VM populates is decided by [`crate::params_shape`] for the `(op, name)`
-/// pair (the registry-driven §18.4.4 step-5 recognition gate), so getters
-/// never fire for an unregistered name.
+/// / §34.3 `Pbkdf2Params`, snapshot-copied by the VM). See
+/// [`crate::params_shape`] for member selection after the initial name read.
 #[derive(Clone, Debug, Default)]
 pub struct RawAlgorithm {
     pub name: String,

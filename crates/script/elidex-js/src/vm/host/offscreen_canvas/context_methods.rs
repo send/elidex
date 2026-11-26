@@ -53,18 +53,18 @@ fn rect_args(
 // Each `native_oc_*` is a 5-line dispatch wrapper that brand-checks via
 // `require_offscreen_canvas_2d_context` and forwards to the shared
 // `dispatch_2d_method` generic. WHATWG HTML §4.12.5.1 sub-sections by group:
-//   §4.12.5.1.2 — canvas state stack: save / restore
+//   §4.12.5.1.3 — canvas state stack: save / restore
 //   §4.12.5.1.5 — building paths: beginPath / closePath / moveTo / lineTo /
 //                                  rect / arc
-//   §4.12.5.1.6 — transforms: translate / rotate / scale
+//   §4.12.5.1.8 — transforms: translate / rotate / scale
 //   §4.12.5.1.8 — fill/stroke styles: fillStyle / strokeStyle (accessors)
-//   §4.12.5.1.9 — drawing rectangles: fillRect / strokeRect / clearRect
-//   §4.12.5.1.10 — text: measureText
+//   §4.12.5.1.11 — drawing rectangles: fillRect / strokeRect / clearRect
+//   §4.12.5.1.12 — text: measureText
 //   §4.12.5.1.11 — drawing paths: fill / stroke
 //   §4.12.5.1.13 — compositing: globalAlpha (accessor)
 // ---------------------------------------------------------------------------
 
-/// `save()` (HTML §4.12.5.1.2 — canvas state stack push).
+/// `save()` (HTML §4.12.5.1.3 — canvas state stack push).
 pub(super) fn native_oc_save(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -81,7 +81,7 @@ pub(super) fn native_oc_save(
     Ok(JsValue::Undefined)
 }
 
-/// `restore()` (HTML §4.12.5.1.2 — canvas state stack pop).
+/// `restore()` (HTML §4.12.5.1.3 — canvas state stack pop).
 pub(super) fn native_oc_restore(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -247,7 +247,7 @@ pub(super) fn native_oc_stroke(
     Ok(JsValue::Undefined)
 }
 
-/// `fillRect(x, y, w, h)` (HTML §4.12.5.1.9 — fill a rectangle with fillStyle).
+/// `fillRect(x, y, w, h)` (HTML §4.12.5.1.11 — fill a rectangle with fillStyle).
 pub(super) fn native_oc_fill_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -265,7 +265,7 @@ pub(super) fn native_oc_fill_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `strokeRect(x, y, w, h)` (HTML §4.12.5.1.9 — stroke a rectangle's outline).
+/// `strokeRect(x, y, w, h)` (HTML §4.12.5.1.11 — stroke a rectangle's outline).
 pub(super) fn native_oc_stroke_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -283,7 +283,7 @@ pub(super) fn native_oc_stroke_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `clearRect(x, y, w, h)` (HTML §4.12.5.1.9 — clear a rectangle to transparent black).
+/// `clearRect(x, y, w, h)` (HTML §4.12.5.1.11 — clear a rectangle to transparent black).
 pub(super) fn native_oc_clear_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -301,7 +301,7 @@ pub(super) fn native_oc_clear_rect(
     Ok(JsValue::Undefined)
 }
 
-/// `translate(tx, ty)` (HTML §4.12.5.1.6 — translate the current transform).
+/// `translate(tx, ty)` (HTML §4.12.5.1.8 — translate the current transform).
 pub(super) fn native_oc_translate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -319,7 +319,7 @@ pub(super) fn native_oc_translate(
     Ok(JsValue::Undefined)
 }
 
-/// `rotate(angle)` (HTML §4.12.5.1.6 — rotate the current transform, radians).
+/// `rotate(angle)` (HTML §4.12.5.1.8 — rotate the current transform, radians).
 pub(super) fn native_oc_rotate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -337,7 +337,7 @@ pub(super) fn native_oc_rotate(
     Ok(JsValue::Undefined)
 }
 
-/// `scale(sx, sy)` (HTML §4.12.5.1.6 — scale the current transform).
+/// `scale(sx, sy)` (HTML §4.12.5.1.8 — scale the current transform).
 pub(super) fn native_oc_scale(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -355,7 +355,7 @@ pub(super) fn native_oc_scale(
     Ok(JsValue::Undefined)
 }
 
-/// `measureText(text)` (HTML §4.12.5.1.10 — measure text width).
+/// `measureText(text)` (HTML §4.12.5.1.12 — measure text width).
 /// Returns a `TextMetrics`-shaped object carrying `width` only (full glyph
 /// metrics deferred with text rendering, `#11-canvas-2d-extended-ops`).
 pub(super) fn native_oc_measure_text(

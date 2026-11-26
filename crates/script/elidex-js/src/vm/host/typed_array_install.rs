@@ -5,16 +5,8 @@
 //! (filter / map / reduce / reduceRight / sort / flatMap +
 //! toLocaleString — 28 entries at SP8c-B).
 //!
-//! Hosts the registration `impl VmInner` methods, the per-subclass
-//! dispatch table, and the abstract-ctor + species / toStringTag
-//! accessors — anything that runs only at `Vm::new` and never
-//! again on the hot path.  Element read/write primitives
-//! ([`super::typed_array::read_element_raw`] /
-//! [`super::typed_array::write_element_raw`] /
-//! [`super::typed_array::coerce_element_to_le_bytes`]) and the
-//! generic IDL accessors stay in [`super::typed_array`] alongside
-//! the receiver brand-check helper, since those are reached every
-//! TypedArray indexed access.
+//! Boot installs the registry and accessors. The concrete wrappers, abstract constructor and
+//! species getter defined here also run when invoked after initialization.
 
 #![cfg(feature = "engine")]
 
@@ -59,12 +51,8 @@ impl VmInner {
         self.typed_array_prototype = Some(proto_id);
         self.install_typed_array_prototype_members(proto_id);
 
-        // Abstract `%TypedArray%` constructor (ECMA-262 §23.2.1).
-        // Callable, constructable — but both paths unconditionally
-        // throw TypeError per §23.2.1.1 ("Abstract class TypedArray
-        // not directly constructable").  The function still exists
-        // so `Object.getPrototypeOf(Uint8Array) === %TypedArray%`
-        // holds and so `@@species` can live on it.
+        // The intrinsic always throws TypeError under §23.2.1.1 step 1. The diagnostic
+        // is VM-defined.
         let abstract_ctor =
             self.create_constructable_function("TypedArray", native_abstract_typed_array_ctor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
@@ -82,11 +70,9 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
 
-        // `%TypedArray%[@@species]` accessor — returns `this`
-        // (ECMA-262 §23.2.2.4).  Enables spec-correct species lookup for
-        // allocating methods (`map` / `filter` / `slice` — installed
-        // in C4), though the current minimal method set uses
-        // identity constructor (same subclass as receiver).
+        // The inherited getter returns its receiver. Map and filter consult SpeciesConstructor
+        // and can select another constructor or throw. This VM’s slice and subarray allocate a
+        // built-in view directly.
         let species_getter =
             self.create_native_function("get [Symbol.species]", native_typed_array_species_get);
         self.define_shaped_property(
@@ -550,12 +536,8 @@ typed_array_ctor_wrapper!(native_biguint64_array_ctor, ElementKind::BigUint64);
 // Abstract ctor + species/toStringTag getters
 // ---------------------------------------------------------------------------
 
-/// Abstract `%TypedArray%` constructor (ECMA-262 §23.2.1.1).
-/// Throws TypeError in BOTH call-mode and new-mode — the spec
-/// explicitly forbids direct invocation of the abstract intrinsic
-/// (step 2: `"Abstract class TypedArray not directly
-/// constructable"`).  Subclasses (Uint8Array, …) are the only
-/// allocating entry points.
+/// Step 1 throws TypeError unconditionally. The message comes from the VM. (%TypedArray% ( )
+/// §23.2.1.1.)
 fn native_abstract_typed_array_ctor(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -566,10 +548,9 @@ fn native_abstract_typed_array_ctor(
     ))
 }
 
-/// `get %TypedArray% [ @@species ]` (ECMA-262 §23.2.2.4) — returns `this`.
-/// Allocating methods (`map` / `filter` / `slice`) that use
-/// SpeciesConstructor read this accessor; subclasses inherit it
-/// unchanged, so `Uint8Array[Symbol.species] === Uint8Array`.
+/// The inherited getter returns its receiver. Map and filter consult SpeciesConstructor and
+/// can select another constructor or throw. This VM’s slice and subarray allocate a built-in
+/// view directly.
 fn native_typed_array_species_get(
     _ctx: &mut NativeContext<'_>,
     this: JsValue,

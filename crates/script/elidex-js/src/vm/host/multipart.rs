@@ -1,4 +1,4 @@
-//! `multipart/form-data` body encoder (RFC 7578 / WHATWG XHR §4.3.6).
+//! `multipart/form-data` body encoder (HTML §4.10.22.8, multipart/form-data encoding algorithm).
 //!
 //! Entry point [`encode`] takes a `FormData` entry list + a
 //! `&VmInner` (so it can read `string_pool` and `blob_data`) and
@@ -143,12 +143,12 @@ pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, Strin
 /// `quoted_filename` carry the already-escaped header bytes so the
 /// encode loop never re-escapes.
 struct MaterialisedEntry {
-    /// `name` after RFC 7578 escape (`\r` → `%0D` etc.).  Stored
+    /// `name` after [`header_quote`] escapes the field name. Stored
     /// pre-quoted so the encode loop emits it verbatim and the
     /// boundary-collision scan compares against the form actually
     /// written into the body.
     quoted_name: Vec<u8>,
-    /// `filename` after RFC 7578 escape (when the entry has one).
+    /// `filename` after [`header_quote`] escapes it, when the entry has one.
     quoted_filename: Option<Vec<u8>>,
     /// `Content-Type` line bytes, **not including** the `Content-Type: `
     /// prefix or the trailing `\r\n` — those are written by [`encode`].
@@ -286,10 +286,9 @@ fn byte_slice_contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-/// Apply RFC 7578 header escaping to a name / filename: replace
+/// Escape a field name or filename for the multipart header. Replace
 /// CR / LF / `"` with their `%0D` / `%0A` / `%22` percent-encoded
-/// forms, leaving every other byte untouched (HTML §4.10.22.8
-/// multipart/form-data encoding algorithm: "must not perform any other escapes").
+/// forms, leaving every other byte untouched (HTML §4.10.22.8).
 fn header_quote(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(header_quoted_len(input));
     for &b in input {

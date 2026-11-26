@@ -1,5 +1,5 @@
 //! `CSSStyleSheet` / `CSSRuleList` / `CSSStyleRule` / `StyleSheetList`
-//! prototype install + native method bodies (CSSOM §6.2 / §6.3 / §6.6 / §6.8).
+//! prototype installation and methods (CSSOM §§6.1.2, 6.4.1, 6.4.3 and 6.2.2, respectively).
 //!
 //! Thin bindings to `elidex_dom_api::cssom_sheet` per the CLAUDE.md Layering
 //! mandate — most bodies are a single [`invoke_dom_api`] dispatch or a direct
@@ -13,9 +13,9 @@
 //! ## Wrapper allocators
 //!
 //! - [`VmInner::alloc_or_cached_stylesheet`] — `<style>.sheet` identity
-//!   (`SameObject`) per `<style>` Entity.
+//!   cached per `<style>` entity.
 //! - [`VmInner::alloc_css_rule_list`] — fresh-alloc per `cssRules` access
-//!   (matches WPT identity rules; the rule list is rarely retained).
+//!   although CSSOM §6.1.2 specifies `[SameObject]`.
 //! - [`VmInner::alloc_or_cached_css_style_rule`] — `(<style> Entity, rule_id)`
 //!   identity so `sheet.cssRules[i] === sheet.cssRules[i]`.
 //! - [`VmInner::alloc_or_cached_rule_style`] — `(<style> Entity, rule_id)`
@@ -171,8 +171,8 @@ impl VmInner {
         self.style_sheet_list_prototype = Some(proto);
     }
 
-    /// Allocate (or return cached) `CSSStyleSheet` wrapper for `<style>`
-    /// `owner`.  CSSOM §6.2 `[SameObject]` for `HTMLStyleElement.sheet`.
+    /// Intern the sheet wrapper for a style or loaded stylesheet link element.
+    /// CSSOM §6.3.2 defines the associated sheet returned by `LinkStyle.sheet`.
     pub(crate) fn alloc_or_cached_stylesheet(&mut self, owner: Entity) -> ObjectId {
         self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::StyleSheet), |vm| {
             let proto = vm
@@ -189,8 +189,7 @@ impl VmInner {
         })
     }
 
-    /// Allocate a fresh `CSSRuleList` wrapper.  Not cached (matches WPT
-    /// identity).
+    /// Allocate a fresh `CSSRuleList` wrapper.
     pub(crate) fn alloc_css_rule_list(&mut self, owner: Entity) -> ObjectId {
         let proto = self
             .css_rule_list_prototype
@@ -438,7 +437,7 @@ fn native_sheet_href_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // CSSOM §6.2 `StyleSheet.href`: the location of the style sheet.
+    // CSSOM §6.1.1 `StyleSheet.href`: the location of the style sheet.
     // `<link>`-loaded sheets carry the resolved absolute URL (read from
     // the engine-independent `LinkStylesheet` component via dom-api);
     // `<style>` sheets have no href and return null.
@@ -748,13 +747,12 @@ pub(crate) fn try_indexed_get_style_sheet_list(
     Some(Ok(JsValue::Object(wrapper)))
 }
 
-/// `HTMLStyleElement.prototype.sheet` getter (CSSOM §6.2). Returns the
-/// `[SameObject]` `CSSStyleSheet` wrapper for `<style>`. Foreign
+/// `HTMLStyleElement.prototype.sheet` getter (CSSOM §6.3.2). Returns the
+/// cached `CSSStyleSheet` wrapper for `<style>`. Foreign
 /// receivers (`getter.call(<div>)` etc.) throw `TypeError` per WebIDL
 /// brand-check semantics — `<style>.sheet` is a HTMLStyleElement IDL
 /// member, so the prototype install lives on `html_style_proto.rs`
-/// (slot `#11-tags-T2b-passive`); non-`<style>` elements no longer
-/// have a `sheet` accessor on their prototype chain.
+/// (slot `#11-tags-T2b-passive`). Link elements have their own sheet getter.
 pub(super) fn native_html_style_get_sheet(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -792,9 +790,8 @@ pub(super) fn native_html_style_get_sheet(
 // Document.styleSheets accessor — installed on Document.prototype.
 // ---------------------------------------------------------------------------
 
-/// `Document.prototype.styleSheets` getter (CSSOM §6.8).  Returns a
-/// fresh `StyleSheetList` wrapper; the walker enumerates `<style>`
-/// descendants on each access.
+/// `Document.prototype.styleSheets` getter. CSSOM §6.2.3 specifies
+/// `[SameObject]`. This implementation allocates a fresh list wrapper on each read.
 pub(super) fn native_document_get_style_sheets(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

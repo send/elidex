@@ -23,9 +23,9 @@ fn is_local_scheme(scheme: &str) -> bool {
 /// Strip a URL "for use as a referrer" (W3C Referrer Policy §8.4 steps 3–5):
 /// remove the username, password, and fragment so parent credentials
 /// (`user:pass@`) and fragment secrets (`#…`) never leak into a sub-frame's
-/// `document.referrer`. The step-2 "no referrer" gates (local scheme / opaque
-/// origin) are applied by the sole caller [`compute_referrer`], so this is the
-/// pure serialization step. Mirrors the VM's `Vm::set_navigation_referrer`
+/// `document.referrer`. [`compute_referrer`] checks for a local scheme (§8.4 step 2)
+/// and an opaque document origin (§8.3 step 3, client/Window branch) before
+/// calling this helper. Mirrors the VM's `Vm::set_navigation_referrer`
 /// sanitisation (`elidex-js` `vm/vm_api.rs`) — the `Referer` header and
 /// `document.referrer` share the same exposure surface.
 fn strip_referrer_url(url: &url::Url) -> String {

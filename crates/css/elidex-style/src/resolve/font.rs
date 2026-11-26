@@ -105,7 +105,7 @@ pub(super) fn resolve_font_and_text_properties(
     );
 }
 
-pub(super) fn resolve_font_size(
+pub(crate) fn resolve_font_size(
     winners: &PropertyMap<'_>,
     parent_style: &ComputedStyle,
     ctx: &ResolveContext,
@@ -131,7 +131,7 @@ fn resolve_font_size_value(
             // values (e.g. extremely large percentages). Length and keyword branches
             // are safe: resolve_length() already guards its output, and keyword lookup
             // returns only finite constants from FONT_SIZE_KEYWORD_PX.
-            let result = parent_style.font_size * p / 100.0;
+            let result = elidex_plugin::css_resolve::percentage_of(parent_style.font_size, *p);
             if result.is_finite() {
                 result
             } else {

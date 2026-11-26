@@ -1,14 +1,9 @@
 //! `%TypedArray%.of` / `%TypedArray%.from` static method bodies
 //! (ECMA-262 §23.2.2).
 //!
-//! Both natives are installed on the abstract `%TypedArray%`
-//! constructor — subclass ctors (`Uint8Array`, `Float64Array`, …)
-//! pick them up via the constructor prototype chain
-//! (`Object.getPrototypeOf(Uint8Array) === %TypedArray%`).  At call
-//! time `this` is the calling subclass ctor; we resolve it back
-//! to its [`ElementKind`] via [`ctor_to_element_kind`] (linear
-//! scan over [`super::super::VmInner::subclass_array_ctors`]) and
-//! materialise a fresh subclass instance.
+//! Of and from resolve a constructable receiver through the registered constructor chain, then
+//! allocate a view with the resolved kind and prototype. Map, filter and the VM flatMap
+//! extension reuse the species and allocation helpers.
 //!
 //! ## Scope (SP8a + SP8b)
 //!
@@ -21,7 +16,7 @@
 //!
 //! Species-sensitive instance methods + accumulator HOFs +
 //! `flatMap` land in [`super::typed_array_hof`] (SP8b / SP8c-A /
-//! SP8c-B); the no-Intl `toLocaleString` lands in
+//! SP8c-B); `toLocaleString` lives in
 //! [`super::typed_array_methods`] alongside `join` (SP8c-B).
 
 #![cfg(feature = "engine")]
@@ -65,14 +60,8 @@ pub(super) fn install_typed_array_static_methods(vm: &mut VmInner, abstract_ctor
     );
 }
 
-/// Resolve a constructor `ObjectId` to its `ElementKind` by linear
-/// scan over [`VmInner::subclass_array_ctors`].  Used by
-/// [`native_typed_array_of`] / [`native_typed_array_from`] to
-/// dispatch on `this` when invoked through a subclass ctor inherited
-/// `of` / `from`.  Returns `None` for the abstract `%TypedArray%`
-/// itself (registered separately) and for any other receiver — both
-/// are treated by the callers as a TypeError ("not a TypedArray
-/// constructor").
+/// A registry miss means this node has no registered element kind. Continue the prototype
+/// walk. Report a family error only if the walk ends without a hit.
 fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> {
     vm.subclass_array_ctors
         .iter()
@@ -80,14 +69,9 @@ fn ctor_to_element_kind(vm: &VmInner, ctor_id: ObjectId) -> Option<ElementKind> 
         .and_then(ElementKind::from_index)
 }
 
-/// Walk `BoundFunction` chains to the underlying target, capped at
-/// [`crate::vm::MAX_BIND_CHAIN_DEPTH`] (the same depth rule as
-/// `walk_bound_chain` in `vm/dispatch_class.rs`).  Returns the first
-/// non-`BoundFunction` `ObjectId` encountered; if the chain is too deep, returns the deepest
-/// `BoundFunction` reached (the subsequent prototype walk will
-/// then fail to find a registered TypedArray ctor and produce a
-/// TypeError, matching the spec behavior of rejecting chains
-/// deeper than the runtime cap).
+/// The runtime depth limit belongs to the VM admission predicate. Bound `[[Construct]]`
+/// (§10.4.1.2 steps 5–6) substitutes the target when newTarget is the bound function,
+/// then delegates construction to the target.
 fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
     let mut current = id;
     for _ in 0..=crate::vm::MAX_BIND_CHAIN_DEPTH {
@@ -99,33 +83,11 @@ fn unwrap_bound_chain(vm: &VmInner, id: ObjectId) -> ObjectId {
     current
 }
 
-/// Resolve `this` (the caller of `%TypedArray%.of` / `.from`)
-/// into the destination `(ElementKind, prototype_for_new_instance)`
-/// pair.
-///
-/// For a built-in subclass ctor (`Uint8Array`, `Float64Array`,
-/// …), `ek` comes from the direct `subclass_array_ctors` hit and
-/// the new instance's prototype is the built-in subclass
-/// prototype (`subclass_array_prototypes[ek.index()]`).
-///
-/// For a user-defined subclass (`class Sub extends Uint8Array
-/// {}`), `Sub` itself is not in the registry — we walk the
-/// constructor's `[[Prototype]]` chain to find the nearest
-/// built-in TypedArray ctor (which gives the destination `ek`)
-/// and then read the receiver's own `.prototype` data property
-/// to use as the new instance's prototype (so
-/// `(new Sub.of(...)).constructor === Sub` holds).  The full
-/// spec TypedArrayCreateFromConstructor (ECMA-262 §23.2.4.1)
-/// invokes `Construct(C, ⟨len⟩)` at its step 1 to let `Sub`'s
-/// ctor body run — that step is missing here and is owned by
-/// `#11-vm-typed-array-create-construct`, which constructs
-/// through the construct admission; for the common `class Sub
-/// extends Uint8Array {}` (no ctor override) the bypass is
-/// observably equivalent.
-///
-/// The abstract `%TypedArray%` itself and any other receiver
-/// surface TypeError per §23.2.2.{1,2} step "If IsConstructor(C)
-/// is false, throw".
+/// For an admitted constructor with a linked built-in chain, read its prototype through Get. A
+/// manually linked Sub can yield (Sub.of(...)).constructor === Sub. The VM skips Construct and
+/// its result validation. The abstract intrinsic passes the spec predicate and throws if
+/// constructed. A family miss is a separate VM rejection. The missing constructor invocation
+/// is tracked by `#11-vm-typed-array-create-construct`.
 fn require_subclass_ctor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -150,23 +112,10 @@ fn require_subclass_ctor(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
         )));
     }
-    // `BoundFunction.bind(target)` exposes a wrapper whose
-    // `[[Prototype]]` is `Function.prototype`, NOT the bound
-    // target's prototype chain — so a naive `[[Prototype]]` walk
-    // from the bound wrapper would never find a registered
-    // TypedArray ctor.  Spec `TypedArrayCreate(C, ⟨len⟩)` /
-    // `Construct(C, ⟨len⟩)` unwraps bound chains internally; mirror
-    // that here by replacing `chain_start` with the underlying
-    // target so the walk inspects `Uint8Array.bind(null).of(...)`
-    // as if `Uint8Array` were the receiver.  The original `ctor_id`
-    // is preserved as the `receiver_prototype` source so the new
-    // instance's `[[Prototype]]` still reflects what
-    // `Get(originalCtor, "prototype")` resolves on the bound
-    // wrapper.  In this VM the bound wrapper has no own
-    // `"prototype"` data property (`Function.prototype.bind` in
-    // `natives_function.rs` doesn't install one), so that lookup
-    // currently yields `undefined` and `receiver_prototype` falls
-    // back to the built-in subclass prototype.
+    // TypedArrayCreateFromConstructor (§23.2.4.1 step 1) calls Construct. Bound
+    // `[[Construct]]` (§10.4.1.2) prepends bound arguments in step 4 and delegates
+    // in step 6. The VM unwraps only for kind discovery and reads the original wrapper
+    // prototype. Use Uint8Array.of.call(Bound, ...) for this VM.
     resolve_typed_array_constructor_in_chain(ctx, ctor_id)?.ok_or_else(|| {
         VmError::type_error(format!(
             "Failed to execute '{method}' on 'TypedArray': this is not a TypedArray constructor"
@@ -174,38 +123,9 @@ fn require_subclass_ctor(
     })
 }
 
-/// Walk `ctor_id`'s `[[Prototype]]` chain looking for a registered
-/// built-in TypedArray constructor.  Used by both the static-method
-/// receiver gate ([`require_subclass_ctor`]) and the species
-/// dispatch ([`species_constructor_for_typed_array`]) so the chain
-/// walk and prototype-override resolution stay in lock-step.
-///
-/// Returns `Some((ek, proto_override))` on hit, where:
-/// - `ek` is the destination [`ElementKind`] picked from the chain
-///   match (so `class Sub extends Uint8Array {}` resolves to
-///   `Uint8`).
-/// - `proto_override` comes from `Get(ctor_id, "prototype")` —
-///   always read from the **original** `ctor_id`, NOT the
-///   registered built-in, so user-defined `Sub.prototype` is
-///   preserved and `(Sub.of(...)).constructor === Sub` holds.
-///
-/// `None` on miss (chain ends or cycles before hitting a registered
-/// ctor) — callers translate that into the appropriate TypeError
-/// (`"this is not a TypedArray constructor"` for static dispatch,
-/// `"@@species is not a TypedArray constructor"` for species).
-///
-/// `BoundFunction` chains are unwrapped at the chain start via
-/// [`unwrap_bound_chain`] so `Uint8Array.bind(null).of(...)` walks
-/// from `Uint8Array` directly; the original `ctor_id` is preserved
-/// for the `proto_override` read because `Get(boundFn, "prototype")`
-/// has its own (currently `undefined`) lookup result.
-///
-/// No depth cap — a small visited list catches
-/// `__proto__ = self`-style cycles without imposing an arbitrary
-/// limit on legitimate deep subclass towers.  `Vec<ObjectId>` +
-/// linear `contains` instead of `HashSet` because realistic chains
-/// are 1-3 entries; linear scan beats hashing + heap allocation at
-/// this size.
+/// A constructor explicitly linked to Uint8Array resolves to Uint8. For a bound receiver, use
+/// Uint8Array.of.call(Bound, ...). Instance identity depends on the resolved prototype and its
+/// constructor property. The prototype walk has no depth cap; bound-target admission does.
 fn resolve_typed_array_constructor_in_chain(
     ctx: &mut NativeContext<'_>,
     ctor_id: ObjectId,
@@ -227,38 +147,13 @@ fn resolve_typed_array_constructor_in_chain(
     Ok(None)
 }
 
-/// Resolve `TypedArraySpeciesCreate`'s constructor lookup
-/// (ECMA-262 §23.2.4.3 TypedArraySpeciesCreate + §7.3.22 SpeciesConstructor) for an
-/// existing TypedArray `receiver`.  Returns `(dst_ek,
-/// proto_override)` mirroring [`require_subclass_ctor`]'s shape so
-/// the [`super::typed_array_hof`] map / filter callers can hand
-/// the pair straight to [`create_typed_array_for_length`].
-///
-/// Algorithm:
-/// 1. `C = receiver.[[Get]]("constructor")`.  Undefined → return
-///    [`default_typed_array_pair`] for `default_ek`, which reads
-///    `Get(defaultCtor, "prototype")` so the resulting pair MAY
-///    include a `proto_override` (matching spec
-///    `Construct(defaultCtor, args)` →
-///    `OrdinaryCreateFromConstructor` ordering).
-/// 2. Non-Object `C` → TypeError per spec.
-/// 3. `S = C.[[Get]](@@species)`.  Undefined / null → return the
-///    same default pair (the inherited `%TypedArray%[@@species]`
-///    getter returns `this`, so the common path lands here when
-///    the receiver's constructor is a built-in subclass).
-/// 4. Non-Object / non-constructor `S` → TypeError per spec.
-/// 5. Walk `S`'s `[[Prototype]]` chain via
-///    [`resolve_typed_array_constructor_in_chain`].  Hit → return
-///    `(ek, S.prototype)`; miss → TypeError ("species is not a
-///    TypedArray constructor") — a deliberate over-reject of the
-///    spec, which would `Construct(S, ⟨len⟩)` to honour a true
-///    user-defined ctor (TypedArraySpeciesCreate).  That missing
-///    `Construct` is owned by `#11-vm-typed-array-create-construct`;
-///    for `class Sub extends Uint8Array {}` (no ctor body) the
-///    chain-walk bypass is observably equivalent.
-///
-/// Both `[[Get]]` calls run user accessors / proxy traps and may
-/// throw — propagated as abrupt completions, not swallowed.
+/// SpeciesConstructor steps 2 and 5 select the default. The inherited species getter returns
+/// this and takes the explicit constructor branch. For a built-in, Construct reaches
+/// AllocateTypedArray and GetPrototypeFromConstructor. The VM approximates this using its
+/// family walk and original-constructor prototype read. Linked subclass identity does not
+/// establish execution of its constructor or species result validation.
+/// (TypedArraySpeciesCreate §23.2.4.3.) The missing constructor invocation is tracked by
+/// `#11-vm-typed-array-create-construct`.
 pub(super) fn species_constructor_for_typed_array(
     ctx: &mut NativeContext<'_>,
     receiver: ObjectId,
@@ -299,28 +194,10 @@ pub(super) fn species_constructor_for_typed_array(
     })
 }
 
-/// Resolve the species default-fallback `(ek, proto_override)`
-/// pair for `default_ek` when `SpeciesConstructor` returns the
-/// default constructor (per ECMA-262 §7.3.22 step 2 / step 5 — receiver
-/// `.constructor` undefined, or species `@@species` undefined /
-/// null).  Per spec, `TypedArrayCreate(defaultConstructor, args)`
-/// runs `Construct(defaultCtor, args)` →
-/// `OrdinaryCreateFromConstructor` → `Get(defaultCtor,
-/// "prototype")`, so a user override on the built-in ctor's
-/// `.prototype` slot would be observable.  Built-in TypedArray
-/// `.prototype` data properties are non-configurable + non-writable
-/// in this engine, so the lookup always returns the cached value
-/// in practice — the `Get` round-trip preserves observability for
-/// the (currently unreachable) user-mutation path and matches the
-/// `require_subclass_ctor` "always resolve from original ctor"
-/// policy (typed_array_static.rs original-receiver pattern).
-///
-/// Returns `Ok((default_ek, None))` when the registry slot is
-/// empty (very early init, before
-/// `register_typed_array_subclass` finishes) — the
-/// `create_typed_array_for_length` caller's `or_else` then uses
-/// the cached subclass prototype.  An exception thrown from the
-/// `Get` accessor propagates per spec.
+/// TypedArraySpeciesCreate step 3 invokes TypedArrayCreateFromConstructor. Its Construct step
+/// enters the built-in constructor. AllocateTypedArray steps 1–2 call
+/// GetPrototypeFromConstructor and TypedArrayCreate(proto). The former reads prototype at step
+/// 2. The VM reads the registered constructor directly. (TypedArraySpeciesCreate §23.2.4.3.)
 fn default_typed_array_pair(
     ctx: &mut NativeContext<'_>,
     default_ek: ElementKind,
@@ -332,25 +209,10 @@ fn default_typed_array_pair(
     Ok((default_ek, proto_override))
 }
 
-/// Read `ctor.prototype` via spec `Get(C, "prototype")`
-/// semantics — invokes a user-defined accessor (getter), honours
-/// inherited `.prototype` properties.  Returns `Some(p)` only
-/// when the get yields an Object; non-Object / missing values
-/// return `Ok(None)`, leaving the prototype-fallback decision to
-/// the single caller ([`create_typed_array_for_length`]) so the
-/// fallback policy lives in one place rather than being
-/// duplicated across both helpers (Copilot R14 lesson).  An
-/// exception thrown from the accessor (or from any inherited
-/// proxy trap) is propagated as an abrupt completion per spec,
-/// NOT swallowed — silent fallback would mask user errors.
-///
-/// Used by the user-subclass branch of [`require_subclass_ctor`]
-/// so `(class Sub extends Uint8Array {}).of(1, 2).constructor ===
-/// Sub` holds even when `Sub.prototype` is a getter rather than a
-/// plain data property.
-///
-/// `&mut NativeContext<'_>` because `get_property_value` may fire
-/// the user getter (which can run arbitrary JS).
+/// Read the selected constructor’s prototype as in GetPrototypeFromConstructor step 2. Return
+/// an optional object to both resolution paths. create_typed_array_for_length consumes that
+/// result. Linked test constructors can preserve Sub.prototype. (GetPrototypeFromConstructor
+/// §10.1.14.)
 fn receiver_prototype(
     ctx: &mut NativeContext<'_>,
     ctor_id: ObjectId,
@@ -362,21 +224,10 @@ fn receiver_prototype(
     }
 }
 
-/// Allocate a fresh `<ek>Array(len)`-shaped TypedArray instance:
-/// new buffer of `len * bpe` bytes, fresh view at `byte_offset = 0`
-/// covering the whole buffer.  Approximates the spec's
-/// `TypedArrayCreateFromConstructor(constructor, ⟨len⟩)` (ECMA-262 §23.2.4.1).
-///
-/// `proto_override` selects the new instance's `[[Prototype]]`:
-/// `Some(p)` uses `p` directly — this is the usual result of
-/// [`receiver_prototype`], including for ordinary built-in
-/// TypedArray ctors whose `.prototype` resolves to an Object,
-/// AND for user subclasses where `p = Sub.prototype` so
-/// `(Sub.of(...)).constructor === Sub`.  `None` falls back to
-/// the built-in subclass prototype for `ek`, which can happen
-/// when [`receiver_prototype`] resolves a missing / non-Object
-/// `.prototype` value (e.g. a contrived
-/// `Object.defineProperty(Sub, 'prototype', {value: 42})`).
+/// Approximate TypedArrayCreateFromConstructor by allocating a fresh zero-offset view. Use an
+/// object obtained from Get on the admitted constructor, with the cached built-in fallback for
+/// a missing or non-object prototype. A manually linked Sub with the matching
+/// prototype.constructor preserves identity.
 pub(super) fn create_typed_array_for_length(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -385,11 +236,9 @@ pub(super) fn create_typed_array_for_length(
 ) -> Result<ObjectId, VmError> {
     let bpe = u32::from(ek.bytes_per_element());
     let byte_len = len.checked_mul(bpe).ok_or_else(|| {
-        // "Failed to construct" matches the existing TypedArray
-        // ctor convention in `typed_array_ctor.rs` for length /
-        // byte-length overflow — `create_typed_array_for_length`
-        // is the static-method equivalent of `TypedArrayCreate`,
-        // which is itself a `Construct` operation.
+        // The VM directly approximates TypedArrayCreateFromConstructor. Multiplying length by
+        // element width overflowed the VM byte-length slot. Use the constructor helper’s
+        // RangeError convention.
         VmError::range_error(format!(
             "Failed to construct '{}': length too large",
             ek.name()
@@ -426,14 +275,10 @@ pub(super) fn create_typed_array_for_length(
     Ok(view_id)
 }
 
-/// `%TypedArray%.of(...items)` (ECMA-262 §23.2.2.2).
-///
-/// Allocates `new this(items.length)` and writes each `items[k]`
-/// into the new TypedArray's `[k]` slot via the spec-mandated
-/// per-element coerce ([`super::typed_array::write_element_raw`]).
-/// `this` must be a built-in TypedArray subclass constructor —
-/// the abstract `%TypedArray%` and any other receiver throws
-/// TypeError ("If IsConstructor(C) is false").
+/// Of steps 3–4 check IsConstructor and call TypedArrayCreateFromConstructor. The VM accepts
+/// constructable receivers whose linked chain reaches a registered constructor and allocates
+/// directly. The abstract constructor throws on construction in the spec. (%TypedArray%.of
+/// §23.2.2.2.)
 pub(crate) fn native_typed_array_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -471,17 +316,10 @@ pub(crate) fn native_typed_array_of(
     Ok(JsValue::Object(view_id))
 }
 
-/// `%TypedArray%.from(source, mapFn?, thisArg?)` (ECMA-262 §23.2.2.1).
-///
-/// Iterates `source` (callable `@@iterator` first, falling back
-/// to the array-like `length` + integer-indexed `[[Get]]` path),
-/// optionally applies `mapFn(value, index)` per element with
-/// `thisArg` as the callback's `this`, and writes the (possibly
-/// mapped) values into a freshly allocated subclass instance whose
-/// length matches the consumed element count.
-///
-/// `this` must be a built-in TypedArray subclass constructor;
-/// `mapFn`, if present, must be callable.
+/// From step 2 checks IsConstructor; the VM also requires a registered family ancestor.
+/// Undefined mapper disables mapping. For iterables the VM maps during collection, while step
+/// 6 drains, constructs, then maps. For array-like sources it obtains length, allocates, then
+/// reads/maps/writes. (%TypedArray%.from §23.2.2.1.)
 pub(crate) fn native_typed_array_from(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -541,10 +379,9 @@ pub(crate) fn native_typed_array_from(
         );
     }
 
-    // Array-like fallback (§23.2.2.1 step 8.b): read `source.length`
-    // → `ToLength` → drain `source[0..length]` through the shared
-    // property path.  `null` / `undefined` source surfaces a
-    // TypeError via `coerce::to_object`.
+    // Step 8 calls ToObject (§7.1.20), preserving an object source and boxing a non-nullish
+    // primitive. Step 9 obtains length, step 10 creates the target and step 12 reads/maps/writes. This VM rejects nullish explicitly here; the spec fails
+    // earlier at GetMethod for nullish source. (%TypedArray%.from §23.2.2.1.)
     let source_obj = match source {
         JsValue::Object(id) => id,
         JsValue::Null | JsValue::Undefined => {
@@ -583,21 +420,9 @@ pub(crate) fn native_typed_array_from(
     )
 }
 
-/// Materialise a fresh `<ek>Array` of length `elems_len`, then read
-/// `source_obj[0..elems_len]` lazily, optionally apply `map_fn`,
-/// and write each value directly through the destination's
-/// `[[Set]]` coercion.  Allocate-then-loop preserves the
-/// spec-observable ordering for `%TypedArray%.from`'s array-like
-/// path (ECMA-262 §23.2.2.1 step 8.d): `TypedArrayCreate(C, ⟨len⟩)` runs
-/// BEFORE any per-index `Get(arrayLike, k)` or `mapFn` side effect,
-/// so a length-overflow `RangeError` from
-/// [`create_typed_array_for_length`] fires first — matching the
-/// existing `init_from_array_like` behaviour in
-/// `typed_array_ctor.rs`.
-///
-/// The destination view is rooted on `vm.stack` across the loop
-/// so it stays live over GC points introduced by `get_element` /
-/// callback invocation / element writes.
+/// Step 10 calls TypedArrayCreateFromConstructor; the VM allocates directly and can fail its
+/// byte-length check before step 12 indexed reads or mapper calls. (%TypedArray%.from
+/// §23.2.2.1.)
 fn allocate_and_write_view_from_array_like(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -633,16 +458,9 @@ fn allocate_and_write_view_from_array_like(
     Ok(JsValue::Object(view_id))
 }
 
-/// Materialise a fresh `<ek>Array` of length `elems_len` and copy
-/// each value through the destination's `[[Set]]` coercion.  Lives
-/// inside the source-drain stack scope so the source values
-/// (`ctx.vm.stack[elem_start..elem_start + elems_len]`) stay
-/// rooted across the `alloc_object` GC point in
-/// [`create_typed_array_for_length`] and the per-element
-/// [`write_element_raw`] loop.  Reads from the rooted stack
-/// range directly — no intermediate `Vec` clone (`JsValue` is
-/// `Copy`, so the per-element `let value = ...` snapshot ends
-/// before the next mutable borrow).
+/// Copy values collected by the VM drain to the allocated destination via write_element_raw.
+/// From step 6.e uses TypedArraySetElement. This VM may already have mapped the values.
+/// (%TypedArray%.from §23.2.2.1.)
 fn allocate_and_write_view(
     ctx: &mut NativeContext<'_>,
     ek: ElementKind,
@@ -699,10 +517,9 @@ fn allocate_and_write_view(
 /// **above** `elem_start + elems_len` and shrink back on guard
 /// drop, so the rooted element range is undisturbed.
 ///
-/// IteratorClose (§7.4.11) runs on `map_fn` abrupt completion
-/// before the stack scope drops, so the iterator's `.return()`
-/// observes a still-rooted iter; `iter_next` throw is spec-exempt
-/// and propagates without close.
+/// The VM maps during drain and closes on mapper error. From step 6.a exhausts the iterator
+/// before allocation or mapping, so mapper failure does not close it. (%TypedArray%.from
+/// §23.2.2.1.)
 fn with_drained_iterator_on_stack<R, F>(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,
@@ -743,10 +560,9 @@ fn drain_iterator_loop(
             match ctx.call_function(fn_id, this_arg, &[value, idx]) {
                 Ok(v) => v,
                 Err(e) => {
-                    // §7.4.11 IteratorClose: a throw from `mapFn` is
-                    // an abrupt completion of the for-of-like body;
-                    // close the iterator before propagating.  A
-                    // throw from `.return()` itself wins.
+                    // VM-only early mapping closes the iterator here. From step 6.e maps after
+                    // exhaustion. IteratorClose step 5 preserves an incoming throw if closing
+                    // also throws. (%TypedArray%.from §23.2.2.1.)
                     return Err(close_iterator_with_precedence(ctx, iter_val, e));
                 }
             }
@@ -758,23 +574,10 @@ fn drain_iterator_loop(
     Ok(())
 }
 
-/// Resolve `source`'s `@@iterator` method to a `JsValue` per spec
-/// `GetMethod(ToObject(source), @@iterator)` (§7.3.10): `null` /
-/// `undefined` source returns `Undefined` immediately (no
-/// iterator); every other value (`Object`, `String`, `Number`,
-/// `Boolean`, `BigInt`, `Symbol`) is boxed via `ToObject` so
-/// prototype-installed iterators on **any** primitive's wrapper
-/// prototype are honoured (e.g. user-defined
-/// `Number.prototype[Symbol.iterator]`).
-///
-/// `resolve_property(prop, source)` keeps the **original**
-/// `source` as the receiver passed to a `@@iterator` accessor,
-/// matching `GetV` semantics — the wrapper is a transient lookup
-/// vehicle, not the `this` binding of any user getter.
-///
-/// The single `get_property` + `resolve_property` pair preserves
-/// the spec's "read once" behaviour — a user getter on
-/// `@@iterator` is invoked exactly once between probe and call.
+/// From step 5 calls GetMethod(source, %Symbol.iterator%). GetV uses ToObject (§7.1.20)
+/// for lookup: an object keeps its identity and a non-nullish primitive is boxed.
+/// The original source is the receiver. This helper returns undefined for nullish sources and the caller
+/// reports TypeError later. (GetMethod §7.3.10.)
 fn lookup_iterator_method(
     ctx: &mut NativeContext<'_>,
     source: JsValue,
@@ -790,9 +593,8 @@ fn lookup_iterator_method(
     }
 }
 
-/// Close `iter_val` via `.return()` and surface the higher-
-/// precedence error — a throw from `.return()` wins over the
-/// triggering abrupt completion (§7.4.11 IteratorClose step 6-7).
+/// This VM gives a close error precedence. IteratorClose step 5 retains the incoming throw.
+/// From does its mapping after exhaustion. (IteratorClose §7.4.11.)
 fn close_iterator_with_precedence(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,

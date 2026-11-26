@@ -198,17 +198,16 @@ fn ctor_bigint_from_bigint_array_ok() {
 #[test]
 fn ctor_string_primitive_goes_through_tonumber() {
     let mut vm = Vm::new();
-    // `new Uint8Array("abc")` — String primitive is NOT an Object,
-    // so takes the ToNumber branch.  ToNumber("abc") → NaN →
-    // ToIndex(NaN) → 0.  Spec §23.2.5.1 step 6.
+    // The primitive string enters the length branch. Step 9 calls ToIndex; conversion of abc
+    // produces NaN and a zero element length. (TypedArray ( ...args ) §23.2.5.1.)
     assert_eq!(eval_number(&mut vm, "new Uint8Array(\"abc\").length;"), 0.0);
 }
 
 #[test]
 fn ctor_mixes_bigint_typed_array_to_number_throws() {
     let mut vm = Vm::new();
-    // BigInt64Array → Uint8Array copy must TypeError (content-type
-    // mismatch, §23.2.5.1.2 step 17).
+    // Different element types with incompatible content types throw TypeError under step 11.b.
+    // (InitializeTypedArrayFromTypedArray §23.2.5.1.2.)
     assert!(eval_bool(
         &mut vm,
         "var src = new BigInt64Array(2); var ok = false; \
@@ -301,9 +300,8 @@ fn subclass_ctor_chains_to_abstract_typed_array() {
 #[test]
 fn abstract_typed_array_ctor_throws_on_call() {
     let mut vm = Vm::new();
-    // `%TypedArray%()` — call-mode invocation throws TypeError
-    // per ECMA-262 §23.2.1.1 ("Abstract class TypedArray not directly
-    // constructable").
+    // Step 1 throws TypeError. The VM supplies its own diagnostic text; the test checks the
+    // exception type. (%TypedArray% ( ) §23.2.1.1.)
     assert!(eval_bool(
         &mut vm,
         "var ok = false; \
@@ -441,7 +439,7 @@ fn uint8_wraps_overflow() {
 #[test]
 fn uint8_clamped_rounds_ties_to_even() {
     let mut vm = Vm::new();
-    // IEEE 754 roundTiesToEven per §7.1.11 — NOT round-half-up.
+    // ToUint8Clamp (§7.1.14 steps 5–9) rounds ties to even.
     //   0.5 → 0, 1.5 → 2, 2.5 → 2, 3.5 → 4, 4.5 → 4.
     assert_eq!(
         eval_number(
@@ -562,7 +560,7 @@ fn float64_roundtrip_exact() {
 fn bigint64_write_number_throws_type_error() {
     let mut vm = Vm::new();
     // Writing a Number to BigInt64Array throws per strict ToBigInt
-    // (§7.1.13 / §10.4.5.16 step 1).
+    // (§7.1.15 Table 12 and §10.4.5.18 step 1).
     assert!(eval_bool(
         &mut vm,
         "var a = new BigInt64Array(1); var ok = false; \
@@ -589,7 +587,7 @@ fn bigint64_write_bigint_ok() {
 #[test]
 fn bigint64_write_string_coerces() {
     let mut vm = Vm::new();
-    // String "123" → ToBigInt → 123n (ECMA-262 §7.1.14 accepts strings).
+    // String "123" → ToBigInt → 123n (ECMA-262 §7.1.15 Table 12 calls StringToBigInt).
     assert_eq!(
         eval_string(
             &mut vm,
@@ -604,7 +602,7 @@ fn bigint64_write_string_coerces() {
 fn out_of_range_read_returns_undefined() {
     let mut vm = Vm::new();
     // `u8[5]` on a length-3 array returns undefined, does NOT
-    // walk the prototype chain (ECMA-262 §10.4.5.17 step 3).
+    // walk the prototype chain (ECMA-262 §10.4.5.17 step 1).
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] === undefined;"
@@ -614,9 +612,8 @@ fn out_of_range_read_returns_undefined() {
 #[test]
 fn out_of_range_write_is_no_op() {
     let mut vm = Vm::new();
-    // `u8[5] = 99` on a length-3 array silently no-ops (ES
-    // §10.4.5.16) — does NOT create an own property, does NOT
-    // throw.
+    // The index remains absent. Known VM P4 defect: the VM returns before
+    // converting the RHS (§10.4.5.18 steps 1–3). Literal 99 masks the difference.
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] = 99; \
@@ -627,10 +624,9 @@ fn out_of_range_write_is_no_op() {
 #[test]
 fn non_canonical_string_key_falls_through_to_prototype() {
     let mut vm = Vm::new();
-    // Leading-zero numeric string "01" is NOT a Canonical Numeric
-    // Index String per §23.2.2, so falls through to prototype
-    // lookup.  Writing stores an ordinary own property; reading
-    // sees it.  No indexed-element interception.
+    // CanonicalNumericIndexString (§7.1.23 steps 2–4) returns undefined
+    // for "01" because the number 1 converts back to "1". The write
+    // and read therefore access an ordinary property.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -667,7 +663,7 @@ fn views_over_same_buffer_share_bytes() {
 fn uint16_view_over_uint8_buffer_reads_little_endian() {
     let mut vm = Vm::new();
     // Uint8Array [1, 0] = Uint16 value 1 under LE encoding
-    // (elidex choice per module header — IsLittleEndian() = true).
+    // (the VM sets the agent’s [[LittleEndian]] field to true).
     assert_eq!(
         eval_number(
             &mut vm,
@@ -678,8 +674,7 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
         ),
         1.0
     );
-    // Sanity: [0x80, 0x3f] = 1.0 as f32 (IEEE 754 LE) — ties
-    // the written spec-divergence disclaimer.
+    // The same byte order decodes [0, 0, 0x80, 0x3f] as Float32 1.0.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -692,18 +687,8 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// `[Constructor]` gate regression — every TypedArray subclass ctor is
-// installed via `create_constructor_only_function` (ECMA-262 §23.2.6,
-// `register_typed_array_subclass`), so bare-call on each fires the
-// canonical `CallShape::ConstructorOnly` TypeError at the dispatch
-// site.  Plan-memo `m4-12-pr-vm-native-constructor-only-flag-plan.md`
-// §5 site #56 fans out to all 11 subclasses; each needs its own
-// regression assertion per the plan-memo §6 "full coverage" mandate.
-// The abstract `%TypedArray%` is `Ordinary` (call-and-construct both
-// throw inside per §23.2.1.1) so isn't a `ConstructorOnly` site and
-// is intentionally excluded.
-// ---------------------------------------------------------------------------
+// The 11 concrete constructors reject bare calls under §23.2.5.1 step 1. The abstract
+// intrinsic throws in either mode under §23.2.1.1 step 1.
 
 #[test]
 fn typed_array_ctor_requires_new_uint8() {

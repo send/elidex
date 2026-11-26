@@ -57,7 +57,7 @@ pub(super) fn native_number_to_string(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §21.1.3.6 step 3 (SnapToInteger, §7.1.6): radix defaults to 10;
+    // §21.1.3.6 steps 2–3: an undefined radix defaults to 10;
     // if specified, truncate FIRST, then range-check the integer value in
     // [2, 36].  `36.1` must truncate to 36 and be accepted; `36.5` likewise;
     // +Infinity and values outside the range throw RangeError.
@@ -175,7 +175,7 @@ pub(super) fn native_number_to_fixed(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = this_number_value(ctx, this)?;
-    // §21.1.3.3 step 4: ToIntegerOrInfinity then range-check.
+    // ECMA-262 §21.1.3.3 steps 2–5 convert and validate the fraction digit count.
     let digits = {
         let arg = args.first().copied().unwrap_or(JsValue::Number(0.0));
         let d = super::coerce::to_number(ctx.vm, arg)?;
@@ -196,7 +196,7 @@ pub(super) fn native_number_to_fixed(
             raw as usize
         }
     };
-    // Non-finite values return their toString representation (§21.1.3.3 step 5-6).
+    // Non-finite values return their toString representation (§21.1.3.3 step 6).
     let s = if n.is_nan() {
         "NaN".to_string()
     } else if n.is_infinite() {
@@ -206,7 +206,7 @@ pub(super) fn native_number_to_fixed(
             "-Infinity".to_string()
         }
     } else if n == 0.0 {
-        // §21.1.3.3 step 7: -0 formats as "0.000..."
+        // §21.1.3.3 steps 7–9 give either zero an empty sign.
         format!("{:.digits$}", 0.0_f64)
     } else {
         format!("{n:.digits$}")
@@ -224,7 +224,7 @@ pub(super) fn native_number_to_exponential(
 ) -> Result<JsValue, VmError> {
     // §21.1.3.2: step 1 — ThisNumberValue
     let n = this_number_value(ctx, this)?;
-    // step 2 — ToInteger(fractionDigits) before non-finite check
+    // Step 2 converts fractionDigits with ToIntegerOrInfinity.
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let fraction_digits = if arg == JsValue::Undefined {
         None
@@ -240,11 +240,12 @@ pub(super) fn native_number_to_exponential(
         #[allow(clippy::cast_sign_loss)]
         Some(digits as usize)
     };
-    // step 3-4 — non-finite
+    // Step 4 handles a non-finite receiver before the range checks in steps 5–6.
+    // The VM checks the range above.
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
-    // §21.1.3.2 step 5: sign handling. -0 is not < 0, so no sign.
+    // §21.1.3.2 steps 7–9 leave the sign empty for negative zero.
     // Use abs() to normalize -0 to +0 for formatting.
     let (sign, x) = if n < 0.0 { ("-", -n) } else { ("", n.abs()) };
     let raw = match fraction_digits {
@@ -271,7 +272,7 @@ pub(super) fn native_number_to_precision(
     if arg == JsValue::Undefined {
         return native_number_to_string(ctx, this, &[]);
     }
-    // step 3 — ToIntegerOrInfinity(precision) + RangeError
+    // Step 3 converts precision with ToIntegerOrInfinity.
     let p = super::coerce::to_number(ctx.vm, arg)?;
     // ToIntegerOrInfinity: NaN → 0
     let precision = if p.is_nan() { 0.0 } else { p.trunc() };
@@ -280,7 +281,9 @@ pub(super) fn native_number_to_precision(
             "toPrecision() argument must be between 1 and 100",
         ));
     }
-    // step 4-5 — non-finite
+    // Known VM P4 defect: the range check above throws before this return.
+    // ECMA-262 §21.1.3.5 step 4 handles non-finite receivers before
+    // steps 5–6 validate the precision range.
     if n.is_nan() || n.is_infinite() {
         return native_number_to_string(ctx, this, &[]);
     }
@@ -351,7 +354,7 @@ fn fix_exponential_sign(s: &str) -> String {
 }
 
 /// Format a number with a given number of significant digits (for toPrecision).
-/// Implements ECMA-262 Number.prototype.toPrecision (§21.1.3.5) steps 7-15.
+/// See ECMA-262 §21.1.3.5 (`Number.prototype.toPrecision`) for the formatting rules.
 /// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
 /// floating-point imprecision near powers of 10).
 fn format_significant_digits(n: f64, precision: usize) -> String {
@@ -380,7 +383,7 @@ fn format_significant_digits(n: f64, precision: usize) -> String {
     let mantissa = &exp_str[..e_pos];
     let digits: String = mantissa.chars().filter(|&c| c != '.').collect();
 
-    // Number.prototype.toPrecision (§21.1.3.5) step 11.c: exponential notation if e >= p or e < -6
+    // Number.prototype.toPrecision (§21.1.3.5) step 11.3: exponential notation if e >= p or e < -6
     #[allow(clippy::cast_possible_wrap)]
     let p_i32 = p as i32;
     let formatted = if e >= p_i32 || e < -6 {

@@ -588,7 +588,7 @@ pub(crate) struct VmInner {
     /// `selectorText` accessors and `style` accessor.
     #[cfg(feature = "engine")]
     pub(crate) css_style_rule_prototype: Option<ObjectId>,
-    /// `StyleSheetList.prototype` (CSSOM §6.8) — `length` accessor +
+    /// `StyleSheetList.prototype` (CSSOM §6.2.2) — `length` accessor +
     /// `item` method.
     #[cfg(feature = "engine")]
     pub(crate) style_sheet_list_prototype: Option<ObjectId>,
@@ -645,27 +645,26 @@ pub(crate) struct VmInner {
     /// `register_selection_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) selection_prototype: Option<ObjectId>,
-    /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
+    /// `Storage.prototype` (WHATWG HTML §12.2.1).  Chains to
     /// `Object.prototype` and carries `getItem` / `setItem` /
     /// `removeItem` / `clear` / `key` / `length`.  `None` until
     /// `register_storage_global()` runs during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) storage_prototype: Option<ObjectId>,
-    /// `StorageEvent.prototype` (WHATWG HTML §11.4.2).  Chains to
+    /// `StorageEvent.prototype` (WHATWG HTML §12.2.4).  Chains to
     /// `Event.prototype`.  `None` until
     /// `register_storage_event_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) storage_event_prototype: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.localStorage`
-    /// (`[SameObject]` per WebIDL — same `ObjectId` returned across
-    /// reads for the lifetime of one bind cycle).  Cleared on
-    /// `Vm::unbind` to avoid cross-origin data leaking through a
-    /// retained reference after a rebind to a different document.
+    /// Local storage wrapper cache for one bind cycle. The engine uses
+    /// `with_bound` to bind and unbind around each batch (such as event
+    /// dispatch). Unbind clears both storage wrapper caches, even when
+    /// the next batch uses the same document. This makes wrapper identity
+    /// shorter-lived than the Document's holders in HTML §§12.2.2–12.2.3
+    /// (`#11-storage-holder-document-lifetime`).
     #[cfg(feature = "engine")]
     pub(crate) storage_local_instance: Option<ObjectId>,
-    /// Cached `Storage` wrapper for `window.sessionStorage` —
-    /// mirror of [`Self::storage_local_instance`].  Cleared on
-    /// `Vm::unbind`.
+    /// Session storage counterpart of [`Self::storage_local_instance`].
     #[cfg(feature = "engine")]
     pub(crate) storage_session_instance: Option<ObjectId>,
     /// `Crypto.prototype` (WebCrypto §10).  Chains to
@@ -864,7 +863,7 @@ pub(crate) struct VmInner {
     /// and `relList`.
     #[cfg(feature = "engine")]
     pub(crate) html_area_prototype: Option<ObjectId>,
-    /// `HTMLImageElement.prototype` (HTML §4.8.4).  Carries
+    /// `HTMLImageElement.prototype` (HTML §4.8.3).  Carries
     /// DOMString reflect (`alt`, `src`, `srcset`, `sizes`, `useMap`),
     /// enumerated reflect (`crossOrigin`, `referrerPolicy`,
     /// `decoding`, `loading`, `fetchpriority`), boolean reflect
@@ -880,13 +879,12 @@ pub(crate) struct VmInner {
     /// `text` accessor (textContent alias).
     #[cfg(feature = "engine")]
     pub(crate) html_script_prototype: Option<ObjectId>,
-    /// `HTMLLinkElement.prototype` (HTML §4.6.7).  Carries
+    /// `HTMLLinkElement.prototype` (HTML §4.2.4).  Carries
     /// DOMString reflect (`href`, `media`, `hreflang`, `type`,
     /// `integrity`, `imageSrcset`, `imageSizes`, `as`), enumerated
     /// reflect (`crossOrigin`, `referrerPolicy`, `fetchpriority`),
     /// boolean reflect (`disabled`), the `relList` and `sizes`
-    /// DOMTokenLists, and a `sheet` stub (`null`, pending defer slot
-    /// `#11-link-stylesheet-loading`).
+    /// DOMTokenLists, and a `sheet` getter for the associated stylesheet.
     #[cfg(feature = "engine")]
     pub(crate) html_link_prototype: Option<ObjectId>,
     /// `HTMLCanvasElement.prototype` (HTML §4.12.5).  Carries
@@ -1001,8 +999,8 @@ pub(crate) struct VmInner {
     pub(crate) html_quote_prototype: Option<ObjectId>,
     /// `HTMLOListElement.prototype` (HTML §4.4.5).  Carries
     /// `reversed` (boolean), `start` (long, default 1), and `type`
-    /// (DOMString limited-to-only-known-values: `1` / `a` / `A` /
-    /// `i` / `I`, case-sensitive match per spec).  Deprecated
+    /// (reflected DOMString). The VM currently filters `type` through
+    /// its five case-sensitive marker keywords. Deprecated
     /// `compact` deferred.
     #[cfg(feature = "engine")]
     pub(crate) html_olist_prototype: Option<ObjectId>,
@@ -1119,7 +1117,7 @@ pub(crate) struct VmInner {
     /// double IDL) + `labels` stub.
     #[cfg(feature = "engine")]
     pub(crate) html_meter_prototype: Option<ObjectId>,
-    /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
+    /// `HTMLFormControlsCollection.prototype` (HTML §2.6.4.2) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a
     /// prototype chained to `HTMLCollection.prototype` with a
@@ -1130,7 +1128,7 @@ pub(crate) struct VmInner {
     /// when the proper register fn lands.
     #[cfg(feature = "engine")]
     pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
-    /// `HTMLOptionsCollection.prototype` (HTML §4.10.10.2) —
+    /// `HTMLOptionsCollection.prototype` (HTML §2.6.4.3) —
     /// reserved-not-yet-registered slot.  Will host the mutable
     /// surface (`length` setter / `add` / `remove` / `selectedIndex`)
     /// when the `#11-options-collection-mutable-surface` defer slot
@@ -1138,7 +1136,7 @@ pub(crate) struct VmInner {
     /// [`Self::html_form_controls_collection_prototype`].
     #[cfg(feature = "engine")]
     pub(crate) html_options_collection_prototype: Option<ObjectId>,
-    /// `ValidityState.prototype` (HTML §4.10.20.3).  Plain Object
+    /// `ValidityState.prototype` (HTML §4.10.21.3).  Plain Object
     /// prototype with 11 boolean accessor methods that read from
     /// `elidex_form::validate_control` directly.
     #[cfg(feature = "engine")]
@@ -1493,17 +1491,16 @@ pub(crate) struct VmInner {
     /// UA-dispatch `transition` shape).
     #[cfg(feature = "engine")]
     pub(crate) transition_event_prototype: Option<ObjectId>,
-    /// `CloseEvent.prototype` (WHATWG HTML §10.4 — paired with
-    /// WebSocket / EventSource close).  Chains to
+    /// `CloseEvent.prototype` (WebSockets §6). Chains to
     /// [`event_prototype`].  Adds `code` / `reason` / `wasClean`
     /// own-data slots (reuses the UA-dispatch `close_event` shape).
     #[cfg(feature = "engine")]
     pub(crate) close_event_prototype: Option<ObjectId>,
-    /// `SubmitEvent.prototype` (HTML §4.10.21.5.5).  Chains to
+    /// `SubmitEvent.prototype` (HTML §4.10.22.10).  Chains to
     /// [`event_prototype`].  Adds `submitter` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) submit_event_prototype: Option<ObjectId>,
-    /// `FormDataEvent.prototype` (HTML §4.10.21.5.4).  Chains to
+    /// `FormDataEvent.prototype` (HTML §4.10.22.11).  Chains to
     /// [`event_prototype`].  Adds `formData` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) formdata_event_prototype: Option<ObjectId>,
@@ -1572,44 +1569,40 @@ pub(crate) struct VmInner {
     /// [`mouse_event_prototype`].  Adds `dataTransfer` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) drag_event_prototype: Option<ObjectId>,
-    /// `TouchEvent.prototype` (Touch Events §5.5).  Chains to
+    /// `TouchEvent.prototype` (Touch Events §5).  Chains to
     /// [`ui_event_prototype`].  Adds 7 own-data slots (3 TouchLists +
     /// 4 modifier flags).
     #[cfg(feature = "engine")]
     pub(crate) touch_event_prototype: Option<ObjectId>,
-    /// `Touch.prototype` (Touch Events §5.6).  Chains to
+    /// `Touch.prototype` (Touch Events §3).  Chains to
     /// `Object.prototype`.  All accessors read from
     /// [`Self::touch_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_prototype: Option<ObjectId>,
-    /// `TouchList.prototype` (Touch Events §5.6).  Chains to
-    /// `Object.prototype`.  Length getter + indexed exotic +
-    /// `item(idx)` method backed by [`Self::touch_list_states`].
+    /// `TouchList.prototype` (Touch Events §4).  Chains to
+    /// `Object.prototype`.  The `length` getter and `item(idx)` method read
+    /// from [`Self::touch_list_states`].
     #[cfg(feature = "engine")]
     pub(crate) touch_list_prototype: Option<ObjectId>,
-    /// `DataTransfer.prototype` (HTML DnD §6.2).  Chains to
-    /// `Object.prototype`.  Holds the 4 enum-string accessors
-    /// (dropEffect / effectAllowed) + 3 `[SameObject]` accessors
-    /// (items / files / types) + 4 mutator methods (getData / setData
-    /// / clearData / setDragImage).  Mutable instance state in
+    /// `DataTransfer.prototype` (HTML §6.11.3). Instance state lives in
     /// [`Self::data_transfer_states`].
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_prototype: Option<ObjectId>,
-    /// `DataTransferItem.prototype` (HTML DnD §6.3).  Chains to
+    /// `DataTransferItem.prototype` (HTML §6.11.3.2).  Chains to
     /// `Object.prototype`.  Holds the `kind` / `type` accessors +
     /// `getAsString(cb)` / `getAsFile()` methods.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_item_prototype: Option<ObjectId>,
-    /// `DataTransferItemList.prototype` (HTML DnD §6.3).  Chains to
+    /// `DataTransferItemList.prototype` (HTML §6.11.3.1).  Chains to
     /// `Object.prototype`.  Holds the `length` accessor +
     /// `add(...)` / `remove(idx)` / `clear()` methods, plus an
     /// indexed exotic `[[GetOwnProperty]]` for `list[i]`.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_item_list_prototype: Option<ObjectId>,
-    /// Per-`DataTransfer` mutable state (HTML DnD §6.2).  Keyed by
+    /// Per-`DataTransfer` mutable state (HTML §6.11.3).  Keyed by
     /// the instance's `ObjectId`.  Holds the dropEffect / effectAllowed
     /// enum values (as `u8` indices), the ordered entry list, the
-    /// `[SameObject]` wrapper caches for `items` / `files`, and the
+    /// wrapper caches for `items` / `files`, and the
     /// optional drag-image (entity_bits + x/y offsets).
     ///
     /// GC contract: the trace step fans out via the wrappers and
@@ -1618,16 +1611,16 @@ pub(crate) struct VmInner {
     /// tail prunes entries whose key was collected.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
-    /// Per-`Touch` instance state (Touch Events §5.6).  Keyed by the
-    /// instance's `ObjectId`.  All 12 IDL members live here as
-    /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
+    /// Per-`Touch` instance state (Touch Events §3).  Keyed by the
+    /// instance's `ObjectId`.  Stores the attributes implemented by
+    /// [`host::events_modern::TouchState`].
     ///
     /// GC contract: trace marks the state entry's `target`
     /// `ObjectId`.  Sweep tail prunes entries whose key was
     /// collected.
     #[cfg(feature = "engine")]
     pub(crate) touch_states: HashMap<ObjectId, host::events_modern::TouchState>,
-    /// Per-`TouchList` instance state (Touch Events §5.6).  Keyed
+    /// Per-`TouchList` instance state (Touch Events §4).  Keyed
     /// by the instance's `ObjectId`.  Holds the ordered Vec of
     /// member `Touch` ObjectIds.
     ///
@@ -2649,15 +2642,12 @@ pub(crate) struct VmInner {
     /// IDs cleared before firing — skipped at drain time.
     pub(crate) cancelled_timers: HashSet<u32>,
     /// Monotonic reference point for `performance.now()` and
-    /// `Event.timeStamp` (WHATWG DOM §2.2 / HR-Time §5).  Set once at
+    /// `Event.timeStamp` (DOM §2.5 / HR-Time §7.1).  Set once at
     /// `Vm::new`; both APIs return `self.start_instant.elapsed()` in
     /// milliseconds with sub-ms precision.  Sharing a single
     /// `Instant` guarantees `event.timeStamp` and `performance.now()`
     /// observed inside the same listener are directly comparable
     /// (spec requirement — the time origin is the same).
-    ///
-    /// Consumed by `performance.now()` and `Event.timeStamp` —
-    /// HR-Time §5 requires the two to share a time origin.
     ///
     /// Engine-only: both consumers (`performance.now`, `Event.timeStamp`)
     /// live behind `#[cfg(feature = "engine")]`, so gating the field
