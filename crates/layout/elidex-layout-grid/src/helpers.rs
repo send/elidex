@@ -39,6 +39,7 @@ pub(crate) fn collect_grid_items(
     let mut items = Vec::new();
     for (i, &child) in children.iter().enumerate() {
         let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
+            // #11-intrinsic-contribution-producer: visible text still needs an anonymous grid item.
             continue; // Text node — skip.
         };
         if child_style.display == Display::None {
@@ -557,6 +558,7 @@ pub fn compute_grid_intrinsic(
     // Expand track lists (use 0.0 as available space for intrinsic sizing).
     let col_section = style.grid_template_columns.expand_with_names(0.0, 0.0);
     let row_section = style.grid_template_rows.expand_with_names(0.0, 0.0);
+    // #11-intrinsic-contribution-producer: area-defined tracks are missing from the intrinsic count.
     let explicit_cols = col_section.tracks.len();
     let explicit_rows = row_section.tracks.len();
 
@@ -654,6 +656,7 @@ pub fn compute_grid_intrinsic(
     let min_content = track::total_track_size(&col_tracks, gap);
     for track in &mut col_tracks {
         // With no contributions an unbounded growth limit adds no content.
+        // #11-intrinsic-contribution-producer: an unrelated item can leave an empty fr track unbounded.
         if !items.is_empty() || track.limit.is_finite() {
             track.size = track.limit.max(track.base);
         }

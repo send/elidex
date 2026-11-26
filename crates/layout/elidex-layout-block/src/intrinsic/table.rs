@@ -58,6 +58,7 @@ pub(super) fn compute_table_intrinsic(
     // Colspan-aware intrinsic sizing: spanning cells distribute their intrinsic
     // width equally across spanned columns.
     for &row in &rows {
+        // #11-intrinsic-contribution-producer: leading whitespace can count as a table column.
         let cells = participating_children(dom, row);
         let mut col_idx = 0;
         for &cell in &cells {

@@ -123,6 +123,7 @@ pub(crate) fn max_content_width(
         return 0.0;
     }
     let style = crate::get_style(dom, entity);
+    // #11-intrinsic-contribution-producer: float and positioned sizing miss an empty grid’s own tracks.
     let children = crate::composed_children_flat(dom, entity);
     if children.is_empty() {
         return 0.0;

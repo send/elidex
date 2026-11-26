@@ -53,6 +53,7 @@ pub(super) fn compute_block_intrinsic(
             max_content: max.max(inline_max),
         }
     } else {
+        // #11-intrinsic-contribution-producer: text-only measurement drops atomic inline contributions.
         // Pure inline children.
         IntrinsicSizes {
             min_content: inline::min_content_inline_size(

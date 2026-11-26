@@ -53,6 +53,37 @@ impl AxisSizing {
     }
 }
 
+/// Fit an auto inline content box within the available margin-box space
+/// (CSS Sizing 3 §2). Percentage edges keep their containing-block reference.
+pub fn fit_inline_content(
+    style: &ComputedStyle,
+    input: &LayoutInput<'_>,
+    available: f32,
+    inner: &crate::IntrinsicSizes,
+) -> f32 {
+    let horizontal = style.writing_mode.is_horizontal();
+    let (padding, border, margin) = crate::resolve_box_model(style, input.containing_inline_size);
+    let margin = input.assigned.margins(margin);
+    let (pb, margins) = if horizontal {
+        (
+            padding.horizontal() + border.horizontal(),
+            margin.horizontal(),
+        )
+    } else {
+        (padding.vertical() + border.vertical(), margin.vertical())
+    };
+    let room = (available - pb - margins).max(0.);
+    let fitted = crate::intrinsic::shrink_to_fit_width(inner, room);
+    let reference = if horizontal {
+        input
+            .containing_width_definite
+            .then_some(input.containing.width)
+    } else {
+        input.containing.height
+    };
+    AxisSizing::new(style, horizontal).constrained(fitted, reference.unwrap_or(0.), pb, false)
+}
+
 /// CSS Grid 2 §6.2. The grid supplies stretch intent and intrinsic measurements.
 /// The item's formatter resolves these against the definite grid area.
 #[derive(Debug, Clone, Copy)]

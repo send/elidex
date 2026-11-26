@@ -104,23 +104,21 @@ fn shrink_to_fit_input<'a>(
         && inline_size == elidex_plugin::Dimension::Auto
     {
         let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
-        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
-        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, available_inline);
-        Some(LayoutInput {
-            containing: if horizontal {
-                CssSize {
-                    width: stf,
-                    ..input.containing
-                }
-            } else {
-                CssSize {
-                    height: Some(stf),
-                    ..input.containing
-                }
-            },
-            containing_inline_size: stf,
-            ..*input
-        })
+        let inner = elidex_layout_block::intrinsic::inner_intrinsic_sizes(
+            dom,
+            entity,
+            &env,
+            elidex_layout_grid::compute_grid_intrinsic,
+        );
+        let mut fitted = *input;
+        let extent =
+            elidex_layout_block::block::fit_inline_content(style, input, available_inline, &inner);
+        if horizontal {
+            fitted.assigned.content.width = Some(extent);
+        } else {
+            fitted.assigned.content.height = Some(extent);
+        }
+        Some(fitted)
     } else {
         None
     }

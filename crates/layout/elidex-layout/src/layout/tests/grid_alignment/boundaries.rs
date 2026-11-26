@@ -445,3 +445,74 @@ fn nodes_without_in_flow_boxes_do_not_add_intrinsic_gaps() {
         assert_eq!(lb.content.size.width, 40.);
     }
 }
+
+#[test]
+fn vertical_grid_percentage_references_survive_inline_sizing() {
+    use elidex_layout_block::{FragmentainerContext, FragmentationType, LayoutEnv};
+    use elidex_plugin::TrackSize;
+    let env = LayoutEnv {
+        font_db: &FONTS,
+        layout_child: dispatch_layout_child,
+        depth: 0,
+        viewport: Some(Size::new(300., 500.)),
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
+        layout_generation: 0,
+        is_probe: false,
+    };
+    let page = FragmentainerContext {
+        available_block_size: 500.,
+        fragmentation_type: FragmentationType::Page,
+    };
+    for paged in [false, true] {
+        let input = LayoutInput {
+            containing: CssSize::definite(300., 500.),
+            containing_inline_size: 300.,
+            fragmentainer: paged.then_some(&page),
+            depth: 0,
+            is_probe: false,
+            ..LayoutInput::probe(&env, 300.)
+        };
+        let mut dom = EcsDom::new();
+        let mut style = ComputedStyle {
+            display: Display::InlineGrid,
+            writing_mode: WritingMode::VerticalRl,
+            width: Dimension::Length(90.),
+            grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                TrackSize::Length(57.),
+            ])),
+            ..Default::default()
+        };
+        style.padding.top = Dimension::Percentage(10.);
+        let grid = add(&mut dom, None, style);
+        dispatch_layout_child(&mut dom, grid, &input);
+        assert_eq!(get_layout(&dom, grid).padding.top, 30.);
+
+        for reference in [None, Some(200.)] {
+            let height_for = |height| {
+                let mut dom = EcsDom::new();
+                let grid = add(
+                    &mut dom,
+                    None,
+                    ComputedStyle {
+                        display: Display::Grid,
+                        writing_mode: WritingMode::VerticalRl,
+                        height,
+                        ..Default::default()
+                    },
+                );
+                let input = LayoutInput {
+                    containing: CssSize {
+                        width: 300.,
+                        height: reference,
+                    },
+                    available_height_if_indefinite: Some(200.),
+                    ..input
+                };
+                dispatch_layout_child(&mut dom, grid, &input);
+                get_layout(&dom, grid).content.size.height
+            };
+            let expected = reference.map_or_else(|| height_for(Dimension::Auto), |h| h / 2.);
+            assert_eq!(height_for(Dimension::Percentage(50.)), expected);
+        }
+    }
+}

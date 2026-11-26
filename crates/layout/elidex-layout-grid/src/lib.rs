@@ -159,17 +159,21 @@ pub fn layout_grid(
         let inline_h = {
             let available = input.available_height().unwrap_or(containing_inline);
             let auto_val = (available - v_pb - v_margin).max(0.0);
-            let mut h = elidex_layout_block::sanitize(
-                elidex_layout_block::resolve_dimension_value(style.height, available, auto_val),
-            );
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                if let elidex_plugin::Dimension::Length(_)
-                | elidex_plugin::Dimension::Percentage(_) = style.height
-                {
-                    h = (h - v_pb).max(0.0);
+            let explicit = match style.height {
+                elidex_plugin::Dimension::Length(px) => Some(px),
+                elidex_plugin::Dimension::Percentage(pct) => {
+                    containing_height.map(|height| height * pct / 100.)
                 }
-            }
-            h
+                elidex_plugin::Dimension::Auto => None,
+            };
+            explicit.map_or(auto_val, |height| {
+                let height = elidex_layout_block::sanitize(height);
+                if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                    (height - v_pb).max(0.)
+                } else {
+                    height
+                }
+            })
         };
         // Block available = content_width (physical width = block direction).
         (
@@ -244,6 +248,7 @@ pub fn layout_grid(
     let row_section = row_track_list.expand_with_names(block_available.unwrap_or(0.0), gap_row);
     let expanded_cols = &col_section.tracks;
     let expanded_rows = &row_section.tracks;
+    // #11-intrinsic-contribution-producer: area-defined tracks are missing from the layout count.
     let explicit_cols = expanded_cols.len();
     let explicit_rows = expanded_rows.len();
 
@@ -555,6 +560,7 @@ pub fn layout_grid(
         (content_width, block_available.unwrap_or(total_row_size))
     } else {
         // Vertical: width = block-size (row tracks), height = inline-size
+        // #11-intrinsic-contribution-producer: vertical used widths can escape min/max limits.
         let block_size = block_available.unwrap_or(total_row_size);
         (block_size, container_inline_size)
     };

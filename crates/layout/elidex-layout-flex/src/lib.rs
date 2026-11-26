@@ -347,6 +347,7 @@ pub fn layout_flex(
     let resolve_gap = |dim: elidex_plugin::Dimension| {
         elidex_layout_block::resolve_dimension_value(dim, content_width, 0.0).max(0.0)
     };
+    // #11-intrinsic-contribution-producer: vertical flex placement interchanges row and column gaps.
     let (gap_main, gap_cross) = if horizontal {
         (resolve_gap(style.column_gap), resolve_gap(style.row_gap))
     } else {

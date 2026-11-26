@@ -11,7 +11,7 @@ mod margin;
 mod replaced;
 mod sizing;
 use sizing::AxisSizing;
-pub use sizing::GridItemSizing;
+pub use sizing::{fit_inline_content, GridItemSizing};
 
 #[cfg(test)]
 #[allow(unused_must_use)]

@@ -920,7 +920,8 @@ fn first_child_dispatch_uses_published_display_through_contents() {
                 entity: item,
                 formatter: std::any::type_name_of_val(&elidex_layout_flex::layout_flex),
                 incoming_width: 200.,
-                effective_width: width,
+                containing_width: 200.,
+                assigned_width: (display == Display::InlineFlex).then_some(width),
                 shrink_to_fit: display == Display::InlineFlex,
             })
         );
