@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(style.flex_direction, FlexDirection::Row);
         assert_eq!(style.flex_wrap, FlexWrap::Nowrap);
         assert_eq!(style.justify_content, JustifyContent::Normal);
-        assert_eq!(style.align_items, AlignItems::Stretch);
+        assert_eq!(style.align_items, AlignItems::Normal);
         assert_eq!(style.align_content, AlignContent::Normal);
         assert_eq!(style.flex_grow, 0.0);
         assert_eq!(style.flex_shrink, 1.0);
