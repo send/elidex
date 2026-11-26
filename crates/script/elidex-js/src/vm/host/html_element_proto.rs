@@ -624,12 +624,9 @@ fn native_enter_key_hint_set(
 
 // ---- contentEditable / isContentEditable ----
 //
-// WHATWG §6.7.3: `contentEditable` is a DOMString enumerated
-// reflecting the content attribute; missing value is `"inherit"`,
-// invalid is also treated as the missing-state per spec (§6.7.3.2).
-// `isContentEditable` is a readonly boolean that resolves the
-// effective state by walking ancestors — spec inherits from
-// `<html>` (which defaults to `false`).
+// HTML §6.8.1 maps missing and invalid content attribute values to "inherit".
+// Getter defect (#11-contenteditable-idl-accessors): the empty attribute has
+// the True state and must yield "true". The keyword lookup yields "inherit".
 fn native_content_editable_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -649,6 +646,10 @@ fn native_content_editable_set(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Setter defect (#11-contenteditable-idl-accessors): this stores the string
+    // verbatim. HTML §6.8.1 matches keywords ASCII case-insensitively, removes
+    // the attribute for "inherit", writes "true", "false" or "plaintext-only"
+    // in lowercase, and throws a SyntaxError DOMException for any other value.
     string_reflect_set(ctx, this, args, "contentEditable", "contenteditable")
 }
 
@@ -658,7 +659,8 @@ fn native_is_content_editable_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "isContentEditable")?;
-    // HTML §6.7.3 ancestor-walk algorithm hoisted to elidex-dom-api
+    // HTML §6.8.1 tests whether the element is an editing host or editable.
+    // The VM delegates its ancestor walk to elidex-dom-api
     // per the architectural Layering mandate (slot
     // `#11-tags-T1-v2-drift-hoist` D-5).
     let value = elidex_dom_api::element::is_content_editable(ctx.host().dom(), entity);

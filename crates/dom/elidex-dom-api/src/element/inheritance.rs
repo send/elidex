@@ -9,20 +9,16 @@
 
 use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 
-/// Resolve the effective `isContentEditable` state for `entity`
-/// (HTML §6.7.3 — `contentEditable` IDL attribute).
+/// Resolve `isContentEditable` for `entity` (HTML §6.8.1).
 ///
-/// Walks ancestors looking for the first **present** `contenteditable`
-/// content-attribute on the chain:
+/// The walker checks the element and its ancestors for a `contenteditable`
+/// attribute. It recognizes the empty string, `true` and `plaintext-only` as
+/// editable, matching keywords ASCII case-insensitively. An explicit `false`
+/// stops the walk. Reaching the root without an attribute returns `false`.
 ///
-/// - `"true"` / `"plaintext-only"` / `""` → editable (`true`)
-/// - any other present value (incl. `"false"` and invalid garbage) →
-///   non-editable (`false`); short-circuits the ancestor walk
-/// - **absent attribute on this node** → continue walking the parent
-///   chain
-///
-/// Root with no `contenteditable` along the chain inherits `false`
-/// (spec default for `<html>`).
+/// Defect (#11-contenteditable-invalid-keyword-inherits): the walker also
+/// stops at an invalid keyword and returns `false`. HTML §6.8.1 gives invalid
+/// and missing values the Inherit state, so both should continue the walk.
 ///
 /// Ancestor walk is capped at [`MAX_ANCESTOR_DEPTH`] parent-edges to
 /// defend against pathological trees.  The entity's own attribute is
@@ -30,14 +26,6 @@ use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 /// and including `MAX_ANCESTOR_DEPTH` is reachable, anything beyond
 /// inherits `false`.  Mirrors the sibling walker convention in
 /// [`crate::element::is_option_disabled`].
-///
-/// **Known spec divergence (HTML §6.7.3.2)**: the spec maps invalid
-/// values to the *inherit* state, but this walker preserves the
-/// historical VM behaviour of treating any present non-matching
-/// value as explicit `false`. Pinned by the regression test
-/// `unknown_value_short_circuits_as_false_diverging_from_spec`.
-/// Comparison is ASCII-case-insensitive per WHATWG attribute-value
-/// parsing rules.
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
     if let Some(b) = match_contenteditable(dom, entity) {
@@ -146,15 +134,9 @@ mod tests {
 
     #[test]
     fn unknown_value_short_circuits_as_false_diverging_from_spec() {
-        // KNOWN SPEC DIVERGENCE: HTML §6.7.3.2 maps invalid values to
-        // the inherit state (i.e. a child with garbage SHOULD fall
-        // through to its ancestor's resolution).  This walker
-        // currently treats any non-matching string ("bogus") as
-        // "explicit false" because the inner closure returns
-        // `Some(false)` and short-circuits the ancestor walk —
-        // mirroring the historical VM behaviour preserved by the
-        // hoist.  Spec compliance is deferred; this test pins the
-        // current behaviour so a future fix is observable.
+        // HTML §6.8.1 gives the child the Inherit state, so it should inherit
+        // the editable parent. This assertion records the current early return
+        // (#11-contenteditable-invalid-keyword-inherits).
         let (dom, entities) = dom_with_chain(&[Some("true"), Some("bogus")]);
         let leaf = *entities.last().unwrap();
         assert!(!is_content_editable(&dom, leaf));
