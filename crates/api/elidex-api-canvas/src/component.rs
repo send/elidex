@@ -39,10 +39,10 @@ pub fn canvas_dimensions(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 /// one at the entity's current attribute-derived dimensions if absent (the lazy
 /// `getContext('2d')` allocation). No-op when one already exists. Returns `true`
 /// if a context is now present; `false` only if the component insertion fails
-/// (a non-live entity). Zero dimensions are clamped per axis
-/// (#11-canvas-zero-dimension-bitmap). Allocation failure produces a VM-defined
-/// 1×1 substitute (#11-canvas-bitmap-allocation-failure-substitute), so a
-/// successful insertion can yield dimensions different from the attributes.
+/// (a non-live entity). Each zero axis is floored to 1
+/// (#11-canvas-zero-dimension-bitmap). If the backend rejects the bitmap size,
+/// the VM uses the 1×1 substitute documented at [`make_context`]
+/// (#11-canvas-bitmap-allocation-failure-substitute).
 pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
     if dom.world().get::<&Canvas2dContext>(entity).is_ok() {
         return true;
@@ -53,17 +53,17 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
         .is_ok()
 }
 
-/// Floor each zero dimension at 1 because tiny-skia requires a nonempty
-/// `Pixmap`. A requested 0×4 becomes 1×4 (#11-canvas-zero-dimension-bitmap).
+/// Defect (#11-canvas-zero-dimension-bitmap): tiny-skia needs a nonempty
+/// `Pixmap`, so the VM-defined floor turns a requested 0×4 into 1×4.
 pub(crate) fn bitmap_dim(n: u32) -> u32 {
     n.max(1)
 }
 
 /// Allocate a context at the requested dimensions, with the per-axis floor
 /// from [`bitmap_dim`] (#11-canvas-zero-dimension-bitmap).
-/// Defect (#11-canvas-bitmap-allocation-failure-substitute): if the requested
-/// bitmap cannot be allocated, the VM substitutes a 1×1 bitmap whose natural
-/// dimensions differ from the dimensions derived from the canvas attributes.
+/// Defect (#11-canvas-bitmap-allocation-failure-substitute): when the backend
+/// rejects the bitmap size, the VM-defined 1×1 substitute gives the bitmap
+/// dimensions different from the caller's requested dimensions.
 pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
     Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height))
         .unwrap_or_else(|| Canvas2dContext::new(1, 1).expect("1×1 bitmap is always allocatable"))
@@ -76,12 +76,11 @@ pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
 /// algorithm, two callers — no Drift-class strangler middle state.
 ///
 /// Returns `true` if a reset occurred, `false` if the entity has no
-/// [`Canvas2dContext`]. Tests check this result; production callers ignore it.
+/// [`Canvas2dContext`]. Callers discard the return value.
 /// The reset applies the per-axis zero floor
 /// (#11-canvas-zero-dimension-bitmap) and marks the canvas dirty for re-sync.
-/// Defect (#11-canvas-bitmap-allocation-failure-substitute): when allocation
-/// fails, the VM replaces the old bitmap with a 1×1 bitmap regardless of the
-/// requested dimensions.
+/// Defect (#11-canvas-bitmap-allocation-failure-substitute): when the backend rejects
+/// the requested bitmap size, the VM resets to its VM-defined 1×1 substitute.
 ///
 /// The (`Canvas2dContext`) XOR (`PlaceholderCanvas`) mutex is NOT asserted
 /// here because both can legitimately be absent on a freshly-spawned
@@ -395,7 +394,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "4", "4");
         ensure_context(&mut dom, e);
-        // Failed allocation replaces the prior 4×4 bitmap with the VM-defined
+        // The backend rejects this width, so reset replaces the prior 4×4 with the VM-defined
         // 1×1 substitute (#11-canvas-bitmap-allocation-failure-substitute).
         dom.set_attribute(e, "width", "4294967295");
         let mut rec = CanvasReconciler;
@@ -420,7 +419,7 @@ mod tests {
     fn ensure_context_huge_dims_fall_back_to_one() {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "4294967295", "4294967295");
-        // Initial allocation uses the same 1×1 substitute on failure
+        // The backend rejects these dimensions, triggering the same 1×1 substitute
         // (#11-canvas-bitmap-allocation-failure-substitute).
         assert!(ensure_context(&mut dom, e));
         assert_eq!(
