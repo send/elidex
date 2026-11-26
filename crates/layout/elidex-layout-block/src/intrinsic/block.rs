@@ -4,7 +4,7 @@ use crate::{
     get_style, inline, resolve_dimension_value, total_gap, IntrinsicSizes, LayoutEnv, LayoutInput,
 };
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{Display, FlexDirection, FlexWrap, WritingModeContext};
+use elidex_plugin::{FlexDirection, FlexWrap, WritingModeContext};
 
 use super::compute_intrinsic_sizes;
 
@@ -31,15 +31,13 @@ pub(super) fn compute_block_intrinsic(
         let deeper = env.deeper();
         for &child in children {
             let child_sizes = compute_intrinsic_sizes(dom, child, &deeper, grid);
-            let child_style = get_style(dom, child);
-            let margin = crate::resolve_margins(&child_style, 0.);
-            let outer = if style.writing_mode.is_horizontal() {
-                margin.horizontal()
-            } else {
-                margin.vertical()
-            };
-            min = min.max(child_sizes.min_content + outer);
-            max = max.max(child_sizes.max_content + outer);
+            let outer = with_inline_margins(
+                child_sizes,
+                &get_style(dom, child),
+                style.writing_mode.is_horizontal(),
+            );
+            min = min.max(outer.min_content);
+            max = max.max(outer.max_content);
         }
         // Also check inline content mixed in.
         let inline_min =
@@ -90,7 +88,7 @@ pub(super) fn compute_flex_intrinsic(
     };
     let nowrap = matches!(style.flex_wrap, FlexWrap::Nowrap);
 
-    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env, grid);
+    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env, grid, horizontal_wm);
 
     if child_sizes_list.is_empty() {
         return IntrinsicSizes::default();
@@ -146,23 +144,33 @@ pub(super) fn compute_flex_intrinsic(
     }
 }
 
-/// Collect per-child intrinsic sizes, filtering `display:none` and probing text nodes.
-pub(super) fn collect_child_intrinsic_sizes(
+fn with_inline_margins(
+    mut sizes: IntrinsicSizes,
+    style: &elidex_plugin::ComputedStyle,
+    horizontal_inline: bool,
+) -> IntrinsicSizes {
+    let margins = crate::resolve_margins(style, 0.);
+    let inline = if horizontal_inline {
+        margins.horizontal()
+    } else {
+        margins.vertical()
+    };
+    sizes.min_content += inline;
+    sizes.max_content += inline;
+    sizes
+}
+
+/// Collect per-child intrinsic sizes, including fixed inline margins and probing text nodes.
+fn collect_child_intrinsic_sizes(
     dom: &mut EcsDom,
     children: &[Entity],
     env: &LayoutEnv<'_>,
     grid: super::GridIntrinsicFn,
+    horizontal_inline: bool,
 ) -> Vec<IntrinsicSizes> {
     let mut result = Vec::new();
     for &child in children {
-        let child_style = crate::try_get_style(dom, child);
-        if child_style
-            .as_ref()
-            .is_some_and(|s| s.display == Display::None)
-        {
-            continue;
-        }
-        if child_style.is_none() {
+        let Some(style) = crate::try_get_style(dom, child) else {
             // Text node: measure via probe layout.
             let probe_min = probe_layout_size(dom, child, 1.0, env);
             let probe_max = probe_layout_size(dom, child, 1e6, env);
@@ -171,8 +179,9 @@ pub(super) fn collect_child_intrinsic_sizes(
                 max_content: probe_max,
             });
             continue;
-        }
-        result.push(compute_intrinsic_sizes(dom, child, &env.deeper(), grid));
+        };
+        let sizes = compute_intrinsic_sizes(dom, child, &env.deeper(), grid);
+        result.push(with_inline_margins(sizes, &style, horizontal_inline));
     }
     result
 }

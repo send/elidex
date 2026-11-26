@@ -258,7 +258,7 @@ fn measure_in_area<'a>(
     item: &GridItem,
     env: &LayoutEnv<'a>,
     rect: elidex_plugin::Rect,
-    subgrid: Option<&'a SubgridContext>,
+    subgrid: Option<&SubgridContext>,
     is_horizontal_wm: bool,
     style: &elidex_plugin::ComputedStyle,
 ) -> (LayoutInput<'a>, LayoutBox) {
@@ -307,11 +307,18 @@ fn measure_in_area<'a>(
         item_context: elidex_layout_block::ItemContext::GridArea(sizing),
         containing: area,
         containing_inline_size: item_inline_size,
-        subgrid,
         offset: rect.origin,
         ..LayoutInput::probe(env, area_width)
     };
-    let mut prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
+    let mut prelim_lb = (env.layout_child)(
+        dom,
+        item.entity,
+        &LayoutInput {
+            subgrid,
+            ..prelim_input
+        },
+    )
+    .layout_box;
     let sizing = elidex_layout_block::block::GridItemSizing {
         intrinsic: Size {
             width: Some(prelim_lb.content.size.width),
@@ -343,45 +350,42 @@ pub(crate) fn position_items(
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
     let content_y = placement.content_origin.y;
-    // Check if any item needs baseline alignment (CSS Grid §10.6).
-    let has_baseline = items
-        .iter()
-        .any(|i| i.align == AlignItems::Baseline || i.justify == JustifyItems::Baseline);
+    let measure = |dom: &mut EcsDom, item: &GridItem, rect| {
+        let style = elidex_layout_block::get_style(dom, item.entity);
+        let subgrid = placement.child_subgrid(item, &style);
+        let (input, lb) = measure_in_area(
+            dom,
+            item,
+            env,
+            rect,
+            subgrid.as_ref(),
+            is_horizontal_wm,
+            &style,
+        );
+        (input, lb, subgrid)
+    };
+    let mut baseline_items = HashMap::new();
 
     // Per-row/column baselines for baseline alignment (CSS Grid §10.6).
     let mut row_baselines: HashMap<usize, f32> = HashMap::new();
     let mut col_baselines: HashMap<usize, f32> = HashMap::new();
 
-    if has_baseline {
-        // Pass 1: preliminary layout for baseline-aligned items to collect baselines.
-        // CSS Grid §10.6: items spanning more than one track do not participate
-        // in baseline sharing groups.
-        for item in items {
-            let align_bl = item.align == AlignItems::Baseline && item.row_span == 1;
-            let justify_bl = item.justify == JustifyItems::Baseline && item.col_span == 1;
-            if !align_bl && !justify_bl {
-                continue;
-            }
-            let style = elidex_layout_block::get_style(dom, item.entity);
-            let subgrid = placement.child_subgrid(item, &style);
-            let (_, lb) = measure_in_area(
-                dom,
-                item,
-                env,
-                placement.area(item),
-                subgrid.as_ref(),
-                is_horizontal_wm,
-                &style,
-            );
-            if align_bl {
-                let entry = row_baselines.entry(item.row_start).or_insert(0.0);
-                *entry = entry.max(item_baseline(&lb, !is_horizontal_wm));
-            }
-            if justify_bl {
-                let entry = col_baselines.entry(item.col_start).or_insert(0.0);
-                *entry = entry.max(item_baseline(&lb, is_horizontal_wm));
-            }
+    for item in items {
+        let align_bl = item.align == AlignItems::Baseline && item.row_span == 1;
+        let justify_bl = item.justify == JustifyItems::Baseline && item.col_span == 1;
+        if !align_bl && !justify_bl {
+            continue;
         }
+        let measured = measure(dom, item, placement.area(item));
+        if align_bl {
+            let entry = row_baselines.entry(item.row_start).or_insert(0.0);
+            *entry = entry.max(item_baseline(&measured.1, !is_horizontal_wm));
+        }
+        if justify_bl {
+            let entry = col_baselines.entry(item.col_start).or_insert(0.0);
+            *entry = entry.max(item_baseline(&measured.1, is_horizontal_wm));
+        }
+        baseline_items.insert(item.entity, measured);
     }
 
     for item in items {
@@ -398,17 +402,9 @@ pub(crate) fn position_items(
         };
         // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
         // formatter fits its content box in that area before alignment.
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let child_subgrid_ctx = placement.child_subgrid(item, &child_style);
-        let (measured, prelim_lb) = measure_in_area(
-            dom,
-            item,
-            env,
-            rect,
-            child_subgrid_ctx.as_ref(),
-            is_horizontal_wm,
-            &child_style,
-        );
+        let (measured, prelim_lb, subgrid) = baseline_items
+            .remove(&item.entity)
+            .unwrap_or_else(|| measure(dom, item, rect));
         let outer = prelim_lb.margin_box().size;
         let (outer_inline, outer_block) = if is_horizontal_wm {
             (outer.width, outer.height)
@@ -475,6 +471,7 @@ pub(crate) fn position_items(
             viewport: None,
             layout_generation: env.layout_generation,
             is_probe: env.is_probe,
+            subgrid: subgrid.as_ref(),
             ..measured
         };
         (env.layout_child)(dom, item.entity, &final_input);

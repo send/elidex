@@ -86,7 +86,12 @@ fn geometry_with(
         layout_generation: 0,
         is_probe: false,
     };
+    let computed_height = elidex_layout_block::get_style(&dom, item).height;
     dispatch_layout_child(&mut dom, grid, &input);
+    assert_eq!(
+        elidex_layout_block::get_style(&dom, item).height,
+        computed_height
+    );
     get_layout(&dom, item)
 }
 
@@ -109,6 +114,11 @@ fn grid_fits_intrinsic_content_and_charges_decoration_once() {
             style.padding.left = Dimension::Length(padding);
             style.padding.right = Dimension::Length(padding);
             let lb = geometry(ComputedStyle::default(), style, child, paged);
+            let used_margin = (100. - expected - 2. * padding) / 2.;
+            assert_eq!(
+                (lb.margin.left, lb.margin.right),
+                (used_margin, used_margin)
+            );
             assert_eq!(
                 (lb.content.size.width, lb.content.origin.x, lb.margin.bottom),
                 (expected, x, 0.)
@@ -132,9 +142,11 @@ fn grid_end_placement_uses_signed_offsets_and_reverses_vertical_rows() {
             paged,
         );
         assert_eq!((lb.margin.left, lb.content.origin.x), (0., 20.));
-        for (wm, x) in [
-            (WritingMode::VerticalRl, 40.),
-            (WritingMode::VerticalLr, 100.),
+        for (wm, align_self, x) in [
+            (WritingMode::VerticalRl, AlignSelf::End, 40.),
+            (WritingMode::VerticalRl, AlignSelf::Start, 100.),
+            (WritingMode::VerticalLr, AlignSelf::End, 100.),
+            (WritingMode::VerticalLr, AlignSelf::Start, 40.),
         ] {
             let lb = geometry(
                 ComputedStyle {
@@ -146,7 +158,7 @@ fn grid_end_placement_uses_signed_offsets_and_reverses_vertical_rows() {
                 ComputedStyle {
                     width: Dimension::Length(40.),
                     writing_mode: wm,
-                    align_self: AlignSelf::FlexEnd,
+                    align_self,
                     ..Default::default()
                 },
                 0.,
@@ -430,6 +442,7 @@ fn used_auto_inherits_parent_safety_and_scrollport_limits_omitted_end() {
                             ..parent.clone()
                         },
                         ComputedStyle {
+                            margin_left: Dimension::Auto,
                             justify_self: JustifySelf::End,
                             align_self: AlignSelf::End,
                             justify_self_safety: safety,
@@ -448,6 +461,9 @@ fn used_auto_inherits_parent_safety_and_scrollport_limits_omitted_end() {
                     } else {
                         20.
                     };
+                    if size == 120. {
+                        assert_eq!(lb.margin.left, 0.);
+                    }
                     assert_eq!(lb.content.origin, Point::new(pos, pos));
                 }
             }
@@ -713,4 +729,216 @@ fn reversed_scroll_origin_protects_the_physical_high_edge() {
             assert_eq!(lb.content.origin.x, x);
         }
     }
+}
+
+#[test]
+fn historical_auto_sizing_controls() {
+    for paged in [false, true] {
+        let zero = Dimension::Length(0.);
+        let auto = Dimension::Auto;
+        let initial = ComputedStyle::default();
+        for (justify, child, min, max, left, right, width) in [
+            (
+                JustifySelf::Stretch,
+                0.,
+                initial.min_width,
+                Dimension::Length(40.),
+                zero,
+                zero,
+                40.,
+            ),
+            (
+                JustifySelf::Stretch,
+                0.,
+                Dimension::Length(120.),
+                initial.max_width,
+                zero,
+                zero,
+                120.,
+            ),
+            (
+                JustifySelf::Auto,
+                100.,
+                initial.min_width,
+                initial.max_width,
+                auto,
+                zero,
+                100.,
+            ),
+            (
+                JustifySelf::Auto,
+                100.,
+                initial.min_width,
+                initial.max_width,
+                auto,
+                auto,
+                100.,
+            ),
+            (
+                JustifySelf::Start,
+                100.,
+                initial.min_width,
+                initial.max_width,
+                zero,
+                zero,
+                100.,
+            ),
+        ] {
+            let lb = geometry(
+                ComputedStyle::default(),
+                ComputedStyle {
+                    justify_self: justify,
+                    max_width: max,
+                    min_width: min,
+                    margin_left: left,
+                    margin_right: right,
+                    ..Default::default()
+                },
+                child,
+                paged,
+            );
+            assert_eq!(
+                (
+                    lb.content.size.width,
+                    lb.content.origin.x,
+                    lb.margin.left,
+                    lb.margin.right
+                ),
+                (width, 40., 0., 0.)
+            );
+        }
+    }
+}
+
+#[test]
+fn historical_intrinsic_range_and_empty_auto_child() {
+    for paged in [false, true] {
+        let auto = Dimension::Auto;
+        let zero = Dimension::Length(0.);
+        for (justify, margin, width, used_margin) in [
+            (JustifySelf::End, auto, 80., 10.),
+            (JustifySelf::Stretch, zero, 100., 0.),
+        ] {
+            let lb = geometry_with(
+                ComputedStyle::default(),
+                ComputedStyle {
+                    justify_self: justify,
+                    margin_left: margin,
+                    margin_right: margin,
+                    flex_wrap: elidex_plugin::FlexWrap::Wrap,
+                    ..Default::default()
+                },
+                40.,
+                paged,
+                |dom, _, item| {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = Display::Flex;
+                    add(
+                        dom,
+                        Some(item),
+                        ComputedStyle {
+                            display: Display::Block,
+                            width: Dimension::Length(40.),
+                            ..Default::default()
+                        },
+                    );
+                },
+            );
+            assert_eq!(
+                (
+                    lb.content.size.width,
+                    lb.margin.left,
+                    lb.margin.right,
+                    lb.content.origin.x
+                ),
+                (width, used_margin, used_margin, 40. + used_margin)
+            );
+        }
+        let vertical = ComputedStyle {
+            writing_mode: WritingMode::VerticalLr,
+            ..Default::default()
+        };
+        let lb = geometry(
+            vertical.clone(),
+            ComputedStyle {
+                justify_self: JustifySelf::Stretch,
+                max_height: Dimension::Length(70.),
+                ..vertical
+            },
+            0.,
+            paged,
+        );
+        assert_eq!(lb.content.size.height, 70.);
+        let lb = geometry_with(
+            ComputedStyle::default(),
+            ComputedStyle {
+                justify_self: JustifySelf::Start,
+                max_width: Dimension::Length(40.),
+                margin_left: auto,
+                margin_right: auto,
+                ..Default::default()
+            },
+            0.,
+            paged,
+            |dom, _, item| {
+                let leaf = dom.children(item)[0];
+                dom.world_mut()
+                    .get::<&mut ComputedStyle>(leaf)
+                    .unwrap()
+                    .width = Dimension::Auto;
+            },
+        );
+        assert_eq!(
+            (
+                lb.content.size.width,
+                lb.margin.left,
+                lb.margin.right,
+                lb.content.origin.x
+            ),
+            (0., 50., 50., 90.)
+        );
+    }
+}
+
+#[test]
+fn grid_fit_content_counts_only_participating_child_outer_sizes() {
+    let mut observed = Vec::new();
+    for paged in [false, true] {
+        for display in [Display::Block, Display::Flex] {
+            let lb = geometry_with(
+                ComputedStyle::default(),
+                ComputedStyle {
+                    justify_self: JustifySelf::Start,
+                    ..Default::default()
+                },
+                40.,
+                paged,
+                |dom, _, item| {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = display;
+                    let leaf = dom.children(item)[0];
+                    {
+                        let mut style = dom.world_mut().get::<&mut ComputedStyle>(leaf).unwrap();
+                        style.margin_left = Dimension::Length(5.);
+                        style.margin_right = Dimension::Length(15.);
+                    }
+                    add(
+                        dom,
+                        Some(item),
+                        ComputedStyle {
+                            display: Display::None,
+                            width: Dimension::Length(140.),
+                            ..Default::default()
+                        },
+                    );
+                },
+            );
+            observed.push(lb.content.size.width);
+        }
+    }
+    assert_eq!(observed, [60.; 4]);
 }

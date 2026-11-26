@@ -56,7 +56,12 @@ pub fn compute_intrinsic_sizes(
         return sizes;
     }
 
-    let children = composed_children_flat(dom, entity);
+    let mut children = composed_children_flat(dom, entity);
+    children.retain(|&child| {
+        crate::try_get_style(dom, child).is_none_or(|s| {
+            s.display != Display::None && !crate::positioned::is_absolutely_positioned(&s)
+        })
+    });
 
     if children.is_empty() {
         return IntrinsicSizes {
