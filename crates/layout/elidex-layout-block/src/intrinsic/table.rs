@@ -1,9 +1,7 @@
 //! Table intrinsic sizing (CSS 2.1 §17.5.2).
 
+use crate::{composed_children_flat, get_style, total_gap, IntrinsicSizes, LayoutEnv};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::{
-    composed_children_flat, get_style, total_gap, IntrinsicSizes, LayoutEnv,
-};
 use elidex_plugin::{Display, WritingModeContext};
 
 use super::compute_intrinsic_sizes;
@@ -17,6 +15,7 @@ pub(super) fn compute_table_intrinsic(
     entity: Entity,
     children: &[Entity],
     env: &LayoutEnv<'_>,
+    grid: super::GridIntrinsicFn,
 ) -> IntrinsicSizes {
     let mut col_min: Vec<f32> = Vec::new();
     let mut col_max: Vec<f32> = Vec::new();
@@ -24,7 +23,7 @@ pub(super) fn compute_table_intrinsic(
     // Walk rows (direct or inside row-groups) → cells.
     let mut rows: Vec<Entity> = Vec::new();
     for &child in children {
-        let child_style = elidex_layout_block::try_get_style(dom, child);
+        let child_style = crate::try_get_style(dom, child);
         match child_style.as_ref().map(|s| s.display) {
             Some(Display::TableRow) => rows.push(child),
             Some(
@@ -33,8 +32,7 @@ pub(super) fn compute_table_intrinsic(
                 // Row group: collect its row children.
                 let group_children = composed_children_flat(dom, child);
                 for &gc in &group_children {
-                    if elidex_layout_block::try_get_style(dom, gc)
-                        .is_some_and(|s| s.display == Display::TableRow)
+                    if crate::try_get_style(dom, gc).is_some_and(|s| s.display == Display::TableRow)
                     {
                         rows.push(gc);
                     }
@@ -42,7 +40,7 @@ pub(super) fn compute_table_intrinsic(
             }
             Some(Display::TableCell) => {
                 // Direct cell (anonymous row): treat as column 0.
-                let cell_sizes = compute_intrinsic_sizes(dom, child, &env.deeper());
+                let cell_sizes = compute_intrinsic_sizes(dom, child, &env.deeper(), grid);
                 if col_min.is_empty() {
                     col_min.push(0.0);
                     col_max.push(0.0);
@@ -61,7 +59,7 @@ pub(super) fn compute_table_intrinsic(
         let mut col_idx = 0;
         for &cell in &cells {
             // Skip display:none and non-cell children.
-            let cell_style = elidex_layout_block::try_get_style(dom, cell);
+            let cell_style = crate::try_get_style(dom, cell);
             if cell_style
                 .as_ref()
                 .is_some_and(|s| s.display == Display::None)
@@ -77,7 +75,7 @@ pub(super) fn compute_table_intrinsic(
                 .unwrap_or(1)
                 .clamp(1, 1000);
 
-            let cell_sizes = compute_intrinsic_sizes(dom, cell, &env.deeper());
+            let cell_sizes = compute_intrinsic_sizes(dom, cell, &env.deeper(), grid);
 
             // Grow column vectors as needed.
             while col_min.len() < col_idx + colspan {

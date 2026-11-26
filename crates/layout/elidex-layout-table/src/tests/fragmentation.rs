@@ -21,7 +21,7 @@ fn do_layout_table_fragmented(
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
@@ -32,6 +32,7 @@ fn do_layout_table_fragmented(
         font_db,
         depth,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: None,
         fragmentainer: fragmentainer.as_ref(),
         break_token: break_token.as_ref(),

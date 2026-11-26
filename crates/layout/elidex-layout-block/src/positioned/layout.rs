@@ -493,7 +493,7 @@ pub fn layout_absolutely_positioned(
     let child_input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::definite(content_width, content_height),
         containing_inline_size: child_inline_size,
@@ -501,6 +501,7 @@ pub fn layout_absolutely_positioned(
         font_db: env.font_db,
         depth: env.depth + 1,
         float_ctx: None,
+        scroll_limits: env.scroll_limits,
         viewport: env.viewport,
         fragmentainer: None,
         break_token: None,

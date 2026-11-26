@@ -33,6 +33,11 @@ pub fn escape_css_string(s: &str) -> String {
 pub enum CssValue {
     /// A CSS keyword (e.g. `block`, `inline`, `none`).
     Keyword(String),
+    /// CSS Align 3 §§6–8: explicit overflow position and self-position.
+    ItemAlignment {
+        safety: crate::AlignmentSafety,
+        position: String,
+    },
     /// A length with a unit (e.g. `10px`, `2em`).
     Length(f32, LengthUnit),
     /// An RGBA color value.
@@ -601,6 +606,14 @@ impl CssValue {
             // lists, `text-decoration-line`, `counter-reset`) — those
             // values don't re-parse. Needs separator semantics on the
             // type: slot `#11-cssvalue-list-separator-fidelity`.
+            Self::ItemAlignment { safety, position } => format!(
+                "{} {position}",
+                if *safety == crate::AlignmentSafety::Safe {
+                    "safe"
+                } else {
+                    "unsafe"
+                }
+            ),
             Self::List(items) => items
                 .iter()
                 .map(Self::to_css_string)

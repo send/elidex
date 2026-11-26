@@ -80,3 +80,29 @@ fn inline_and_rule_substitution_validate_winning_flex_declarations() {
         }
     }
 }
+
+#[test]
+fn computed_self_alignment_preserves_own_keyword_and_safety() {
+    for axis in ["justify", "align"] {
+        let items = format!("{axis}-items");
+        let own = format!("{axis}-self");
+        for (declaration, expected) in [
+            ("auto", "auto"),
+            ("unsafe end", "unsafe end"),
+            ("safe stretch", "start"),
+            ("unsafe stretch", "start"),
+        ] {
+            let (mut dom, _, parent, child) = build_simple_dom();
+            let sheet=parse_stylesheet(&format!("html {{display:grid;{items}:safe end}} body {{{own}:start;{own}:{declaration} !important}}"),Origin::Author);
+            resolve_styles(&mut dom, &[&sheet], Size::new(100., 100.));
+            assert_eq!(
+                serialize_resolved_value(&items, &get_style(&dom, parent)),
+                "safe end"
+            );
+            assert_eq!(
+                serialize_resolved_value(&own, &get_style(&dom, child)),
+                expected
+            );
+        }
+    }
+}

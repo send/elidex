@@ -169,6 +169,7 @@ fn text_wrapping_increases_height() {
         font_db: &font_db,
         layout_child: crate::layout_block_only,
         depth: 0,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         layout_generation: 0,
         is_probe: false,

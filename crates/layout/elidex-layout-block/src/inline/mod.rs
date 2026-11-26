@@ -149,7 +149,6 @@ pub fn layout_inline_context_fragmented(
 ) -> InlineLayoutResult {
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
-    let layout_child = env.layout_child;
     let (mut items, candidate_keys, top_level_key) = collect_inline_items(
         dom,
         children,
@@ -190,11 +189,8 @@ pub fn layout_inline_context_fragmented(
         &mut items,
         containing_inline_size,
         content_origin,
-        font_db,
-        layout_child,
+        env,
         is_vertical,
-        env.layout_generation,
-        env.is_probe,
     );
 
     // Verify at least one text run has a usable font (atomics don't need fonts).

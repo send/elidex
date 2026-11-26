@@ -219,6 +219,7 @@ pub fn layout_table(
     );
 
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
     let is_rtl = style.direction == Direction::Rtl;
     let is_horizontal_wm = style.writing_mode.is_horizontal();
     let is_collapse = style.border_collapse == BorderCollapse::Collapse;
@@ -331,7 +332,7 @@ pub fn layout_table(
             let cap_input = LayoutInput {
                 available_height_if_indefinite: None,
                 containing_width_definite: true,
-                is_flex_item: false,
+                item_context: elidex_layout_block::ItemContext::NormalFlow,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,
@@ -339,6 +340,7 @@ pub fn layout_table(
                 font_db,
                 depth: depth + 1,
                 float_ctx: None,
+                scroll_limits: input.scroll_limits,
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
@@ -506,6 +508,7 @@ pub fn layout_table(
         font_db,
         layout_child,
         depth,
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
@@ -551,7 +554,7 @@ pub fn layout_table(
         let cell_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
+            item_context: elidex_layout_block::ItemContext::NormalFlow,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize {
                 width: effective_width,
@@ -562,6 +565,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            scroll_limits: input.scroll_limits,
             viewport: None,
             fragmentainer: None,
             break_token: None,
@@ -750,7 +754,7 @@ pub fn layout_table(
         let cell_relayout_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
+            item_context: elidex_layout_block::ItemContext::NormalFlow,
             assigned: elidex_layout_block::UsedAssignment::default(),
             containing: CssSize::definite(cell_phys_w, cell_phys_h),
             containing_inline_size: child_inline_containing,
@@ -758,6 +762,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            scroll_limits: input.scroll_limits,
             viewport: None,
             fragmentainer: None,
             break_token: None,
@@ -779,7 +784,7 @@ pub fn layout_table(
             let cap_input = LayoutInput {
                 available_height_if_indefinite: None,
                 containing_width_definite: true,
-                is_flex_item: false,
+                item_context: elidex_layout_block::ItemContext::NormalFlow,
                 assigned: elidex_layout_block::UsedAssignment::default(),
                 containing: CssSize::width_only(content_width),
                 containing_inline_size: child_inline_containing,
@@ -787,6 +792,7 @@ pub fn layout_table(
                 font_db,
                 depth: depth + 1,
                 float_ctx: None,
+                scroll_limits: input.scroll_limits,
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
@@ -861,6 +867,7 @@ pub fn layout_table(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,

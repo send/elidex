@@ -292,7 +292,7 @@ pub(super) fn layout_float(
             None
         },
         containing_width_definite: is_horizontal || input.containing_width_definite,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize {
             width: if is_horizontal {
@@ -311,6 +311,7 @@ pub(super) fn layout_float(
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None,
+        scroll_limits: input.scroll_limits,
         viewport: None,
         fragmentainer: None,
         break_token: None,
@@ -403,55 +404,12 @@ pub fn resolve_block_height(
     is_replaced: bool,
     wm: &WritingModeContext,
 ) -> f32 {
-    use crate::{adjust_min_max_for_border_box, clamp_min_max, resolve_min_max};
-
-    let is_horizontal = wm.is_horizontal();
-
-    // Block-axis dimension: height in horizontal, width in vertical.
-    let block_dim = if is_horizontal {
-        style.height
-    } else {
-        style.width
-    };
-    // Block-axis min/max constraints.
-    let (min_block_dim, max_block_dim) = if is_horizontal {
-        (style.min_height, style.max_height)
-    } else {
-        (style.min_width, style.max_width)
-    };
-    // Block-axis padding+border.
-    let b_pb = crate::block_pb(wm, padding, border);
-
-    let mut block_size = if is_replaced {
+    let axis = super::super::sizing::AxisSizing::new(style, !wm.is_horizontal());
+    let pb = crate::block_pb(wm, padding, border);
+    let size = if is_replaced {
         content_block_size
     } else {
-        match block_dim {
-            Dimension::Length(px) if px.is_finite() => {
-                if style.box_sizing == BoxSizing::BorderBox {
-                    (px - b_pb).max(0.0)
-                } else {
-                    px
-                }
-            }
-            Dimension::Percentage(pct) => containing_block_size.map_or(content_block_size, |cb| {
-                let resolved = cb * pct / 100.0;
-                if style.box_sizing == BoxSizing::BorderBox {
-                    (resolved - b_pb).max(0.0)
-                } else {
-                    resolved
-                }
-            }),
-            _ => content_block_size,
-        }
+        axis.preferred(containing_block_size, content_block_size, pb)
     };
-
-    // Apply min/max block-size constraints.
-    let cb = containing_block_size.unwrap_or(0.0);
-    let mut min_b = resolve_min_max(min_block_dim, cb, 0.0);
-    let mut max_b = resolve_min_max(max_block_dim, cb, f32::INFINITY);
-    if style.box_sizing == BoxSizing::BorderBox && !is_replaced {
-        adjust_min_max_for_border_box(&mut min_b, &mut max_b, b_pb);
-    }
-    block_size = clamp_min_max(block_size, min_b, max_b);
-    block_size
+    axis.constrained(size, containing_block_size.unwrap_or(0.0), pb, is_replaced)
 }

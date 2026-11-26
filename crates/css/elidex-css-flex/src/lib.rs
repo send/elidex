@@ -61,10 +61,9 @@ impl CssPropertyHandler for FlexHandler {
                         "stretch",
                     ],
                 )?,
-                "align-items" => parse_alignment_with_safety(
-                    input,
-                    &["stretch", "flex-start", "flex-end", "center", "baseline"],
-                )?,
+                "align-items" | "align-self" => {
+                    elidex_plugin::css_resolve::parse_item_alignment(name, input)?
+                }
                 "align-content" => parse_alignment_with_safety(
                     input,
                     &[
@@ -76,17 +75,6 @@ impl CssPropertyHandler for FlexHandler {
                         "space-between",
                         "space-around",
                         "space-evenly",
-                    ],
-                )?,
-                "align-self" => parse_alignment_with_safety(
-                    input,
-                    &[
-                        "auto",
-                        "stretch",
-                        "flex-start",
-                        "flex-end",
-                        "center",
-                        "baseline",
                     ],
                 )?,
                 "flex-grow" | "flex-shrink" => parse_flex_factor(input)
@@ -119,8 +107,13 @@ impl CssPropertyHandler for FlexHandler {
                 style.justify_content_safety = safety;
             }
             "align-items" => {
-                let (kw, _safety) = extract_safety(value);
-                elidex_plugin::resolve_keyword!(kw, style.align_items, AlignItems);
+                if let Some((keyword, safety)) = elidex_plugin::css_resolve::resolve_item_alignment(
+                    value,
+                    AlignItems::from_keyword,
+                ) {
+                    style.align_items = keyword;
+                    style.align_items_safety = safety;
+                }
             }
             "align-content" => {
                 let (kw, safety) = extract_safety(value);
@@ -128,8 +121,13 @@ impl CssPropertyHandler for FlexHandler {
                 style.align_content_safety = safety;
             }
             "align-self" => {
-                let (kw, _safety) = extract_safety(value);
-                elidex_plugin::resolve_keyword!(kw, style.align_self, AlignSelf);
+                if let Some((keyword, safety)) = elidex_plugin::css_resolve::resolve_item_alignment(
+                    value,
+                    AlignSelf::from_keyword,
+                ) {
+                    style.align_self = keyword;
+                    style.align_self_safety = safety;
+                }
             }
             "flex-grow" => {
                 if let Some(n) = resolve_flex_factor(value, ctx) {
@@ -165,8 +163,9 @@ impl CssPropertyHandler for FlexHandler {
             // CSS Box Alignment Level 3: initial value of justify-content and
             // align-content is `normal`, which behaves as `flex-start`/`stretch`
             // respectively in flex containers.
-            "justify-content" | "align-content" => CssValue::Keyword("normal".to_string()),
-            "align-items" => CssValue::Keyword("stretch".to_string()),
+            "justify-content" | "align-content" | "align-items" => {
+                CssValue::Keyword("normal".to_string())
+            }
             "flex-basis" => CssValue::Auto,
             "align-self" => CssValue::Keyword("auto".to_string()),
             "flex-grow" | "order" => CssValue::Number(0.0),
@@ -191,12 +190,18 @@ impl CssPropertyHandler for FlexHandler {
                 keyword_from(&style.justify_content),
                 style.justify_content_safety,
             ),
-            "align-items" => keyword_from(&style.align_items),
+            "align-items" => elidex_plugin::css_resolve::computed_item_alignment(
+                &style.align_items,
+                style.align_items_safety,
+            ),
             "align-content" => format_with_safety(
                 keyword_from(&style.align_content),
                 style.align_content_safety,
             ),
-            "align-self" => keyword_from(&style.align_self),
+            "align-self" => elidex_plugin::css_resolve::computed_item_alignment(
+                &style.align_self,
+                style.align_self_safety,
+            ),
             "flex-grow" => CssValue::Number(style.flex_grow),
             "flex-shrink" => CssValue::Number(style.flex_shrink),
             "flex-basis" => match style.flex_basis {

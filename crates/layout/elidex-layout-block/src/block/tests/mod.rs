@@ -90,7 +90,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
     crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -98,6 +98,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,

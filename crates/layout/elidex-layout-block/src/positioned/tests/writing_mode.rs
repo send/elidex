@@ -681,7 +681,7 @@ fn vertical_rl_fixed_positioning() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(1024.0),
         containing_inline_size: 1024.0,
@@ -689,6 +689,7 @@ fn vertical_rl_fixed_positioning() {
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: Some(Size::new(1024.0, 768.0)),
         fragmentainer: None,
         break_token: None,

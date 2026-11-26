@@ -46,6 +46,39 @@ pub fn dispatch_layout_child(
 ) -> elidex_layout_block::LayoutOutcome {
     let style = elidex_layout_block::get_style(dom, entity);
 
+    let mut input = input.resolve_item(&style);
+    if input.depth == 0 && input.scroll_limits.x.is_none() {
+        if let Some(size) = input.viewport {
+            input.scroll_limits = input.scroll_limits.for_scrollport(
+                &style,
+                elidex_plugin::Rect::from_origin_size(elidex_plugin::Point::ZERO, size),
+                true,
+            );
+        }
+    }
+    if !input.scroll_limits.measuring
+        && (style.overflow_x.allows_programmatic_scroll()
+            || style.overflow_y.allows_programmatic_scroll())
+    {
+        // Establish the scroll origin from this pass, before descendants are placed.
+        let mut probe = input;
+        probe.scroll_limits.measuring = true;
+        probe.is_probe = true;
+        probe.layout_generation = 0;
+        let frame = dispatch_inner(dom, entity, &probe, &style)
+            .layout_box
+            .padding_box();
+        input.scroll_limits = input.scroll_limits.for_scrollport(&style, frame, false);
+    }
+    dispatch_inner(dom, entity, &input, &style)
+}
+
+fn dispatch_inner(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    style: &ComputedStyle,
+) -> elidex_layout_block::LayoutOutcome {
     // CSS 2.1 §10.3.5: Inline-level containers (inline-flex, inline-grid,
     // inline-table) use shrink-to-fit width. Compute intrinsic sizes and
     // replace containing_width with shrink-to-fit.
@@ -123,7 +156,7 @@ pub fn dispatch_layout_child(
         }
         // CSS Multi-column L1: multicol containers have block display +
         // column-count/column-width. Check before falling through to block.
-        _ if elidex_plugin::is_multicol(&style) => elidex_layout_multicol::layout_multicol(
+        _ if elidex_plugin::is_multicol(style) => elidex_layout_multicol::layout_multicol(
             dom,
             entity,
             effective_input,
@@ -148,7 +181,7 @@ pub fn dispatch_layout_child(
     }
 
     if style.position == Position::Relative {
-        publish_relative_offset(dom, entity, input, &style, &outcome.layout_box);
+        publish_relative_offset(dom, entity, input, style, &outcome.layout_box);
     }
     outcome
 }
@@ -232,7 +265,7 @@ pub fn layout_paged(
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
@@ -240,6 +273,11 @@ pub fn layout_paged(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default().for_scrollport(
+            &elidex_layout_block::get_style(dom, root),
+            area,
+            true,
+        ),
         viewport: Some(area.size),
         fragmentainer: None,
         break_token: None,
@@ -405,7 +443,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
     let root_input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(viewport.width, viewport.height),
         containing_inline_size: viewport.width,
@@ -413,6 +451,11 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default().for_scrollport(
+            &elidex_layout_block::get_style(dom, root),
+            elidex_plugin::Rect::from_origin_size(elidex_plugin::Point::ZERO, viewport),
+            true,
+        ),
         viewport: Some(viewport),
         fragmentainer: None,
         break_token: None,

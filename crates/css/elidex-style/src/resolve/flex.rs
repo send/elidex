@@ -88,13 +88,14 @@ fn resolve_flex_keyword_enums(
         style.justify_content,
         JustifyContent::from_keyword
     );
-    resolve_keyword_enum_prop!(
-        "align-items",
-        winners,
-        parent_style,
-        style.align_items,
-        AlignItems::from_keyword
-    );
+    if let Some(value) = super::helpers::get_resolved_winner("align-items", winners, parent_style) {
+        if let Some((align, safety)) =
+            elidex_plugin::css_resolve::resolve_item_alignment(&value, AlignItems::from_keyword)
+        {
+            style.align_items = align;
+            style.align_items_safety = safety;
+        }
+    }
     resolve_keyword_enum_prop!(
         "align-content",
         winners,
@@ -102,13 +103,14 @@ fn resolve_flex_keyword_enums(
         style.align_content,
         AlignContent::from_keyword
     );
-    resolve_keyword_enum_prop!(
-        "align-self",
-        winners,
-        parent_style,
-        style.align_self,
-        AlignSelf::from_keyword
-    );
+    if let Some(value) = super::helpers::get_resolved_winner("align-self", winners, parent_style) {
+        if let Some((align, safety)) =
+            elidex_plugin::css_resolve::resolve_item_alignment(&value, AlignSelf::from_keyword)
+        {
+            style.align_self = align;
+            style.align_self_safety = safety;
+        }
+    }
 }
 
 #[cfg(test)]

@@ -199,7 +199,7 @@ pub(crate) struct FlexItem {
 
 impl FlexItem {
     fn stretches(&self) -> bool {
-        self.align == AlignItems::Stretch
+        matches!(self.align, AlignItems::Normal | AlignItems::Stretch)
             && self.cross_size_auto
             && !self.margin_cross_start_auto
             && !self.margin_cross_end_auto
@@ -286,6 +286,7 @@ pub fn layout_flex(
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
 
     let inline_containing = input.containing_inline_size;
     let padding = elidex_layout_block::resolve_padding(&style, inline_containing);
@@ -387,6 +388,7 @@ pub fn layout_flex(
         font_db,
         layout_child,
         depth,
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
@@ -571,6 +573,7 @@ pub fn layout_flex(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,

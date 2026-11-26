@@ -1,9 +1,9 @@
 //! Block and flex intrinsic sizing.
 
-use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::{
+use crate::{
     get_style, inline, resolve_dimension_value, total_gap, IntrinsicSizes, LayoutEnv, LayoutInput,
 };
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{Display, FlexDirection, FlexWrap, WritingModeContext};
 
 use super::compute_intrinsic_sizes;
@@ -17,11 +17,11 @@ pub(super) fn compute_block_intrinsic(
     entity: Entity,
     children: &[Entity],
     env: &LayoutEnv<'_>,
+    grid: super::GridIntrinsicFn,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
     let has_block_children = children.iter().any(|&c| {
-        elidex_layout_block::try_get_style(dom, c)
-            .is_some_and(|s| elidex_layout_block::block::is_block_level(s.display))
+        crate::try_get_style(dom, c).is_some_and(|s| crate::block::is_block_level(s.display))
     });
 
     if has_block_children {
@@ -30,9 +30,16 @@ pub(super) fn compute_block_intrinsic(
         let mut max = 0.0_f32;
         let deeper = env.deeper();
         for &child in children {
-            let child_sizes = compute_intrinsic_sizes(dom, child, &deeper);
-            min = min.max(child_sizes.min_content);
-            max = max.max(child_sizes.max_content);
+            let child_sizes = compute_intrinsic_sizes(dom, child, &deeper, grid);
+            let child_style = get_style(dom, child);
+            let margin = crate::resolve_margins(&child_style, 0.);
+            let outer = if style.writing_mode.is_horizontal() {
+                margin.horizontal()
+            } else {
+                margin.vertical()
+            };
+            min = min.max(child_sizes.min_content + outer);
+            max = max.max(child_sizes.max_content + outer);
         }
         // Also check inline content mixed in.
         let inline_min =
@@ -70,6 +77,7 @@ pub(super) fn compute_flex_intrinsic(
     entity: Entity,
     children: &[Entity],
     env: &LayoutEnv<'_>,
+    grid: super::GridIntrinsicFn,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
     // Determine whether the flex main axis maps to the physical horizontal axis,
@@ -82,7 +90,7 @@ pub(super) fn compute_flex_intrinsic(
     };
     let nowrap = matches!(style.flex_wrap, FlexWrap::Nowrap);
 
-    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env);
+    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env, grid);
 
     if child_sizes_list.is_empty() {
         return IntrinsicSizes::default();
@@ -143,10 +151,11 @@ pub(super) fn collect_child_intrinsic_sizes(
     dom: &mut EcsDom,
     children: &[Entity],
     env: &LayoutEnv<'_>,
+    grid: super::GridIntrinsicFn,
 ) -> Vec<IntrinsicSizes> {
     let mut result = Vec::new();
     for &child in children {
-        let child_style = elidex_layout_block::try_get_style(dom, child);
+        let child_style = crate::try_get_style(dom, child);
         if child_style
             .as_ref()
             .is_some_and(|s| s.display == Display::None)
@@ -163,7 +172,7 @@ pub(super) fn collect_child_intrinsic_sizes(
             });
             continue;
         }
-        result.push(compute_intrinsic_sizes(dom, child, &env.deeper()));
+        result.push(compute_intrinsic_sizes(dom, child, &env.deeper(), grid));
     }
     result
 }
@@ -185,7 +194,7 @@ pub(super) fn probe_layout_size(
     // Determine inline axis from the parent's writing mode context.
     // For text/leaf nodes without a style, check ancestor style if available;
     // fallback to horizontal (width).
-    let inline_horizontal = elidex_layout_block::try_get_style(dom, entity)
+    let inline_horizontal = crate::try_get_style(dom, entity)
         .is_none_or(|s| WritingModeContext::new(s.writing_mode, s.direction).is_horizontal());
     if inline_horizontal {
         lb.content.size.width

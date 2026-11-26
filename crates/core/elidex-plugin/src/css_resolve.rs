@@ -430,6 +430,85 @@ fn resolve_calc_typed(expr: &CalcExpr, percentage_base: f32, ctx: &ResolveContex
     }
 }
 
+/// Parse the Grid/Flex item alignment grammar (CSS Align 3 §§6–8).
+pub fn parse_item_alignment(
+    name: &str,
+    input: &mut cssparser::Parser<'_, '_>,
+) -> Result<CssValue, ParseError> {
+    let first = input
+        .expect_ident_cloned()
+        .map_err(|_| ParseError::simple("expected alignment"))?
+        .to_ascii_lowercase();
+    let (modifier, keyword) = if matches!(first.as_str(), "safe" | "unsafe") {
+        let keyword =
+            crate::parse_css_keyword(input, &["start", "end", "flex-start", "flex-end", "center"])?;
+        (Some(first), keyword)
+    } else {
+        (None, CssValue::Keyword(first))
+    };
+    let supported = match name {
+        "align-self" => keyword
+            .as_keyword()
+            .and_then(crate::AlignSelf::from_keyword)
+            .is_some(),
+        "align-items" => keyword
+            .as_keyword()
+            .and_then(crate::AlignItems::from_keyword)
+            .is_some(),
+        "justify-self" => keyword
+            .as_keyword()
+            .and_then(crate::JustifySelf::from_keyword)
+            .is_some(),
+        "justify-items" => keyword
+            .as_keyword()
+            .and_then(crate::JustifyItems::from_keyword)
+            .is_some(),
+        _ => false,
+    };
+    if !supported {
+        return Err(ParseError::simple("invalid item alignment"));
+    }
+    Ok(if let Some(m) = modifier {
+        CssValue::ItemAlignment {
+            safety: if m == "safe" {
+                crate::AlignmentSafety::Safe
+            } else {
+                crate::AlignmentSafety::Unsafe
+            },
+            position: keyword
+                .as_keyword()
+                .expect("validated alignment keyword")
+                .to_owned(),
+        }
+    } else {
+        keyword
+    })
+}
+
+/// Preserve omitted safety separately from explicit unsafe for computed serialization.
+pub fn resolve_item_alignment<T>(
+    value: &CssValue,
+    parse: fn(&str) -> Option<T>,
+) -> Option<(T, Option<crate::AlignmentSafety>)> {
+    match value {
+        CssValue::ItemAlignment { safety, position } => Some((parse(position)?, Some(*safety))),
+        _ => Some((parse(value.as_keyword()?)?, None)),
+    }
+}
+
+pub fn computed_item_alignment(
+    keyword: &impl AsRef<str>,
+    safety: Option<crate::AlignmentSafety>,
+) -> CssValue {
+    match safety {
+        Some(safety) => CssValue::ItemAlignment {
+            safety,
+            position: keyword.as_ref().to_owned(),
+        },
+        None => keyword_from(keyword),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

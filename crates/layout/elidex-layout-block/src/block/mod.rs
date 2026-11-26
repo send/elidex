@@ -9,6 +9,9 @@ pub mod float;
 pub mod fragmentation;
 mod margin;
 mod replaced;
+mod sizing;
+use sizing::AxisSizing;
+pub use sizing::GridItemSizing;
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -21,11 +24,7 @@ use elidex_plugin::{
 };
 use elidex_text::FontDatabase;
 
-use crate::sanitize;
-use crate::{
-    adjust_min_max_for_border_box, clamp_min_max, resolve_dimension_value, resolve_min_max,
-    sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
-};
+use crate::{sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH};
 
 pub use children::{
     resolve_block_height, shift_descendants, shift_descendants_excluding_own_fragments,
@@ -84,7 +83,7 @@ pub fn layout_block(
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize::width_only(containing_width),
         containing_inline_size: containing_width,
@@ -92,6 +91,7 @@ pub fn layout_block(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,
@@ -117,7 +117,7 @@ pub fn layout_block_with_height(
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: CssSize {
             width: containing_width,
@@ -128,6 +128,7 @@ pub fn layout_block_with_height(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,
@@ -164,6 +165,7 @@ pub fn layout_block_inner(
     let depth = input.depth;
 
     let style = crate::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
     let is_horizontal = wm.is_horizontal();
 
@@ -298,33 +300,19 @@ pub fn layout_block_inner(
             )
         }
     } else {
-        sanitize(resolve_dimension_value(
-            inline_size_dim,
-            available_inline,
+        AxisSizing::new(&style, is_horizontal).preferred(
+            inline_reference,
             (available_inline - inline_extra).max(0.0),
-        ))
-    };
-    // box-sizing: border-box — subtract inline p+b from specified inline-size.
-    if assigned_inline.is_none() && style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none()
-    {
-        if let Dimension::Length(_) | Dimension::Percentage(_) = inline_size_dim {
-            content_inline = (content_inline - i_pb).max(0.0);
-        }
-    }
-
-    // --- Apply min/max inline-size constraints ---
-    let (min_inline_dim, max_inline_dim) = if is_horizontal {
-        (style.min_width, style.max_width)
-    } else {
-        (style.min_height, style.max_height)
+            i_pb,
+        )
     };
     if assigned_inline.is_none() {
-        let mut min_i = resolve_min_max(min_inline_dim, containing_inline, 0.0);
-        let mut max_i = resolve_min_max(max_inline_dim, containing_inline, f32::INFINITY);
-        if style.box_sizing == BoxSizing::BorderBox && intrinsic.is_none() {
-            adjust_min_max_for_border_box(&mut min_i, &mut max_i, i_pb);
-        }
-        content_inline = clamp_min_max(content_inline, min_i, max_i);
+        content_inline = AxisSizing::new(&style, is_horizontal).constrained(
+            content_inline,
+            containing_inline,
+            i_pb,
+            intrinsic.is_some(),
+        );
     }
 
     // --- Inline-axis margin auto centering ---
@@ -495,7 +483,7 @@ pub fn layout_block_inner(
                 None
             },
             containing_width_definite: child_width_definite,
-            is_flex_item: false,
+            item_context: crate::ItemContext::NormalFlow,
             assigned: crate::UsedAssignment::default(),
             containing: CssSize {
                 width: child_phys_width,
@@ -506,6 +494,7 @@ pub fn layout_block_inner(
             font_db,
             depth: depth + 1,
             float_ctx: input.float_ctx,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             fragmentainer: child_fragmentainer.as_ref(),
             break_token: child_bt_for_stack,
@@ -513,7 +502,8 @@ pub fn layout_block_inner(
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,
         };
-        let is_bfc = input.is_flex_item || establishes_bfc(&style);
+        let is_bfc = matches!(input.item_context, crate::ItemContext::Independent)
+            || establishes_bfc(&style);
         let mut result =
             stack_block_children(dom, &children, &child_input, layout_child, is_bfc, entity);
 
@@ -713,6 +703,7 @@ pub fn layout_block_inner(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,
