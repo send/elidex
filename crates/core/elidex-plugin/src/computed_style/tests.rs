@@ -80,7 +80,7 @@ fn default_initial_values() {
     assert_eq!(s.flex_direction, FlexDirection::Row);
     assert_eq!(s.flex_wrap, FlexWrap::Nowrap);
     assert_eq!(s.justify_content, JustifyContent::Normal);
-    assert_eq!(s.align_items, AlignItems::Stretch);
+    assert_eq!(s.align_items, AlignItems::Normal);
     assert_eq!(s.align_content, AlignContent::Normal);
 
     // --- Flex item ---
@@ -144,7 +144,7 @@ fn keyword_enum_defaults_and_as_ref() {
     assert_eq!(FlexDirection::default().as_ref(), "row");
     assert_eq!(FlexWrap::default().as_ref(), "nowrap");
     assert_eq!(JustifyContent::default().as_ref(), "normal");
-    assert_eq!(AlignItems::default().as_ref(), "stretch");
+    assert_eq!(AlignItems::default().as_ref(), "normal");
     assert_eq!(AlignSelf::default().as_ref(), "auto");
     assert_eq!(AlignContent::default().as_ref(), "normal");
     assert_eq!(FontStyle::default().as_ref(), "normal");
@@ -476,7 +476,10 @@ fn from_keyword_roundtrip() {
     );
     assert_roundtrips(
         &[
+            AlignItems::Normal,
             AlignItems::Stretch,
+            AlignItems::Start,
+            AlignItems::End,
             AlignItems::FlexStart,
             AlignItems::FlexEnd,
             AlignItems::Center,
@@ -500,7 +503,10 @@ fn from_keyword_roundtrip() {
     assert_roundtrips(
         &[
             AlignSelf::Auto,
+            AlignSelf::Normal,
             AlignSelf::Stretch,
+            AlignSelf::Start,
+            AlignSelf::End,
             AlignSelf::FlexStart,
             AlignSelf::FlexEnd,
             AlignSelf::Center,
@@ -642,6 +648,7 @@ fn from_keyword_roundtrip() {
     );
     assert_roundtrips(
         &[
+            JustifyItems::Normal,
             JustifyItems::Stretch,
             JustifyItems::Start,
             JustifyItems::End,
@@ -656,6 +663,7 @@ fn from_keyword_roundtrip() {
             JustifySelf::Start,
             JustifySelf::End,
             JustifySelf::Center,
+            JustifySelf::Normal,
             JustifySelf::Stretch,
             JustifySelf::Baseline,
         ],

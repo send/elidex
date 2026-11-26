@@ -244,7 +244,7 @@ writes; see plan §2 for what it does and does not bound.
 | multicol committer read (feeds store) | `multicol/fill.rs:76` (`snapshot_box` get<&LayoutBox>) + `:77` `BoxFragment::from`, `multicol/fill.rs:421` (monolithic block extent) | producer |
 | in-layout presence check | `inline/pack/boxes.rs:62` (`get<&LayoutBox>.is_ok()` — "skip if already laid") | producer |
 | in-layout derived-value helper (LOCAL box) | `table/helpers.rs:23` `box_total_height`, `table/lib.rs:61` `cell_baseline` | producer |
-| construction + **`EcsDom::set_layout_box`** (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `grid/lib.rs:619`, `grid/position.rs:428`, `multicol/lib.rs:329`, `table/lib.rs:331,394,714,741,785`, `layout/mod.rs::publish_relative_offset` (normal-flow box parameter and relative publication) | producer |
+| construction + **`EcsDom::set_layout_box`** (one per algorithm) | `block/mod.rs:624`, `block/lib.rs:363`, `block/children/helpers.rs:355` (display:contents/anon — axis 3), `inline/pack/boxes.rs:88`, `positioned/layout.rs:515,523`, `flex/lib.rs:491,504`, `grid/lib.rs:619`, `multicol/lib.rs:329`, `table/lib.rs:331,394,714,741,785`, `layout/mod.rs::publish_relative_offset` (normal-flow box parameter and relative publication) | producer |
 | struct field / result holder | `block/lib.rs:57` `pub layout_box: LayoutBox`, `layout/mod.rs:189` `PageFragment.layout_box`, `table/lib.rs:493` `Vec<LayoutBox>` | producer |
 | producer field-read | `multicol/lib.rs:269` `outcome.layout_box.margin_box()` | producer |
 
@@ -310,6 +310,8 @@ hit entity and C-3d's iframe click-routing consumes the hit **fragment**, so it 
 `(entity, fragmentainer)` key (memo §1 req 1 — the yielded `fragmentainer` id; `FragmentId` index is
 `clear()`-invalidated, so only the key survives). 8 **transform-basis** reads pre-transform `border_box`
 and composes the transform itself → `box_fragments` (pre-transform) is **correct**.
+
+Grid item placement consumes the margin box and baseline returned by its current area probe (`position.rs::measure_in_area`, `item_baseline`). Both signatures are producer-side, pass-local metrics. The item formatter publishes the definitive geometry.
 
 ### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
 

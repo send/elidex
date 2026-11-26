@@ -50,6 +50,7 @@ pub fn layout_multicol(
     layout_child: ChildLayoutFn,
 ) -> LayoutOutcome {
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
     let is_horizontal = wm.is_horizontal();
     let font_db = input.font_db;
@@ -197,6 +198,7 @@ pub fn layout_multicol(
                     font_db,
                     layout_child,
                     depth,
+                    scroll_limits: input.scroll_limits,
                     viewport: input.viewport,
                     layout_generation: input.layout_generation,
                     is_probe: input.is_probe,
@@ -235,7 +237,7 @@ pub fn layout_multicol(
                 let spanner_input = LayoutInput {
                     available_height_if_indefinite: None,
                     containing_width_definite: true,
-                    is_flex_item: false,
+                    item_context: elidex_layout_block::ItemContext::NormalFlow,
                     assigned: elidex_layout_block::UsedAssignment::default(),
                     containing: CssSize {
                         width: if is_horizontal {
@@ -254,6 +256,7 @@ pub fn layout_multicol(
                     font_db: input.font_db,
                     depth: input.depth + 1,
                     float_ctx: None,
+                    scroll_limits: input.scroll_limits,
                     viewport: input.viewport,
                     fragmentainer: None,
                     break_token: None,
@@ -323,6 +326,7 @@ pub fn layout_multicol(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,

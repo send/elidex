@@ -7,6 +7,7 @@
 pub mod block;
 pub mod helpers;
 pub mod inline;
+pub mod intrinsic;
 pub mod paint_order;
 pub mod positioned;
 pub mod source_progress;
@@ -177,11 +178,23 @@ pub struct SubgridContext {
 // Layout input and dispatch
 // ---------------------------------------------------------------------------
 
+/// Content-box sizing input which the receiving formatter reconciles with its own metrics.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum FitTarget {
+    #[default]
+    None,
+    /// Intrinsic fit on the inline axis. Replaced boxes resolve that axis from their ratio.
+    ShrinkToFit(Size<Option<f32>>),
+    /// Preferred dimensions resolved against the occupied grid area.
+    GridArea(Size<Option<f32>>),
+}
+
 /// Used content dimensions and margins established by the parent formatter.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UsedAssignment {
     /// Independently established physical content axes.
     pub content: Size<Option<f32>>,
+    pub fit: FitTarget,
     /// Whether each assigned content axis is definite for descendant percentages.
     pub definite_for_percentages: Size<bool>,
     /// Used physical margins, measured from the margin-box origin.
@@ -195,6 +208,7 @@ impl Default for UsedAssignment {
                 width: None,
                 height: None,
             },
+            fit: FitTarget::None,
             definite_for_percentages: Size {
                 width: true,
                 height: true,
@@ -205,13 +219,26 @@ impl Default for UsedAssignment {
 }
 
 impl UsedAssignment {
-    /// Physical assignments in the requested inline/block order.
+    /// Prefer established axes; otherwise use the formatter's fit target.
+    #[must_use]
+    pub fn target(self) -> Size<Option<f32>> {
+        match self.fit {
+            FitTarget::None => self.content,
+            FitTarget::ShrinkToFit(fit) | FitTarget::GridArea(fit) => Size {
+                width: self.content.width.or(fit.width),
+                height: self.content.height.or(fit.height),
+            },
+        }
+    }
+
+    /// Physical sizing targets in the requested inline/block order.
     #[must_use]
     pub fn axes(self, horizontal: bool) -> (Option<f32>, Option<f32>) {
+        let target = self.target();
         if horizontal {
-            (self.content.width, self.content.height)
+            (target.width, target.height)
         } else {
-            (self.content.height, self.content.width)
+            (target.height, target.width)
         }
     }
 
@@ -227,6 +254,88 @@ impl UsedAssignment {
     }
 }
 
+/// Unreachable side of a scrollport in physical, unscrolled layout coordinates.
+#[derive(Clone, Copy, Debug)]
+pub enum ScrollEdge {
+    Low(f32),
+    High(f32),
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScrollLimits {
+    pub x: Option<ScrollEdge>,
+    pub y: Option<ScrollEdge>,
+    /// Root scroll edges before any descendant scroll container replaced them.
+    viewport_edges: (Option<ScrollEdge>, Option<ScrollEdge>),
+    /// Sizing pass used to establish a scrollport's own padding-box frame.
+    pub measuring: bool,
+}
+
+impl ScrollLimits {
+    #[must_use]
+    pub fn for_viewport(self) -> Self {
+        Self {
+            x: self.viewport_edges.0,
+            y: self.viewport_edges.1,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub fn for_scrollport(
+        self,
+        style: &elidex_plugin::ComputedStyle,
+        rect: elidex_plugin::Rect,
+        root: bool,
+    ) -> Self {
+        let horizontal = style.writing_mode.is_horizontal();
+        let rtl = style.direction == elidex_plugin::Direction::Rtl;
+        let edge = |low, extent, reversed| {
+            Some(if reversed {
+                ScrollEdge::High(low + extent)
+            } else {
+                ScrollEdge::Low(low)
+            })
+        };
+        let mut limits = Self {
+            x: if root || style.overflow_x.allows_programmatic_scroll() {
+                edge(
+                    rect.origin.x,
+                    rect.size.width,
+                    if horizontal {
+                        rtl
+                    } else {
+                        style.writing_mode == elidex_plugin::WritingMode::VerticalRl
+                    },
+                )
+            } else {
+                self.x
+            },
+            y: if root || style.overflow_y.allows_programmatic_scroll() {
+                edge(rect.origin.y, rect.size.height, !horizontal && rtl)
+            } else {
+                self.y
+            },
+            ..self
+        };
+        if root {
+            limits.viewport_edges = (limits.x, limits.y);
+        }
+        limits
+    }
+}
+
+/// Outer formatting context of the box being laid out.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ItemContext {
+    #[default]
+    NormalFlow,
+    /// Flex items and intrinsic Grid probes establish an independent context.
+    Independent,
+    /// CSS Grid 2 §§6.1–6.2: fit the item in its definite grid area.
+    GridArea(block::GridItemSizing),
+}
+
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
@@ -235,7 +344,7 @@ pub struct LayoutInput<'a> {
     /// Whether the available physical width is a definite percentage reference.
     pub containing_width_definite: bool,
     /// Whether this box establishes an independent context as a flex item (Flexbox §4).
-    pub is_flex_item: bool,
+    pub item_context: ItemContext,
     /// Assignments for this box only.
     pub assigned: UsedAssignment,
     /// Available containing dimensions. Width definiteness is recorded separately.
@@ -264,6 +373,7 @@ pub struct LayoutInput<'a> {
     /// Set at the root layout and propagated downward. Fixed-positioned
     /// elements use this as their containing block (CSS 2.1 10.1).
     pub viewport: Option<Size>,
+    pub scroll_limits: ScrollLimits,
     /// Fragmentation context (if inside a fragmentainer).
     pub fragmentainer: Option<&'a FragmentainerContext>,
     /// Continuation within the same immutable DOM and style input. A new run,
@@ -286,6 +396,19 @@ pub struct LayoutInput<'a> {
 }
 
 impl<'a> LayoutInput<'a> {
+    /// Resolve the outer grid-item box before the inner formatter lays out its contents.
+    #[must_use]
+    pub fn resolve_item(self, style: &elidex_plugin::ComputedStyle) -> Self {
+        match self.item_context {
+            ItemContext::GridArea(target) => Self {
+                assigned: target.resolve(style, &self),
+                item_context: ItemContext::Independent,
+                ..self
+            },
+            _ => self,
+        }
+    }
+
     /// Physical space for auto layout, including a measured but percentage-indefinite height.
     #[must_use]
     pub fn available_height(&self) -> Option<f32> {
@@ -308,7 +431,7 @@ impl<'a> LayoutInput<'a> {
         Self {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
+            item_context: crate::ItemContext::NormalFlow,
             assigned: UsedAssignment::default(),
             containing: CssSize::width_only(containing_width),
             containing_inline_size: containing_width,
@@ -316,6 +439,7 @@ impl<'a> LayoutInput<'a> {
             font_db: env.font_db,
             depth: env.depth + 1,
             float_ctx: None,
+            scroll_limits: env.scroll_limits,
             viewport: env.viewport,
             fragmentainer: None,
             break_token: None,
@@ -340,6 +464,7 @@ pub struct LayoutEnv<'a> {
     pub depth: u32,
     /// Viewport dimensions for fixed positioning.
     pub viewport: Option<Size>,
+    pub scroll_limits: ScrollLimits,
     /// Layout generation counter for paged media (propagated to child inputs).
     pub layout_generation: u32,
     /// Throwaway-probe flag (see [`LayoutInput::is_probe`]) carried through the
@@ -357,6 +482,7 @@ impl<'a> LayoutEnv<'a> {
             font_db: input.font_db,
             layout_child,
             depth: input.depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,

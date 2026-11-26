@@ -7,6 +7,7 @@ use elidex_plugin::{CssSize, Dimension, LayoutBox, Point, Size, TrackSection};
 mod basic;
 mod flex_assignment;
 mod fragmentation;
+mod grid_alignment;
 mod provenance;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -14,7 +15,8 @@ pub(super) struct DispatchObservation {
     pub(super) entity: Entity,
     pub(super) formatter: &'static str,
     pub(super) incoming_width: f32,
-    pub(super) effective_width: f32,
+    pub(super) containing_width: f32,
+    pub(super) assigned_width: Option<f32>,
     pub(super) shrink_to_fit: bool,
 }
 
@@ -35,7 +37,8 @@ pub(super) fn record_flex_dispatch(
             entity,
             formatter,
             incoming_width: input.containing.width,
-            effective_width: effective.containing.width,
+            containing_width: effective.containing.width,
+            assigned_width: effective.assigned.target().width,
             shrink_to_fit: !std::ptr::eq(input, effective),
         }));
     }

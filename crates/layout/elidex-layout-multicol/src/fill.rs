@@ -457,7 +457,7 @@ fn build_column_input<'a>(
     LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize {
             width: if is_horizontal {
@@ -478,6 +478,7 @@ fn build_column_input<'a>(
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None, // Each column establishes an independent block formatting context (§2).
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         fragmentainer: Some(frag_ctx),
         break_token,

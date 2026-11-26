@@ -42,6 +42,9 @@ keyword_enum! {
 keyword_enum! {
     /// The CSS `align-items` property.
     AlignItems {
+        Normal => "normal",
+        Start => "start",
+        End => "end",
         Stretch => "stretch",
         FlexStart => "flex-start",
         FlexEnd => "flex-end",
@@ -54,6 +57,9 @@ keyword_enum! {
     /// The CSS `align-self` property.
     AlignSelf {
         Auto => "auto",
+        Normal => "normal",
+        Start => "start",
+        End => "end",
         Stretch => "stretch",
         FlexStart => "flex-start",
         FlexEnd => "flex-end",

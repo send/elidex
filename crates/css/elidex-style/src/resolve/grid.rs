@@ -97,20 +97,24 @@ pub(super) fn resolve_grid_properties(
     );
 
     // justify-items / justify-self keyword enums
-    resolve_keyword_enum_prop!(
-        "justify-items",
-        winners,
-        parent_style,
-        style.justify_items,
-        JustifyItems::from_keyword
-    );
-    resolve_keyword_enum_prop!(
-        "justify-self",
-        winners,
-        parent_style,
-        style.justify_self,
-        JustifySelf::from_keyword
-    );
+    if let Some(value) = super::helpers::get_resolved_winner("justify-items", winners, parent_style)
+    {
+        if let Some((align, safety)) =
+            elidex_plugin::css_resolve::resolve_item_alignment(&value, JustifyItems::from_keyword)
+        {
+            style.justify_items = align;
+            style.justify_items_safety = safety;
+        }
+    }
+    if let Some(value) = super::helpers::get_resolved_winner("justify-self", winners, parent_style)
+    {
+        if let Some((align, safety)) =
+            elidex_plugin::css_resolve::resolve_item_alignment(&value, JustifySelf::from_keyword)
+        {
+            style.justify_self = align;
+            style.justify_self_safety = safety;
+        }
+    }
 }
 
 /// Resolve a `CssValue` track list to `GridTrackList`.

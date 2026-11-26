@@ -876,7 +876,7 @@ fn first_child_dispatch_uses_published_display_through_contents() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(200., 150.),
         containing_inline_size: 200.,
@@ -884,6 +884,7 @@ fn first_child_dispatch_uses_published_display_through_contents() {
         font_db: &font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: Some(viewport),
         fragmentainer: None,
         break_token: None,
@@ -919,7 +920,8 @@ fn first_child_dispatch_uses_published_display_through_contents() {
                 entity: item,
                 formatter: std::any::type_name_of_val(&elidex_layout_flex::layout_flex),
                 incoming_width: 200.,
-                effective_width: width,
+                containing_width: 200.,
+                assigned_width: (display == Display::InlineFlex).then_some(width),
                 shrink_to_fit: display == Display::InlineFlex,
             })
         );

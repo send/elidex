@@ -199,7 +199,7 @@ pub(crate) struct FlexItem {
 
 impl FlexItem {
     fn stretches(&self) -> bool {
-        self.align == AlignItems::Stretch
+        matches!(self.align, AlignItems::Normal | AlignItems::Stretch)
             && self.cross_size_auto
             && !self.margin_cross_start_auto
             && !self.margin_cross_end_auto
@@ -286,6 +286,7 @@ pub fn layout_flex(
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
 
     let inline_containing = input.containing_inline_size;
     let padding = elidex_layout_block::resolve_padding(&style, inline_containing);
@@ -302,7 +303,7 @@ pub fn layout_flex(
     } = margin;
 
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+    let content_width = input.assigned.target().width.unwrap_or_else(|| {
         elidex_layout_block::resolve_content_width(
             &style,
             containing_width,
@@ -328,7 +329,7 @@ pub fn layout_flex(
                 content_width,
                 resolved_height: input
                     .assigned
-                    .content
+                    .target()
                     .height
                     .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,
@@ -346,6 +347,7 @@ pub fn layout_flex(
     let resolve_gap = |dim: elidex_plugin::Dimension| {
         elidex_layout_block::resolve_dimension_value(dim, content_width, 0.0).max(0.0)
     };
+    // #11-intrinsic-contribution-producer: vertical flex placement interchanges row and column gaps.
     let (gap_main, gap_cross) = if horizontal {
         (resolve_gap(style.column_gap), resolve_gap(style.row_gap))
     } else {
@@ -355,7 +357,7 @@ pub fn layout_flex(
     // Container's own definite height for children's percentage height resolution.
     let resolved_height = input
         .assigned
-        .content
+        .target()
         .height
         .or_else(|| resolve_explicit_height(&style, containing_height));
 
@@ -387,6 +389,7 @@ pub fn layout_flex(
         font_db,
         layout_child,
         depth,
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         is_probe: input.is_probe,
@@ -501,7 +504,7 @@ pub fn layout_flex(
         };
 
     // --- Container LayoutBox ---
-    let content_height = input.assigned.content.height.unwrap_or_else(|| {
+    let content_height = input.assigned.target().height.unwrap_or_else(|| {
         algo::compute_container_height(&style, &ctx, &items, &line_ranges, total_line_cross)
     });
 
@@ -571,6 +574,7 @@ pub fn layout_flex(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             is_probe: input.is_probe,

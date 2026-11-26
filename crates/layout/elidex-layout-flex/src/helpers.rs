@@ -133,7 +133,7 @@ pub(crate) fn collect_flex_items(
                 ctx.content_width
             };
             let child_input = LayoutInput {
-                is_flex_item: true,
+                item_context: elidex_layout_block::ItemContext::Independent,
                 viewport: env.viewport,
                 ..LayoutInput::probe(env, probe_width)
             };
@@ -256,7 +256,7 @@ fn compute_automatic_minimum(
 
     // Content-based minimum: probe layout at near-zero width.
     let probe_input = LayoutInput {
-        is_flex_item: true,
+        item_context: elidex_layout_block::ItemContext::Independent,
         viewport: env.viewport,
         ..LayoutInput::probe(env, 1.0)
     };

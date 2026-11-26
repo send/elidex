@@ -1,12 +1,10 @@
 //! Table intrinsic sizing (CSS 2.1 §17.5.2).
 
+use crate::{get_style, total_gap, IntrinsicSizes, LayoutEnv};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::{
-    composed_children_flat, get_style, total_gap, IntrinsicSizes, LayoutEnv,
-};
-use elidex_plugin::{Display, WritingModeContext};
+use elidex_plugin::Display;
 
-use super::compute_intrinsic_sizes;
+use super::{intrinsic_on_parent_axis, participating_children};
 
 /// Table intrinsic sizing (CSS 2.1 §17.5.2).
 ///
@@ -17,24 +15,26 @@ pub(super) fn compute_table_intrinsic(
     entity: Entity,
     children: &[Entity],
     env: &LayoutEnv<'_>,
+    grid: super::GridIntrinsicFn,
 ) -> IntrinsicSizes {
+    let style = get_style(dom, entity);
+    let horizontal = style.writing_mode.is_horizontal();
     let mut col_min: Vec<f32> = Vec::new();
     let mut col_max: Vec<f32> = Vec::new();
 
     // Walk rows (direct or inside row-groups) → cells.
     let mut rows: Vec<Entity> = Vec::new();
     for &child in children {
-        let child_style = elidex_layout_block::try_get_style(dom, child);
+        let child_style = crate::try_get_style(dom, child);
         match child_style.as_ref().map(|s| s.display) {
             Some(Display::TableRow) => rows.push(child),
             Some(
                 Display::TableHeaderGroup | Display::TableRowGroup | Display::TableFooterGroup,
             ) => {
                 // Row group: collect its row children.
-                let group_children = composed_children_flat(dom, child);
+                let group_children = participating_children(dom, child);
                 for &gc in &group_children {
-                    if elidex_layout_block::try_get_style(dom, gc)
-                        .is_some_and(|s| s.display == Display::TableRow)
+                    if crate::try_get_style(dom, gc).is_some_and(|s| s.display == Display::TableRow)
                     {
                         rows.push(gc);
                     }
@@ -42,7 +42,8 @@ pub(super) fn compute_table_intrinsic(
             }
             Some(Display::TableCell) => {
                 // Direct cell (anonymous row): treat as column 0.
-                let cell_sizes = compute_intrinsic_sizes(dom, child, &env.deeper());
+                let cell_sizes =
+                    intrinsic_on_parent_axis(dom, child, horizontal, &env.deeper(), grid);
                 if col_min.is_empty() {
                     col_min.push(0.0);
                     col_max.push(0.0);
@@ -57,17 +58,10 @@ pub(super) fn compute_table_intrinsic(
     // Colspan-aware intrinsic sizing: spanning cells distribute their intrinsic
     // width equally across spanned columns.
     for &row in &rows {
-        let cells = composed_children_flat(dom, row);
+        // #11-intrinsic-contribution-producer: leading whitespace can count as a table column.
+        let cells = participating_children(dom, row);
         let mut col_idx = 0;
         for &cell in &cells {
-            // Skip display:none and non-cell children.
-            let cell_style = elidex_layout_block::try_get_style(dom, cell);
-            if cell_style
-                .as_ref()
-                .is_some_and(|s| s.display == Display::None)
-            {
-                continue;
-            }
             // Read colspan from HTML attribute.
             let colspan = dom
                 .world()
@@ -77,7 +71,7 @@ pub(super) fn compute_table_intrinsic(
                 .unwrap_or(1)
                 .clamp(1, 1000);
 
-            let cell_sizes = compute_intrinsic_sizes(dom, cell, &env.deeper());
+            let cell_sizes = intrinsic_on_parent_axis(dom, cell, horizontal, &env.deeper(), grid);
 
             // Grow column vectors as needed.
             while col_min.len() < col_idx + colspan {
@@ -103,14 +97,12 @@ pub(super) fn compute_table_intrinsic(
         }
     }
 
-    let style = get_style(dom, entity);
-    let inline_horizontal =
-        WritingModeContext::new(style.writing_mode, style.direction).is_horizontal();
     // CSS 2.1 §17.6.2: in the collapsing border model, border-spacing is ignored.
+    // #11-intrinsic-contribution-producer: the intrinsic width omits the two outer spacing edges.
     // Use inline-axis border-spacing (horizontal in horizontal-tb, vertical in vertical modes).
     let gap = if style.border_collapse == elidex_plugin::BorderCollapse::Collapse {
         0.0
-    } else if inline_horizontal {
+    } else if horizontal {
         style.border_spacing_h.max(0.0)
     } else {
         style.border_spacing_v.max(0.0)

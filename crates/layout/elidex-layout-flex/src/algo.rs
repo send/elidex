@@ -218,7 +218,7 @@ pub(crate) fn layout_items_cross(
             ctx.resolved_height.unwrap_or(0.0)
         };
         let child_input = LayoutInput {
-            is_flex_item: true,
+            item_context: elidex_layout_block::ItemContext::Independent,
             assigned: elidex_layout_block::UsedAssignment {
                 content: Size {
                     width: ctx.horizontal.then_some(item.final_main),
@@ -395,7 +395,7 @@ fn cross_align_offset(item: &FlexItem, line_cross: f32, line_max_baseline: f32) 
     );
     let item_outer_cross = item.final_cross + item.margin_cross;
     match item.align {
-        AlignItems::FlexEnd => line_cross - item_outer_cross,
+        AlignItems::End | AlignItems::FlexEnd => line_cross - item_outer_cross,
         AlignItems::Center => (line_cross - item_outer_cross) / 2.0,
         AlignItems::Baseline => {
             // CSS Flexbox §9.4: align item's baseline with the line's max baseline.
@@ -453,7 +453,7 @@ fn relayout_item_at_position(
     let child_input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: true,
+        item_context: elidex_layout_block::ItemContext::Independent,
         assigned: elidex_layout_block::UsedAssignment {
             content: Size {
                 width: Some(item_content_width),
@@ -464,6 +464,7 @@ fn relayout_item_at_position(
                 height: !ctx.horizontal || stretched || item.definite_preferred_cross,
             },
             margin,
+            ..Default::default()
         },
         containing: CssSize {
             width: child_containing_width,
@@ -474,6 +475,7 @@ fn relayout_item_at_position(
         font_db: env.font_db,
         depth: env.depth + 1,
         float_ctx: None,
+        scroll_limits: env.scroll_limits,
         viewport: env.viewport,
         fragmentainer: None,
         break_token: None,

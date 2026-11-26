@@ -274,6 +274,9 @@ pub fn adjust_min_max_for_border_box(min: &mut f32, max: &mut f32, pb: f32) {
 pub fn effective_align(item_align: AlignSelf, container_align: AlignItems) -> AlignItems {
     match item_align {
         AlignSelf::Auto => container_align,
+        AlignSelf::Normal => AlignItems::Normal,
+        AlignSelf::Start => AlignItems::Start,
+        AlignSelf::End => AlignItems::End,
         AlignSelf::Stretch => AlignItems::Stretch,
         AlignSelf::FlexStart => AlignItems::FlexStart,
         AlignSelf::FlexEnd => AlignItems::FlexEnd,

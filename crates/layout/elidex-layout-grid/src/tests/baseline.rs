@@ -7,6 +7,21 @@ fn row_baseline_alignment() {
     // Two items with different heights (20, 40). Items without text use
     // margin-box bottom as the baseline fallback. The taller item defines
     // the row baseline, so the shorter item should be offset downward.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static AREA_PROBES: AtomicUsize = AtomicUsize::new(0);
+    fn counting_layout(
+        dom: &mut EcsDom,
+        entity: elidex_ecs::Entity,
+        input: &LayoutInput<'_>,
+    ) -> elidex_layout_block::LayoutOutcome {
+        if matches!(
+            input.item_context,
+            elidex_layout_block::ItemContext::GridArea(_)
+        ) {
+            AREA_PROBES.fetch_add(1, Ordering::Relaxed);
+        }
+        layout_block_only(dom, entity, input)
+    }
     let mut dom = EcsDom::new();
     let container = dom.create_element_ownerless_fixture("div", Attributes::default());
     dom.world_mut()
@@ -36,8 +51,9 @@ fn row_baseline_alignment() {
         Point::ZERO,
         &font_db,
         0,
-        layout_block_only,
+        counting_layout,
     );
+    assert_eq!(AREA_PROBES.load(Ordering::Relaxed), 2);
 
     let lb1 = get_layout(&dom, c1);
     let lb2 = get_layout(&dom, c2);
