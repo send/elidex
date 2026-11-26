@@ -324,8 +324,7 @@ mod tests {
 
         let font_db = FontDatabase::new();
         let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
-        assert!(sizes.min_content >= 60.0);
-        assert!(sizes.max_content >= sizes.min_content);
+        assert_eq!((sizes.min_content, sizes.max_content), (140., 140.));
     }
 
     #[test]
@@ -367,8 +366,7 @@ mod tests {
 
         let font_db = FontDatabase::new();
         let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
-        assert!(sizes.min_content >= 40.0);
-        assert!(sizes.max_content >= sizes.min_content);
+        assert_eq!((sizes.min_content, sizes.max_content), (70., 70.));
     }
 
     #[test]

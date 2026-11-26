@@ -73,37 +73,67 @@ pub fn dispatch_layout_child(
     dispatch_inner(dom, entity, &input, &style)
 }
 
+fn shrink_to_fit_input<'a>(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'a>,
+    style: &ComputedStyle,
+) -> Option<LayoutInput<'a>> {
+    // CSS 2.1 §10.3.5: Inline-level containers (inline-flex, inline-grid,
+    // inline-table) shrink to fit on their own inline axis.
+    let horizontal = style.writing_mode.is_horizontal();
+    let (inline_size, assigned_inline, available_inline) = if horizontal {
+        (
+            style.width,
+            input.assigned.content.width,
+            input.containing.width,
+        )
+    } else {
+        (
+            style.height,
+            input.assigned.content.height,
+            input
+                .available_height()
+                .unwrap_or(input.containing_inline_size),
+        )
+    };
+    if matches!(
+        style.display,
+        Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
+    ) && assigned_inline.is_none()
+        && inline_size == elidex_plugin::Dimension::Auto
+    {
+        let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
+        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
+        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, available_inline);
+        Some(LayoutInput {
+            containing: if horizontal {
+                CssSize {
+                    width: stf,
+                    ..input.containing
+                }
+            } else {
+                CssSize {
+                    height: Some(stf),
+                    ..input.containing
+                }
+            },
+            containing_inline_size: stf,
+            ..*input
+        })
+    } else {
+        None
+    }
+}
+
 fn dispatch_inner(
     dom: &mut EcsDom,
     entity: Entity,
     input: &LayoutInput<'_>,
     style: &ComputedStyle,
 ) -> elidex_layout_block::LayoutOutcome {
-    // CSS 2.1 §10.3.5: Inline-level containers (inline-flex, inline-grid,
-    // inline-table) use shrink-to-fit width. Compute intrinsic sizes and
-    // replace containing_width with shrink-to-fit.
-    let adjusted_input;
-    let effective_input = if matches!(
-        style.display,
-        Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
-    ) && input.assigned.content.width.is_none()
-        && style.width == elidex_plugin::Dimension::Auto
-    {
-        let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
-        let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
-        let stf = crate::intrinsic::shrink_to_fit_width(&intrinsic, input.containing.width);
-        adjusted_input = LayoutInput {
-            containing: CssSize {
-                width: stf,
-                height: input.containing.height,
-            },
-            containing_inline_size: stf,
-            ..*input
-        };
-        &adjusted_input
-    } else {
-        input
-    };
+    let adjusted_input = shrink_to_fit_input(dom, entity, input, style);
+    let effective_input = adjusted_input.as_ref().unwrap_or(input);
 
     // CSS 2.1 §17.2.1: wrap orphan table-internal children in anonymous table
     // wrappers before block layout. Only needed for block-level containers that

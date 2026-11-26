@@ -177,3 +177,271 @@ fn authored_self_values_preserve_serialization_through_placement() {
         }
     }
 }
+
+#[test]
+fn fit_content_grid_counts_empty_explicit_tracks() {
+    use elidex_plugin::TrackSize;
+    let mut sizes = Vec::new();
+    for paged in [false, true] {
+        for hidden in [false, true] {
+            let lb = geometry_with(
+                ComputedStyle::default(),
+                ComputedStyle {
+                    justify_self: JustifySelf::Start,
+                    align_self: AlignSelf::Start,
+                    grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                        TrackSize::Length(43.),
+                    ])),
+                    grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(
+                        vec![TrackSize::Length(30.), TrackSize::Length(20.)],
+                    )),
+                    column_gap: Dimension::Length(7.),
+                    ..Default::default()
+                },
+                0.,
+                paged,
+                |dom, _, item| {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = Display::Grid;
+                    let leaf = dom.children(item)[0];
+                    if hidden {
+                        dom.world_mut()
+                            .get::<&mut ComputedStyle>(leaf)
+                            .unwrap()
+                            .display = Display::None;
+                    } else {
+                        assert!(dom.remove_child(item, leaf));
+                    }
+                },
+            );
+            sizes.push(lb.content.size);
+        }
+    }
+    assert_eq!(sizes, [Size::new(57., 43.); 4]);
+}
+
+#[test]
+fn fit_content_flex_follows_logical_main_axis() {
+    use elidex_plugin::FlexDirection;
+    let mut heights = Vec::new();
+    for paged in [false, true] {
+        for direction in [FlexDirection::Row, FlexDirection::Column] {
+            let vertical = ComputedStyle {
+                writing_mode: WritingMode::VerticalRl,
+                ..Default::default()
+            };
+            let lb = geometry_with(
+                vertical.clone(),
+                ComputedStyle {
+                    justify_self: JustifySelf::Start,
+                    flex_direction: direction,
+                    column_gap: Dimension::Length(7.),
+                    ..vertical.clone()
+                },
+                0.,
+                paged,
+                |dom, _, item| {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = Display::Flex;
+                    let leaf = dom.children(item)[0];
+                    for (child, height) in
+                        [(leaf, 20.), (add(dom, Some(item), vertical.clone()), 30.)]
+                    {
+                        let mut style = dom.world_mut().get::<&mut ComputedStyle>(child).unwrap();
+                        style.display = Display::Block;
+                        style.writing_mode = WritingMode::VerticalRl;
+                        style.height = Dimension::Length(height);
+                        style.margin_bottom = Dimension::Length(5.);
+                    }
+                },
+            );
+            heights.push(lb.content.size.height);
+        }
+    }
+    assert_eq!(heights, [67., 35., 67., 35.]);
+}
+
+#[test]
+fn vertical_intrinsic_contributions_use_the_parent_inline_axis() {
+    use elidex_plugin::FlexDirection;
+    for paged in [false, true] {
+        for mode in [WritingMode::VerticalLr, WritingMode::VerticalRl] {
+            for (direction, height) in [
+                (FlexDirection::RowReverse, 67.),
+                (FlexDirection::ColumnReverse, 35.),
+            ] {
+                let vertical = ComputedStyle {
+                    writing_mode: mode,
+                    ..Default::default()
+                };
+                let lb = geometry_with(
+                    vertical.clone(),
+                    ComputedStyle {
+                        justify_self: JustifySelf::Start,
+                        flex_direction: direction,
+                        column_gap: Dimension::Length(7.),
+                        row_gap: Dimension::Length(19.),
+                        ..vertical
+                    },
+                    0.,
+                    paged,
+                    |dom, _, item| {
+                        dom.world_mut()
+                            .get::<&mut ComputedStyle>(item)
+                            .unwrap()
+                            .display = Display::Flex;
+                        let first = dom.children(item)[0];
+                        for (child, h) in [
+                            (first, 20.),
+                            (add(dom, Some(item), ComputedStyle::default()), 30.),
+                        ] {
+                            let mut style =
+                                dom.world_mut().get::<&mut ComputedStyle>(child).unwrap();
+                            style.display = Display::Block;
+                            style.width = Dimension::Length(11.);
+                            style.height = Dimension::Length(h);
+                            style.margin_bottom = Dimension::Length(5.);
+                        }
+                    },
+                );
+                assert_eq!(lb.content.size.height, height, "{mode:?} {direction:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn empty_vertical_grid_preserves_its_own_rows_and_columns() {
+    use elidex_plugin::{Position, TrackSize};
+    for paged in [false, true] {
+        for mode in [WritingMode::VerticalLr, WritingMode::VerticalRl] {
+            let vertical = ComputedStyle {
+                writing_mode: mode,
+                ..Default::default()
+            };
+            let lb = geometry_with(
+                vertical.clone(),
+                ComputedStyle {
+                    align_self: AlignSelf::Start,
+                    justify_self: JustifySelf::Start,
+                    grid_template_rows: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                        TrackSize::Length(43.),
+                    ])),
+                    grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(
+                        vec![TrackSize::Length(30.), TrackSize::Length(20.)],
+                    )),
+                    column_gap: Dimension::Length(7.),
+                    ..vertical
+                },
+                200.,
+                paged,
+                |dom, _, item| {
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = Display::Grid;
+                    let child = dom.children(item)[0];
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(child)
+                        .unwrap()
+                        .position = Position::Absolute;
+                },
+            );
+            assert_eq!(lb.content.size, Size::new(43., 57.));
+        }
+    }
+}
+
+#[test]
+fn empty_auto_fit_tracks_collapse_their_gutters_beside_an_authored_track() {
+    use elidex_plugin::{AutoRepeatMode, TrackSize};
+    for paged in [false, true] {
+        for (mode, width) in [
+            (AutoRepeatMode::AutoFit, 30.),
+            (AutoRepeatMode::AutoFill, 57.),
+        ] {
+            let lb = geometry_with(
+                ComputedStyle::default(),
+                ComputedStyle {
+                    justify_self: JustifySelf::Start,
+                    grid_template_columns: GridTrackList::AutoRepeat {
+                        before: TrackSection::from_tracks(vec![TrackSize::Length(30.)]),
+                        pattern: TrackSection::from_tracks(vec![TrackSize::Length(20.)]),
+                        mode,
+                        after: TrackSection::from_tracks(vec![]),
+                    },
+                    column_gap: Dimension::Length(7.),
+                    ..Default::default()
+                },
+                200.,
+                paged,
+                |dom, _, item| {
+                    let child = dom.children(item)[0];
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(child)
+                        .unwrap()
+                        .display = Display::None;
+                    dom.world_mut()
+                        .get::<&mut ComputedStyle>(item)
+                        .unwrap()
+                        .display = Display::Grid;
+                },
+            );
+            assert_eq!(lb.content.size.width, width);
+        }
+    }
+}
+
+#[test]
+fn vertical_inline_grid_shrinks_its_auto_height_with_definite_width() {
+    use elidex_plugin::TrackSize;
+    for paged in [false, true] {
+        let mut dom = EcsDom::new();
+        let grid = add(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::InlineGrid,
+                writing_mode: WritingMode::VerticalRl,
+                width: Dimension::Length(90.),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(57.),
+                ])),
+                ..Default::default()
+            },
+        );
+        layout_authored(&mut dom, grid, Size::new(300., 500.), paged);
+        assert_eq!(get_layout(&dom, grid).content.size, Size::new(90., 57.));
+    }
+}
+
+#[test]
+fn nodes_without_in_flow_boxes_do_not_add_intrinsic_gaps() {
+    for paged in [false, true] {
+        let lb = geometry_with(
+            ComputedStyle::default(),
+            ComputedStyle {
+                justify_self: JustifySelf::Start,
+                column_gap: Dimension::Length(17.),
+                ..Default::default()
+            },
+            40.,
+            paged,
+            |dom, _, item| {
+                dom.world_mut()
+                    .get::<&mut ComputedStyle>(item)
+                    .unwrap()
+                    .display = Display::Flex;
+                let comment = dom.create_comment_ownerless_fixture("unused");
+                let whitespace = dom.create_text_ownerless_fixture(" \t ");
+                assert!(dom.append_child(item, comment));
+                assert!(dom.append_child(item, whitespace));
+            },
+        );
+        assert_eq!(lb.content.size.width, 40.);
+    }
+}

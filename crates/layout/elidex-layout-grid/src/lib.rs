@@ -157,13 +157,11 @@ pub fn layout_grid(
         let v_pb = elidex_layout_block::vertical_pb(&padding, &border);
         let v_margin = margin_top + margin_bottom;
         let inline_h = {
-            let auto_val = (containing_inline - v_pb - v_margin).max(0.0);
-            let mut h =
-                elidex_layout_block::sanitize(elidex_layout_block::resolve_dimension_value(
-                    style.height,
-                    containing_inline,
-                    auto_val,
-                ));
+            let available = input.available_height().unwrap_or(containing_inline);
+            let auto_val = (available - v_pb - v_margin).max(0.0);
+            let mut h = elidex_layout_block::sanitize(
+                elidex_layout_block::resolve_dimension_value(style.height, available, auto_val),
+            );
             if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
                 if let elidex_plugin::Dimension::Length(_)
                 | elidex_plugin::Dimension::Percentage(_) = style.height
@@ -176,7 +174,9 @@ pub fn layout_grid(
         // Block available = content_width (physical width = block direction).
         (
             input.assigned.content.height.unwrap_or(inline_h),
-            Some(content_width),
+            input.assigned.content.width.or_else(|| {
+                (style.width != elidex_plugin::Dimension::Auto).then_some(content_width)
+            }),
         )
     };
 
@@ -190,9 +190,9 @@ pub fn layout_grid(
     )
     .max(0.0);
 
-    // --- Early return for empty containers ---
+    // Explicit tracks can size a grid even when it has no children.
     let children = elidex_layout_block::composed_children_flat(dom, entity);
-    if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
+    if depth >= MAX_LAYOUT_DEPTH {
         return elidex_layout_block::empty_container_box(
             dom,
             entity,
@@ -303,11 +303,18 @@ pub fn layout_grid(
     for pass in 0..max_passes {
         // --- 8. Measure content sizes (initial layout) ---
         // Measure at inline-available width (column = inline axis).
-        measure_item_content(dom, &mut items, container_inline_size, input, layout_child);
+        measure_item_content(
+            dom,
+            &mut items,
+            container_inline_size,
+            is_horizontal_wm,
+            input,
+            layout_child,
+        );
 
         // --- Build per-item intrinsic size contributions ---
-        let mut col_contribs = build_contributions(&items, true);
-        let mut row_contribs = build_contributions(&items, false);
+        let mut col_contribs = build_contributions(&items, true, is_horizontal_wm);
+        let mut row_contribs = build_contributions(&items, false, is_horizontal_wm);
 
         // CSS Grid L2 §2.5: subgrid m/b/p contributes to parent track sizing.
         // A subgrid's margin, border, and padding on the subgridded axis are
@@ -543,14 +550,12 @@ pub fn layout_grid(
     // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
     // In horizontal: width = inline, height = block.
     // In vertical: width = block, height = inline.
-    let total_col_size = track::total_track_size(&col_tracks, gap_col);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
     let (final_content_width, mut final_content_height) = if is_horizontal_wm {
         (content_width, block_available.unwrap_or(total_row_size))
     } else {
         // Vertical: width = block-size (row tracks), height = inline-size
         let block_size = block_available.unwrap_or(total_row_size);
-        let _ = total_col_size; // inline tracks used for container_inline_size
         (block_size, container_inline_size)
     };
 
@@ -560,7 +565,7 @@ pub fn layout_grid(
     }
 
     // --- 14. LayoutBox ---
-    // Grid container baseline (CSS Grid §4.2).
+    // Grid container baseline (CSS Grid 2 §11.6).
     let first_baseline = grid_baseline;
 
     let lb = LayoutBox {

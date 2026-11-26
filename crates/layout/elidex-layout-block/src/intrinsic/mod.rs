@@ -56,19 +56,7 @@ pub fn compute_intrinsic_sizes(
         return sizes;
     }
 
-    let mut children = composed_children_flat(dom, entity);
-    children.retain(|&child| {
-        crate::try_get_style(dom, child).is_none_or(|s| {
-            s.display != Display::None && !crate::positioned::is_absolutely_positioned(&s)
-        })
-    });
-
-    if children.is_empty() {
-        return IntrinsicSizes {
-            min_content: pb,
-            max_content: pb,
-        };
-    }
+    let children = participating_children(dom, entity);
 
     let content = match style.display {
         Display::Flex | Display::InlineFlex => {
@@ -84,6 +72,56 @@ pub fn compute_intrinsic_sizes(
     IntrinsicSizes {
         min_content: content.min_content + pb,
         max_content: content.max_content + pb,
+    }
+}
+
+/// Composed children that can contribute in-flow boxes or inline text.
+fn participating_children(dom: &EcsDom, entity: Entity) -> Vec<Entity> {
+    let mut children = composed_children_flat(dom, entity);
+    children.retain(|&child| {
+        crate::try_get_style(dom, child).map_or_else(
+            || dom.world().get::<&elidex_ecs::TextContent>(child).is_ok(),
+            |style| {
+                style.display != Display::None
+                    && !crate::positioned::is_absolutely_positioned(&style)
+            },
+        )
+    });
+    children
+}
+
+/// Border-box contribution on the container's inline axis. For orthogonal
+/// flows this is the child's block extent at its intrinsic inline size.
+pub fn intrinsic_on_parent_axis(
+    dom: &mut EcsDom,
+    entity: Entity,
+    horizontal: bool,
+    env: &LayoutEnv<'_>,
+    grid: GridIntrinsicFn,
+) -> IntrinsicSizes {
+    if env.depth >= MAX_LAYOUT_DEPTH {
+        return IntrinsicSizes::default();
+    }
+    let style = get_style(dom, entity);
+    if style.writing_mode.is_horizontal() == horizontal {
+        return compute_intrinsic_sizes(dom, entity, env, grid);
+    }
+    let inline = compute_intrinsic_sizes(dom, entity, env, grid).max_content;
+    let mut input = crate::LayoutInput::probe(env, inline);
+    input.item_context = crate::ItemContext::Independent;
+    input.containing_inline_size = 0.;
+    input.containing_width_definite = !horizontal;
+    if horizontal {
+        input.containing = elidex_plugin::CssSize::definite(0., inline);
+    }
+    let size = (env.layout_child)(dom, entity, &input)
+        .layout_box
+        .border_box()
+        .size;
+    let extent = if horizontal { size.width } else { size.height };
+    IntrinsicSizes {
+        min_content: extent,
+        max_content: extent,
     }
 }
 

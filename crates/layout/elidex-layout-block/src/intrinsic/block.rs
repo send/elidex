@@ -1,12 +1,10 @@
 //! Block and flex intrinsic sizing.
 
-use crate::{
-    get_style, inline, resolve_dimension_value, total_gap, IntrinsicSizes, LayoutEnv, LayoutInput,
-};
+use crate::{get_style, inline, resolve_dimension_value, total_gap, IntrinsicSizes, LayoutEnv};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{FlexDirection, FlexWrap, WritingModeContext};
+use elidex_plugin::{FlexDirection, FlexWrap};
 
-use super::compute_intrinsic_sizes;
+use super::intrinsic_on_parent_axis;
 
 /// Block intrinsic sizing.
 ///
@@ -30,7 +28,13 @@ pub(super) fn compute_block_intrinsic(
         let mut max = 0.0_f32;
         let deeper = env.deeper();
         for &child in children {
-            let child_sizes = compute_intrinsic_sizes(dom, child, &deeper, grid);
+            let child_sizes = intrinsic_on_parent_axis(
+                dom,
+                child,
+                style.writing_mode.is_horizontal(),
+                &deeper,
+                grid,
+            );
             let outer = with_inline_margins(
                 child_sizes,
                 &get_style(dom, child),
@@ -78,34 +82,22 @@ pub(super) fn compute_flex_intrinsic(
     grid: super::GridIntrinsicFn,
 ) -> IntrinsicSizes {
     let style = get_style(dom, entity);
-    // Determine whether the flex main axis maps to the physical horizontal axis,
-    // taking writing mode into account: row directions follow the inline axis,
-    // column directions follow the block axis.
-    let horizontal_wm = style.writing_mode.is_horizontal();
-    let horizontal = match style.flex_direction {
-        FlexDirection::Row | FlexDirection::RowReverse => horizontal_wm,
-        FlexDirection::Column | FlexDirection::ColumnReverse => !horizontal_wm,
-    };
+    // CSS Flexbox 1 §5.1: row follows the inline axis in every writing mode.
+    let row = matches!(
+        style.flex_direction,
+        FlexDirection::Row | FlexDirection::RowReverse
+    );
     let nowrap = matches!(style.flex_wrap, FlexWrap::Nowrap);
 
-    let child_sizes_list = collect_child_intrinsic_sizes(dom, children, env, grid, horizontal_wm);
+    let child_sizes_list = collect_child_intrinsic_sizes(dom, entity, children, env, grid, &style);
 
     if child_sizes_list.is_empty() {
         return IntrinsicSizes::default();
     }
 
-    // CSS Box Alignment L3: gap between items contributes to intrinsic size.
-    // Use the main-axis gap (column-gap for row flex, row-gap for column flex)
-    // but select the physical axis based on writing mode.
-    let gap = if horizontal {
-        resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0)
-    } else {
-        resolve_dimension_value(style.row_gap, 0.0, 0.0).max(0.0)
-    };
-    let gap_total = total_gap(child_sizes_list.len(), gap);
-
-    if horizontal {
-        // Row direction: items side-by-side along main axis.
+    if row {
+        let gap = resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0);
+        let gap_total = total_gap(child_sizes_list.len(), gap);
         let sum_min: f32 = child_sizes_list.iter().map(|s| s.min_content).sum();
         let sum_max: f32 = child_sizes_list.iter().map(|s| s.max_content).sum();
         let max_min = child_sizes_list
@@ -127,8 +119,7 @@ pub(super) fn compute_flex_intrinsic(
             }
         }
     } else {
-        // Column direction: items stack vertically, intrinsic width = max of children.
-        // Gap is on the main (vertical) axis — does not affect intrinsic inline size.
+        // In a column, main-axis gaps do not contribute to intrinsic inline size.
         let max_min = child_sizes_list
             .iter()
             .map(|s| s.min_content)
@@ -163,51 +154,53 @@ fn with_inline_margins(
 /// Collect per-child intrinsic sizes, including fixed inline margins and probing text nodes.
 fn collect_child_intrinsic_sizes(
     dom: &mut EcsDom,
+    parent: Entity,
     children: &[Entity],
     env: &LayoutEnv<'_>,
     grid: super::GridIntrinsicFn,
-    horizontal_inline: bool,
+    parent_style: &elidex_plugin::ComputedStyle,
 ) -> Vec<IntrinsicSizes> {
+    let horizontal_inline = parent_style.writing_mode.is_horizontal();
     let mut result = Vec::new();
-    for &child in children {
-        let Some(style) = crate::try_get_style(dom, child) else {
-            // Text node: measure via probe layout.
-            let probe_min = probe_layout_size(dom, child, 1.0, env);
-            let probe_max = probe_layout_size(dom, child, 1e6, env);
-            result.push(IntrinsicSizes {
-                min_content: probe_min,
-                max_content: probe_max,
+    // Adjacent text nodes form one anonymous flex item (Flexbox 1 §4).
+    let mut remaining = children;
+    while let Some((&child, rest)) = remaining.split_first() {
+        if let Some(style) = crate::try_get_style(dom, child) {
+            let sizes =
+                intrinsic_on_parent_axis(dom, child, horizontal_inline, &env.deeper(), grid);
+            result.push(with_inline_margins(sizes, &style, horizontal_inline));
+            remaining = rest;
+        } else {
+            let end = 1 + rest
+                .iter()
+                .take_while(|&&node| crate::try_get_style(dom, node).is_none())
+                .count();
+            let (text, tail) = remaining.split_at(end);
+            let visible = text.iter().any(|&node| {
+                dom.world()
+                    .get::<&elidex_ecs::TextContent>(node)
+                    .is_ok_and(|t| !t.0.trim_matches([' ', '\t', '\r', '\n', '\x0c']).is_empty())
             });
-            continue;
-        };
-        let sizes = compute_intrinsic_sizes(dom, child, &env.deeper(), grid);
-        result.push(with_inline_margins(sizes, &style, horizontal_inline));
+            if visible {
+                result.push(IntrinsicSizes {
+                    min_content: inline::min_content_inline_size(
+                        dom,
+                        text,
+                        parent_style,
+                        parent,
+                        env.font_db,
+                    ),
+                    max_content: inline::max_content_inline_size(
+                        dom,
+                        text,
+                        parent_style,
+                        parent,
+                        env.font_db,
+                    ),
+                });
+            }
+            remaining = tail;
+        }
     }
     result
-}
-
-/// Probe layout at a given containing width, return content-box inline-axis size.
-///
-/// Returns the inline-axis content dimension (`width` in horizontal-tb,
-/// `height` in vertical modes), excluding the entity's own padding and border.
-/// Intended for text nodes and leaf elements whose outer box model is
-/// accounted for by `compute_intrinsic_sizes`.
-pub(super) fn probe_layout_size(
-    dom: &mut EcsDom,
-    entity: Entity,
-    containing_width: f32,
-    env: &LayoutEnv<'_>,
-) -> f32 {
-    let input = LayoutInput::probe(env, containing_width);
-    let lb = (env.layout_child)(dom, entity, &input).layout_box;
-    // Determine inline axis from the parent's writing mode context.
-    // For text/leaf nodes without a style, check ancestor style if available;
-    // fallback to horizontal (width).
-    let inline_horizontal = crate::try_get_style(dom, entity)
-        .is_none_or(|s| WritingModeContext::new(s.writing_mode, s.direction).is_horizontal());
-    if inline_horizontal {
-        lb.content.size.width
-    } else {
-        lb.content.size.height
-    }
 }

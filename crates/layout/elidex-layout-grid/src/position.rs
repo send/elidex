@@ -339,7 +339,7 @@ fn measure_in_area<'a>(
 
 /// Position each item within its grid area and perform final layout.
 ///
-/// Returns the grid container's first baseline (CSS Grid §4.2).
+/// Returns the grid container's first baseline (CSS Grid 2 §11.6).
 #[allow(clippy::too_many_lines)]
 pub(crate) fn position_items(
     dom: &mut EcsDom,
@@ -366,7 +366,7 @@ pub(crate) fn position_items(
     };
     let mut baseline_items = HashMap::new();
 
-    // Per-row/column baselines for baseline alignment (CSS Grid §10.6).
+    // Per-row/column baseline sharing groups (CSS Align 3 §9.2).
     let mut row_baselines: HashMap<usize, f32> = HashMap::new();
     let mut col_baselines: HashMap<usize, f32> = HashMap::new();
 
@@ -477,7 +477,7 @@ pub(crate) fn position_items(
         (env.layout_child)(dom, item.entity, &final_input);
     }
 
-    // Grid container baseline (CSS Grid §4.2):
+    // Grid container baseline (CSS Grid 2 §11.6):
     // Use the shared baseline of the first row if baseline alignment was used,
     // otherwise fall back to the first item in row 0's baseline from final layout.
     if let Some(&first_row_bl) = row_baselines.get(&0) {
