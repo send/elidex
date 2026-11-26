@@ -127,8 +127,10 @@ seed 3. `offsetParent` :108 and `scrollTop/Left` :175/:185 read no `LayoutBox`; 
 | `elidex-layout/src/hit_test.rs:130` | get<&LayoutBox> → `.border_box()` (+ self-composed transform) | point-in-box hit test | screen-post-layout | pending-migration | C-3c |
 | `elidex-layout-flex/src/lib.rs:474` | get<&LayoutBox> → `.first_baseline`,`.content.origin.y` | container baseline fallback | **in-layout** | pending-migration | C-3c |
 | `elidex-layout-flex/src/baseline.rs:18` `read_item_baselines` | get<&LayoutBox> → `.padding`,`.border`,`.first_baseline` of the CHILD | per-item baseline offset for `align-items: baseline` | **in-layout** | pending-migration | C-3c |
-| `elidex-layout-grid/src/position.rs:444` | get<&LayoutBox> → `.first_baseline`,`.content.origin.y` | grid baseline fallback | **in-layout** | pending-migration | C-3c |
+| `elidex-layout-grid/src/position.rs:449` | get<&LayoutBox> → `.first_baseline`,`.content.origin.y` | grid baseline fallback | **in-layout** | pending-migration | C-3c |
 | `elidex-layout-block/src/inline/pack/mod.rs:613` | get<&LayoutBox> → atomic `.first_baseline`+edges | inline-run baseline from atomic | **in-layout** | pending-migration | C-3c |
+
+Grid placement also consumes the in-layout probe result directly. `measure_in_area` returns the child box from the current probe, and `item_baseline` reads the baseline and physical edges from that value. Both signatures are classified as `producer`. The store lookup for the container baseline is tracked separately in the table above.
 
 ⚠ **`flex/baseline.rs:18` was first classified `producer`** (Codex PR#488 R1) because it lives in a
 layout crate — but the `producer` clause is "a write, or an in-layout producer read *of geometry this
@@ -311,7 +313,7 @@ hit entity and C-3d's iframe click-routing consumes the hit **fragment**, so it 
 `clear()`-invalidated, so only the key survives). 8 **transform-basis** reads pre-transform `border_box`
 and composes the transform itself → `box_fragments` (pre-transform) is **correct**.
 
-### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
+### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:449`, `inline/pack/mod.rs:613`)
 
 1 **frame** **LOCAL**, and **not one formula** — the three container-baseline sites take a
 container-content-relative *difference* (`lb.content.origin.y − container_origin.y + first_baseline`),
@@ -470,7 +472,7 @@ must account for them, and must NOT treat them as inert:
 | `multicol/fill.rs:76` (`snapshot_box`) | the committer read that snapshots `LayoutBox → BoxFragment` into the store; it reads the *component* to *write* the store that `clear()` resets — the read is the store's own source of truth. | 2/5 |
 | `multicol/fill.rs:421` (monolithic extent) | reads a child's `content.size` mid-fill to size columns — an in-layout store read. | 2 |
 | `layout/mod.rs:157` (&mut) | stamps `layout_generation` only when `> 0` (paged) — a paged-path mutation whose read/write is meaningless on the (never-cleared) paged store. | 2 (paged) |
-| `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). All **four** (`baseline.rs:18` was reclassified out of `producer` in Codex PR#488 R1 — see the ⚠ above the C-3c table). | 2 (in-layout) |
+| `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:449`, `inline/pack/mod.rs:613` (baseline) | in-layout reads of a **child's** store box to compute the parent's baseline — classified pending-migration/C-3c (the slice owns the decision), but they ARE producer-crate in-layout reads that C-4 gate 2b tracks: they need a **probe-visible geometry source** or keep `LayoutBox` (hand-off row 2). All **four** (`baseline.rs:18` was reclassified out of `producer` in Codex PR#488 R1 — see the ⚠ above the C-3c table). | 2 (in-layout) |
 | `table/helpers.rs:23`, `table/lib.rs:61` (derived-value helpers) | in-layout, but read a **LOCAL** `LayoutBox`/`Vec<LayoutBox>` (never the ECS store) → `clear()`-**independent**. Listed for completeness; not a store-state hazard. | 2 (in-layout, local) |
 
 ⚠ **Axis 3's other half — there is no `LayoutBox` REMOVAL path, so "box-absent" is not reachable for
@@ -545,7 +547,7 @@ citation (so it is *not* "the anon-box / flattened-`contents` insert" either).
 | 5 | render inline-text anchor | `paint/mod.rs:789-792` `find_nearest_layout_box` | selection problem, no store signal (axis 5, I-lines) | C-3e |
 | 6 | render paged-gen gate | `walk.rs:108-109` — `lb.layout_generation` | NOT a geometry read (axis 5); re-home (hand-off row 4) | C-3e→C-4 |
 | 7 | shell scroll-extent | `scroll.rs:133-149` `compute_content_extent` (`query<(Entity,(&LayoutBox,&ComputedStyle))>`) | cross-entity aggregate (axis 6) | C-3d |
-| 8 | flex/grid baseline in-layout | `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444` (+ sweep sibling `inline/pack/mod.rs:613`) — **four** sites | in-layout (axis 2) + local frames (axis 1) → stay on `LayoutBox` | C-3c |
+| 8 | flex/grid baseline in-layout | `flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:449` (+ sweep sibling `inline/pack/mod.rs:613`) — **four** sites | in-layout (axis 2) + local frames (axis 1) → stay on `LayoutBox` | C-3c |
 | 9 | ScrollIntoView == URL-fragment nav | `layout_query.rs:257-276` `ScrollIntoView` + `scroll.rs:210-246` `scroll_offset_for_fragment` | same algorithm (cssom-view "scroll a target into view") — one shared helper | C-3b + C-3d |
 
 ## Appendix — producer-crate test-only reads (noted, not in the CONSUMER classification)
