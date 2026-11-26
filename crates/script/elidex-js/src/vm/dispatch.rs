@@ -986,11 +986,9 @@ impl VmInner {
                     // must be either `null` (step 8.f — protoParent
                     // = null, ctorParent = %Function.prototype%)
                     // or a constructor (step 8.g throws). Other values
-                    // (non-constructable callables like Symbol /
-                    // BigInt / arrow functions, primitives, ordinary
-                    // objects) throw TypeError at class-definition
-                    // time — NOT later at `super()` dispatch (D-17b
-                    // R17 G17-1, null-acceptance added in R20 G20-1).
+                    // (arrow functions, other primitives, ordinary objects)
+                    // throw TypeError at class-definition time. VM defect (#11-vm-symbol-bigint-class-heritage):
+                    // CallableOnly also rejects Symbol and BigInt as heritage.
                     // Emitted by `compile_class` for the Expr arm
                     // BEFORE the prototype splices; the splice phase
                     // then runtime-branches on Null so the null path

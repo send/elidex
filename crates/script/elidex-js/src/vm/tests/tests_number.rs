@@ -126,7 +126,7 @@ fn number_nan_constant() {
 
 #[test]
 fn number_to_fixed_negative_zero() {
-    // §20.1.3.3 step 7: -0 formats without minus sign
+    // ECMA-262 §21.1.3.3 steps 7–9 leave the sign empty for negative zero.
     assert_eq!(eval_string("(-0).toFixed(2);"), "0.00");
 }
 
@@ -216,14 +216,16 @@ fn number_to_exponential_negative_zero() {
 
 #[test]
 fn number_to_precision_range_error_before_non_finite() {
-    // §20.1.3.5: RangeError for invalid precision even when this is Infinity
+    // This assertion records a known VM P4 defect: the VM throws RangeError.
+    // ECMA-262 §21.1.3.5 step 4 requires the string "Infinity".
     use super::eval_throws;
     eval_throws("(Infinity).toPrecision(0);");
 }
 
 #[test]
 fn number_to_exponential_range_error_before_non_finite() {
-    // §20.1.3.2: RangeError for invalid digits even when this is NaN
+    // The VM rejects 101 fraction digits here. ECMA-262 §21.1.3.2 step 4
+    // returns "NaN" before checking the digit range.
     use super::eval_throws;
     eval_throws("(NaN).toExponential(101);");
 }
@@ -284,7 +286,7 @@ fn boolean_construct_form_boxes_a_wrapper_object() {
     assert_eq!(eval_string("typeof new Boolean(true);"), "object");
     assert!(eval_bool("new Boolean(true).valueOf();"));
     assert!(eval_bool("new Boolean(true) instanceof Boolean;"));
-    // §20.3.3.3: even `new Boolean(false)` is a truthy object.
+    // ECMA-262 §7.1.2 (`ToBoolean`) returns true for this Boolean wrapper.
     assert!(eval_bool("new Boolean(false) ? true : false;"));
 }
 

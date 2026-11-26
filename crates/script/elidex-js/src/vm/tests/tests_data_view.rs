@@ -7,11 +7,11 @@
 //! round-trips (`Int8` / `Uint8` / `Int32` / `Uint32` / `Float32` /
 //! `Float64` / `BigInt64` / `BigUint64`), default big-endian
 //! decoding via `setInt16` + `getUint8` cross-call, the
-//! `littleEndian` flag, range / offset bounds, BigInt-only payload
-//! enforcement on `setBigInt64`, and the shared-buffer invariant
+//! `littleEndian` flag, range / offset bounds, Number rejection
+//! by `setBigInt64`, and the shared-buffer invariant
 //! between `DataView` and `Uint8Array` views over the same
 //! `ArrayBuffer`.  `Int16` / `Uint16` round-trips and the matching
-//! BigInt-payload-only check on `setBigUint64` rely on the
+//! unsigned BigInt setter’s conversion path rely on the
 //! macro-generated coverage in `vm/host/data_view.rs` and aren't
 //! repeated here.
 //!

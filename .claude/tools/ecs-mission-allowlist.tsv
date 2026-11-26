@@ -52,8 +52,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/coerce.rs	//
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/dispatch.rs	// V8 / SpiderMonkey error text for
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/error.rs	/// matches Chrome's WebIDL surface.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/array_buffer.rs	/// V8-shaped error message and width stays in lockstep with the
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	// part, divergent from browser behaviour.
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/blob.rs	//! (matching Chromium / Firefox; the spec's full media-type
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/class_list.rs	/// browsers do not). Returns `None` for non-numeric /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// Firefox both throw). Placed before the §11.1 step 2 quota
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/crypto.rs	// detached view, divergent from browser behaviour (Chrome /
@@ -64,7 +62,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// a TypeError matching Chrome / Firefox wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/lookup.rs	// the subtree (matches Blink's batch-upgrade isolation).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/custom_elements/upgrade.rs	//! and `eprintln!`s it (matches Blink's batch isolation — one bad
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/document.rs	// `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/element_insert_adjacent.rs	/// is not an Element wrapper. Matches the Blink / Gecko message form.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_shapes.rs	// dispatch_toggle_event hand-rolled allocation + Chrome
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/event_target.rs	// `TypeError`, matching `addEventListener` and browser behaviour
@@ -81,7 +78,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/events_
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/dispatch.rs	// null})` and Chromium / Firefox Fetch), mirroring the
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// Firefox / Safari):
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/fetch/mod.rs	/// must therefore throw synchronously (verified on Chrome /
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/form_data.rs	// values — matches Chromium / Firefox.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/headers/mod.rs	/// matching Chromium's wording.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// / `InvalidNodeKind`) are silent no-ops to match Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only

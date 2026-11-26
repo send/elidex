@@ -81,17 +81,9 @@ impl TypedArrayParts {
 /// and returns them alongside the receiver's id as a
 /// [`TypedArrayParts`] snapshot.
 ///
-/// Enforces ECMA-262 §23.2.4.4 `ValidateTypedArray` step 4 — "If
-/// `IsTypedArrayOutOfBounds(taRecord)` is true, throw a TypeError
-/// exception" — by checking
-/// [`super::array_buffer::is_detached_buffer`] on the view's backing
-/// buffer right after the brand check.  Auto-propagates the detach
-/// check to every `%TypedArray%.prototype` method that funnels
-/// through this helper (currently 22 callers per
-/// `typed_array_methods.rs` + `typed_array_hof.rs`).  The
-/// one-issue-one-way alternative — a parallel
-/// `require_attached_typed_array` helper alongside this one — was
-/// rejected at plan-review R2 Cluster T as a SoT-fragmenting seam.
+/// ValidateTypedArray step 3 calls ValidateTypedArrayBounds. Its step 2 rejects an
+/// out-of-bounds witness. The VM checks for detachment on its fixed views. (ValidateTypedArray
+/// §23.2.4.4.)
 pub(super) fn require_typed_array_parts(
     ctx: &NativeContext<'_>,
     this: JsValue,

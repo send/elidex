@@ -145,20 +145,7 @@ fn resolve_keyword_list<T: Default>(value: &CssValue, f: impl Fn(&str) -> T) -> 
 /// Animation/transition longhand property names handled by this module.
 ///
 /// Shared with `elidex-style` walk.rs to avoid duplicating the list.
-pub const ANIM_LONGHAND_NAMES: &[&str] = &[
-    "transition-property",
-    "transition-duration",
-    "transition-timing-function",
-    "transition-delay",
-    "animation-name",
-    "animation-duration",
-    "animation-timing-function",
-    "animation-delay",
-    "animation-iteration-count",
-    "animation-direction",
-    "animation-fill-mode",
-    "animation-play-state",
-];
+pub const ANIM_LONGHAND_NAMES: &[&str] = crate::LONGHAND_NAMES;
 
 /// Build an `AnimStyle` from resolved property values.
 ///

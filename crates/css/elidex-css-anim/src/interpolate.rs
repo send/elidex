@@ -34,7 +34,21 @@ pub fn interpolate(from: &CssValue, to: &CssValue, t: f32, property: &str) -> Op
 
     match (from, to) {
         // Number ↔ Number
-        (CssValue::Number(a), CssValue::Number(b)) => Some(CssValue::Number(lerp(*a, *b, t))),
+        (CssValue::Number(a), CssValue::Number(b)) => {
+            let n = lerp(*a, *b, t);
+            // CSS Values 4 §5.2.1: ties round toward positive infinity.
+            let n = if matches!(property, "order" | "z-index") {
+                let floor = n.floor();
+                if n - floor >= 0.5 {
+                    floor + 1.0
+                } else {
+                    floor
+                }
+            } else {
+                n
+            };
+            Some(CssValue::Number(n))
+        }
 
         // Length ↔ Length (same unit)
         (CssValue::Length(a, ua), CssValue::Length(b, ub)) if ua == ub => {

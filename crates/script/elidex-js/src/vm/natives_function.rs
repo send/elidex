@@ -91,14 +91,14 @@ pub(super) fn native_function_bind(
         Vec::new()
     };
 
-    // §20.2.3.2 steps 4-11: read target's `length` and `name` via property
+    // §20.2.3.2 steps 5–9: read target's `length` and `name` via property
     // Get so that `defineProperty(fn, 'name', {value: ...})` is honored.  A
     // BoundFunction's own `.name` is already "bound foo" from the prior bind,
     // so this naturally yields "bound bound foo" without walking the chain.
     // Abrupt completions from user-defined getters propagate (spec `?`).
     let (target_length, target_name): (f64, Vec<u16>) =
         target_function_length_name(ctx, target_id)?;
-    // §20.2.3.2 step 8: L = max(0, targetLen - argCount).  Keep as f64
+    // §20.2.3.2 step 6.2: L = max(0, targetLen - argCount).  Keep as f64
     // so that `+Infinity - argCount` stays `+Infinity` per spec.
     #[allow(clippy::cast_precision_loss)]
     let bound_length = (target_length - bound_args.len() as f64).max(0.0);
@@ -140,11 +140,11 @@ pub(super) fn native_function_bind(
     Ok(JsValue::Object(bound_id))
 }
 
-/// Read the target's effective `length` and `name` per §20.2.3.2 steps 4-11.
+/// Read the target's effective `length` and `name` for bind (§20.2.3.2).
 /// Uses property `Get` so that `defineProperty(fn, 'length'|'name', ...)`
 /// overrides are honored.  Falls back to the function's internal slots
 /// (`FunctionObject.name`, `NativeFunction.name`, `CompiledFunction.param_count`)
-/// when the property is absent or not of the expected type — these are
+/// when the property is absent — these are
 /// authoritative for user-defined functions whose `.name`/`.length` is not
 /// yet exposed as a data property.  Abrupt completions (e.g. accessor
 /// getter throws) are propagated to the caller.
@@ -155,15 +155,9 @@ fn target_function_length_name(
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
-    // §20.2.3.2 step 4-5: `ToIntegerOrInfinity(? Get(target, "length"))`.
-    // The spec runs ToNumber on the raw value first (so String/Boolean/etc
-    // route through their standard coercions), then applies the
-    // integer-or-infinity step: NaN → 0, ±Infinity propagate, otherwise
-    // truncate towards zero and clamp negatives to 0.  Absent property
-    // falls back to the internal `param_count` (authoritative for user
-    // functions whose `.length` is not yet materialised as a data
-    // property).  Symbol values propagate the ToNumber TypeError — `?`
-    // in the spec means abrupt completions bubble.
+    // ECMA-262 §20.2.3.2 steps 4–6 leave length at zero unless the
+    // target has an own numeric length. The VM coerces a found value
+    // to Number and uses its internal length when lookup fails to find one.
     let length: f64 = match ctx.try_get_property_value(target_id, length_key)? {
         None => {
             #[allow(clippy::cast_precision_loss)]
@@ -179,16 +173,13 @@ fn target_function_length_name(
             } else if n > 0.0 {
                 n.trunc()
             } else {
-                // Non-positive finite numbers clamp to 0 per
-                // ToIntegerOrInfinity step 5.
+                // The resulting bound length has a lower bound of zero.
                 0.0
             }
         }
     };
-    // §20.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
-    // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");
-    // Symbols fall back to empty string per §20.2.3.2 step 13 ("If Type is
-    // not String, let targetName be the empty String").
+    // ECMA-262 §20.2.3.2 steps 8–9 use the empty string for a non-String
+    // name. This implementation stringifies values other than Symbols.
     // Return WTF-16 units so lone surrogates in the name round-trip losslessly.
     let name: Vec<u16> = match ctx.try_get_property_value(target_id, name_key)? {
         Some(JsValue::String(sid)) => ctx.vm.strings.get(sid).to_vec(),

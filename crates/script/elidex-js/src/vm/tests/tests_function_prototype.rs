@@ -264,7 +264,7 @@ fn apply_with_primitive_this_stays_primitive() {
     );
 }
 
-// ── bind length/name (§20.2.3.2 steps 4-5) ─────────────────────────
+// ── bind length/name (§20.2.3.2 steps 4–10) ─────────────────────────
 
 #[test]
 fn bind_length_reflects_remaining_params() {
@@ -284,10 +284,8 @@ fn bind_length_reflects_remaining_params() {
 
 #[test]
 fn bind_length_coerces_string_length_via_to_number() {
-    // §20.2.3.2 step 4: `? ToIntegerOrInfinity(? Get(target, "length"))`.
-    // The spec runs ToNumber on the raw `.length` value, so a
-    // `String`-typed length (`{value: '5'}`) must coerce via `ToNumber`
-    // rather than silently falling back to 0.
+    // This test covers the VM's coercion of nonnumeric length values.
+    // ECMA-262 §20.2.3.2 steps 4–6 specify zero for non-Number values.
     assert_eq!(
         super::eval_number(
             "function f() {} \
@@ -321,8 +319,8 @@ fn bind_length_coerces_string_length_via_to_number() {
 
 #[test]
 fn bind_length_symbol_propagates_type_error() {
-    // ToNumber on a Symbol throws TypeError; the `?` in the spec means
-    // the bind call aborts with the same exception.
+    // The VM coerces the Symbol length and throws TypeError. ECMA-262
+    // §20.2.3.2 steps 4–6 specify a bound length of zero for this value.
     super::eval_throws(
         "function f() {} \
          Object.defineProperty(f, 'length', \

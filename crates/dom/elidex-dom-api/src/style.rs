@@ -90,11 +90,10 @@ fn inline_property_value(dom: &EcsDom, entity: Entity, property: &str) -> String
 /// (`getPropertyValue` before removal) is computed separately by the
 /// caller via [`inline_property_value`] so shorthands reconstruct.
 fn remove_declarations(style: &mut InlineStyle, property: &str) -> bool {
-    let longhands = elidex_css::shorthand_longhands(property);
-    if longhands.is_empty() {
-        return style.remove(property).is_some();
-    }
-    let mut removed = false;
+    let longhands = elidex_css::shorthand_family(property, Some(inline_style_registry()))
+        .map(|family| family.members)
+        .unwrap_or_default();
+    let mut removed = style.remove(property).is_some();
     for longhand in &longhands {
         removed |= style.remove(longhand).is_some();
     }
@@ -315,8 +314,11 @@ impl DomApiHandler for StyleGetPropertyPriority {
         // return "important" iff every mapped longhand's priority is
         // "important" (an absent longhand reads as "", failing the all).
         let important = dom.world().get::<&InlineStyle>(this).is_ok_and(|style| {
-            let longhands = elidex_css::shorthand_longhands(property.as_ref());
-            if longhands.is_empty() {
+            let longhands =
+                elidex_css::shorthand_family(property.as_ref(), Some(inline_style_registry()))
+                    .map(|family| family.members)
+                    .unwrap_or_default();
+            if longhands.is_empty() || style.get(property.as_ref()).is_some() {
                 style.is_important(property.as_ref())
             } else {
                 longhands.iter().all(|lh| style.is_important(lh))

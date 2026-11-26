@@ -1,7 +1,7 @@
 //! JS-observable Symbol-operand coercion regression tests.
 //!
 //! ECMA-262 requires every abstract-operation coercion of a Symbol to a Number
-//! or String to throw a `TypeError` (§7.1.4 ToNumber, §7.1.18 ToString), while a
+//! or String to throw a `TypeError` (§7.1.4 ToNumber, §7.1.19 ToString), while a
 //! Symbol used as a *value* (property key, `typeof`, equality, `JSON.stringify`,
 //! `ToBoolean`) is spec-legal, and `String(sym)` in call form returns
 //! `SymbolDescriptiveString` (§22.1.1.1 step 2.a).
@@ -32,7 +32,7 @@ fn throws_type_error(src: &str) {
     }
 }
 
-// ── Coercion to String → TypeError (§7.1.18) ───────────────────────────────
+// ── Coercion to String → TypeError (§7.1.19) ───────────────────────────────
 
 #[test]
 fn template_and_concat_symbol_throws() {

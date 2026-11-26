@@ -1,8 +1,8 @@
 //! Selector matching: right-to-left component matching against the DOM.
 
 use elidex_ecs::{
-    Attributes, EcsDom, ElementState, Entity, NodeKind, ShadowHost, ShadowRoot, SlottedMarker,
-    TagType, TextContent,
+    Attributes, EcsDom, ElementState, Entity, NodeKind, ShadowRoot, SlottedMarker, TagType,
+    TextContent,
 };
 
 use super::traverse::{is_root_element, prev_element_sibling};
@@ -14,6 +14,7 @@ pub(super) fn match_components(
     idx: usize,
     entity: Entity,
     dom: &EcsDom,
+    host: Option<Entity>,
 ) -> bool {
     if idx >= components.len() {
         return true;
@@ -34,7 +35,7 @@ pub(super) fn match_components(
                 if dom.world().get::<&ShadowRoot>(ancestor).is_ok() {
                     return false;
                 }
-                if match_components(components, idx + 1, ancestor, dom) {
+                if match_components(components, idx + 1, ancestor, dom, host) {
                     return true;
                 }
                 current = dom.get_parent(ancestor);
@@ -49,14 +50,14 @@ pub(super) fn match_components(
             if dom.world().get::<&ShadowRoot>(parent).is_ok() {
                 return false;
             }
-            match_components(components, idx + 1, parent, dom)
+            match_components(components, idx + 1, parent, dom, host)
         }
         SelectorComponent::AdjacentSibling => prev_element_sibling(dom, entity)
-            .is_some_and(|prev| match_components(components, idx + 1, prev, dom)),
+            .is_some_and(|prev| match_components(components, idx + 1, prev, dom, host)),
         SelectorComponent::GeneralSibling => {
             let mut current = prev_element_sibling(dom, entity);
             while let Some(sib) = current {
-                if match_components(components, idx + 1, sib, dom) {
+                if match_components(components, idx + 1, sib, dom, host) {
                     return true;
                 }
                 current = prev_element_sibling(dom, sib);
@@ -64,29 +65,30 @@ pub(super) fn match_components(
             false
         }
         SelectorComponent::Not(ref inner) => {
-            let inner_matched = match_compound_forward(inner, entity, dom);
-            !inner_matched && match_components(components, idx + 1, entity, dom)
-        }
-        // :host / :host(selector) — delegate to match_simple() (single source of truth).
-        SelectorComponent::Host | SelectorComponent::HostFunction(_) => {
-            match_simple(&components[idx], entity, dom)
-                && match_components(components, idx + 1, entity, dom)
+            let inner_matched = match_compound_forward(inner, entity, dom, host);
+            !inner_matched && match_components(components, idx + 1, entity, dom, host)
         }
         // ::slotted(selector) — matches slotted light DOM elements that match inner selector.
         SelectorComponent::Slotted(ref inner) => {
             is_slotted(entity, dom)
-                && match_compound_forward(inner, entity, dom)
-                && match_components(components, idx + 1, entity, dom)
+                && match_compound_forward(inner, entity, dom, host)
+                && match_components(components, idx + 1, entity, dom, host)
         }
         // Simple selectors -- delegate to shared helper.
         other => {
-            match_simple(other, entity, dom) && match_components(components, idx + 1, entity, dom)
+            match_simple(other, entity, dom, host)
+                && match_components(components, idx + 1, entity, dom, host)
         }
     }
 }
 
 /// Match a single simple selector (non-combinator) against an entity.
-fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> bool {
+fn match_simple(
+    component: &SelectorComponent,
+    entity: Entity,
+    dom: &EcsDom,
+    host: Option<Entity>,
+) -> bool {
     match component {
         SelectorComponent::Universal => true,
         SelectorComponent::Tag(tag) => dom
@@ -108,10 +110,14 @@ fn match_simple(component: &SelectorComponent, entity: Entity, dom: &EcsDom) -> 
         SelectorComponent::Attribute { name, matcher } => {
             match_attr(name, matcher.as_ref(), entity, dom)
         }
-        SelectorComponent::Host => dom.world().get::<&ShadowHost>(entity).is_ok(),
-        SelectorComponent::HostFunction(ref inner) => {
-            dom.world().get::<&ShadowHost>(entity).is_ok()
-                && match_compound_forward(inner, entity, dom)
+        SelectorComponent::Host | SelectorComponent::HostFunction(_) => {
+            host == Some(entity)
+                && match component {
+                    SelectorComponent::HostFunction(inner) => {
+                        match_compound_forward(inner, entity, dom, host)
+                    }
+                    _ => true,
+                }
         }
         // Combinators and :not() handled in match_components.
         _ => false,
@@ -127,21 +133,17 @@ fn form_element_state(entity: Entity, dom: &EcsDom) -> Option<ElementState> {
     dom.world().get::<&ElementState>(entity).ok().map(|s| *s)
 }
 
-/// Check if an entity can match `:required`/`:optional` (constraint validation candidates).
-///
-/// Per HTML §4.10.15.2.4: only `<input>`, `<select>`, and `<textarea>` are candidates.
-/// `<button>` and `<fieldset>` are form elements but not candidates for these pseudo-classes.
+/// Filter by the element names listed for `:required` and `:optional` in HTML §4.16.3.
+/// For inputs, the spec also considers whether the required attribute applies.
 fn is_requirable_element(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&TagType>(entity)
         .is_ok_and(|t| matches!(t.0.as_str(), "input" | "select" | "textarea"))
 }
 
-/// Document white space per the "white space" definition in CSS Selectors L4
-/// §3.7 ("Characters and case sensitivity"): only U+0020 SPACE, U+0009 TAB,
-/// U+000A LINE FEED, U+000D CARRIAGE RETURN, and U+000C FORM FEED. Other
-/// space-like code points (e.g. U+00A0 NBSP) do not count — so `<p>&nbsp;</p>`
-/// is not `:empty`.
+/// Selectors 4 §13.2 uses document white space for `:empty`. CSS Text 3 §4.1
+/// defines it as spaces, tabs and segment breaks. This helper currently uses
+/// the five selector-syntax whitespace characters from Selectors 4 §3.7.
 fn is_document_white_space(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}')
 }
@@ -207,17 +209,10 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
         // Form-related pseudo-classes delegated to a separate function.
         "disabled" | "enabled" | "indeterminate" | "valid" | "invalid" | "checked" | "required"
         | "optional" | "read-only" | "read-write" => match_form_pseudo_class(name, entity, dom),
-        // CSS Selectors Level 4 §6.3 "The Defined Element
-        // Pseudo-class: :defined" (HTML §4.13.5 mirror). Built-in
-        // elements (no `CustomElementState`
-        // component) always match — "the user agent has built-in
-        // knowledge of [them]". Custom elements match iff their state
-        // has transitioned to `Custom` after successful upgrade.
-        // Undefined / Failed / Precustomized / Uncustomized do NOT
-        // match. Same always-walk model as `:hover` above — restyle
-        // invalidation on state transitions is implicit because
-        // `elidex-style::walk::resolve_styles` re-evaluates every
-        // selector each frame.
+        // Selectors Level 4 §5.4 delegates :defined to the host language.
+        // HTML §4.16.3 uses DOM §4.9’s defined states: uncustomized and custom.
+        // This matcher treats a missing component as a built-in and otherwise
+        // matches only CEState::Custom.
         "defined" => {
             match dom
                 .world()
@@ -234,26 +229,26 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
 /// Match form-related pseudo-classes against an entity.
 fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
     match name {
-        // :disabled matches form elements that can be "actually disabled" (HTML §4.10.18.5).
-        // <fieldset> can be disabled but is NOT in the set of elements matching :disabled/:enabled.
+        // HTML §4.16.3 matches actually disabled elements. The tag filter below
+        // currently covers button, input, select and textarea.
         "disabled" => {
             is_disableable_element(entity, dom)
                 && form_element_state(entity, dom)
                     .is_some_and(|s| s.contains(ElementState::DISABLED))
         }
-        // :indeterminate only matches <input type=checkbox|radio> and <progress>
-        // per HTML §4.10.18.3.
+        // HTML §4.16.3 defines the checkbox, radio group and progress cases.
         "indeterminate" => {
             is_indeterminate_candidate(entity, dom)
                 && form_element_state(entity, dom)
                     .is_some_and(|s| s.contains(ElementState::INDETERMINATE))
         }
-        // :valid/:invalid also match <output> (HTML §4.10.18.7) — always valid.
+        // HTML §4.16.3 defines the candidates for :valid and :invalid.
         "valid" | "invalid" => {
             if let Some(s) = form_element_state(entity, dom) {
                 state_flag_for_pseudo(name).is_some_and(|f| s.contains(f))
             } else {
-                // <output> is always valid (no validation constraints).
+                // The matcher currently treats output as valid. HTML §4.10.2
+                // excludes it from the submittable elements considered by §4.10.21.1.
                 name == "valid"
                     && dom
                         .world()
@@ -282,10 +277,8 @@ fn match_form_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
                     .is_some_and(|s| s.contains(ElementState::REQUIRED))
         }
         "enabled" => {
-            // HTML spec: :enabled matches "actually disableable" form elements
-            // that are not disabled (excludes <fieldset>).
-            // Note: <a>/<area>/<link> with href are NOT :enabled per WHATWG spec;
-            // they are reachable via :any-link/:link instead.
+            // HTML §4.16.3 also includes optgroup, option, fieldset and
+            // form-associated custom elements among the candidates for :enabled.
             is_disableable_element(entity, dom)
                 && form_element_state(entity, dom)
                     .is_some_and(|s| !s.contains(ElementState::DISABLED))
@@ -338,8 +331,15 @@ fn match_attr(
 ///
 /// Used for `:not()` inner selectors, which contain only simple selectors
 /// (no combinators) stored in parse order.
-fn match_compound_forward(components: &[SelectorComponent], entity: Entity, dom: &EcsDom) -> bool {
-    components.iter().all(|c| match_simple(c, entity, dom))
+fn match_compound_forward(
+    components: &[SelectorComponent],
+    entity: Entity,
+    dom: &EcsDom,
+    host: Option<Entity>,
+) -> bool {
+    components
+        .iter()
+        .all(|c| match_simple(c, entity, dom, host))
 }
 
 /// Map a dynamic pseudo-class name to its `ElementState` flag bit.
@@ -395,9 +395,7 @@ fn is_checkable_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_some_and(|t| matches!(t.as_str(), "checkbox" | "radio"))
 }
 
-/// Check if an entity can match `:indeterminate` (HTML §4.10.18.3).
-///
-/// Only `<input type=checkbox>`, `<input type=radio>`, and `<progress>` can be indeterminate.
+/// Filter by the input types and element names listed for `:indeterminate` in HTML §4.16.3.
 fn is_indeterminate_candidate(entity: Entity, dom: &EcsDom) -> bool {
     let Ok(tag) = dom.world().get::<&TagType>(entity) else {
         return false;
@@ -409,11 +407,7 @@ fn is_indeterminate_candidate(entity: Entity, dom: &EcsDom) -> bool {
     }
 }
 
-/// Check if an entity is an "actually disableable" element (HTML §4.10.18.5).
-///
-/// Per spec, `:enabled`/`:disabled` only match `<button>`, `<input>`, `<select>`,
-/// and `<textarea>`. `<fieldset>` has its own disabled concept but does NOT
-/// participate in the `:enabled`/`:disabled` pseudo-classes.
+/// Element types currently checked for enabled and disabled state by this matcher.
 fn is_disableable_element(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&TagType>(entity)
@@ -567,8 +561,7 @@ mod tests {
 
     #[test]
     fn fieldset_does_not_match_enabled_disabled() {
-        // Per HTML §4.10.18.5: <fieldset> is NOT "actually disableable" —
-        // it does not match :enabled or :disabled pseudo-classes.
+        // The current matcher skips fieldset. HTML §4.16.3 includes it.
         let mut dom = EcsDom::new();
         let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
         let mut es = ElementState::default();

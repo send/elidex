@@ -317,15 +317,8 @@ fn extends_conditional_null_takes_constructor_path() {
 
 #[test]
 fn extends_non_constructor_throws_at_class_definition() {
-    // ECMA-262 §15.7.14 ClassDefinitionEvaluation step 8.g: if the
-    // heritage value is callable but lacks [[Construct]] (Symbol,
-    // BigInt, arrow fn, etc.), throw TypeError AT class-definition
-    // time — not later at super() dispatch. The previous
-    // implementation only checked "Object or Null" inside the
-    // SetPrototype splice, so `class B extends Symbol {}` defined
-    // successfully and only failed at construct time. D-17b R17 G17-1
-    // adds `Op::AssertConstructor` emitted by `compile_class` for the
-    // ClassHeritage::Expr arm.
+    // VM defect (#11-vm-symbol-bigint-class-heritage). §20.4.1 permits Symbol as class
+    // heritage. A call to super() throws in §20.4.1.1 step 1.
     super::eval_throws("class B extends Symbol {}");
 }
 

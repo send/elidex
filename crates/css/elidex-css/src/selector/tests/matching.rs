@@ -350,9 +350,7 @@ fn match_empty_with_whitespace_only_text() {
 
 #[test]
 fn match_empty_excludes_nbsp() {
-    // U+00A0 (NBSP) is NOT document white space (Selectors L4 §3.7), so an
-    // element containing only `&nbsp;` is NOT :empty (spec example
-    // `<div>&nbsp;</div>`).
+    // Selectors 4 §13.2 gives <div>&nbsp;</div> as an example that fails :empty.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     let nbsp = dom.create_text_ownerless_fixture("\u{00A0}");
@@ -525,7 +523,8 @@ fn host_matches_shadow_host() {
         .unwrap();
 
     let sel = parse_sel(":host").unwrap();
-    assert!(sel.matches(host, &dom));
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
+    assert!(!sel.matches(host, &dom));
 }
 
 #[test]
@@ -547,7 +546,8 @@ fn host_function_matches_with_class() {
         .unwrap();
 
     let sel = parse_sel(":host(.active)").unwrap();
-    assert!(sel.matches(host, &dom));
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
+    assert!(!sel.matches(host, &dom));
 }
 
 #[test]
@@ -558,7 +558,7 @@ fn host_function_no_match_without_class() {
         .unwrap();
 
     let sel = parse_sel(":host(.active)").unwrap();
-    assert!(!sel.matches(host, &dom));
+    assert!(!sel.matches_in_context(host, &dom, Some(host)));
 }
 
 #[test]
@@ -584,7 +584,7 @@ fn slotted_matches_assigned_node() {
         )
         .unwrap();
     dom.world_mut()
-        .insert_one(light, elidex_ecs::SlottedMarker)
+        .insert_one(light, elidex_ecs::SlottedMarker { slot })
         .unwrap();
 
     let sel = parse_sel("::slotted(p)").unwrap();
@@ -642,9 +642,10 @@ fn not_host_matches_non_host() {
 
     let sel = parse_sel(":not(:host)").unwrap();
     // Non-host matches :not(:host).
-    assert!(sel.matches(div, &dom));
+    assert!(sel.matches_in_context(div, &dom, Some(host)));
     // Shadow host does NOT match :not(:host).
-    assert!(!sel.matches(host, &dom));
+    assert!(!sel.matches_in_context(host, &dom, Some(host)));
+    assert!(sel.matches(host, &dom));
 }
 
 #[test]
@@ -656,6 +657,7 @@ fn not_host_function_matches_host_without_class() {
 
     // :not(:host(.active)) should match host without .active class.
     let sel = parse_sel(":not(:host(.active))").unwrap();
+    assert!(sel.matches_in_context(host, &dom, Some(host)));
     assert!(sel.matches(host, &dom));
 
     // Host with .active should NOT match :not(:host(.active)).
@@ -664,7 +666,8 @@ fn not_host_function_matches_host_without_class() {
     let host2 = dom.create_element_ownerless_fixture("div", attrs);
     dom.attach_shadow(host2, elidex_ecs::ShadowRootMode::Open)
         .unwrap();
-    assert!(!sel.matches(host2, &dom));
+    assert!(!sel.matches_in_context(host2, &dom, Some(host2)));
+    assert!(sel.matches_in_context(host2, &dom, Some(host)));
 }
 
 // --- Form pseudo-class matching tests (M4-3.5 R2) ---
@@ -712,7 +715,7 @@ fn checked_does_not_match_option_without_selected() {
 
 #[test]
 fn required_does_not_match_fieldset() {
-    // :required excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :required.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let mut es = ElementState::default();
@@ -724,7 +727,7 @@ fn required_does_not_match_fieldset() {
 
 #[test]
 fn optional_does_not_match_fieldset() {
-    // :optional excludes <fieldset> per HTML spec §4.10.15.2.4.
+    // HTML §4.16.3 excludes fieldset from :optional.
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -764,7 +767,7 @@ fn read_write_inherited_contenteditable() {
 
 #[test]
 fn valid_matches_output_element() {
-    // <output> is always valid per HTML §4.10.18.7.
+    // This test records the current output fallback in the selector matcher.
     let mut dom = EcsDom::new();
     let output = dom.create_element_ownerless_fixture("output", Attributes::default());
     let sel_valid = parse_sel(":valid").unwrap();
@@ -785,8 +788,7 @@ fn optional_does_not_match_button() {
 
 #[test]
 fn enabled_disabled_does_not_match_fieldset() {
-    // Per HTML §4.10.18.5: <fieldset> is NOT in the set of "actually disableable"
-    // elements. :enabled/:disabled do not match <fieldset>.
+    // The test records the matcher's current fieldset exclusion (HTML §4.16.3).
     let mut dom = EcsDom::new();
     let fs = dom.create_element_ownerless_fixture("fieldset", Attributes::default());
     let _ = dom.world_mut().insert_one(fs, ElementState::default());
@@ -836,7 +838,7 @@ fn checked_matches_checkbox_input() {
 
 #[test]
 fn indeterminate_does_not_match_non_candidate() {
-    // :indeterminate only matches checkbox, radio, and progress per HTML §4.10.18.3.
+    // HTML §4.16.3 excludes button from :indeterminate.
     let mut dom = EcsDom::new();
     let btn = dom.create_element_ownerless_fixture("button", Attributes::default());
     let mut es = ElementState::default();

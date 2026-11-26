@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 /// A registry that maps names to plugin handlers.
 ///
@@ -11,8 +12,8 @@ use std::fmt;
 ///
 /// Static entries are checked first during resolution.
 pub struct PluginRegistry<T: Send + Sync + ?Sized> {
-    static_lookup: HashMap<&'static str, Box<T>>,
-    dynamic_lookup: HashMap<String, Box<T>>,
+    static_lookup: HashMap<&'static str, Arc<T>>,
+    dynamic_lookup: HashMap<String, Arc<T>>,
 }
 
 impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
@@ -38,12 +39,12 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
 
     /// Register a handler with a static (compile-time) name.
     pub fn register_static(&mut self, name: &'static str, handler: Box<T>) {
-        self.static_lookup.insert(name, handler);
+        self.static_lookup.insert(name, handler.into());
     }
 
     /// Register a handler with a dynamic (runtime) name.
     pub fn register_dynamic(&mut self, name: String, handler: Box<T>) {
-        self.dynamic_lookup.insert(name, handler);
+        self.dynamic_lookup.insert(name, handler.into());
     }
 
     /// Returns the number of unique handler names.
@@ -64,6 +65,18 @@ impl<T: Send + Sync + ?Sized> PluginRegistry<T> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.static_lookup.is_empty() && self.dynamic_lookup.is_empty()
+    }
+}
+
+impl PluginRegistry<dyn crate::CssPropertyHandler> {
+    /// Freeze the producer's CSS grammar for computed-value-time substitution.
+    /// Lookup order and handler identity are preserved across later registrations.
+    #[must_use]
+    pub fn snapshot(&self) -> Self {
+        Self {
+            static_lookup: self.static_lookup.clone(),
+            dynamic_lookup: self.dynamic_lookup.clone(),
+        }
     }
 }
 

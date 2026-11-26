@@ -5,9 +5,8 @@
 //! Promise canonical-message regression and the Promise `new` happy-path
 //! continuity check:
 //!
-//! - [`CallableOnly`] (Symbol): bare-call returns a Symbol; `new` throws
-//!   the existing "not a constructor" path (ECMA-262 §10.3 + §7.2.4
-//!   IsConstructor precondition).
+//! - [`CallableOnly`] (Symbol): a call returns a Symbol and VM admission
+//!   rejects construction. The test checks the TypeError required by §20.4.1.1.
 //! - [`Ordinary`] (Object): both bare-call and `new` succeed.
 //! - [`ConstructorOnly`] (Promise): bare-call throws the canonical
 //!   TypeError emitted at `vm/interpreter_call.rs::call_dispatch` (WebIDL
@@ -43,10 +42,7 @@ fn symbol_call_returns_symbol() {
 
 #[test]
 fn symbol_construct_throws_not_a_constructor() {
-    // CallableOnly disallows `new` via the existing "not a constructor"
-    // path (ECMA-262 §10.3 absence of [[Construct]] + §7.2.4
-    // IsConstructor precondition).  NOT the canonical
-    // `ConstructorOnly` message — the two error families are distinct.
+    // §20.4.1.1 step 1 requires TypeError. This assertion checks the error type.
     assert!(eval_bool(
         "var threw = false; \
          try { new Symbol('s'); } \
@@ -140,13 +136,8 @@ fn illegal_constructor_both_modes_all_sites() {
 
 #[test]
 fn illegal_constructor_distinct_from_typedarray_carveout() {
-    // %TypedArray% is the deliberate carve-out (ECMA-262 §23.2.1.1
-    // abstract-class wording, NOT migrated to IllegalConstructor —
-    // plan §3.3 DR-3).  It must still throw, but with its ECMA-flavored
-    // message, NOT the WebIDL "Illegal constructor" form — proving the
-    // carve-out held.  `%TypedArray%` is not a global binding, so it is
-    // reached via `Object.getPrototypeOf(Uint8Array)` (the abstract
-    // intrinsic is the [[Prototype]] of the concrete TA ctors).
+    // The abstract intrinsic throws TypeError at step 1. The VM chooses a diagnostic distinct
+    // from its WebIDL IllegalConstructor message. (%TypedArray% ( ) §23.2.1.1.)
     let mut vm = Vm::new();
     let msg = match vm
         .eval(
@@ -160,7 +151,7 @@ fn illegal_constructor_distinct_from_typedarray_carveout() {
     };
     assert!(
         msg.contains("not directly constructable"),
-        "%TypedArray% carve-out should keep its ECMA abstract-class message, got: {msg}",
+        "Expected the VM-specific abstract TypedArray diagnostic, got: {msg}",
     );
     assert!(
         !msg.contains("Illegal constructor"),

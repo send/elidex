@@ -53,15 +53,13 @@ pub enum CssValue {
     Unset,
     /// A list of CSS values (e.g. `font-family: Arial, sans-serif`).
     List(Vec<CssValue>),
-    /// A `var()` function reference.
+    /// An admitted ordinary declaration awaiting computed-time substitution.
+    Pending(crate::component_values::ComponentValues),
+    /// Specified value of an unregistered custom property.
+    Custom(crate::component_values::ComponentValues),
+    /// Raw token string for grammar-specific values.
     ///
-    /// First argument is the custom property name (e.g. `--bg`),
-    /// second is an optional fallback value (e.g. `var(--bg, #000)`).
-    Var(String, Option<Box<CssValue>>),
-    /// Raw token string for custom property values.
-    ///
-    /// Custom properties (CSS Variables Level 1) accept arbitrary token
-    /// sequences that are not type-checked at parse time.
+    /// Some property grammars retain text, for example animation list values.
     RawTokens(String),
     /// A `calc()` expression (CSS Values Level 3 §8).
     Calc(Box<CalcExpr>),
@@ -608,10 +606,8 @@ impl CssValue {
                 .map(Self::to_css_string)
                 .collect::<Vec<_>>()
                 .join(", "),
-            Self::Var(name, fallback) => match fallback {
-                Some(fb) => format!("var({name}, {})", fb.to_css_string()),
-                None => format!("var({name})"),
-            },
+            Self::Custom(seq) if seq.items().is_empty() => " ".into(),
+            Self::Pending(seq) | Self::Custom(seq) => seq.source().to_owned(),
             Self::Calc(expr) => format!("calc({})", expr.to_css_string()),
             Self::Time(secs) => {
                 // CSS time values are stored in seconds; serialize to ms if
@@ -654,11 +650,55 @@ pub enum LengthUnit {
     Vmin,
     /// Larger of `vw` and `vh` (`vmax`).
     Vmax,
+    In,
+    Cm,
+    Mm,
+    Q,
+    Pt,
+    Pc,
+    Lvw,
+    Lvh,
+    Lvmin,
+    Lvmax,
     /// Flexible fraction (`fr`) for CSS Grid.
     Fr,
 }
 
 impl LengthUnit {
+    /// Length units with a reference available to the strict CSS grammar.
+    pub const SUPPORTED: &[Self] = &[
+        Self::Px,
+        Self::Em,
+        Self::Rem,
+        Self::Vw,
+        Self::Vh,
+        Self::Vmin,
+        Self::Vmax,
+        Self::In,
+        Self::Cm,
+        Self::Mm,
+        Self::Q,
+        Self::Pt,
+        Self::Pc,
+        Self::Lvw,
+        Self::Lvh,
+        Self::Lvmin,
+        Self::Lvmax,
+    ];
+    /// CSS Values 4 §6.2 fixed conversion to canonical CSS pixels.
+    #[must_use]
+    pub fn physical_px_ratio(self) -> Option<f64> {
+        match self {
+            Self::In => Some(96.0),
+            Self::Cm => Some(96.0 / 2.54),
+            Self::Mm => Some(96.0 / 25.4),
+            Self::Q => Some(96.0 / 101.6),
+            Self::Pt => Some(96.0 / 72.0),
+            Self::Pc => Some(16.0),
+            _ => None,
+        }
+    }
+
     /// The canonical CSS unit suffix (`px`, `em`, …).
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -670,6 +710,16 @@ impl LengthUnit {
             Self::Vh => "vh",
             Self::Vmin => "vmin",
             Self::Vmax => "vmax",
+            Self::In => "in",
+            Self::Cm => "cm",
+            Self::Mm => "mm",
+            Self::Q => "q",
+            Self::Pt => "pt",
+            Self::Pc => "pc",
+            Self::Lvw => "lvw",
+            Self::Lvh => "lvh",
+            Self::Lvmin => "lvmin",
+            Self::Lvmax => "lvmax",
             Self::Fr => "fr",
         }
     }

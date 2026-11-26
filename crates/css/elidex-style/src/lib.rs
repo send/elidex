@@ -16,6 +16,7 @@ pub mod cascade;
 pub mod counter;
 pub mod generated_content;
 pub mod inherit;
+pub mod page;
 mod pseudo;
 pub mod resolve;
 pub mod slot;
@@ -34,7 +35,7 @@ use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue, Size};
 
 pub use elidex_plugin::ViewportOverflow;
 pub use generated_content::resolve_generated_content;
-pub use resolve::{dimension_to_css_value, get_computed_with_registry};
+pub use resolve::{dimension_to_css_value, get_computed_initial, get_computed_with_registry};
 
 /// Build the CSS property registry with all standard property handlers.
 #[must_use]
@@ -77,10 +78,7 @@ pub fn get_computed(property: &str, style: &ComputedStyle) -> CssValue {
 /// `InlineStyle` is a string-backed CSSOM store (`InlineDeclaration { value:
 /// String }`) — the inline path can only surface serialized strings, never a
 /// `CssValue`. So the single property-agnostic gate must classify the common
-/// denominator (strings). That is robust here: CSS-wide keywords are globally
-/// reserved exact tokens and `var(` is the only CSS function spelled that way,
-/// so a standard serialized value never contains the literal substring `var(`
-/// except an actual `var()`.
+/// denominator (strings). Tokenization preserves function identity inside nested values.
 enum Kind {
     /// A concrete component value (`5px`, `hidden`, `red`).
     Physical,
@@ -97,13 +95,12 @@ enum Kind {
 
 /// Classify a serialized component value string into its [`Kind`].
 ///
-/// Substring-matches `var(` (the only such-spelled CSS function), else
-/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` (no
-/// per-component allocation — the common all-physical read falls through here).
+/// Recognizes decoded var functions in component values, then
+/// exact-matches the CSS-wide keyword set with `eq_ignore_ascii_case` without retaining the tokens.
 fn value_kind(v: &str) -> Kind {
     const CSS_WIDE: [&str; 5] = ["initial", "inherit", "unset", "revert", "revert-layer"];
-    if v.contains("var(") {
-        Kind::Var // CssValue::Var or a RawTokens("…var(…")
+    if elidex_plugin::component_values::ComponentValues::inspect_variables(v) == Some(true) {
+        Kind::Var
     } else if CSS_WIDE.iter().any(|kw| v.eq_ignore_ascii_case(kw)) {
         Kind::CssWide // css-cascade-4 §7.3 (revert-layer: css-cascade-5 §7.3.5)
     } else {
@@ -174,10 +171,8 @@ pub fn serialize_shorthand_value(
     property: &str,
     get: impl Fn(&str) -> Option<(String, bool)>,
 ) -> Option<String> {
-    let longhands = elidex_css::shorthand_longhands(property);
-    if longhands.is_empty() {
-        return None; // not a shorthand — caller reads the property directly
-    }
+    let family = elidex_css::shorthand_family(property, Some(registry))?;
+    let longhands = family.members;
     // §6.6.1: every mapped longhand must be present.
     let decls: Vec<(String, bool)> = longhands
         .iter()
@@ -224,9 +219,19 @@ pub fn serialize_shorthand_value(
     // `"initial"`). Running the value-KIND gate *before* this dispatch would emit
     // `Some("initial")` / `Some("")` from those still-present longhands and preempt
     // that fallback — so the gate applies ONLY once coverage is established.
-    let collapsed = registry
-        .resolve(&longhands[0])?
-        .serialize_shorthand(property, &pairs)?;
+    let collapsed = family
+        .registered_handler
+        .or_else(|| registry.resolve(&longhands[0]))?
+        .serialize_shorthand(property, &pairs);
+    let Some(collapsed) = collapsed else {
+        // Registered families expand CSS-wide values even when their physical
+        // shorthand serializer is unavailable. Preserve a pending direct entry.
+        return if family.registered_handler.is_some() && get(property).is_none() {
+            value_kind_gate(&pairs)
+        } else {
+            None
+        };
+    };
 
     // Covered. CSSOM §6.7.2 step 1.2 — value-KIND gate (property-agnostic).
     // Override the pure string-equality collapse when a component's KIND (an
@@ -338,37 +343,43 @@ pub fn resolve_styles_with_compat(
     medium: Medium,
     _registry: Option<&CssPropertyRegistry>,
 ) -> ViewportOverflow {
-    let ua = ua::ua_stylesheet();
+    let sheets = style_sheets(author_stylesheets, extra_ua_sheets);
+    apply_document_style(
+        dom,
+        &sheets,
+        hint_generator,
+        viewport,
+        media_environment(viewport, medium),
+    )
+}
 
-    // Build the full stylesheet list: UA first, then extra UA, then author.
-    let mut all_sheets: Vec<&Stylesheet> =
-        Vec::with_capacity(1 + extra_ua_sheets.len() + author_stylesheets.len());
-    all_sheets.push(ua);
-    all_sheets.extend_from_slice(extra_ua_sheets);
-    all_sheets.extend_from_slice(author_stylesheets);
+fn style_sheets<'a>(authors: &[&'a Stylesheet], extra: &[&'a Stylesheet]) -> Vec<&'a Stylesheet> {
+    std::iter::once(ua::ua_stylesheet())
+        .chain(extra.iter().copied())
+        .chain(authors.iter().copied())
+        .collect()
+}
 
+fn media_environment(sheet: Size, medium: Medium) -> MediaEnvironment {
+    MediaEnvironment {
+        medium,
+        viewport_width: f64::from(sheet.width),
+        viewport_height: f64::from(sheet.height),
+        ..MediaEnvironment::default()
+    }
+}
+
+fn apply_document_style(
+    dom: &mut EcsDom,
+    all_sheets: &[&Stylesheet],
+    hint_generator: &dyn Fn(Entity, &EcsDom) -> Vec<Declaration>,
+    viewport: Size,
+    media_env: MediaEnvironment,
+) -> ViewportOverflow {
     let ctx = ResolveContext {
         viewport,
-        em_base: 16.0,
-        root_font_size: 16.0,
+        ..ResolveContext::default()
     };
-
-    // The `@media` cascade environment (CSS Conditional §2 / mediaqueries-5).
-    // Derived from the same `viewport` device-fact `ctx` uses — a derived view,
-    // not a competing SoT. `medium` is caller-supplied: the screen pipeline
-    // passes `Medium::Screen`, the paged/print pipeline passes `Medium::Print`
-    // so `@media print` applies in paged output (mediaqueries-5 §2.3). The
-    // non-viewport device facts (dppx / prefers-* / color) take
-    // `MediaEnvironment::default()` until shell producers light them up (carved
-    // `#11-media-prefers-features` / `#11-media-css-values-fidelity`).
-    let media_env = MediaEnvironment {
-        medium,
-        viewport_width: f64::from(viewport.width),
-        viewport_height: f64::from(viewport.height),
-        root_font_size_px: 16.0,
-        ..MediaEnvironment::default()
-    };
-
     // Find the document root (entity with children but no parent and no TagType).
     // Fallback: walk all entities with TagType that have no parent.
     let roots = find_roots(dom);
@@ -381,11 +392,21 @@ pub fn resolve_styles_with_compat(
         media_env,
         hint_generator,
         depth: 0,
+        effective_parent: None,
+        document_element: dom
+            .document_root()
+            .and_then(|root| dom.first_element_child(root)),
         total_shadow_css: &mut total_shadow_css,
     };
     for root in roots {
         state.depth = 0;
-        walk_tree(dom, root, &all_sheets, &default_parent, &mut state);
+        walk_tree(
+            dom,
+            root,
+            cascade::ElementSheets::document(all_sheets),
+            &default_parent,
+            &mut state,
+        );
     }
 
     // Final phase: resolve CSS counters + generated content (pseudo `content`,

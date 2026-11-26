@@ -50,16 +50,14 @@ fn make_block_break_token(
     parent_entity: Entity,
     consumed_block_size: f32,
     child_index: usize,
-    inline_break_line: Option<usize>,
-    child_break_token: Option<Box<BreakToken>>,
+    continuation: crate::BlockContinuation,
 ) -> BreakToken {
     BreakToken {
         entity: parent_entity,
         consumed_block_size,
-        child_break_token,
         mode_data: Some(BreakTokenData::Block {
             child_index,
-            inline_break_line,
+            continuation,
         }),
     }
 }

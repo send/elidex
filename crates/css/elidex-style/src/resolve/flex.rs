@@ -6,7 +6,7 @@ use elidex_plugin::{
 };
 
 use super::helpers::resolve_keyword_enum_prop;
-use super::helpers::{resolve_i32, resolve_non_negative_f32, resolve_prop, PropertyMap};
+use super::helpers::{resolve_i32, resolve_prop, PropertyMap};
 
 /// Resolve all flex-related properties.
 pub(super) fn resolve_flex_properties(
@@ -21,14 +21,14 @@ pub(super) fn resolve_flex_properties(
         "flex-grow",
         winners,
         parent_style,
-        |v| resolve_non_negative_f32(v, 0.0),
+        |v| elidex_plugin::css_resolve::resolve_flex_factor(v, ctx).unwrap_or(0.0),
         |v| style.flex_grow = v,
     );
     resolve_prop(
         "flex-shrink",
         winners,
         parent_style,
-        |v| resolve_non_negative_f32(v, 1.0),
+        |v| elidex_plugin::css_resolve::resolve_flex_factor(v, ctx).unwrap_or(1.0),
         |v| style.flex_shrink = v,
     );
     resolve_prop(

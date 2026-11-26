@@ -211,7 +211,8 @@ fn typed_array_indexed_write_after_buffer_detach_is_silent_noop() {
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.u8 = new Uint8Array(buf);").unwrap();
     array_buffer_detach(&mut vm.inner, buf_id);
-    // Per §10.4.5.18 the write must NOT throw — silent no-op success.
+    // §10.4.5.18 steps 1–2 convert 99 successfully. Detachment then makes
+    // the index invalid, so step 3 skips the store.
     let probe = "
         var threw = false;
         try { u8[0] = 99; } catch (e) { threw = true; }
@@ -314,11 +315,9 @@ fn typed_array_ctor_with_detached_buffer_and_offset_throws_typeerror_not_rangeer
 
 #[test]
 fn typed_array_ctor_from_detached_typed_array_throws_typeerror() {
-    // ECMA-262 §23.2.5.1.2 step 8 (`InitializeTypedArrayFromTypedArray`):
-    // the source TypedArray's backing buffer must be attached at
-    // construction time.  Without this check, `read_element_raw`'s
-    // Stage 3 silent-undefined-on-detach path would copy `0`s into
-    // the fresh destination instead of throwing TypeError.
+    // InitializeTypedArrayFromTypedArray step 7 calls ValidateTypedArrayBounds and rejects the
+    // detached source before element copying. (InitializeTypedArrayFromTypedArray
+    // §23.2.5.1.2.)
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 8);
     let _ = vm.eval("globalThis.src = new Uint8Array(buf);").unwrap();
@@ -451,11 +450,8 @@ fn dataview_set_int8_after_buffer_detach_throws_typeerror() {
 
 #[test]
 fn dataview_byte_length_after_buffer_detach_throws_typeerror() {
-    // Contrast with `typed_array_byte_length_after_detach_is_zero` —
-    // DataView's `byteLength` getter THROWS rather than returning 0
-    // (different witness AO: §25.3.1.2 MakeDataViewWithBufferWitness
-    // + §25.3.1.4 IsViewOutOfBounds vs. TypedArray's
-    // §10.4.5.x TypedArrayLength path).
+    // Known VM P4 defect: the getter throws on detachment. ECMA-262
+    // §25.3.4.2 step 5 requires +0.
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.dv = new DataView(buf);").unwrap();
@@ -470,6 +466,7 @@ fn dataview_byte_length_after_buffer_detach_throws_typeerror() {
 
 #[test]
 fn dataview_byte_offset_after_buffer_detach_throws_typeerror() {
+    // Known VM P4 defect: ECMA-262 §25.3.4.3 step 5 requires +0 here.
     let mut vm = Vm::new();
     let buf_id = alloc_js_buffer_and_park(&mut vm, 4);
     let _ = vm.eval("globalThis.dv = new DataView(buf);").unwrap();
@@ -573,7 +570,8 @@ fn d16_consumer_simulation_full_surface_sweep_post_detach() {
         "TypeError"
     );
 
-    // (c) DataView surface — getters + getInt32 throw TypeError.
+    // (c) byteLength throws due to the known VM P4 defect (§25.3.4.2 step 5).
+    // getInt32 throws as required by GetViewValue (§25.3.1.5 step 8).
     assert_eq!(
         eval_string(
             &mut vm,

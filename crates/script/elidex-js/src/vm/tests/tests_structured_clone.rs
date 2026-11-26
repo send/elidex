@@ -1,5 +1,5 @@
-//! Tests for `structuredClone(value, options?)` (WHATWG HTML §2.9
-//! StructuredSerialize + StructuredDeserialize, fused).
+//! Tests for the HTML §2.7.11 `structuredClone` binding and its fused
+//! no-transfer implementation in `vm::host::structured_clone`.
 //!
 //! Covers primitives, cycles, nested clones, RegExp `lastIndex`
 //! reset, Error subclass proto preservation, wrapper protos,
@@ -111,8 +111,8 @@ fn shared_reference_preserves_identity_in_clone() {
 #[test]
 fn accessor_properties_are_skipped() {
     let mut vm = Vm::new();
-    // A getter-only own property is a non-data property; structured
-    // clone walks data properties only.
+    // This fixture pins the VM's accessor gap: HTML §2.7.4 step 28.4 reads g
+    // and copies 99, while the current walker omits the property.
     assert!(eval_bool(
         &mut vm,
         "var a = {x: 7};
@@ -154,8 +154,7 @@ fn sparse_array_preserves_holes() {
 #[test]
 fn regexp_resets_last_index() {
     let mut vm = Vm::new();
-    // Mutating `lastIndex` on the source should not leak into the
-    // clone: spec §2.9 step 15 resets to 0.
+    // The new RegExp starts with lastIndex zero (HTML §2.7.7 step 12).
     assert!(eval_bool(
         &mut vm,
         "var r = /ab/g; r.lastIndex = 5; var c = structuredClone(r);
@@ -303,10 +302,8 @@ fn data_clone_error_propagates_from_nested_member() {
 }
 
 // ---------------------------------------------------------------------------
-// Detached buffer — HTML §2.7.3 StructuredSerializeInternal step
-// 13.2.1 (direct ArrayBuffer) + step 14.1 (TypedArray / DataView via
-// `IsArrayBufferViewOutOfBounds`, which in v1 elidex reduces to
-// `IsDetachedBuffer` on the underlying buffer since no resizable AB).
+// HTML §2.7.4 checks detached ArrayBuffers at step 14.2.1 and out-of-bounds
+// views at step 15.1. These fixtures detach fixed-size backing buffers.
 //
 // `array_buffer_detach` is the Rust-side helper (no JS `.detach()`
 // surface in v1 — see `vm/host/array_buffer.rs` Deferred list); the

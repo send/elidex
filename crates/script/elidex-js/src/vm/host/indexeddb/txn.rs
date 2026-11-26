@@ -169,10 +169,9 @@ pub(crate) fn abort_transaction(vm: &mut VmInner, txn_id: ObjectId, error: Optio
     vm.queue_task(PendingTask::IdbAbortDone { txn_id });
 }
 
-/// Deferred phase of §5.4 (`PendingTask::IdbCommitDone`): set
-/// `state = finished` (step 2.5.2), finalize an upgrade backend-side, fire
-/// `complete` (step 2.5.3), and for an upgrade transaction clear the open
-/// request's `transaction` + fire its `success` (step 2.5.4).
+/// Finishes the transaction and fires `complete` (IndexedDB §5.4 step 2.5).
+/// VM defect: upgrades deliver the open request's `success` in this task.
+/// The factory's `open` algorithm (§4.3 step 5.3) queues a separate task.
 pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
     let (upgrade_request, upgrade_handle, db) = {
         let Some(st) = vm.idb_transaction_states.get_mut(&txn_id) else {
@@ -210,9 +209,7 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
     let mut ctx = NativeContext::new_call(vm);
     // step 2.5.3: fire `complete` (non-bubbling, non-cancelable).
     fire_idb_event(&mut ctx, txn_id, complete_sid, false, false);
-    // step 2.5.4: an upgrade transaction's open request now resolves —
-    // clear its `transaction`, mark it done, and fire `success` (its
-    // `result` was set to the IDBDatabase by the factory `open` flow).
+    // Commit step 2.5.4 clears the open request's transaction before delivery.
     if let Some(req) = upgrade_request {
         if let Some(rs) = ctx.vm.idb_request_states.get_mut(&req) {
             rs.transaction = None;

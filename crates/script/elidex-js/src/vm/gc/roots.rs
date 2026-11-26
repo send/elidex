@@ -80,12 +80,11 @@ pub(super) struct GcRoots<'a> {
     /// between scheduling and firing.
     pub(super) timer_queue:
         &'a std::collections::BinaryHeap<super::super::natives_timer::TimerEntry>,
-    /// Currently-firing timer entry (popped out of `timer_queue`).  Same
-    /// invariant as `current_microtask`: the callback/args must survive
-    /// any GC triggered by the running callback.
+    /// Currently-firing timer entry (popped out of `timer_queue`); its
+    /// lifetime is stated in `VmInner::drain_timers`.
     pub(super) current_timer: Option<&'a super::super::natives_timer::TimerEntry>,
     /// Navigation state — `NavigationState.current_state: JsValue` holds the
-    /// value last passed to `history.pushState` / `replaceState` (`history.state`).
+    /// value currently exposed by `history.state`.
     /// Without tracing it here, that object could be collected while still
     /// reachable via a `history.state` read.  Engine-only — `VmInner::navigation`
     /// is gated behind `feature = "engine"`.
@@ -436,13 +435,8 @@ pub(super) fn mark_roots(
         mark_timer_entry(entry, obj_marks, work);
     }
 
-    // (i) Navigation state — `history.state`, the `JsValue` last handed to
-    // `history.pushState(state, ...)` / `replaceState`.  It is not reachable
-    // from any other root (not the stack, not a function upvalue; `current_state`
-    // lives on `VmInner` directly).  Without marking, the object can be collected
-    // between the `pushState` call and a later `history.state` read.  (The shell
-    // owns the session-history stack — the VM holds only the current entry's
-    // state, S1c.)
+    // (i) Keep the value exposed by `history.state` alive between reads.
+    // The VM owns the current value and the shell owns the session-history stack.
     #[cfg(feature = "engine")]
     mark_value(roots.navigation.current_state, obj_marks, work);
 

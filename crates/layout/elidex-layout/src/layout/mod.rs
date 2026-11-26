@@ -11,7 +11,7 @@ use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::positioned;
 use elidex_layout_block::LayoutInput;
 use elidex_plugin::{
-    ComputedStyle, CssSize, Display, LayoutBox, PageSelector, PagedMediaContext, Position, Size,
+    ComputedStyle, CssSize, Display, LayoutBox, PageSelector, Position, PreparedPages, Size,
 };
 use elidex_text::FontDatabase;
 
@@ -36,6 +36,9 @@ use elidex_text::FontDatabase;
 /// producer goes through, enforced by the D4 trip-wire's wire #5. So the phase rule is
 /// once again ONE sentence at ONE granularity: *any write to either geometry source
 /// invalidates; only `layout_tree` publishes, at completion.*
+///
+/// A continuation in `input.break_token` belongs to the same immutable input.
+/// Start a new run with empty progress after changing the DOM or computed style.
 pub fn dispatch_layout_child(
     dom: &mut EcsDom,
     entity: Entity,
@@ -50,7 +53,8 @@ pub fn dispatch_layout_child(
     let effective_input = if matches!(
         style.display,
         Display::InlineBlock | Display::InlineFlex | Display::InlineGrid | Display::InlineTable
-    ) && style.width == elidex_plugin::Dimension::Auto
+    ) && input.assigned.content.width.is_none()
+        && style.width == elidex_plugin::Dimension::Auto
     {
         let env = elidex_layout_block::LayoutEnv::from_input(input, dispatch_layout_child);
         let intrinsic = crate::intrinsic::compute_intrinsic_sizes(dom, entity, &env);
@@ -83,7 +87,11 @@ pub fn dispatch_layout_child(
         anonymous_table::ensure_table_wrappers(dom, entity);
     }
 
-    let outcome = match style.display {
+    #[cfg(test)]
+    if !input.is_probe && tests::TRACK_CHILD.get() == Some(entity) {
+        tests::TRACK_WIDTH.set(Some(input.containing.width));
+    }
+    let mut outcome = match style.display {
         // display: contents — element generates no box (CSS Display Level 3 §2.8).
         // Children are promoted to the parent's formatting context via
         // flatten_contents(). Return a zero-size box at the given position.
@@ -97,7 +105,15 @@ pub fn dispatch_layout_child(
         }
         .into(),
         Display::Flex | Display::InlineFlex => {
-            elidex_layout_flex::layout_flex(dom, entity, effective_input, dispatch_layout_child)
+            let formatter = elidex_layout_flex::layout_flex;
+            #[cfg(test)]
+            tests::record_flex_dispatch(
+                entity,
+                input,
+                effective_input,
+                std::any::type_name_of_val(&formatter),
+            );
+            formatter(dom, entity, effective_input, dispatch_layout_child)
         }
         Display::Grid | Display::InlineGrid => {
             elidex_layout_grid::layout_grid(dom, entity, effective_input, dispatch_layout_child)
@@ -125,32 +141,39 @@ pub fn dispatch_layout_child(
     // paged media rendering. The walk skips entities whose generation
     // doesn't match the current page. Non-paged paths use generation=0.
     if input.layout_generation > 0 {
+        outcome.layout_box.layout_generation = input.layout_generation;
         if let Some(mut lb) = dom.layout_box_mut(entity) {
             lb.layout_generation = input.layout_generation;
         }
     }
 
-    // CSS 2.1 §9.4.3: relative offset.
-    // Return the original LayoutBox (without offset) so siblings use the
-    // unshifted space. The ECS LayoutBox is updated with the offset.
     if style.position == Position::Relative {
-        let lb = &outcome.layout_box;
-        let mut offset_lb = lb.clone();
-        positioned::apply_relative_offset(
-            &mut offset_lb,
-            &style,
-            input.containing.width,
-            input.containing.height,
-        );
-        let delta = offset_lb.content.origin - lb.content.origin;
-        dom.set_layout_box(entity, offset_lb);
-        if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
-            let children: Vec<_> = dom.children_iter(entity).collect();
-            elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
-        }
+        publish_relative_offset(dom, entity, input, &style, &outcome.layout_box);
     }
-
     outcome
+}
+
+/// CSS 2.1 §9.4.3. Publish the offset box while preserving the normal-flow result.
+fn publish_relative_offset(
+    dom: &mut EcsDom,
+    entity: Entity,
+    input: &LayoutInput<'_>,
+    style: &ComputedStyle,
+    lb: &LayoutBox,
+) {
+    let mut offset_lb = lb.clone();
+    positioned::apply_relative_offset(
+        &mut offset_lb,
+        style,
+        input.containing.width,
+        input.containing.height,
+    );
+    let delta = offset_lb.content.origin - lb.content.origin;
+    dom.set_layout_box(entity, offset_lb);
+    if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
+        let children: Vec<_> = dom.children_iter(entity).collect();
+        elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
+    }
 }
 
 /// Result of laying out a single page fragment in paged media.
@@ -182,7 +205,7 @@ pub struct PageFragment {
 #[must_use]
 pub fn layout_paged(
     dom: &mut EcsDom,
-    page_ctx: &PagedMediaContext,
+    page_ctx: &PreparedPages,
     font_db: &FontDatabase,
 ) -> Vec<PageFragment> {
     let roots = find_roots(dom);
@@ -193,8 +216,9 @@ pub fn layout_paged(
     // Use the first root for layout (typically the document root).
     let root = roots[0];
 
-    let content_width = page_ctx.content_width();
-    let content_height = page_ctx.content_height();
+    let area = page_ctx.select(1, false).geometry.area();
+    let content_width = area.size.width;
+    let content_height = area.size.height;
 
     if content_height <= 0.0 || content_width <= 0.0 {
         return Vec::new();
@@ -206,13 +230,17 @@ pub fn layout_paged(
     };
 
     let input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(content_width, content_height),
         containing_inline_size: content_width,
-        offset: elidex_plugin::Point::new(page_ctx.page_margins.left, page_ctx.page_margins.top),
+        offset: area.origin,
         font_db,
         depth: 0,
         float_ctx: None,
-        viewport: Some(Size::new(page_ctx.page_width, page_ctx.page_height)),
+        viewport: Some(area.size),
         fragmentainer: None,
         break_token: None,
         subgrid: None,
@@ -226,7 +254,10 @@ pub fn layout_paged(
     for (i, frag) in fragments.into_iter().enumerate() {
         let page_number = i + 1;
         let is_blank = is_blank_fragment(&frag);
-        let matched = match_page_selectors(&page_ctx.page_rules, page_number, is_blank);
+        let matched = page_ctx
+            .select(page_number, is_blank)
+            .matched_selectors
+            .clone();
         pages.push(PageFragment {
             layout_box: frag.layout_box,
             page_number,
@@ -244,23 +275,6 @@ pub fn layout_paged(
 /// by a forced page break with no content between breaks.
 fn is_blank_fragment(outcome: &elidex_layout_block::LayoutOutcome) -> bool {
     outcome.layout_box.content.size.height < 0.5 && outcome.layout_box.content.size.width < 0.5
-}
-
-/// Collect all page selectors from `@page` rules that match a given page.
-pub fn match_page_selectors(
-    page_rules: &[elidex_plugin::PageRule],
-    page_number: usize,
-    is_blank: bool,
-) -> Vec<PageSelector> {
-    let mut matched = Vec::new();
-    for rule in page_rules {
-        for sel in &rule.selectors {
-            if sel.matches(page_number, is_blank) && !matched.contains(sel) {
-                matched.push(*sel);
-            }
-        }
-    }
-    matched
 }
 
 /// Maximum number of fragments to prevent infinite loops.
@@ -389,6 +403,10 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         .ok();
 
     let root_input = LayoutInput {
+        available_height_if_indefinite: None,
+        containing_width_definite: true,
+        is_flex_item: false,
+        assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(viewport.width, viewport.height),
         containing_inline_size: viewport.width,
         offset: elidex_plugin::Point::ZERO,

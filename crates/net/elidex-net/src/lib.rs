@@ -290,7 +290,7 @@ pub struct Response {
     pub url: url::Url,
     /// HTTP version used.
     pub version: HttpVersion,
-    /// URL list — the full redirect chain (WHATWG Fetch §3.1.4).
+    /// URL list — the full redirect chain for this network response (WHATWG Fetch §2.2.6).
     /// First entry is the original request URL; on a redirect, each
     /// hop's resolved URL is appended; the last entry equals
     /// [`Response::url`].  For a non-redirected response the list

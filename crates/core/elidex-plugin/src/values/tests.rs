@@ -187,14 +187,10 @@ fn to_css_string_raw_tokens() {
 
 #[test]
 fn to_css_string_var() {
-    let val = CssValue::Var("--bg".into(), None);
-    assert_eq!(val.to_css_string(), "var(--bg)");
-
-    let val_fb = CssValue::Var(
-        "--bg".into(),
-        Some(Box::new(CssValue::Keyword("red".into()))),
-    );
-    assert_eq!(val_fb.to_css_string(), "var(--bg, red)");
+    for source in ["var(--bg)", "var(--bg, red)", "var(--bg,)", "var(--bg, )"] {
+        let seq = crate::component_values::ComponentValues::capture(source).unwrap();
+        assert_eq!(CssValue::Pending(seq).to_css_string(), source);
+    }
 }
 
 #[test]

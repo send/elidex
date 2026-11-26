@@ -138,7 +138,7 @@ fn name_setter_coerces_via_to_string() {
 
 #[test]
 fn name_setter_invokes_user_to_string() {
-    // §7.1.12 step 9 → §7.1.1.1: a non-wrapper Object passed through
+    // §7.1.19 step 10 → §7.1.1.1: a non-wrapper Object passed through
     // `ToString` runs `OrdinaryToPrimitive(hint='string')`, which calls
     // user-defined `toString()` first and returns the produced primitive.
     let mut vm = Vm::new();

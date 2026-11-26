@@ -56,7 +56,7 @@ use winit::event_loop::EventLoop;
 
 use animation::{
     apply_active_animations, collect_computed_without_anim, collect_old_anim_styles,
-    detect_and_start_transitions, register_keyframes_from_stylesheets, sync_css_animations,
+    detect_and_start_transitions, sync_css_animations,
 };
 
 use app::App;
@@ -652,20 +652,7 @@ pub(crate) fn re_render(result: &mut PipelineResult) {
     let stylesheet_refs: Vec<&Stylesheet> =
         collected.iter().map(std::convert::AsRef::as_ref).collect();
 
-    // Re-register `@keyframes` from the re-collected sheets into the engine.
-    // `result.animation_engine` was seeded with the construction-time keyframe
-    // set; a stylesheet mutation this frame (script `insertRule`, an injected
-    // `<style>`, a newly-loaded `<link>`) can define an `@keyframes` the engine
-    // has never seen. Without this, `sync_css_animations` (below) would see the
-    // new `animation-name` on an element but skip it because
-    // `get_keyframes(name).is_none()`, so a `@keyframes foo` + `animation-name:
-    // foo` added in the same turn would never start. `prune_unused_keyframes`
-    // ran earlier this frame; re-adding every currently-collected rule via the
-    // idempotent, name-keyed registration path restores the live set.
-    register_keyframes_from_stylesheets(
-        stylesheet_refs.iter().copied(),
-        &mut result.animation_engine,
-    );
+    result.animation_engine.sync_stylesheets(&collected);
 
     result.viewport_overflow = resolve_with_mode(
         &mut result.dom,

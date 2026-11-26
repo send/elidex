@@ -2,7 +2,7 @@
 //!
 //! ECMA-262 coerces a primitive wrapper (`new Number(5)`, `new String('a')`, …)
 //! to a primitive through the ToPrimitive → `valueOf` / `toString` /
-//! `@@toPrimitive` machinery (§7.1.4 ToNumber steps 7-10, §7.1.18 ToString
+//! `@@toPrimitive` machinery (§7.1.4 ToNumber steps 7-10, §7.1.19 ToString
 //! steps 9-12, §7.1.1 ToPrimitive), so a user override of those methods on the
 //! wrapper's prototype MUST be honored. `coerce::to_number` / `coerce::to_string`
 //! and `JSON.stringify` previously took a wrapper "fast-path" that read the
@@ -20,7 +20,7 @@
 use super::{eval_bool, eval_number, eval_string, eval_throws};
 
 // ── 1. Override honored on the coerce side — all four wrapper kinds ─────────
-// §7.1.4 / §7.1.18 draw no per-kind distinction, so removing the fast-path
+// §7.1.4 / §7.1.19 draw no per-kind distinction, so removing the fast-path
 // routes Number, String, Boolean AND BigInt wrappers through ToPrimitive.
 
 #[test]

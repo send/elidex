@@ -443,14 +443,8 @@ impl PropertyStorage {
 /// well.  TypedArray-specific feature-flagged logic (host methods, Fetch
 /// body init, etc.) gates at its own call sites, not on this type.
 ///
-/// Byte ordering for TypedArray indexed reads / writes is **spec-mandated
-/// little-endian**: ECMA-262 §10.4.5.17 TypedArrayGetElement and §10.4.5.18
-/// TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
-/// SetValueInBuffer with `isLittleEndian = true`, so engines must use
-/// little-endian for TypedArray indexed access regardless of host platform.
-/// `DataView` exposes both endiannesses to JS via the `littleEndian`
-/// argument on its prototype getters / setters (ECMA-262 §25.3.4, default
-/// `false` = big-endian).
+/// The VM stores these elements in little-endian byte order. See the byte-order
+/// convention in `vm/host/typed_array.rs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
     Int8,
@@ -467,11 +461,8 @@ pub enum ElementKind {
 }
 
 impl ElementKind {
-    /// Total number of TypedArray subclasses (ECMA-262 §23.2 table).
-    /// Sized for the per-subclass prototype array stored on
-    /// `VmInner` (`subclass_array_prototypes`); GC roots reach those
-    /// slots via a borrowed slice (`subclass_array_proto_roots`),
-    /// not the fixed-size `proto_roots` array.
+    /// Number of concrete TypedArray kinds implemented by this VM (11). The current
+    /// specification also lists Float16Array.
     pub const COUNT: usize = 11;
 
     /// Stable 0-based index in [`Self::COUNT`] range, used to
@@ -540,7 +531,7 @@ impl ElementKind {
         }
     }
 
-    /// Byte width of one element — `[[ElementSize]]` per ECMA-262 §23.2.1 table.
+    /// Byte width of this kind. TypedArrayElementSize uses Table 71 in §23.2.
     #[inline]
     #[must_use]
     pub const fn bytes_per_element(self) -> u8 {
@@ -554,8 +545,7 @@ impl ElementKind {
 
     /// `true` when elements are BigInt (i.e. `BigInt64Array` /
     /// `BigUint64Array`).  Used at the indexed-write call site to route
-    /// coercion through `ToBigInt64` / `ToBigUint64` instead of `ToIntXx`
-    /// (ECMA-262 §7.1.16 / .17 vs §7.1.9-.13).
+    /// coercion through `ToBigInt64` (§7.1.17) or `ToBigUint64` (§7.1.18).
     #[inline]
     #[must_use]
     pub const fn is_bigint(self) -> bool {
@@ -684,13 +674,13 @@ pub struct JsCalleeInfo {
 /// * [`CallShape::Ordinary`] — both `[[Call]]` and `[[Construct]]` are
 ///   accepted (ECMA-262 §10.3 built-in functions; `Array`, `Object`,
 ///   `Error`, etc.).
-/// * [`CallShape::CallableOnly`] — `[[Call]]` only; `[[Construct]]`
-///   throws TypeError because the function has no `[[Construct]]`
-///   (ECMA-262 §10.3 — "A built-in function object has a
-///   `[[Construct]]` internal method if and only if it is described
-///   as a 'constructor'") and §7.2.4 IsConstructor's precondition at
-///   the `new` evaluation site raises "not a constructor".
-///   `Symbol`, `BigInt`.
+/// * [`CallShape::CallableOnly`] — VM admission rejects construction with a
+///   VM-defined TypeError message. VM defect (#11-vm-symbol-bigint-class-heritage):
+///   this shape also covers
+///   `Symbol` and `BigInt`. Both have `[[Construct]]` (§10.3), so
+///   `IsConstructor` (§7.2.4) returns true and both are valid class heritage.
+///   Their constructor bodies throw for a defined NewTarget (§20.4.1.1
+///   and §21.2.1.1, step 1).
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
 ///   throws TypeError per the WebIDL §3.7.1 (Interface object) creation
 ///   algorithm step 1.2 ("If NewTarget is undefined, then throw a
@@ -713,8 +703,8 @@ pub struct JsCalleeInfo {
 ///   `AbortSignal` (no `constructor()` in its WebIDL — instances come
 ///   from `new AbortController().signal` / the static `AbortSignal.abort`
 ///   / `.timeout` / `.any` factories).
-///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
-///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
+///   `CallableOnly` permits `[[Call]]`. On construction, VM constructor admission
+///   produces the diagnostic `"<name> is not a constructor"`. The WebIDL gate
 ///   throws in *both* modes with the WebIDL "Illegal constructor"
 ///   message.  The thrown text is not spec-prescribed (§3.7.1 mandates
 ///   only "throw a TypeError"); the wording matches Chrome's WebIDL

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use elidex_css::Stylesheet;
 use elidex_css_anim::engine::{AnimationEngine, AnimationEvent};
 use elidex_css_anim::style::AnimStyle;
 use elidex_ecs::Entity;
@@ -10,32 +9,6 @@ use elidex_plugin::{AnimationEventInit, ComputedStyle, EventPayload, TransitionE
 use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
-
-/// Register `@keyframes` rules from parsed stylesheets into the animation engine.
-///
-/// Generic over any `&Stylesheet` iterable so both the construction-time build
-/// (`&[Stylesheet]`) and the `re_render` re-collection (`Vec<&Stylesheet>` via
-/// `.iter().copied()`) share the single canonical registration path.
-/// `register_keyframes` is a name-keyed `HashMap::insert`, so re-adding an
-/// already-registered rule is idempotent and a redefinition overwrites in place.
-pub(crate) fn register_keyframes_from_stylesheets<'a>(
-    stylesheets: impl IntoIterator<Item = &'a Stylesheet>,
-    engine: &mut AnimationEngine,
-) {
-    for ss in stylesheets {
-        for (name, body) in &ss.keyframes_raw {
-            let rule = elidex_css_anim::parse::parse_keyframes(name, body);
-            engine.register_keyframes(rule);
-        }
-    }
-}
-
-/// Create and initialize an `AnimationEngine` with `@keyframes` from stylesheets.
-pub(crate) fn create_animation_engine(stylesheets: &[Stylesheet]) -> AnimationEngine {
-    let mut engine = AnimationEngine::new();
-    register_keyframes_from_stylesheets(stylesheets, &mut engine);
-    engine
-}
 
 /// Collect old computed styles for entities that have an `AnimStyle` component.
 ///
@@ -445,6 +418,43 @@ pub(crate) fn anim_event_to_payload(event: &AnimationEvent) -> (&'static str, Ev
     }
 }
 
+/// CSS Shadow 1 §4.1: slotted nodes inherit from their slot and top-level
+/// shadow children inherit from their host. Use this frame's slot distribution.
+fn inheritance_parent(dom: &elidex_ecs::EcsDom, entity: Entity) -> Option<Entity> {
+    let parent = dom.get_parent(entity)?;
+    if let Some(root) = dom.get_shadow_root(parent) {
+        if let Ok(marker) = dom.world().get::<&elidex_ecs::SlottedMarker>(entity) {
+            if dom.find_tree_root(marker.slot) == root {
+                return Some(marker.slot);
+            }
+        }
+    }
+    Some(dom.shadow_host(parent).unwrap_or(parent))
+}
+
+/// CSS Cascade §7.3: compute explicit defaulting before interpolating endpoints.
+fn defaulted_endpoint(
+    name: &str,
+    keyword: &elidex_plugin::CssValue,
+    parent: &ComputedStyle,
+    initial: &ComputedStyle,
+    target: &ComputedStyle,
+    ctx: &elidex_plugin::ResolveContext,
+    registry: &elidex_plugin::CssPropertyRegistry,
+) -> elidex_plugin::CssValue {
+    use elidex_plugin::CssValue;
+    let inherits = matches!(keyword, CssValue::Inherit)
+        || (matches!(keyword, CssValue::Unset)
+            && registry
+                .resolve(name)
+                .is_some_and(|handler| handler.is_inherited(name)));
+    if inherits {
+        elidex_style::get_computed_with_registry(name, parent, registry)
+    } else {
+        elidex_style::get_computed_initial(name, target, initial, registry, ctx)
+    }
+}
+
 /// Apply animated values from active transitions and animations to `ComputedStyle`.
 ///
 /// Iterates over all entities with active transitions and animations in the engine,
@@ -458,6 +468,20 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
     // the same property (CSS Animations L1 4.1). Duplicates are safe (last write wins).
     let entity_ids: Vec<u64> = result.animation_engine.active_entity_ids().collect();
 
+    let root = result.dom.first_element_child(result.document);
+    let font_size = |dom: &elidex_ecs::EcsDom, entity| {
+        dom.world()
+            .get::<&ComputedStyle>(entity)
+            .ok()
+            .map(|style| style.font_size)
+    };
+    let initial_style = ComputedStyle::default();
+    let initial_font = elidex_plugin::ResolveContext::default().root_font_size;
+    let root_font_size = root
+        .and_then(|e| font_size(&result.dom, e))
+        .unwrap_or(initial_font);
+
+    let mut samples = Vec::new();
     for entity_bits in entity_ids {
         let entity = Entity::from_bits(entity_bits);
         let Some(entity) = entity else { continue };
@@ -472,42 +496,77 @@ pub(crate) fn apply_active_animations(result: &mut PipelineResult) {
         // Collect animated values from keyframe animations.
         // CSS Animations L1 5: read underlying computed values before applying
         // animation, so before-only keyframe properties interpolate correctly.
-        let underlying_values: Option<HashMap<String, elidex_plugin::CssValue>> = result
-            .dom
-            .world()
-            .get::<&ComputedStyle>(entity)
-            .ok()
-            .map(|style| {
-                let mut map = HashMap::new();
-                for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
-                    let v = elidex_style::get_computed(prop, &style);
-                    if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
-                        map.insert((*prop).to_string(), v);
-                    }
+        let target = result.dom.world().get::<&ComputedStyle>(entity).ok();
+        let underlying_values = target.as_deref().map(|style| {
+            let mut map = HashMap::new();
+            for prop in elidex_css_anim::interpolate::ANIMATABLE_PROPERTIES {
+                let v = elidex_style::get_computed_with_registry(prop, style, &result.registry);
+                if !matches!(v, elidex_plugin::CssValue::Keyword(ref k) if k == "initial") {
+                    map.insert((*prop).to_string(), v);
                 }
-                map
-            });
+            }
+            map
+        });
 
+        let parent_style = inheritance_parent(&result.dom, entity)
+            .and_then(|e| result.dom.world().get::<&ComputedStyle>(e).ok());
+        let parent_style = parent_style.as_deref().unwrap_or(&initial_style);
+        let parent_font = parent_style.font_size;
+        let ctx = elidex_plugin::ResolveContext {
+            em_base: font_size(&result.dom, entity).unwrap_or(parent_font),
+            root_font_size,
+            viewport: result.viewport,
+        };
+        let font_ctx = elidex_plugin::ResolveContext {
+            em_base: parent_font,
+            root_font_size: if Some(entity) == root {
+                initial_font
+            } else {
+                root_font_size
+            },
+            ..ctx
+        };
         let animations = result.animation_engine.active_animations(entity_bits);
         for anim in animations {
             if let Some(progress) = anim.progress() {
-                let kf_values = result.animation_engine.keyframe_values(
+                let kf_values = result.animation_engine.keyframe_values_for_target(
                     anim.name(),
                     f64::from(progress),
                     Some(anim.timing_function()),
-                    underlying_values.as_ref(),
+                    &elidex_css_anim::engine::KeyframeTarget {
+                        underlying: underlying_values.as_ref(),
+                        lengths: &ctx,
+                        font_lengths: &font_ctx,
+                        defaulted: &|name, keyword| {
+                            defaulted_endpoint(
+                                name,
+                                keyword,
+                                parent_style,
+                                &initial_style,
+                                target.as_deref().unwrap_or(&initial_style),
+                                &ctx,
+                                &result.registry,
+                            )
+                        },
+                    },
                 );
                 animated_values.extend(kf_values);
             }
         }
 
-        // Apply to ComputedStyle.
         if !animated_values.is_empty() {
-            if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
-                for (property, value) in &animated_values {
-                    apply_animated_value(&mut style, property, value);
-                }
+            samples.push((entity, animated_values));
+        }
+    }
+    // All reference fonts and underlying endpoints come from this frame's cascade.
+    for (entity, animated_values) in samples {
+        if let Ok(mut style) = result.dom.world_mut().get::<&mut ComputedStyle>(entity) {
+            for (property, value) in &animated_values {
+                apply_animated_value(&mut style, property, value);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod grammar_tests;

@@ -134,12 +134,8 @@ pub(in crate::vm::host) fn is_forbidden_request_header(lower_name: &str) -> bool
             | "transfer-encoding"
             | "upgrade"
             | "via"
-            // Method-override headers — spec adds these to prevent
-            // script from smuggling forbidden methods (CONNECT /
-            // TRACE / TRACK) past the browser's method gate by
-            // hiding them in an override header that some servers
-            // honour.  Not in the original PR #131 list — added
-            // here per WHATWG Fetch §2.2.2 (R12 follow-up).
+            // Fetch §2.2.2 checks the parsed values of these three headers for
+            // forbidden methods. This name-only check rejects every value.
             | "x-http-method"
             | "x-http-method-override"
             | "x-method-override"

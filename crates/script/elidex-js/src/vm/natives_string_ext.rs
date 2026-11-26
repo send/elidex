@@ -269,7 +269,7 @@ pub(super) fn native_string_concat(
     Ok(JsValue::String(id))
 }
 
-/// §21.1.2.1 String.fromCharCode(...codes)
+/// ECMA-262 §22.1.2.1 `String.fromCharCode(...codeUnits)`.
 pub(super) fn native_string_from_char_code(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -286,7 +286,7 @@ pub(super) fn native_string_from_char_code(
     Ok(JsValue::String(id))
 }
 
-/// §21.1.2.2 String.fromCodePoint(...codePoints)
+/// ECMA-262 §22.1.2.2 `String.fromCodePoint(...codePoints)`.
 pub(super) fn native_string_from_code_point(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

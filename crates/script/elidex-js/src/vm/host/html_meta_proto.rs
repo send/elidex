@@ -12,9 +12,7 @@
 //! | `media`       | `media`           |
 //! | `scheme`      | `scheme`          |
 //!
-//! `scheme` is deprecated per HTML §4.2.5.4 ("the scheme attribute is
-//! deprecated") but reflected for legacy scripts that still read
-//! `<meta scheme>` — surface compatibility wins over spec purity.
+//! HTML §16.3.3 defines `scheme` as a reflected DOMString on `HTMLMetaElement`.
 //!
 //! ## Layering
 //!

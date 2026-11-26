@@ -1,15 +1,9 @@
 //! HTML §"reflect" enumerated-attribute canonical-value mapping
 //! (slot `#11-tags-T2a-url-bearing`).
 //!
-//! WHATWG HTML §2.3.5 ("enumerated attributes") defines per-attribute
-//! tables where the IDL getter returns:
-//!
-//! 1. The exact canonical keyword for any case-insensitive ASCII
-//!    match of the content attribute against a known keyword.
-//! 2. The **invalid-value default** when the attribute is present but
-//!    the value matches no keyword.
-//! 3. The **missing-value default** when the attribute is absent
-//!    (passed as `None`).
+//! HTML §2.3.3 defines how keywords and defaults determine an enumerated
+//! attribute's state. For IDL reflection limited to known values, §2.6.1
+//! defines how the getter uses the state's canonical keyword.
 //!
 //! This module hosts the shared canonicalisation routine plus the
 //! per-IDL-attribute tables consumed by HTMLImageElement /
@@ -31,7 +25,7 @@
 //! crate.
 
 /// Canonicalise an enumerated-attribute raw value against a known keyword
-/// table.  Performs ASCII case-insensitive match per HTML §2.3.5.
+/// table.  Performs ASCII case-insensitive match per HTML §2.3.3.
 ///
 /// - `raw = None` → returns `missing_default`
 /// - `raw = Some(value)` matching any `known` (ASCII-CI) → returns
@@ -61,7 +55,7 @@ pub fn canonicalize_enumerated_attr(
 // Canonical-value tables (HTML §"reflect" enumerated-attribute set)
 // ---------------------------------------------------------------------------
 
-/// `referrerPolicy` IDL attribute (HTML §6.6.5 referrer policy).
+/// `referrerPolicy` IDL attribute (HTML §2.5.5 referrer policy).
 ///
 /// Missing default = `""` (empty), invalid default = `""` (empty).
 /// Used by HTMLAnchorElement / HTMLAreaElement / HTMLImageElement /
@@ -80,7 +74,7 @@ pub const REFERRER_POLICY_VALUES: &[&str] = &[
 pub const REFERRER_POLICY_MISSING_DEFAULT: &str = "";
 pub const REFERRER_POLICY_INVALID_DEFAULT: &str = "";
 
-/// `crossOrigin` IDL attribute (HTML §3.2.7.5 CORS settings).
+/// `crossOrigin` IDL attribute (HTML §2.5.4 CORS settings).
 ///
 /// IDL type `DOMString?` (nullable).  The prototype-side binding
 /// goes through `get_enumerated_reflect_nullable` (in
@@ -94,30 +88,31 @@ pub const CROSS_ORIGIN_VALUES: &[&str] = &["", "anonymous", "use-credentials"];
 pub const CROSS_ORIGIN_MISSING_DEFAULT: &str = "";
 pub const CROSS_ORIGIN_INVALID_DEFAULT: &str = "anonymous";
 
-/// `loading` IDL attribute (HTML §4.8.4 lazy loading).
+/// `loading` IDL attribute (HTML §2.5.7 lazy loading).
 ///
 /// Missing default = `"eager"`, invalid default = `"eager"`.
 pub const LOADING_VALUES: &[&str] = &["eager", "lazy"];
 pub const LOADING_MISSING_DEFAULT: &str = "eager";
 pub const LOADING_INVALID_DEFAULT: &str = "eager";
 
-/// `decoding` IDL attribute (HTML §4.8.4 image decoding hint).
+/// HTML §4.8.3 defines img.decoding. Section 4.8.4.3.4 defines its hint keywords.
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const DECODING_VALUES: &[&str] = &["sync", "async", "auto"];
 pub const DECODING_MISSING_DEFAULT: &str = "auto";
 pub const DECODING_INVALID_DEFAULT: &str = "auto";
 
-/// `fetchpriority` IDL attribute (HTML §4.8.4 / Fetch Priority API).
+/// HTML §2.5.9 defines the `fetchpriority` content attribute. HTMLImageElement
+/// exposes it as `fetchPriority` (HTML §4.8.3).
 ///
 /// Missing default = `"auto"`, invalid default = `"auto"`.
 pub const FETCH_PRIORITY_VALUES: &[&str] = &["high", "low", "auto"];
 pub const FETCH_PRIORITY_MISSING_DEFAULT: &str = "auto";
 pub const FETCH_PRIORITY_INVALID_DEFAULT: &str = "auto";
 
-/// `<area>.shape` IDL attribute (HTML §4.6.6 image map area shape).
-///
-/// Missing default = `"rect"`, invalid default = `"rect"`.
+/// HTML §4.8.13 uses the rectangle state for a missing or invalid shape content
+/// attribute. The VM also applies this table to the IDL getter, which the spec
+/// declares as an ordinary reflected DOMString.
 pub const AREA_SHAPE_VALUES: &[&str] = &["circle", "default", "poly", "rect"];
 pub const AREA_SHAPE_MISSING_DEFAULT: &str = "rect";
 pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
@@ -126,7 +121,7 @@ pub const AREA_SHAPE_INVALID_DEFAULT: &str = "rect";
 /// cell scope).  Per spec the IDL is on the shared
 /// HTMLTableCellElement interface so both `<th>` and `<td>` accept
 /// the accessor; only `<th>.scope` carries semantic weight (header
-/// cell association).  ASCII-CI canonicalisation per §2.3.5.
+/// cell association).  ASCII-CI canonicalisation per §2.3.3.
 ///
 /// Missing default = `""`, invalid default = `""`.
 pub const SCOPE_VALUES: &[&str] = &["row", "col", "rowgroup", "colgroup"];
@@ -134,28 +129,12 @@ pub const SCOPE_MISSING_DEFAULT: &str = "";
 pub const SCOPE_INVALID_DEFAULT: &str = "";
 
 // ---------------------------------------------------------------------------
-// "Limited to only known values" — case-sensitive variant
+// Case-sensitive marker lookup used by the current ol.type getter
 // ---------------------------------------------------------------------------
 
-/// Canonicalise per HTML §6.5.5 "limited to only known values" — used
-/// by enumerated reflects whose canonical keywords differ only in
-/// ASCII case (so the regular ASCII-CI [`canonicalize_enumerated_attr`]
-/// would collapse them).
-///
-/// Per HTML §6.5.5 the IDL getter for a "limited to only known values"
-/// reflect:
-/// 1. Reads the content attribute value.
-/// 2. If the value is not in canonical form (here: an exact
-///    case-sensitive match against one of `known`), returns the empty
-///    string.
-/// 3. Otherwise returns the matching canonical keyword.
-///
-/// `raw = None` → `""` (no value to canonicalise).
-///
-/// Distinct from [`canonicalize_enumerated_attr`] which performs ASCII
-/// case-insensitive matching and returns separate missing/invalid
-/// defaults.  `<ol>.type` is the only T2b consumer (keywords `1` /
-/// `a` / `A` / `i` / `I` — `a` and `A` are intentionally distinct).
+/// Return an exact match from the supplied table, or the empty string. The
+/// current ol.type binding uses this helper to distinguish uppercase and lowercase
+/// marker types and discards unrecognized attribute values.
 pub fn canonicalize_limited_to_known_values(
     raw: Option<&str>,
     known: &[&'static str],
@@ -171,13 +150,8 @@ pub fn canonicalize_limited_to_known_values(
     ""
 }
 
-/// `<ol>.type` IDL attribute (HTML §4.4.5 ordered-list type).
-///
-/// Keywords are case-sensitive (`a` and `A` are distinct, etc.) so
-/// canonicalisation must go through
-/// [`canonicalize_limited_to_known_values`] (not the ASCII-CI
-/// [`canonicalize_enumerated_attr`]).  Missing / invalid → `""`
-/// per the "limited to only known values" pattern.
+/// Marker types recognized by the implementation. HTML §4.4.5 defines the
+/// marker meanings and declares ol.type as an ordinary reflected DOMString.
 pub const OL_TYPE_VALUES: &[&str] = &["1", "a", "A", "i", "I"];
 
 #[cfg(test)]

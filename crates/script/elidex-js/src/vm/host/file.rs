@@ -32,14 +32,13 @@
 //!   `Blob`'s `collect_blob_parts_bytes` (now `endings`-aware) so
 //!   File and Blob ctors share the same iterator-protocol + part
 //!   coercion path.
-//! - `.name` IDL readonly attr (USVString, `/` → `:` per FileAPI §4.1
-//!   step 2).
+//! - `.name` exposes the filename stored by the constructor. See
+//!   `native_file_constructor` for the VM’s slash conversion.
 //! - `.lastModified` IDL readonly attr (long long, epoch ms; default
 //!   `Date.now()` at construction time per FileAPI §4.1 step 3).
-//! - `endings: "native"` line-ending normalize: USVString entries in
-//!   `bits` have `\r\n` and lone `\r` collapsed to `\n` (Web platform
-//!   default per FileAPI §4.1 step 1 note).  BufferSource / Blob
-//!   entries are not normalized.
+//! - File API §4.1 step 1 delegates to blob-part processing (§3.1.1).
+//!   With native endings, this VM normalizes string parts to LF.
+//!   BufferSource and Blob parts retain their bytes.
 
 #![cfg(feature = "engine")]
 
@@ -69,8 +68,7 @@ use super::events::install_ctor;
 /// keyed by the same `ObjectId` (the File IS-A Blob in WebIDL terms).
 #[derive(Debug)]
 pub(crate) struct FileSideData {
-    /// `File.name` USVString — `/` already replaced with `:` per
-    /// FileAPI §4.1 step 2 at construction time.
+    /// Filename stored by the constructor and returned by the name getter.
     pub(crate) name: StringId,
     /// `File.lastModified` long long, epoch ms.  Default `Date.now()`
     /// at construction time per FileAPI §4.1 step 3.  Stored as f64
@@ -173,7 +171,7 @@ fn native_file_constructor(
 
     // WebIDL `required` enforcement — both `fileBits` and `fileName`
     // are required positional args; missing them is a TypeError
-    // before any coercion (FileAPI §4.1 IDL).
+    // before any coercion (File API §4 interface declaration).
     if args.len() < 2 {
         return Err(VmError::type_error(format!(
             "Failed to construct 'File': 2 arguments required, but only {} present.",
@@ -189,14 +187,11 @@ fn native_file_constructor(
     let (type_sid, endings, last_modified_ms) = parse_file_options(ctx, options_arg)?;
 
     // Coerce bits using Blob's helper extended with the endings flag.
-    // Spec §4.1 step 1 + §3.2 step 2 are unified through this helper.
+    // File API §4.1 step 1 uses the blob-part algorithm in §3.1.1.
     let bytes: Arc<[u8]> = collect_blob_parts_bytes_with_endings(ctx, bits_arg, endings)?;
 
-    // Coerce name to USVString + replace `/` with `:` per §4.1 step 2.
-    // Spec calls for USVString (replace unpaired surrogates with U+FFFD);
-    // our StringPool holds WTF-16 internally and ToString already runs
-    // §7.1.17 ToString which preserves the input.  The `/→:` is the
-    // only mandated transformation here.
+    // File API §4.1 step 2 uses the supplied USVString filename directly.
+    // The VM additionally replaces each slash with a colon.
     let name_sid_raw = super::super::coerce::to_string(ctx.vm, name_arg)?;
     let name_str = ctx.vm.strings.get_utf8(name_sid_raw);
     let name_sid = if name_str.contains('/') {

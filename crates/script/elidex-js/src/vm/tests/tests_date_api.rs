@@ -2,8 +2,7 @@
 //!
 //! Exercises the constructor forms, statics, getters/setters, string
 //! conversions, `Symbol.toPrimitive` coercion, and `structuredClone` against
-//! the **UTC-baseline** (`getTimezoneOffset()` is `+0`; local components equal
-//! UTC — see `vm::natives_date::algorithms`).
+//! the UTC baseline described in `vm::natives_date::algorithms`.
 
 #![cfg(feature = "engine")]
 
@@ -138,7 +137,7 @@ fn setters_mutate_in_place() {
     assert_eval_number(&mut vm, "d.getUTCHours()", 12.0);
     vm.eval("d.setTime(1000)").unwrap();
     assert_eval_number(&mut vm, "d.getTime()", 1000.0);
-    // setFullYear is the one setter that revives an Invalid Date (§21.4.4.21).
+    // setFullYear uses the epoch as its starting point for this invalid date (§21.4.4.21).
     vm.eval("globalThis.e = new Date(NaN); e.setFullYear(2021)")
         .unwrap();
     assert_eval_number(&mut vm, "e.getUTCFullYear()", 2021.0);

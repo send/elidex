@@ -469,7 +469,10 @@ fn font_shorthand_invalid_missing_family() {
 #[test]
 fn parse_background_hex_color() {
     let decls = parse_single("background", "#ff0000");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 8);
+    assert!(decls[1..]
+        .iter()
+        .all(|decl| decl.value == CssValue::Initial));
     assert_eq!(decls[0].property, "background-color");
     assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
 }
@@ -477,7 +480,10 @@ fn parse_background_hex_color() {
 #[test]
 fn parse_background_named_color() {
     let decls = parse_single("background", "red");
-    assert_eq!(decls.len(), 1);
+    assert_eq!(decls.len(), 8);
+    assert!(decls[1..]
+        .iter()
+        .all(|decl| decl.value == CssValue::Initial));
     assert_eq!(decls[0].property, "background-color");
     assert_eq!(decls[0].value, CssValue::Color(CssColor::RED));
 }
@@ -594,4 +600,48 @@ fn columns_count_only() {
     assert_eq!(decls[0].value, CssValue::Auto);
     assert_eq!(decls[1].property, "column-count");
     assert_eq!(decls[1].value, CssValue::Number(3.0));
+}
+
+#[test]
+fn physical_shorthands_expand_all_supported_members() {
+    let samples = [
+        ("margin", "1px"),
+        ("padding", "1px"),
+        ("border", "solid"),
+        ("border-top", "solid"),
+        ("border-right", "solid"),
+        ("border-bottom", "solid"),
+        ("border-left", "solid"),
+        ("flex", "1"),
+        ("flex-flow", "row"),
+        ("text-decoration", "underline"),
+        ("gap", "1px"),
+        ("list-style", "disc"),
+        ("font", "12px serif"),
+        ("background", "red"),
+        ("border-spacing", "2px"),
+        ("grid-column", "1"),
+        ("grid-row", "1"),
+        ("grid-area", "1"),
+        ("grid-template", "none"),
+        ("grid", "none"),
+        ("column-rule", "solid"),
+        ("columns", "2"),
+        ("overflow", "hidden"),
+        ("border-radius", "2px"),
+    ];
+    let mut mismatches = Vec::new();
+    for (name, value) in samples {
+        let mut actual: Vec<_> = parse_single(name, value)
+            .into_iter()
+            .map(|d| d.property)
+            .collect();
+        let mut expected = shorthand_longhands(name);
+        actual.sort();
+        expected.sort();
+        if actual != expected {
+            mismatches.push((name, actual, expected));
+        }
+    }
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
 }

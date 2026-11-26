@@ -7,7 +7,7 @@
 //! limit; these are the consumers of the parser internals, not the parser
 //! itself.
 
-use cssparser::{Parser, ParserInput, Token};
+use cssparser::{Parser, ParserInput};
 use elidex_ecs::InlineStyle;
 use elidex_plugin::{CssPropertyRegistry, CssValue};
 
@@ -90,28 +90,8 @@ pub fn parse_value_for_property(
 ) -> Option<Vec<Declaration>> {
     let mut pi = ParserInput::new(value);
     let mut input = Parser::new(&mut pi);
-    if property.starts_with("--") {
-        // CSSOM §6.6.1 setProperty proceeds only for a *valid* custom
-        // property name. A name carrying CSS delimiters (`--x;color`)
-        // would be written back verbatim by `InlineStyle::css_text()` and
-        // then split by the cascade's declaration-block re-parse,
-        // injecting a fabricated declaration (`--x;color: red` ⇒ applied
-        // `color: red`). Require a single `<ident-token>` spanning the
-        // whole name (CSS Syntax 3 dashed-ident).
-        if !is_valid_custom_property_name(property) {
-            return None;
-        }
-        if !is_declaration_value(&mut input, true) {
-            return None;
-        }
-        let raw = value.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        return Some(vec![Declaration::new(
-            property,
-            CssValue::RawTokens(raw.to_string()),
-        )]);
+    if property.starts_with("--") && !is_valid_custom_property_name(property) {
+        return None;
     }
     let decls = parse_property_value(property, &mut input, registry);
     if decls.is_empty() || !input.is_exhausted() {
@@ -196,43 +176,4 @@ fn reparses_to_same(
         parse_value_for_property(property, serialized, registry).as_deref(),
         Some([decl]) if decl.property == property && &decl.value == value
     )
-}
-
-/// Walk `input` checking the CSS Syntax 3 `<declaration-value>`
-/// production: `;` and `!` are excluded at the top level only;
-/// bad-string / bad-url tokens and unmatched close brackets are
-/// excluded at any nesting level (a yielded close token IS unmatched —
-/// cssparser consumes a block's matching closer itself). Descends into
-/// nested blocks/functions recursively.
-fn is_declaration_value(input: &mut Parser, top_level: bool) -> bool {
-    loop {
-        let token = match input.next() {
-            Ok(t) => t.clone(),
-            Err(_) => return true,
-        };
-        match token {
-            Token::Semicolon | Token::Delim('!') if top_level => return false,
-            Token::BadString(_)
-            | Token::BadUrl(_)
-            | Token::CloseParenthesis
-            | Token::CloseSquareBracket
-            | Token::CloseCurlyBracket => return false,
-            Token::Function(_)
-            | Token::ParenthesisBlock
-            | Token::SquareBracketBlock
-            | Token::CurlyBracketBlock => {
-                let ok = input
-                    .parse_nested_block(|nested| {
-                        Ok::<bool, cssparser::ParseError<'_, ()>>(is_declaration_value(
-                            nested, false,
-                        ))
-                    })
-                    .unwrap_or(false);
-                if !ok {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-    }
 }

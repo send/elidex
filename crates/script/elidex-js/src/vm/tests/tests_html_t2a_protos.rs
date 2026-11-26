@@ -354,7 +354,7 @@ fn anchor_referrer_policy_ascii_case_insensitive() {
 
 #[test]
 fn area_shape_invalid_returns_rect() {
-    // IMP-4: invalid default is `rect`.
+    // This test records the getter's current fallback for an unknown attribute value.
     let out = run("var a = document.createElement('area'); \
          a.setAttribute('shape', 'triangle'); \
          a.shape;");
@@ -393,9 +393,8 @@ fn image_cross_origin_invalid_returns_anonymous() {
 
 #[test]
 fn image_cross_origin_missing_returns_null() {
-    // PR178 R7 IMP regression — `crossOrigin` IDL is `DOMString?`
-    // (HTML §3.2.7.5), so a missing `crossorigin` content attribute
-    // must return JS `null`, not `""`.  The shared
+    // HTML §4.8.3 declares img.crossOrigin as DOMString?. Under §2.6.1,
+    // the getter returns null when the crossorigin content attribute is absent. The shared
     // `get_enumerated_reflect` getter previously returned the
     // missing-default empty-string sentinel; nullable variant added
     // for `<img>` / `<script>` / `<link>` crossOrigin getters.
