@@ -541,17 +541,7 @@ pub fn layout_table(
         available_for_cols,
         is_collapse,
     };
-    let table_env = elidex_layout_block::LayoutEnv {
-        font_db,
-        layout_child,
-        depth,
-        scroll_limits: input.scroll_limits,
-        viewport: input.viewport,
-        layout_generation: input.layout_generation,
-        medium: input.medium,
-        placement: input.placement,
-        is_probe: input.is_probe,
-    };
+    let table_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
     let col_widths = compute_column_widths(dom, &col_input, &table_env);
 
     let total_table_width = col_widths.iter().sum::<f32>() + spacing_overhead_h;
@@ -911,23 +901,12 @@ pub fn layout_table(
             elidex_plugin::Point::new(content_x, cursor_y),
         );
         let pb = lb.padding_box();
-        let pos_env = elidex_layout_block::LayoutEnv {
-            font_db,
-            layout_child,
-            depth,
-            scroll_limits: input.scroll_limits,
-            viewport: input.viewport,
-            layout_generation: input.layout_generation,
-            medium: input.medium,
-            placement: input.placement,
-            is_probe: input.is_probe,
-        };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
             &pb,
             &static_positions,
-            &pos_env,
+            &table_env,
         );
     }
 

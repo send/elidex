@@ -790,17 +790,7 @@ pub fn layout_block_inner(
     let is_cb = style.position != Position::Static || is_root || style.has_transform;
     if is_cb {
         let pb = lb.padding_box();
-        let pos_env = crate::LayoutEnv {
-            font_db,
-            layout_child,
-            depth,
-            scroll_limits: input.scroll_limits,
-            viewport: input.viewport,
-            layout_generation: input.layout_generation,
-            medium: input.medium,
-            placement: input.placement,
-            is_probe: input.is_probe,
-        };
+        let pos_env = crate::LayoutEnv::from_input(input, layout_child);
         crate::positioned::layout_positioned_children(
             dom,
             entity,
