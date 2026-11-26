@@ -4,7 +4,7 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 2.1, 2026-11-26
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 2.2, 2026-11-26
 (plan-review round 1 folded; code refs re-anchored; changelog at the end). Branch `layout-list-counter-hints-plan`,
 worktree `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes
 ran at `bf1cae35`). **Docs only.**
@@ -308,7 +308,7 @@ Lens block (one line per principle: which option it selects; options in §1.6).
   another spec asks for the mapping"), which every later hint must be checked against.
 - *Ideal over pragmatic*: selects **B** over B0 (B0 answers this slot's hints and leaves the criterion undecided).
 - *ECS-native first*: indifferent — under every option the hint source is a pure function of two components.
-- *Supported-surface testing*: indifferent between B0 and B; under A the core arm and every hint-less cascade
+- *Supported-surface testing*: indifferent between B0 and B; under A the two core arms and every hint-less cascade
   entry need cells that pin the dropped numbering (§5.3, the entry-point table).
 
 Every principle that discriminates selects B. Rung 3 is not reached.
@@ -837,15 +837,23 @@ that the slice touches must stay right), and re-derives this table for any neste
 - **LC-3**: implement the OQ-1 / OQ-2 outcome; reuse one integer parser (SQ-1); delete the bake and its three call
   sites; land `dir`'s `counter-reset` per §4.3; edit the rustdoc and comments §1.7 lists; under option A add the
   core-mode and hint-less-entry cells of §1.6. **Every cascade entry point gets the hint population the outcome
-  names** — the entries, grep-verified (`git grep -n -E 'resolve_styles(_with_compat)?\(' -- crates`; `git grep -n
-  -E 'hint_generator|no_hints|get_presentational_hints' -- crates`):
+  names** — the entries, grep-verified at `01426656`. `git grep -n -E 'resolve_styles(_with_compat)?\(' -- crates`
+  → 84 lines; it does not match the print entry, so the census is `git grep -n -E
+  '(resolve_styles(_with_compat)?|prepare_print_style)\(' -- crates` → 92 lines: 4 production calls (shell
+  `lib.rs:128`, `:146`; `pipeline.rs:413`, `:421`), 1 tool (`crates/tools/elidex-wpt/src/harness.rs:41`), 3 benches,
+  1 fixture (`page.rs:253`), 75 test lines, 3 definitions (`lib.rs:311`, `:337`; `page.rs:207`), 1 delegation
+  (`lib.rs:319`), 4 doc / comment lines. The hint side: `git grep -n -E
+  'hint_generator|no_hints|get_presentational_hints' -- crates` → 53 lines, the walk's at `walk.rs:36`, `:161`,
+  `:210`, `:219`:
 
   | Cascade entry | Hint argument today | `start` / `value` / `reversed` today | After LC-3 under A | under B0 / B | under C |
   |---|---|---|---|---|---|
-  | `elidex_style::resolve_styles` (`crates/css/elidex-style/src/lib.rs:311`), which passes `no_hints` (`:301`, `:323`); callers: `crates/tools/elidex-wpt/src/harness.rs:41`, `crates/css/elidex-style/benches/style_resolve.rs` (3), the `elidex-style` tests | none | honoured (the bake) | **lost**: no generator reaches this entry, so the WPT `css/css-lists` subset (SQ-3) cannot see the attributes | honoured: the core source is inside the cascade | honoured only if every hint source moves inside |
+  | `elidex_style::resolve_styles` (`crates/css/elidex-style/src/lib.rs:311`), which passes `no_hints` (`:301`, `:323`); callers: `crates/tools/elidex-wpt/src/harness.rs:41`, `crates/css/elidex-style/benches/style_resolve.rs` (3), the `elidex-style` tests, and the `cfg(test)` callers `crates/dom/elidex-dom-api/src/computed_style.rs:227`, `:253`, `crates/layout/elidex-layout/src/layout/tests/basic.rs:906`, `crates/layout/elidex-layout-flex/src/tests/grow_shrink.rs:493` | none | honoured (the bake) | **lost**: no generator reaches this entry, so the WPT `css/css-lists` subset (SQ-3) cannot see the attributes | honoured: the core source is inside the cascade | honoured only if every hint source moves inside |
   | shell `resolve_with_mode`, compat arm (`crates/shell/elidex-shell/src/lib.rs:128`) | `get_presentational_hints` | honoured | honoured (the compat generator) | honoured | honoured |
   | shell `resolve_with_mode`, core arm (`:146`; `no_hints`, `:162`) | none | honoured | **lost** | honoured | honoured |
-  | inside the walk: `hint_generator` is called at `crates/css/elidex-style/src/walk.rs:174` and passed at all five `resolve_and_attach_style` sites — `:270`, `:281` (light tree), `:409`, `:438`, `:461` (shadow host, shadow-tree child, slotted) | — | — | all five keep it: hints already reach shadow trees, unlike the compat *sheet* | the core source is applied at the same five | the same |
+  | `elidex_style::page::prepare_print_style` (`crates/css/elidex-style/src/page.rs:207`): `walk::preliminary_root` (`walk.rs:252`), then `apply_document_style` (`lib.rs:372`), whose walk runs the bake; shell caller `build_paged_pipeline` (`crates/shell/elidex-shell/src/pipeline.rs:401`, `#[allow(dead_code)]`, reached from its tests), compat arm (`:413`) | `get_presentational_hints` | honoured (the bake, in `apply_document_style`'s walk) | honoured (the compat generator) | honoured | honoured |
+  | `prepare_print_style`, core arm (`pipeline.rs:421`; `no_hints`); also the fixture (`page.rs:253`, feature `fixtures`) and the tests (`page/tests.rs` (3), `resolve/var_resolution/page_receivers.rs:45`), which pass an empty closure | none | honoured | **lost** | honoured | honoured |
+  | inside the walk: one flat-tree `walk_node` (`crates/css/elidex-style/src/walk.rs:308`) resolves every node — light tree, shadow-tree children (through `walk_shadow_tree`) and slotted nodes — at its one `resolve_and_attach_style` site (`:321`); that calls `compute_element_style`, which calls `hint_generator` once (`:219`), and then runs the bake (`:168`). `preliminary_root` (`:252`, the print entry's first step) also calls `compute_element_style` with the hints but does not run the bake | — | — | the one site and `preliminary_root` keep the caller's generator: hints already reach shadow trees, unlike the compat *sheet* | the core source is applied inside `compute_element_style`, so the walk's site and `preliminary_root` both get it | the same |
 
   Under B0 / B the core hint source is applied **by the cascade itself**, not passed by its callers, so no entry
   point can omit it (OQ-2).
@@ -1057,7 +1065,8 @@ increment still applies.
   F-6 (`match-parent`), F-9 (flow-relative box properties in the UA sheet), F-10 (the handler split). Input lines:
   F-5 and F-12 → `IBP-ua-display`; F-11 → the cite-sweep lane. Whether F-4 and F-7 get records.
 - **OQ-5 — under option A only**: LC-3 would make `BrowserCore` / `App`, and every hint-less cascade entry (the
-  WPT harness, the benches, `elidex-style`'s own tests), stop honouring `start` / `value` / `reversed`, which they
+  WPT harness, the benches, the print entry's fixture, the tests that call `resolve_styles` or
+  `prepare_print_style`), stop honouring `start` / `value` / `reversed`, which they
   honour today — the one right-to-wrong change in §5.2's table. Is that an accepted, cell-pinned divergence (no
   production session selects those modes, E0 §2 Axis 3), or does it need its own record?
 
@@ -1085,6 +1094,13 @@ increment still applies.
 
 ## Changelog
 
+- **Rev 2.2 (2026-11-26)** — §5.3 LC-3's entry table corrected to main `01426656` (no change to its conclusion or to
+  the recommendation): the walk row restated for the flat-tree walk (one `resolve_and_attach_style` site, one
+  `hint_generator` call in `compute_element_style`, `preliminary_root` with hints and no bake); two rows for the
+  print entry `prepare_print_style` (compat arm honoured, core arm **lost** under A); the `cfg(test)` callers of
+  `resolve_styles` in `elidex-dom-api` and the layout crates added; the census grep re-run and widened to the print
+  entry (84 → 92 lines, classified). §1.4's testing line ("the two core arms") and OQ-5's list of hint-less entries
+  follow.
 - **Rev 2.1 (2026-11-26)** — re-anchors the `file:line` refs into code to main `01426656` (merged at `2e922681`);
   no design change. Moves only: `counter.rs` (+1 for `:277`–`:307`, −1 from `:312`), style `walk.rs` (the bake's call site `:168`),
   `box_model/mod.rs`, `cascade/mod.rs` (hint source `:231`), `traits.rs`, style `lib.rs`, `resolve/mod.rs`,
