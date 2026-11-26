@@ -4,8 +4,8 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.4, 2026-11-26
-(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's and PM 1148's rulings folded; changelog at
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.5, 2026-11-26
+(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's, PM 1148's and PM 1150's rulings folded; changelog at
 the end). Branch `layout-list-counter-hints-plan`, worktree
 `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes ran at
 `bf1cae35`; `git diff --stat 01426656 aeecf9b0 -- crates` is empty, so they hold at rev 2.2's head too). **Docs
@@ -1593,7 +1593,12 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `summary`'s marker shows no open / closed state. The declaration also sets `list-style-position: inside`, which
   elidex does not parse at all (`git grep -c -F 'list-style-position' 678d4abe -- crates` → 0; control
   `git grep -l -F 'list-style-type' 678d4abe -- crates | wc -l` → 16, verified 2026-11-26), and the `list-style`
-  shorthand takes one keyword and rejects a second token.
+  shorthand takes one keyword and rejects a second token. Those two parsing gaps are not F-17's (**PM 1150**, on
+  PM 1148's line: UA sheet and counter styles → Layout, CSS value parsing → L1): `list-style-position` and the
+  shorthand's second token are `#11-list-style-position-and-shorthand` (L1), and the three `list-style-type`
+  parsers that each accept 5 of `ListStyleType`'s 12 keywords are `#11-list-style-type-parser-triplicate` (L1,
+  unify them). F-17 **depends on** `#11-list-style-position-and-shorthand`: `disclosure-closed inside` cannot be
+  written until the shorthand takes both tokens.
   *Where*: `crates/core/elidex-plugin/src/computed_style/text.rs` `ListStyleType` (no `disclosure-*` variant);
   `crates/css/elidex-css/src/declaration.rs` the built-in `"list-style-type"` entry and
   `crates/css/elidex-css/src/declaration/misc.rs` `parse_list_style_shorthand` (both accept `disc | circle | square |
@@ -1603,11 +1608,11 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `emit_list_marker_with_counter` (the symbol markers). *Why deferred*: no number depends on it — the counter pair
   is what W-SUM / W-SUM-D read, and CV-details (shadow form) and the document form's lander land that pair now
   (PM 1148); the repair is counter-style support in the property system and the marker painter (two predefined
-  styles, their writing-mode-sensitive glyphs, and `list-style-position` for `inside`), which neither this program
+  styles and their writing-mode-sensitive glyphs; `inside` is the L1 slot's, PM 1150), which neither this program
   nor CV-details owns. **F-17 is the only remaining lander of those declarations**, in both forms — the document
   `details > summary:first-of-type` / `details[open] > summary:first-of-type` and the shadow `:host summary` /
-  `:host([open]) summary` (PM 1148) — so each declaration of §15.5.5's rules has one lander; whether
-  `list-style-position` rides F-17 or a slot of its own is the PM's at registration. *Trigger*: the first of —
+  `:host([open]) summary` (PM 1148) — so each declaration of §15.5.5's rules has one lander, once
+  `#11-list-style-position-and-shorthand` (L1) can parse it (PM 1150). *Trigger*: the first of —
   CV-details landing `details`' UA shadow sheet (its `:host summary` rule then has the counter pair only); the
   document form's counter pair landing; the next change to `list-style-type` parsing or to the marker painter.
   *Owner*: **Layout**, as E26's successor (PM 1148). **Re-eval-date**: 2026-12-31. Slot text with the premise
@@ -1777,7 +1782,9 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   and W-SUM-D (F-15).
 - New slot (PM 1148): F-17, `#11-disclosure-counter-styles` (name proposed), owner Layout as E26's successor,
   Re-eval-date 2026-12-31; the ledger text and its premise check are the PM's input (§7 F-17). It is the only
-  remaining lander of §15.5.5's `list-style` declaration and `[open]` rules, both forms.
+  remaining lander of §15.5.5's `list-style` declaration and `[open]` rules, both forms; it depends on
+  `#11-list-style-position-and-shorthand` (L1). **PM 1150** registers it with two L1 slots split from it:
+  `#11-list-style-position-and-shorthand` and `#11-list-style-type-parser-triplicate` (§7 F-17).
 - `#11-document-mode` input line: §15.3.7's three quirks-mode list rules (§4.3 U13).
 - F-16: no ledger write — PM 1008's boundary is already on this slot's row (`project_open-defer-slots.md:1482`);
   the PM sequences L1's page children against LC-1, LC-3 and LC-4 when their plans name them.
@@ -1806,6 +1813,13 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 
 ## Changelog
 
+- **Rev 3.5 (2026-11-26)** — folds **PM 1150**: F-17 is split on PM 1148's line (UA sheet / counter styles →
+  Layout, CSS value parsing → L1). `#11-disclosure-counter-styles` (Layout) stays F-17, the only remaining lander
+  of §15.5.5's `list-style` declaration and `[open]` rules, and depends on the new L1 slot
+  `#11-list-style-position-and-shorthand` (`list-style-position` unparsed; the shorthand rejects a second token);
+  the second new L1 slot, `#11-list-style-type-parser-triplicate`, unifies the three `list-style-type` parsers
+  (5 of 12 keywords each). §7 F-17 (defect, repair, lander sentence) and §9 point at both. Wording only; no slice,
+  cell or decision changed.
 - **Rev 3.4 (2026-11-26)** — folds **PM 1148**, which narrows PM 1146's OQ-6 (b): the §15.5.5 `summary` rule has
   three declarations, and CV-details lands the counter pair (`display: list-item`, `counter-increment: list-item 0`)
   now; the third declaration (`list-style: disclosure-closed inside`) and the `[open]` rule go to a new slot, F-17
