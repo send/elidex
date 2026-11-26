@@ -231,3 +231,130 @@ fn vertical_rows_map_to_the_current_fragment_edges() {
         }
     }
 }
+
+#[test]
+fn block_preserves_an_orthogonal_child_on_a_fitting_page() {
+    use elidex_plugin::WritingMode;
+    let fonts = FontDatabase::new();
+    let frag = page(100.);
+    let mut dom = EcsDom::new();
+    let parent = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(210.),
+            ..Default::default()
+        },
+    );
+    let child = element(
+        &mut dom,
+        Some(parent),
+        ComputedStyle {
+            writing_mode: WritingMode::VerticalLr,
+            width: Dimension::Length(210.),
+            ..sized(Display::Block, 40.)
+        },
+    );
+    for (generation, room) in [(1, None), (2, Some(&frag)), (3, Some(&frag))] {
+        let input = LayoutInput {
+            layout_generation: generation,
+            fragmentainer: room,
+            ..contribution_input(&fonts, &frag)
+        };
+        let out = dispatch_layout_child(&mut dom, parent, &input);
+        assert!(
+            out.end.is_complete(),
+            "{out:?} child {:?}",
+            get_layout(&dom, child)
+        );
+        assert!(out.contribution.is_finished(parent, child));
+        assert_eq!(get_layout(&dom, child).content.size, Size::new(210., 40.));
+    }
+}
+
+#[test]
+fn reversed_grid_publishes_descendants_against_the_absolute_scroll_edge() {
+    use elidex_plugin::WritingMode;
+    let fonts = FontDatabase::new();
+    let frag = page(100.);
+    let mut dom = EcsDom::new();
+    let outer = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            writing_mode: WritingMode::VerticalRl,
+            display: Display::Grid,
+            width: Dimension::Length(50.),
+            grid_template_rows: tracks(50.),
+            grid_template_columns: tracks(30.),
+            ..Default::default()
+        },
+    );
+    let inner = element(
+        &mut dom,
+        Some(outer),
+        ComputedStyle {
+            width: Dimension::Length(50.),
+            display: Display::Grid,
+            grid_template_columns: tracks(50.),
+            ..Default::default()
+        },
+    );
+    let leaf = element(
+        &mut dom,
+        Some(inner),
+        ComputedStyle {
+            justify_self: JustifySelf::End,
+            width: Dimension::Length(100.),
+            ..sized(Display::Block, 10.)
+        },
+    );
+    for room in [None, Some(&frag)] {
+        let mut input = contribution_input(&fonts, &frag);
+        input.fragmentainer = room;
+        input.scroll_limits.x = Some(elidex_layout_block::ScrollEdge::Low(0.));
+        let out = dispatch_layout_child(&mut dom, outer, &input);
+        assert!(out.end.is_complete());
+        assert_eq!(get_layout(&dom, inner).content.origin.x, 0.);
+        assert_eq!(get_layout(&dom, leaf).content.origin.x, 0.);
+    }
+}
+
+#[test]
+fn reversed_grid_keeps_pixel_precision_in_a_large_fragmentainer() {
+    use elidex_plugin::WritingMode;
+    let fonts = FontDatabase::new();
+    let frag = page(268_435_456.);
+    let mut dom = EcsDom::new();
+    let grid = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            writing_mode: WritingMode::VerticalRl,
+            display: Display::Grid,
+            width: Dimension::Length(50.),
+            grid_template_rows: tracks(50.),
+            grid_template_columns: tracks(30.),
+            ..Default::default()
+        },
+    );
+    let leaf = element(
+        &mut dom,
+        Some(grid),
+        ComputedStyle {
+            align_self: AlignSelf::FlexStart,
+            width: Dimension::Length(10.),
+            ..sized(Display::Block, 10.)
+        },
+    );
+    for room in [None, Some(&frag)] {
+        let input = LayoutInput {
+            fragmentainer: room,
+            ..contribution_input(&fonts, &frag)
+        };
+        let out = dispatch_layout_child(&mut dom, grid, &input);
+        assert!(out.end.is_complete());
+        assert_eq!(get_layout(&dom, leaf).content.origin.x, 40.);
+    }
+}

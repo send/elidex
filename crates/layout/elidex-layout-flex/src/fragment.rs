@@ -285,6 +285,7 @@ fn fragment_column_flex(
             0
         };
 
+        // #11-vertical-rl-reversed-block-progression: admit bands in logical block order.
         let mut consumed: f32 = 0.0;
 
         // Account for items before first_item_in_line (already consumed).

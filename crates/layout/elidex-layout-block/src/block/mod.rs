@@ -187,11 +187,9 @@ pub fn layout_block_inner(
     // This is the containing block's dimension along **this element's** inline axis.
     // Differs from containing_inline in orthogonal flow (CSS WM L3 §7.3.1).
     let available_inline = if is_horizontal {
-        containing_width
+        Some(containing_width)
     } else {
-        // Vertical element: inline axis = Y. Available = containing height.
-        // If indefinite, fall back to containing width (approximate).
-        input.available_height().unwrap_or(containing_width)
+        input.available_height()
     };
 
     // --- Resolve padding and border (protect against NaN/infinity/negative) ---
@@ -303,7 +301,7 @@ pub fn layout_block_inner(
     } else {
         AxisSizing::new(&style, is_horizontal).preferred(
             inline_reference,
-            (available_inline - inline_extra).max(0.0),
+            (available_inline.unwrap_or(containing_width) - inline_extra).max(0.0),
             i_pb,
         )
     };
@@ -318,18 +316,21 @@ pub fn layout_block_inner(
 
     // --- Inline-axis margin auto centering ---
     let used_inline = content_inline + i_pb;
-    let (margin_inline_start, margin_inline_end) =
-        if matches!(inline_size_dim, Dimension::Auto) && intrinsic.is_none() {
-            (margin_inline_start_raw, margin_inline_end_raw)
-        } else {
-            apply_margin_auto_centering(
-                assigned_start.map_or(start_dim, Dimension::Length),
-                assigned_end.map_or(end_dim, Dimension::Length),
-                available_inline,
-                used_inline,
-                style.direction,
-            )
-        };
+    // A fallback width for orthogonal auto sizing is not available vertical
+    // space to distribute into the child's top and bottom margins.
+    let (margin_inline_start, margin_inline_end) = if let Some(space) = available_inline
+        .filter(|_| !matches!(inline_size_dim, Dimension::Auto) || intrinsic.is_some())
+    {
+        apply_margin_auto_centering(
+            assigned_start.map_or(start_dim, Dimension::Length),
+            assigned_end.map_or(end_dim, Dimension::Length),
+            space,
+            used_inline,
+            style.direction,
+        )
+    } else {
+        (margin_inline_start_raw, margin_inline_end_raw)
+    };
 
     let margin_inline_start = assigned_start.unwrap_or(margin_inline_start);
     let margin_inline_end = assigned_end.unwrap_or(margin_inline_end);

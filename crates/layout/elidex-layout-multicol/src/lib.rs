@@ -270,6 +270,7 @@ pub fn layout_multicol(
             }
             Segment::Spanner(spanner_entity) => {
                 // Lay out spanner at full container width.
+                // #11-vertical-rl-reversed-block-progression: place spanners from block-start.
                 let (spanner_x, spanner_y) = if is_horizontal {
                     (content_origin.x, content_origin.y + block_cursor)
                 } else {
@@ -567,6 +568,7 @@ fn position_column_fragments(
     let mut exclude = atomic_exclude.clone();
     exclude.extend(shift_roots.iter().flatten().copied());
     for (i, frag) in frags.iter().enumerate() {
+        // #11-vertical-rl-reversed-block-progression: place RTL columns from inline-start.
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
         let delta = if wm.is_horizontal() {

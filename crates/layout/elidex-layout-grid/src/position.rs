@@ -132,8 +132,37 @@ pub(super) struct ItemFragmentation<'a> {
     pub outgoing: Vec<(elidex_ecs::Entity, Box<elidex_layout_block::BreakToken>)>,
     pub block_extent: f32,
     pub incomplete: bool,
-    /// Item and the fragment width for which its published left edge is correct.
-    pub reversed_items: Vec<(elidex_ecs::Entity, f32)>,
+}
+
+impl ItemFragmentation<'_> {
+    fn record(
+        &mut self,
+        item: elidex_ecs::Entity,
+        entry_offset: f32,
+        is_horizontal_wm: bool,
+        outcome: elidex_layout_block::LayoutOutcome,
+    ) {
+        self.contribution.include(&outcome.contribution);
+        if matches!(outcome.end, elidex_layout_block::FragmentEnd::Incomplete) {
+            self.incomplete = true;
+            return;
+        }
+        if let elidex_layout_block::FragmentEnd::Continue(token) = outcome.end {
+            self.contribution.record_item(self.owner, item);
+            self.outgoing.push((item, Box::new(token)));
+        } else {
+            self.contribution.finish_item(self.owner, item);
+        }
+        if self.room.is_some() {
+            let margin_box = outcome.layout_box.margin_box();
+            let extent = if is_horizontal_wm {
+                margin_box.size.height
+            } else {
+                margin_box.size.width
+            };
+            self.block_extent = self.block_extent.max(entry_offset + extent);
+        }
+    }
 }
 
 impl GridPlacement<'_> {
@@ -360,6 +389,7 @@ pub(crate) fn position_items(
     placement: &GridPlacement<'_>,
     env: &LayoutEnv<'_>,
     entry: &mut ItemFragmentation<'_>,
+    fragment_extent: impl Fn(f32, bool) -> f32,
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
@@ -376,7 +406,15 @@ pub(crate) fn position_items(
             is_horizontal_wm,
             &style,
         );
-        (input, lb, subgrid, style.writing_mode)
+        (
+            input,
+            lb,
+            subgrid,
+            elidex_layout_block::FragmentainerContext::allows_child_breaks(
+                placement.writing_mode,
+                &style,
+            ),
+        )
     };
     let mut baseline_items = HashMap::new();
 
@@ -402,6 +440,10 @@ pub(crate) fn position_items(
         baseline_items.insert(item.entity, measured);
     }
 
+    let mut pending = Vec::new();
+    let mut probed_extent = 0.0_f32;
+    let mut child_continues = false;
+
     for item in items {
         // Compute the grid area rectangle.
         // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
@@ -416,7 +458,7 @@ pub(crate) fn position_items(
         };
         // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
         // formatter fits its content box in that area before alignment.
-        let (measured, prelim_lb, subgrid, child_mode) = baseline_items
+        let (measured, prelim_lb, subgrid, allows_breaks) = baseline_items
             .remove(&item.entity)
             .unwrap_or_else(|| measure(dom, item, rect));
         let outer = prelim_lb.margin_box().size;
@@ -492,7 +534,7 @@ pub(crate) fn position_items(
             offset.x - placement.content_origin.x
         };
         let mut entry_offset = first_entry;
-        if let Some(room) = entry.room {
+        if entry.room.is_some() {
             let row_origin = if entry.resume_row == 0 {
                 0.
             } else {
@@ -510,64 +552,75 @@ pub(crate) fn position_items(
             let shift = entry_offset - first_entry;
             if is_horizontal_wm {
                 offset.y += shift;
-            } else if reversed {
-                // Use the current fragment's right edge. A split child or a
-                // shrink-wrapped last fragment can change either extent below.
-                offset.x = placement.content_origin.x + room.available_block_size
-                    - entry_offset
-                    - outer_block;
-            } else {
+            } else if !reversed {
                 offset.x += shift;
             }
         }
-        let room = entry
-            .room
-            // Fragmentainer room is measured along the Grid block axis. An
-            // orthogonal flow is monolithic in this direction (CSS Break 3 §4.1).
-            .filter(|_| child_mode.is_horizontal() == is_horizontal_wm)
-            .map(|room| elidex_layout_block::FragmentainerContext {
+        let room = entry.room.filter(|_| allows_breaks).map(|room| {
+            elidex_layout_block::FragmentainerContext {
                 available_block_size: (room.available_block_size - entry_offset).max(0.),
                 ..*room
-            });
-        let final_input = LayoutInput {
-            offset,
-            fragmentainer: room.as_ref(),
-            break_token: incoming_token,
-            viewport: None,
-            layout_generation: env.layout_generation,
-            medium: env.medium,
-            placement: env.placement.at_offset(entry_offset),
-            is_probe: env.is_probe,
-            subgrid: subgrid.as_ref(),
-            ..measured
-        };
-        let outcome = (env.layout_child)(dom, item.entity, &final_input);
-        let final_lb = outcome.layout_box;
-        if let Some(room) = entry.room.filter(|_| reversed) {
-            entry.reversed_items.push((
+            }
+        });
+        let placement_input = env.placement.at_offset(entry_offset);
+        let dispatch = move |dom: &mut EcsDom, offset: Point, probe: bool| {
+            (env.layout_child)(
+                dom,
                 item.entity,
-                room.available_block_size + (final_lb.margin_box().size.width - outer_block),
-            ));
-        }
-        entry.contribution.include(&outcome.contribution);
-        if matches!(outcome.end, elidex_layout_block::FragmentEnd::Incomplete) {
-            entry.incomplete = true;
-            break;
-        }
-        if let elidex_layout_block::FragmentEnd::Continue(token) = outcome.end {
-            entry.contribution.record_item(entry.owner, item.entity);
-            entry.outgoing.push((item.entity, Box::new(token)));
-        } else {
-            entry.contribution.finish_item(entry.owner, item.entity);
-        }
-        if entry.room.is_some() {
-            let margin_box = final_lb.margin_box();
-            let extent = if is_horizontal_wm {
-                margin_box.size.height
+                &LayoutInput {
+                    offset,
+                    fragmentainer: room.as_ref(),
+                    break_token: incoming_token,
+                    viewport: None,
+                    layout_generation: if probe { 0 } else { env.layout_generation },
+                    medium: env.medium,
+                    placement: placement_input,
+                    is_probe: probe || env.is_probe,
+                    subgrid: subgrid.as_ref(),
+                    ..measured
+                },
+            )
+        };
+        if reversed && entry.room.is_some() {
+            // The physical origin needs both this item's piece width and the
+            // Grid's piece width. Measure parallel fragmented flows first;
+            // orthogonal unfragmented items already have a measured margin box.
+            let (width, incomplete) = if room.is_some() {
+                let probe = dispatch(dom, offset, true);
+                child_continues |= probe.end.token().is_some();
+                (
+                    probe.layout_box.margin_box().size.width,
+                    matches!(probe.end, elidex_layout_block::FragmentEnd::Incomplete),
+                )
             } else {
-                margin_box.size.width
+                (outer_block, false)
             };
-            entry.block_extent = entry.block_extent.max(entry_offset + extent);
+            pending.push((item.entity, offset, entry_offset, width, dispatch));
+            if incomplete {
+                break;
+            }
+            probed_extent = probed_extent.max(entry_offset + width);
+        } else {
+            entry.record(
+                item.entity,
+                entry_offset,
+                is_horizontal_wm,
+                dispatch(dom, offset, false),
+            );
+            if entry.incomplete {
+                break;
+            }
+        }
+    }
+
+    if !pending.is_empty() {
+        let width = fragment_extent(probed_extent, child_continues);
+        for (item, mut offset, logical_entry, piece_width, dispatch) in pending {
+            offset.x = placement.content_origin.x + (width - logical_entry - piece_width);
+            entry.record(item, logical_entry, false, dispatch(dom, offset, false));
+            if entry.incomplete {
+                break;
+            }
         }
     }
 

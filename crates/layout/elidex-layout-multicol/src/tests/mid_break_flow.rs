@@ -1237,6 +1237,9 @@ fn multicol_midbreak_atomic_vertical_rl_projects_inline_axis() {
     let _ = dom.world_mut().insert_one(
         div,
         ComputedStyle {
+            // Direct ECS fixtures supply the inherited mode explicitly. An
+            // orthogonal text flow has no mid-line column break here.
+            writing_mode: WritingMode::VerticalRl,
             display: Display::Block,
             font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
             ..ComputedStyle::default()

@@ -582,71 +582,72 @@ pub fn layout_grid(
         outgoing: Vec::new(),
         block_extent: 0.0,
         incomplete: false,
-        reversed_items: Vec::new(),
     };
-    let grid_baseline = position::position_items(dom, &items, &placement, &grid_env, &mut fragment);
-    let total_row_size = track::total_track_size(&row_tracks, gap_row);
     // #11-intrinsic-contribution-producer: vertical used widths can escape min/max limits.
-    let mut final_block = block_available.unwrap_or(total_row_size);
-    let mut result_break_token = None;
-    let contribution = fragment.contribution;
-    if let Some(room) = fragment.room {
-        let selected_rows = &row_tracks[resume_row.min(end_row)..end_row];
-        let row_extent = row_break.map_or_else(
-            || track::total_track_size(selected_rows, gap_row),
-            |(_, extent)| extent,
-        );
-        let content = row_extent.max(fragment.block_extent);
-        let interrupted = row_break.is_some() || !fragment.outgoing.is_empty();
-        let target = if is_horizontal_wm || input.assigned.target().width.is_some() {
-            block_available
-        } else {
-            match style.width {
-                elidex_plugin::Dimension::Length(_) => block_available,
-                elidex_plugin::Dimension::Percentage(_) if input.containing_width_definite => {
-                    block_available
-                }
-                _ => None,
+    let full_extent = placement.block_extent;
+    let selected_rows = &row_tracks[resume_row.min(end_row)..end_row];
+    let row_extent = row_break.map_or_else(
+        || track::total_track_size(selected_rows, gap_row),
+        |(_, extent)| extent,
+    );
+    let target = if is_horizontal_wm || input.assigned.target().width.is_some() {
+        block_available
+    } else {
+        match style.width {
+            elidex_plugin::Dimension::Length(_) => block_available,
+            elidex_plugin::Dimension::Percentage(_) if input.containing_width_definite => {
+                block_available
             }
-        };
+            _ => None,
+        }
+    };
+    let resolve_fragment = |item_extent: f32, child_continues: bool| {
+        let room = content_room?;
+        let content = row_extent.max(item_extent);
+        let interrupted = row_break.is_some() || child_continues;
         if input.break_token.is_some()
             || interrupted
             || target.is_some_and(|size| size > room.available_block_size)
         {
-            let size = elidex_layout_block::FragmentSize::resolve(
+            Some(elidex_layout_block::FragmentSize::resolve(
                 target,
                 input.break_token.and_then(|t| t.specified_size_fraction),
                 content,
                 room.available_block_size,
                 interrupted,
-            );
-            final_block = size.extent;
-            if interrupted || size.remaining {
-                result_break_token = Some(BreakToken {
-                    specified_size_fraction: size.fraction,
-                    entity,
-                    consumed_block_size: content,
-                    mode_data: Some(BreakTokenData::Grid {
-                        coverage: contribution.after_fragment(input.break_token),
-                        row_index: end_row,
-                        rows_exhausted: row_break.is_none(),
-                        child_break_tokens: fragment.outgoing,
-                    }),
-                });
-            }
+            ))
+        } else {
+            None
         }
-    }
-    // In vertical-rl the physical left edge depends on both the final
-    // fragment width and the width actually published by the child.
-    for (item, reference_width) in fragment.reversed_items {
-        let shift = final_block - reference_width;
-        if shift != 0.0 {
-            elidex_layout_block::block::shift_descendants(
-                dom,
-                &[item],
-                elidex_plugin::Vector::new(shift, 0.0),
-                input.is_probe,
-            );
+    };
+    let grid_baseline = position::position_items(
+        dom,
+        &items,
+        &placement,
+        &grid_env,
+        &mut fragment,
+        |extent, continues| {
+            resolve_fragment(extent, continues).map_or(full_extent, |size| size.extent)
+        },
+    );
+    let mut final_block = full_extent;
+    let mut result_break_token = None;
+    let contribution = fragment.contribution;
+    let child_continues = !fragment.outgoing.is_empty();
+    if let Some(size) = resolve_fragment(fragment.block_extent, child_continues) {
+        final_block = size.extent;
+        if row_break.is_some() || child_continues || size.remaining {
+            result_break_token = Some(BreakToken {
+                specified_size_fraction: size.fraction,
+                entity,
+                consumed_block_size: row_extent.max(fragment.block_extent),
+                mode_data: Some(BreakTokenData::Grid {
+                    coverage: contribution.after_fragment(input.break_token),
+                    row_index: end_row,
+                    rows_exhausted: row_break.is_none(),
+                    child_break_tokens: fragment.outgoing,
+                }),
+            });
         }
     }
     let (final_content_width, final_content_height) = if is_horizontal_wm {

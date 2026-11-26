@@ -420,12 +420,19 @@ fn stack_fragment(
         } else {
             None
         };
-        let room = frag_ctx.map(|frag| crate::FragmentainerContext {
-            available_block_size: (frag.available_block_size
-                - (cursor_block - cursor_block_origin))
-                .max(0.0),
-            ..*frag
-        });
+        let room = frag_ctx
+            .filter(|_| {
+                crate::FragmentainerContext::allows_child_breaks(
+                    parent_style.writing_mode,
+                    &child_style,
+                )
+            })
+            .map(|frag| crate::FragmentainerContext {
+                available_block_size: (frag.available_block_size
+                    - (cursor_block - cursor_block_origin))
+                    .max(0.0),
+                ..*frag
+            });
         let child_input = if is_horizontal {
             LayoutInput {
                 offset: elidex_plugin::Point::new(input.offset.x, cursor_block),
@@ -439,6 +446,7 @@ fn stack_fragment(
             }
         } else {
             LayoutInput {
+                // #11-vertical-rl-reversed-block-progression: stack from the physical right edge.
                 offset: elidex_plugin::Point::new(cursor_block, input.offset.y),
                 float_ctx: Some(float_ctx),
                 placement: input

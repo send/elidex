@@ -503,6 +503,7 @@ pub(crate) fn position_items(
     // CSS Flexbox §4.2: RTL flips the main-axis direction for row layouts.
     // Row + RTL → reversed, RowReverse + RTL → not reversed (double reversal).
     let reversed_main = ctx.reversed_main();
+    // #11-vertical-rl-reversed-block-progression: vertical-rl lines advance from block-start.
     let reversed_cross = matches!(ctx.wrap, FlexWrap::WrapReverse);
 
     for (line_idx, &(start, end)) in line_ranges.iter().enumerate() {

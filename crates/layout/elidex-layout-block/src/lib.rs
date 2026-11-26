@@ -55,6 +55,17 @@ pub struct FragmentainerContext {
 }
 
 impl FragmentainerContext {
+    /// CSS Writing Modes 4 §7.3.4: orthogonal line boxes have no internal
+    /// break opportunity along this axis; multicol may break at column gaps.
+    #[must_use]
+    pub fn allows_child_breaks(
+        parent: elidex_plugin::WritingMode,
+        child: &elidex_plugin::ComputedStyle,
+    ) -> bool {
+        parent.is_horizontal() == child.writing_mode.is_horizontal()
+            || elidex_plugin::is_multicol(child)
+    }
+
     /// Content-box room at entry after the applicable logical edges (CSS Break 3 §§5.1, 5.4).
     #[must_use]
     pub fn content_room(
