@@ -5,20 +5,20 @@
 //! - `reversed` — boolean reflect (presence of the `reversed` content
 //!   attribute).
 //! - `start` — long IDL with default 1; getter parses per HTML
-//!   §2.4.4.1 ("rules for parsing integers") via the engine-indep
+//!   §2.3.4.1 ("rules for parsing integers") via the engine-indep
 //!   [`elidex_dom_api::element::numeric_reflect::parse_long_or_default`]
 //!   helper.
-//! - `type` — HTML §4.4.5 declares a reflected DOMString. The getter currently
-//!   filters the content attribute through a case-sensitive keyword table.
+//! - `type` — HTML §4.4.5 declares a reflected DOMString. The getter drops
+//!   unrecognized attribute values (#11-ol-type-reflect-plain-domstring).
 //!
-//! The deprecated `compact` attribute is intentionally not surfaced
-//! (defer slot `#11-tags-deprecated-attr-sweep`).
+//! The obsolete `compact` attribute is outside elidex core under the
+//! deprecated/compat policy. Any reflection belongs in a compat plugin.
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", all three reflect algorithms
-//! (boolean / signed-long parse / case-sensitive limited-to-known)
-//! live in `elidex-dom-api`; this file is marshalling-only.
+//! The VM marshals values and calls the DOM API for attribute access.
+//! The signed-long parser and the keyword filter currently used by the
+//! `type` getter live in `elidex-dom-api` (#11-ol-type-reflect-plain-domstring).
 
 #![cfg(feature = "engine")]
 
@@ -191,7 +191,8 @@ fn ol_set_start(
     )
 }
 
-// The VM's type getter filters the attribute through its case-sensitive marker table.
+// HTML §4.4.5 requires plain DOMString reflection. The keyword filter loses
+// the original string for unknown values (#11-ol-type-reflect-plain-domstring).
 
 fn ol_get_type(
     ctx: &mut NativeContext<'_>,
