@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::Point;
-use elidex_text::FontDatabase;
 
 use super::InlineItem;
 
@@ -28,12 +27,8 @@ pub(super) fn layout_atomic_items(
     items: &mut [InlineItem],
     containing_inline_size: f32,
     content_origin: Point,
-    font_db: &FontDatabase,
-    layout_child: crate::ChildLayoutFn,
+    env: &crate::LayoutEnv<'_>,
     is_vertical: bool,
-    layout_generation: u32,
-    medium: elidex_plugin::Medium,
-    is_probe: bool,
 ) -> HashMap<Entity, Point> {
     let mut unoffset_origins = HashMap::new();
     for item in items.iter_mut() {
@@ -52,19 +47,20 @@ pub(super) fn layout_atomic_items(
                 containing: elidex_plugin::CssSize::width_only(containing_inline_size),
                 containing_inline_size,
                 offset: content_origin,
-                font_db,
-                depth: 0,
+                font_db: env.font_db,
+                depth: env.depth + 1,
                 float_ctx: None,
+                scroll_limits: env.scroll_limits,
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
                 subgrid: None,
-                layout_generation,
-                medium,
+                layout_generation: env.layout_generation,
+                medium: env.medium,
                 placement: crate::FragmentPlacement::Whole,
-                is_probe,
+                is_probe: env.is_probe,
             };
-            let lb = layout_child(dom, *entity, &input).layout_box;
+            let lb = (env.layout_child)(dom, *entity, &input).layout_box;
             let margin_box = lb.margin_box();
             // The returned box is un-offset (dispatch returns the original box;
             // the relative offset is inserted into ECS separately). Record its

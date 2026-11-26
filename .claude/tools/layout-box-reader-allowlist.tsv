@@ -93,7 +93,7 @@ import	crates/layout/elidex-layout-flex/src/lib.rs	Direction, EdgeSizes, FlexBas
 producer	crates/layout/elidex-layout-flex/src/lib.rs	let lb = LayoutBox {
 import	crates/layout/elidex-layout-grid/src/lib.rs	AlignItems, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox, Point,
 producer	crates/layout/elidex-layout-grid/src/lib.rs	let lb = LayoutBox {
-producer	crates/layout/elidex-layout-grid/src/position.rs	) -> (elidex_layout_block::block::GridItemSizing, LayoutBox) {
+producer	crates/layout/elidex-layout-grid/src/position.rs	) -> (LayoutInput<'a>, LayoutBox) {
 pending-migration:C-3c	crates/layout/elidex-layout-grid/src/position.rs	.get::<&LayoutBox>(first_item.entity)
 import	crates/layout/elidex-layout-grid/src/position.rs	AlignItems, CssSize, Direction, GridTrackList, JustifyItems, LayoutBox, Point, Size,
 producer	crates/layout/elidex-layout-grid/src/position.rs	fn item_baseline(lb: &LayoutBox, x_axis: bool) -> f32 {

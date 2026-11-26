@@ -49,9 +49,9 @@ newly-observable spec violation (§3).
 
 **Why the slot's error text misled the diagnosis**: `Object.prototype` evaluates
 to `undefined`; `typeof undefined-slot` is masked because the *member* get
-`Object.prototype.toString` then runs `ToObject(undefined)` → the §7.1.19 error
-*"Cannot convert undefined or null to object"* (`coerce.rs:713/728`; §7.1.19 =
-ToObject, webref-verified — §7.1.18 = ToString). The throw is
+`Object.prototype.toString` then runs `ToObject(undefined)` → the §7.1.20 error
+*"Cannot convert undefined or null to object"* (`coerce.rs:713/728`; §7.1.20 =
+ToObject, webref-verified — §7.1.19 = ToString). The throw is
 **in the property-get of a `undefined` base**, not in `Object.prototype.toString`
 (which handles every `this` variant incl. undefined/null, `natives_symbol.rs:246`)
 and not in `Function.prototype.call` (which forwards `this_arg` correctly,
@@ -233,7 +233,7 @@ row above; the earlier "out of scope" framing is removed.)*
 
 **Spec anchors** (webref-verified `ecma262`; re-verify §-number/title at impl —
 AO names are more stable than section numbers): §20.1.1.1 `Object ( value )` (3
-steps) · §7.1.19 ToObject · §20.1.3.6 `Object.prototype.toString` (builtinTag step 6
+steps) · §7.1.20 ToObject · §20.1.3.6 `Object.prototype.toString` (builtinTag step 6
 Arguments + steps 9-11 wrappers; step 12 Date already #467 R1) · §10.4.4.6
 CreateUnmappedArgumentsObject (strict arguments `[[ParameterMap]]` slot) · §20.1.2
 statics unchanged (already installed).

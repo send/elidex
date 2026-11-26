@@ -283,6 +283,7 @@ pub struct ComputedStyle {
     pub justify_content: JustifyContent,
     /// Align items. Initial: `Stretch`.
     pub align_items: AlignItems,
+    pub align_items_safety: Option<AlignmentSafety>,
     /// Align content. Initial: `Stretch`.
     pub align_content: AlignContent,
 
@@ -297,6 +298,7 @@ pub struct ComputedStyle {
     pub order: i32,
     /// Align self. Initial: `Auto`.
     pub align_self: AlignSelf,
+    pub align_self_safety: Option<AlignmentSafety>,
 
     // --- Grid container properties (non-inherited) ---
     /// Grid template column track sizes. Initial: empty (= `none`).
@@ -313,8 +315,10 @@ pub struct ComputedStyle {
     pub grid_template_areas: GridTemplateAreas,
     /// Justify items for grid children. Initial: `Stretch`.
     pub justify_items: JustifyItems,
+    pub justify_items_safety: Option<AlignmentSafety>,
     /// Justify self for grid items. Initial: `Auto`.
     pub justify_self: JustifySelf,
+    pub justify_self_safety: Option<AlignmentSafety>,
 
     // --- Grid item properties (non-inherited) ---
     /// Grid column start line. Initial: `Auto`.
@@ -535,6 +539,7 @@ impl Default for ComputedStyle {
             flex_wrap: FlexWrap::default(),
             justify_content: JustifyContent::default(),
             align_items: AlignItems::default(),
+            align_items_safety: None,
             align_content: AlignContent::default(),
 
             // Flex item
@@ -543,6 +548,7 @@ impl Default for ComputedStyle {
             flex_basis: FlexBasis::Auto,
             order: 0,
             align_self: AlignSelf::default(),
+            align_self_safety: None,
 
             // Alignment safety
             justify_content_safety: AlignmentSafety::default(),
@@ -556,7 +562,9 @@ impl Default for ComputedStyle {
             grid_auto_rows: vec![TrackSize::Auto],
             grid_template_areas: GridTemplateAreas::default(),
             justify_items: JustifyItems::default(),
+            justify_items_safety: None,
             justify_self: JustifySelf::default(),
+            justify_self_safety: None,
 
             // Grid item
             grid_column_start: GridLine::Auto,

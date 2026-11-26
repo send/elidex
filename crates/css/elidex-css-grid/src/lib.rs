@@ -63,25 +63,7 @@ impl CssPropertyHandler for GridHandler {
                 parse_grid_line(input)?
             }
             "justify-items" | "justify-self" => {
-                let ident = input
-                    .expect_ident()
-                    .map(|s| s.to_ascii_lowercase())
-                    .map_err(|_| ParseError {
-                        property: name.into(),
-                        input: String::new(),
-                        message: "expected alignment keyword".into(),
-                    })?;
-                match ident.as_str() {
-                    "stretch" | "start" | "end" | "center" | "baseline" => CssValue::Keyword(ident),
-                    "auto" if name == "justify-self" => CssValue::Keyword(ident),
-                    _ => {
-                        return Err(ParseError {
-                            property: name.into(),
-                            input: ident,
-                            message: "invalid alignment keyword".into(),
-                        })
-                    }
-                }
+                elidex_plugin::css_resolve::parse_item_alignment(name, input)?
             }
             _ => return Ok(vec![]),
         };
@@ -127,10 +109,22 @@ impl CssPropertyHandler for GridHandler {
                 style.grid_row_end = resolve_grid_line(value);
             }
             "justify-items" => {
-                elidex_plugin::resolve_keyword!(value, style.justify_items, JustifyItems);
+                if let Some((keyword, safety)) = elidex_plugin::css_resolve::resolve_item_alignment(
+                    value,
+                    JustifyItems::from_keyword,
+                ) {
+                    style.justify_items = keyword;
+                    style.justify_items_safety = safety;
+                }
             }
             "justify-self" => {
-                elidex_plugin::resolve_keyword!(value, style.justify_self, JustifySelf);
+                if let Some((keyword, safety)) = elidex_plugin::css_resolve::resolve_item_alignment(
+                    value,
+                    JustifySelf::from_keyword,
+                ) {
+                    style.justify_self = keyword;
+                    style.justify_self_safety = safety;
+                }
             }
             _ => {}
         }
@@ -144,7 +138,7 @@ impl CssPropertyHandler for GridHandler {
             "grid-auto-flow" => CssValue::Keyword("row".to_string()),
             "grid-auto-columns" | "grid-auto-rows" | "grid-column-start" | "grid-column-end"
             | "grid-row-start" | "grid-row-end" => CssValue::Auto,
-            "justify-items" => CssValue::Keyword("stretch".to_string()),
+            "justify-items" => CssValue::Keyword("normal".to_string()),
             "justify-self" => CssValue::Keyword("auto".to_string()),
             _ => CssValue::Initial,
         }
@@ -170,8 +164,14 @@ impl CssPropertyHandler for GridHandler {
             "grid-column-end" => grid_line_to_css(&style.grid_column_end),
             "grid-row-start" => grid_line_to_css(&style.grid_row_start),
             "grid-row-end" => grid_line_to_css(&style.grid_row_end),
-            "justify-items" => keyword_from(&style.justify_items),
-            "justify-self" => keyword_from(&style.justify_self),
+            "justify-items" => elidex_plugin::css_resolve::computed_item_alignment(
+                &style.justify_items,
+                style.justify_items_safety,
+            ),
+            "justify-self" => elidex_plugin::css_resolve::computed_item_alignment(
+                &style.justify_self,
+                style.justify_self_safety,
+            ),
             _ => CssValue::Initial,
         }
     }

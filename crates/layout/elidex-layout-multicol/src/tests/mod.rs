@@ -37,6 +37,7 @@ fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: Some(Size::new(600.0, 800.0)),
         fragmentainer: None,
         break_token: None,

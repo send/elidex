@@ -111,6 +111,7 @@ pub(crate) struct GridPlacement<'a> {
     pub(crate) content_origin: Point,
     /// Container inline-axis size (CSS Writing Modes §6.3, used for RTL mirroring).
     pub(crate) container_inline_size: f32,
+    pub(crate) block_extent: f32,
     pub(crate) direction: Direction,
     /// Subgrid context for passing parent track sizes to subgrid children.
     pub(crate) subgrid_ctx: Option<&'a SubgridContext>,
@@ -133,6 +134,120 @@ pub(super) struct ItemFragmentation<'a> {
     pub incomplete: bool,
 }
 
+impl GridPlacement<'_> {
+    fn area(&self, item: &GridItem) -> elidex_plugin::Rect {
+        let is_rtl = self.direction == Direction::Rtl;
+        let is_horizontal_wm = self.writing_mode.is_horizontal();
+        let col_pos = self
+            .col_positions
+            .get(item.col_start)
+            .copied()
+            .unwrap_or(0.0);
+        let col_size = cell_span_size(
+            self.col_tracks,
+            self.col_positions,
+            item.col_start,
+            item.col_span,
+        );
+        let row_pos = self
+            .row_positions
+            .get(item.row_start)
+            .copied()
+            .unwrap_or(0.0);
+        let row_size = cell_span_size(
+            self.row_tracks,
+            self.row_positions,
+            item.row_start,
+            item.row_span,
+        );
+
+        let (area_x, area_y, area_width, area_height) = if is_horizontal_wm {
+            // RTL: mirror column position so columns flow right-to-left.
+            let area_x = if is_rtl {
+                self.container_inline_size - col_pos - col_size
+            } else {
+                col_pos
+            };
+            (area_x, row_pos, col_size, row_size)
+        } else {
+            // Vertical: columns → Y (inline axis), rows → X (block axis).
+            let area_y = if is_rtl {
+                self.container_inline_size - col_pos - col_size
+            } else {
+                col_pos
+            };
+            let x = if self.writing_mode == WritingMode::VerticalRl {
+                self.block_extent - row_pos - row_size
+            } else {
+                row_pos
+            };
+            (x, area_y, row_size, col_size)
+        };
+
+        elidex_plugin::Rect::from_origin_size(
+            Point::new(
+                self.content_origin.x + area_x,
+                self.content_origin.y + area_y,
+            ),
+            Size::new(area_width, area_height),
+        )
+    }
+    fn child_subgrid(
+        &self,
+        item: &GridItem,
+        child_style: &elidex_plugin::ComputedStyle,
+    ) -> Option<SubgridContext> {
+        if let Some(parent) = self
+            .subgrid_ctx
+            .as_ref()
+            .filter(|_| item.is_subgrid_cols || item.is_subgrid_rows)
+        {
+            let parallel =
+                self.writing_mode.is_horizontal() == child_style.writing_mode.is_horizontal();
+            let (child_col_sizes, child_col_names) = extract_axis_subgrid(
+                item.is_subgrid_cols,
+                parent.col_sizes.as_ref(),
+                &parent.col_line_names,
+                item.col_start,
+                item.col_span,
+                if parallel {
+                    &child_style.grid_template_columns
+                } else {
+                    &child_style.grid_template_rows
+                },
+            );
+            let (child_row_sizes, child_row_names) = extract_axis_subgrid(
+                item.is_subgrid_rows,
+                parent.row_sizes.as_ref(),
+                &parent.row_line_names,
+                item.row_start,
+                item.row_span,
+                if parallel {
+                    &child_style.grid_template_rows
+                } else {
+                    &child_style.grid_template_columns
+                },
+            );
+            let mut context = SubgridContext {
+                col_sizes: child_col_sizes,
+                row_sizes: child_row_sizes,
+                col_line_names: child_col_names,
+                row_line_names: child_row_names,
+                col_gap: parent.col_gap,
+                row_gap: parent.row_gap,
+            };
+            if !parallel {
+                std::mem::swap(&mut context.col_sizes, &mut context.row_sizes);
+                std::mem::swap(&mut context.col_line_names, &mut context.row_line_names);
+                std::mem::swap(&mut context.col_gap, &mut context.row_gap);
+            }
+            Some(context)
+        } else {
+            None
+        }
+    }
+}
+
 fn item_baseline(lb: &LayoutBox, x_axis: bool) -> f32 {
     if x_axis {
         lb.margin.left
@@ -149,37 +264,53 @@ fn item_baseline(lb: &LayoutBox, x_axis: bool) -> f32 {
     }
 }
 
-fn measure_in_area(
+fn measure_in_area<'a>(
     dom: &mut EcsDom,
     item: &GridItem,
-    env: &LayoutEnv<'_>,
-    area_width: f32,
-    area_height: f32,
+    env: &LayoutEnv<'a>,
+    rect: elidex_plugin::Rect,
+    subgrid: Option<&SubgridContext>,
     is_horizontal_wm: bool,
-) -> (elidex_layout_block::block::GridItemSizing, LayoutBox) {
+    style: &elidex_plugin::ComputedStyle,
+) -> (LayoutInput<'a>, LayoutBox) {
+    let (area_width, area_height) = (rect.size.width, rect.size.height);
     let area = CssSize::definite(area_width, area_height);
     let item_inline_size = if is_horizontal_wm {
         area_width
     } else {
         area_height
     };
-    let inline_stretch = item.justify == JustifyItems::Stretch;
-    let block_stretch = item.align == AlignItems::Stretch;
-    let stretch = if is_horizontal_wm {
-        Size {
-            width: inline_stretch,
-            height: block_stretch,
-        }
-    } else {
-        Size {
-            width: block_stretch,
-            height: inline_stretch,
+    let natural = elidex_layout_block::get_intrinsic_size(dom, item.entity);
+    let inline_stretch = item.justify == JustifyItems::Stretch
+        || (item.justify == JustifyItems::Normal && natural.is_none());
+    let block_stretch = item.align == AlignItems::Stretch
+        || (item.align == AlignItems::Normal && natural.is_none());
+    let physical_axes = |inline, block| {
+        if is_horizontal_wm {
+            Size {
+                width: inline,
+                height: block,
+            }
+        } else {
+            Size {
+                width: block,
+                height: inline,
+            }
         }
     };
+    let inner_inline = elidex_layout_block::intrinsic::inner_intrinsic_sizes(
+        dom,
+        item.entity,
+        &env.deeper(),
+        crate::compute_grid_intrinsic,
+    );
     let sizing = elidex_layout_block::block::GridItemSizing {
-        stretch,
-        intrinsic: Size {
-            width: Some((item.content_size.width - item.pb.horizontal()).max(0.0)),
+        stretch: physical_axes(inline_stretch, block_stretch),
+        subgridded: physical_axes(item.is_subgrid_cols, item.is_subgrid_rows),
+        inner_inline,
+        replaced: natural.is_some(),
+        measured: Size {
+            width: None,
             height: None,
         },
     };
@@ -187,22 +318,39 @@ fn measure_in_area(
         item_context: elidex_layout_block::ItemContext::GridArea(sizing),
         containing: area,
         containing_inline_size: item_inline_size,
+        offset: rect.origin,
         ..LayoutInput::probe(env, area_width)
     };
-    let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
+    let mut prelim_lb = (env.layout_child)(
+        dom,
+        item.entity,
+        &LayoutInput {
+            subgrid,
+            ..prelim_input
+        },
+    )
+    .layout_box;
     let sizing = elidex_layout_block::block::GridItemSizing {
-        intrinsic: Size {
-            width: sizing.intrinsic.width,
+        measured: Size {
+            width: Some(prelim_lb.content.size.width),
             height: Some(prelim_lb.content.size.height),
         },
         ..sizing
     };
-    (sizing, prelim_lb)
+    // Natural block size is known only after layout. Resolve its auto margins
+    // before using the margin box as the alignment subject.
+    let measured = LayoutInput {
+        item_context: elidex_layout_block::ItemContext::GridArea(sizing),
+        ..prelim_input
+    }
+    .resolve_item(style);
+    prelim_lb.margin = measured.assigned.margins(prelim_lb.margin);
+    (measured, prelim_lb)
 }
 
 /// Position each item within its grid area and perform final layout.
 ///
-/// Returns the grid container's first baseline (CSS Grid §4.2).
+/// Returns the grid container's first baseline (CSS Grid 2 §11.6).
 #[allow(clippy::too_many_lines)]
 pub(crate) fn position_items(
     dom: &mut EcsDom,
@@ -213,51 +361,43 @@ pub(crate) fn position_items(
 ) -> Option<f32> {
     let is_rtl = placement.direction == Direction::Rtl;
     let is_horizontal_wm = placement.writing_mode.is_horizontal();
-    let content_x = placement.content_origin.x;
     let content_y = placement.content_origin.y;
-    let container_inline_size = placement.container_inline_size;
-    let col_tracks = placement.col_tracks;
-    let row_tracks = placement.row_tracks;
-    let col_positions = placement.col_positions;
-    let row_positions = placement.row_positions;
+    let measure = |dom: &mut EcsDom, item: &GridItem, rect| {
+        let style = elidex_layout_block::get_style(dom, item.entity);
+        let subgrid = placement.child_subgrid(item, &style);
+        let (input, lb) = measure_in_area(
+            dom,
+            item,
+            env,
+            rect,
+            subgrid.as_ref(),
+            is_horizontal_wm,
+            &style,
+        );
+        (input, lb, subgrid)
+    };
+    let mut baseline_items = HashMap::new();
 
-    // Check if any item needs baseline alignment (CSS Grid §10.6).
-    let has_baseline = items
-        .iter()
-        .any(|i| i.align == AlignItems::Baseline || i.justify == JustifyItems::Baseline);
-
-    // Per-row/column baselines for baseline alignment (CSS Grid §10.6).
+    // Per-row/column baseline sharing groups (CSS Align 3 §9.2).
     let mut row_baselines: HashMap<usize, f32> = HashMap::new();
     let mut col_baselines: HashMap<usize, f32> = HashMap::new();
 
-    if has_baseline {
-        // Pass 1: preliminary layout for baseline-aligned items to collect baselines.
-        // CSS Grid §10.6: items spanning more than one track do not participate
-        // in baseline sharing groups.
-        for item in items {
-            let align_bl = item.align == AlignItems::Baseline && item.row_span == 1;
-            let justify_bl = item.justify == JustifyItems::Baseline && item.col_span == 1;
-            if !align_bl && !justify_bl {
-                continue;
-            }
-            let col_size = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-            let row_size = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
-            // Map logical track sizes to physical area dimensions.
-            let (bl_area_w, bl_area_h) = if is_horizontal_wm {
-                (col_size, row_size)
-            } else {
-                (row_size, col_size)
-            };
-            let (_, lb) = measure_in_area(dom, item, env, bl_area_w, bl_area_h, is_horizontal_wm);
-            if align_bl {
-                let entry = row_baselines.entry(item.row_start).or_insert(0.0);
-                *entry = entry.max(item_baseline(&lb, !is_horizontal_wm));
-            }
-            if justify_bl {
-                let entry = col_baselines.entry(item.col_start).or_insert(0.0);
-                *entry = entry.max(item_baseline(&lb, is_horizontal_wm));
-            }
+    for item in items {
+        let align_bl = item.align == AlignItems::Baseline && item.row_span == 1;
+        let justify_bl = item.justify == JustifyItems::Baseline && item.col_span == 1;
+        if !align_bl && !justify_bl {
+            continue;
         }
+        let measured = measure(dom, item, placement.area(item));
+        if align_bl {
+            let entry = row_baselines.entry(item.row_start).or_insert(0.0);
+            *entry = entry.max(item_baseline(&measured.1, !is_horizontal_wm));
+        }
+        if justify_bl {
+            let entry = col_baselines.entry(item.col_start).or_insert(0.0);
+            *entry = entry.max(item_baseline(&measured.1, is_horizontal_wm));
+        }
+        baseline_items.insert(item.entity, measured);
     }
 
     for item in items {
@@ -265,40 +405,18 @@ pub(crate) fn position_items(
         // CSS Grid §7.1: column tracks = inline axis, row tracks = block axis.
         // In horizontal: column → X, row → Y.
         // In vertical: column → Y (inline axis), row → X (block axis).
-        let col_pos = col_positions.get(item.col_start).copied().unwrap_or(0.0);
-        let col_size = cell_span_size(col_tracks, col_positions, item.col_start, item.col_span);
-        let row_pos = row_positions.get(item.row_start).copied().unwrap_or(0.0);
-        let row_size = cell_span_size(row_tracks, row_positions, item.row_start, item.row_span);
-
-        let (area_x, area_y, area_width, area_height) = if is_horizontal_wm {
-            // RTL: mirror column position so columns flow right-to-left.
-            let area_x = if is_rtl {
-                (container_inline_size - col_pos - col_size).max(0.0)
-            } else {
-                col_pos
-            };
-            (area_x, row_pos, col_size, row_size)
+        let rect = placement.area(item);
+        let (area_width, area_height) = (rect.size.width, rect.size.height);
+        let (col_size, row_size) = if is_horizontal_wm {
+            (area_width, area_height)
         } else {
-            // Vertical: columns → Y (inline axis), rows → X (block axis).
-            let area_y = if is_rtl {
-                (container_inline_size - col_pos - col_size).max(0.0)
-            } else {
-                col_pos
-            };
-            (row_pos, area_y, row_size, col_size)
+            (area_height, area_width)
         };
-
         // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
         // formatter fits its content box in that area before alignment.
-        let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let area = CssSize::definite(area_width, area_height);
-        let item_inline_size = if is_horizontal_wm {
-            area_width
-        } else {
-            area_height
-        };
-        let (sizing, prelim_lb) =
-            measure_in_area(dom, item, env, area_width, area_height, is_horizontal_wm);
+        let (measured, prelim_lb, subgrid) = baseline_items
+            .remove(&item.entity)
+            .unwrap_or_else(|| measure(dom, item, rect));
         let outer = prelim_lb.margin_box().size;
         let (outer_inline, outer_block) = if is_horizontal_wm {
             (outer.width, outer.height)
@@ -319,96 +437,100 @@ pub(crate) fn position_items(
             (item.col_span == 1).then(|| item_baseline(&prelim_lb, is_horizontal_wm)),
             col_baselines.get(&item.col_start).copied().unwrap_or(0.0),
         );
+        let block_offset = place_axis(
+            block_offset,
+            row_size - outer_block,
+            outer_block,
+            placement.writing_mode == WritingMode::VerticalRl,
+            item.block_safety,
+            if is_horizontal_wm {
+                rect.origin.y
+            } else {
+                rect.origin.x
+            },
+            if is_horizontal_wm {
+                env.scroll_limits.y
+            } else {
+                env.scroll_limits.x
+            },
+        );
+        let inline_offset = place_axis(
+            inline_offset,
+            col_size - outer_inline,
+            outer_inline,
+            is_rtl,
+            item.inline_safety,
+            if is_horizontal_wm {
+                rect.origin.x
+            } else {
+                rect.origin.y
+            },
+            if is_horizontal_wm {
+                env.scroll_limits.x
+            } else {
+                env.scroll_limits.y
+            },
+        );
         let (x_offset, y_offset) = if is_horizontal_wm {
             (inline_offset, block_offset)
         } else {
             (block_offset, inline_offset)
         };
 
-        // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
-        let child_subgrid_ctx = if let Some(parent) = placement
-            .subgrid_ctx
-            .as_ref()
-            .filter(|_| item.is_subgrid_cols || item.is_subgrid_rows)
-        {
-            let (child_col_sizes, child_col_names) = extract_axis_subgrid(
-                item.is_subgrid_cols,
-                parent.col_sizes.as_ref(),
-                &parent.col_line_names,
-                item.col_start,
-                item.col_span,
-                &child_style.grid_template_columns,
-            );
-            let (child_row_sizes, child_row_names) = extract_axis_subgrid(
-                item.is_subgrid_rows,
-                parent.row_sizes.as_ref(),
-                &parent.row_line_names,
-                item.row_start,
-                item.row_span,
-                &child_style.grid_template_rows,
-            );
-            Some(SubgridContext {
-                col_sizes: child_col_sizes,
-                row_sizes: child_row_sizes,
-                col_line_names: child_col_names,
-                row_line_names: child_row_names,
-                col_gap: parent.col_gap,
-                row_gap: parent.row_gap,
-            })
+        // PR-GA supplies the physical origin. Fragmentation changes only the
+        // block coordinate, relative to the first row admitted on this page.
+        let mut offset = Point::new(rect.origin.x + x_offset, rect.origin.y + y_offset);
+        let incoming_token = entry.incoming.get(&item.entity).copied();
+        let reversed = placement.writing_mode == WritingMode::VerticalRl;
+        let first_entry = if is_horizontal_wm {
+            offset.y - content_y
+        } else if reversed {
+            placement.block_extent - (offset.x - placement.content_origin.x) - outer_block
         } else {
-            None
+            offset.x - placement.content_origin.x
         };
-
-        // Final layout at resolved position.
-        // CSS Grid §11.3: margin/padding % resolves against the grid area's
-        // content-box dimension, consistent with preliminary passes.
-        let row_offset = if entry.resume_row == 0 {
-            row_pos
-        } else {
-            (row_pos
-                - row_positions
+        let mut entry_offset = first_entry;
+        if entry.room.is_some() {
+            let row_origin = if entry.resume_row == 0 {
+                0.
+            } else {
+                placement
+                    .row_positions
                     .get(entry.resume_row)
                     .copied()
-                    .unwrap_or(row_pos))
-            .max(0.0)
-        };
-        let incoming_token = entry.incoming.get(&item.entity).copied();
-        // The alignment offset precedes the first piece only.
-        let entry_offset = if incoming_token.is_some() {
-            0.0
-        } else {
-            row_offset + if is_horizontal_wm { y_offset } else { x_offset }
-        };
-        let offset = if is_horizontal_wm {
-            Point::new(content_x + area_x + x_offset, content_y + entry_offset)
-        } else {
-            Point::new(content_x + entry_offset, content_y + area_y + y_offset)
-        };
+                    .unwrap_or(0.)
+            };
+            entry_offset = if incoming_token.is_some() {
+                0.
+            } else {
+                first_entry - row_origin
+            };
+            let shift = entry_offset - first_entry;
+            if is_horizontal_wm {
+                offset.y += shift;
+            } else if reversed {
+                offset.x -= shift;
+            } else {
+                offset.x += shift;
+            }
+        }
         let room = entry
             .room
             .map(|room| elidex_layout_block::FragmentainerContext {
-                available_block_size: (room.available_block_size - entry_offset).max(0.0),
+                available_block_size: (room.available_block_size - entry_offset).max(0.),
                 ..*room
             });
         let final_input = LayoutInput {
-            available_height_if_indefinite: None,
-            containing_width_definite: true,
-            item_context: elidex_layout_block::ItemContext::GridArea(sizing),
-            assigned: elidex_layout_block::UsedAssignment::default(),
-            containing: area,
-            containing_inline_size: item_inline_size,
             offset,
-            font_db: env.font_db,
-            depth: env.depth + 1,
-            float_ctx: None,
-            viewport: None,
             fragmentainer: room.as_ref(),
             break_token: incoming_token,
-            subgrid: child_subgrid_ctx.as_ref(),
+            viewport: None,
             layout_generation: env.layout_generation,
             medium: env.medium,
             placement: env.placement.at_offset(entry_offset),
             is_probe: env.is_probe,
+            subgrid: subgrid.as_ref(),
+            ..measured
         };
         let outcome = (env.layout_child)(dom, item.entity, &final_input);
         let final_lb = outcome.layout_box;
@@ -434,7 +556,7 @@ pub(crate) fn position_items(
         }
     }
 
-    // Grid container baseline (CSS Grid §4.2):
+    // Grid container baseline (CSS Grid 2 §11.6):
     // Use the shared baseline of the first row if baseline alignment was used,
     // otherwise fall back to the first item in row 0's baseline from final layout.
     if let Some(&first_row_bl) = row_baselines.get(&0) {
@@ -500,9 +622,9 @@ fn grid_align_offset(
         let item_bl = item_baseline.unwrap_or(item_size.max(0.0));
         (shared_baseline - item_bl).max(0.0)
     } else if center {
-        (available - item_size).max(0.0) / 2.0
+        (available - item_size) / 2.0
     } else if end {
-        (available - item_size).max(0.0)
+        available - item_size
     } else {
         // Start, Stretch — align to start.
         0.0
@@ -519,7 +641,7 @@ fn compute_alignment_offset(
 ) -> f32 {
     grid_align_offset(
         item_align == AlignItems::Center,
-        item_align == AlignItems::FlexEnd,
+        matches!(item_align, AlignItems::End | AlignItems::FlexEnd),
         item_align == AlignItems::Baseline,
         available,
         item_size,
@@ -545,4 +667,34 @@ fn compute_justify_offset(
         item_baseline,
         col_baseline,
     )
+}
+
+/// Map a signed logical margin-box offset to the physical low edge.
+fn place_axis(
+    requested: f32,
+    free: f32,
+    extent: f32,
+    reversed: bool,
+    safety: Option<elidex_plugin::AlignmentSafety>,
+    origin: f32,
+    limit: Option<elidex_layout_block::ScrollEdge>,
+) -> f32 {
+    let logical = if free < 0.0 && safety == Some(elidex_plugin::AlignmentSafety::Safe) {
+        0.0
+    } else {
+        requested
+    };
+    let physical = if reversed { free - logical } else { logical };
+    if free < 0.0 && safety.is_none() {
+        if let Some(edge) = limit {
+            // Limit only the overflow introduced by alignment; the area itself can overflow.
+            return match edge {
+                elidex_layout_block::ScrollEdge::Low(low) => physical.max((low - origin).min(0.0)),
+                elidex_layout_block::ScrollEdge::High(high) => {
+                    physical.min((high - origin - extent).max(free))
+                }
+            };
+        }
+    }
+    physical
 }

@@ -516,7 +516,7 @@ fn get_reader_mode_string_wrapper_byob_throws_unsupported() {
 }
 
 /// Slot #10.7 coverage: a plain Object whose `toString()` returns
-/// `"byob"` must also reach the BYOB branch via §7.1.12 step 9 →
+/// `"byob"` must also reach the BYOB branch via §7.1.19 step 10 →
 /// §7.1.1.1 OrdinaryToPrimitive.  Pre-slot-#10.7 the placeholder
 /// shortcut returned `"[object Object]"` and the enum match silently
 /// fell through to the `"default"` branch; this regression test

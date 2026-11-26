@@ -689,6 +689,7 @@ fn vertical_rl_fixed_positioning() {
         font_db: &font_db(),
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: Some(Size::new(1024.0, 768.0)),
         fragmentainer: None,
         break_token: None,

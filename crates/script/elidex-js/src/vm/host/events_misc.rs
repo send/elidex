@@ -211,6 +211,7 @@ impl VmInner {
         // `Object.defineProperty` reconfig / `delete`, both rare on
         // intrinsic surfaces; matches the engine convention for other
         // exposed-readonly constants.
+        // #11-vm-webidl-constants-configurable
         let proto_id = self
             .wheel_event_prototype
             .expect("register_wheel_event_global just stored wheel_event_prototype");
@@ -303,7 +304,7 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
-// SubmitEvent (HTML §4.10.21.5.5)
+// SubmitEvent (HTML §4.10.22.10)
 // ---------------------------------------------------------------------------
 
 fn native_submit_event_constructor(
@@ -340,7 +341,7 @@ fn native_submit_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// FormDataEvent (HTML §4.10.21.5.4)
+// FormDataEvent (HTML §4.10.22.11)
 // ---------------------------------------------------------------------------
 
 fn native_formdata_event_constructor(

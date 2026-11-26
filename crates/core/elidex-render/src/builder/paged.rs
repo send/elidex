@@ -167,6 +167,7 @@ pub fn build_paged_display_lists_interleaved(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: Some(area.size),
         fragmentainer: None,
         break_token: None,

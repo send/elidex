@@ -190,10 +190,10 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// ToString (ECMA-262 §7.1.18)
+// ToString (ECMA-262 §7.1.19)
 // ---------------------------------------------------------------------------
 
-/// ToString (ECMA-262 §7.1.18). Returns a `StringId` or throws `TypeError`
+/// ToString (ECMA-262 §7.1.19). Returns a `StringId` or throws `TypeError`
 /// for Symbol values, per spec.
 pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
@@ -211,7 +211,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
             Ok(vm.strings.intern(&s))
         }
         JsValue::Object(_) => {
-            // §7.1.18 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
+            // §7.1.19 steps 9-12: ? ToPrimitive(val, string) → ? ToString(prim).
             // No wrapper slot shortcut: a boxed primitive's overridden
             // `toString` / `valueOf` / `@@toPrimitive` must be honored. The
             // OrdinaryToPrimitive fallback inside `to_primitive` invokes the
@@ -391,7 +391,7 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt8 (§7.1.11) / ToUint8 (§7.1.12) / ToUint8Clamp (§7.1.13) / ToInt16 (§7.1.9)
+// ToInt8 (§7.1.12) / ToUint8 (§7.1.13) / ToUint8Clamp (§7.1.14) / ToInt16 (§7.1.10)
 // All ECMA-262 §7.1.
 // ---------------------------------------------------------------------------
 //
@@ -400,7 +400,7 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 // behind the same feature keeps non-engine builds dead-code-warning
 // free, matching the sibling `enforce_range_unsigned_short` above.
 
-/// The modulo-2^8 signed conversion from f64 to i8 (ECMA-262 §7.1.11).
+/// The modulo-2^8 signed conversion from f64 to i8 (ECMA-262 §7.1.12).
 /// Used by `Int8Array` indexed element writes.  NaN / ±∞ / ±0 → 0.
 #[cfg(feature = "engine")]
 #[inline]
@@ -416,7 +416,7 @@ pub(crate) fn f64_to_int8(n: f64) -> i8 {
     as_u8.cast_signed()
 }
 
-/// The modulo-2^8 unsigned conversion from f64 to u8 (ECMA-262 §7.1.12).
+/// The modulo-2^8 unsigned conversion from f64 to u8 (ECMA-262 §7.1.13).
 /// Used by `Uint8Array` indexed element writes.
 #[cfg(feature = "engine")]
 #[inline]
@@ -430,7 +430,7 @@ pub(crate) fn f64_to_uint8(n: f64) -> u8 {
     result
 }
 
-/// `ToUint8Clamp` (ECMA-262 §7.1.13) — **not** a modular conversion.
+/// `ToUint8Clamp` (ECMA-262 §7.1.14) — **not** a modular conversion.
 /// NaN → 0, n ≤ 0 → 0, n ≥ 255 → 255, else round with
 /// **roundTiesToEven** (IEEE 754 banker's rounding).  Used by
 /// `Uint8ClampedArray` indexed element writes; diverges from
@@ -456,7 +456,7 @@ pub(crate) fn f64_to_uint8_clamp(n: f64) -> u8 {
     rounded
 }
 
-/// The modulo-2^16 signed conversion from f64 to i16 (ECMA-262 §7.1.9
+/// The modulo-2^16 signed conversion from f64 to i16 (ECMA-262 §7.1.10
 /// ToInt16).  Used by `Int16Array` indexed element writes.
 #[cfg(feature = "engine")]
 #[inline]
@@ -487,7 +487,7 @@ pub(crate) fn to_uint8(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
 }
 
 /// ToUint8Clamp wrapper — coerces `val` via `ToNumber` then clamps
-/// (ECMA-262 §7.1.13).
+/// (ECMA-262 §7.1.14).
 #[cfg(feature = "engine")]
 #[inline]
 pub(crate) fn to_uint8_clamp(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
@@ -542,18 +542,15 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 }
 
 // ---------------------------------------------------------------------------
-// Slice / index abstract ops (ECMA-262 §7.1.5 ToIntegerOrInfinity, §7.1.23 ToIndex)
+// Slice and index conversions use ToIntegerOrInfinity §7.1.5 and ToIndex §7.1.24.
 // ---------------------------------------------------------------------------
 
 /// ECMA-262 §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
-/// `NaN → +0`; `±Infinity` preserved; otherwise truncate toward
-/// zero via `f64::trunc`, which is sign-preserving on ±0 (so a
-/// `-0.0` input flows through unchanged).  Returns `f64` so the
-/// caller picks the final width — every downstream consumer either
-/// casts to an integer (which collapses ±0 to `0`) or compares with
-/// ordered `< 0.0` (which treats `-0.0` as not-less-than-zero), so
-/// the IEEE 754 sign of zero is never observable in slice / index
-/// arithmetic.
+/// Maps NaN to zero and otherwise truncates the Number toward zero.
+/// The specification returns a mathematical integer or infinity. This
+/// helper uses `f64`, so a negative fraction can yield negative zero.
+/// Callers that expose the integer as a Number must produce positive
+/// zero for either zero representation.
 ///
 /// This is the cheap pure-arithmetic tail of the spec algorithm —
 /// the spec also runs `ToNumber` on the input before truncating, so
@@ -594,13 +591,8 @@ pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
     }
 }
 
-/// ECMA-262 §7.1.23 `ToIndex`, narrowed to `u32`.  Coerces `val` via
-/// `ToNumber`, truncates toward zero per `ToIntegerOrInfinity`, and
-/// rejects negative / non-finite / `> u32::MAX` results with a
-/// `RangeError`.  Used by the TypedArray and DataView constructors
-/// where the spec specifies `unsigned long long`-with-`ToIndex` but
-/// our `[[ByteLength]]` slot is `u32`, so the upper bound has to
-/// drop from `2^53 − 1` down to `u32::MAX`.
+/// ECMA-262 §7.1.24 ToIndex, narrowed to the VM u32 slot. Reject negative, infinite or
+/// above-u32 truncated results. NaN maps to zero. This is an ECMAScript conversion.
 ///
 /// Error messages mirror V8's
 /// `"Failed to construct '{ctor_name}': {what} ..."` shape so
@@ -749,7 +741,7 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 
 /// Abstract equality (`==`). May need string/number coercions.  Returns
 /// `Err` when a user-defined `@@toPrimitive`/`valueOf`/`toString` throws
-/// (§7.2.13 `?` steps 10-12 require abrupt-completion propagation).
+/// (§7.2.13 steps 11–12 propagate abrupt completion from `ToPrimitive`).
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bool, VmError> {
     // Empty (sparse hole) is treated as Undefined in all coercions.
     let a = if a.is_empty() { JsValue::Undefined } else { a };
@@ -775,7 +767,8 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
         }
 
         // BigInt == BigInt handled by same_type above.
-        // BigInt == Number (§7.2.13 step 5/6)
+        // §7.2.13 steps 13–14 compare a finite Number by mathematical value.
+        // A non-finite Number compares unequal.
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
                 return Ok(false);
@@ -821,8 +814,9 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             }
         }
 
-        // Symbol == non-Symbol → false (symbols are unique; same-type
-        // comparison is handled by strict_eq above).
+        // #11-vm-loose-equality-symbol-and-nullish-object
+        // VM defect: this arm also rejects Symbol/Object pairs. §7.2.13
+        // steps 11–12 require converting that object before comparison.
         (JsValue::Symbol(_), _) | (_, JsValue::Symbol(_)) => false,
 
         // Boolean == x → ToNumber(Boolean) == x
@@ -835,9 +829,10 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             abstract_eq(vm, a, JsValue::Number(n))?
         }
 
-        // Object == primitive → ? ToPrimitive (§7.2.13 steps 10, 12).
-        // Abrupt completion from a user-defined @@toPrimitive / valueOf /
-        // toString must propagate per spec `?` mark.
+        // #11-vm-loose-equality-symbol-and-nullish-object
+        // §7.2.13 steps 11–12 convert the object when paired with a String,
+        // Number, BigInt or Symbol. VM defect: these arms also convert an
+        // ordinary object paired with null or undefined. Step 14 returns false.
         (JsValue::Object(_), _) => {
             let prim = vm.to_primitive(a, "default")?;
             abstract_eq(vm, prim, b)?

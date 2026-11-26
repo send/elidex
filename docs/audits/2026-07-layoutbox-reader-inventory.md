@@ -313,7 +313,9 @@ hit entity and C-3d's iframe click-routing consumes the hit **fragment**, so it 
 `clear()`-invalidated, so only the key survives). 8 **transform-basis** reads pre-transform `border_box`
 and composes the transform itself → `box_fragments` (pre-transform) is **correct**.
 
-### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:449`, `inline/pack/mod.rs:613`)
+Grid item placement consumes the margin box and baseline returned by its current area probe (`position.rs::measure_in_area`, `item_baseline`). Both signatures are producer-side, pass-local metrics. The item formatter publishes the definitive geometry.
+
+### C-3c — flex/grid/inline baseline (`flex/lib.rs:474`, `flex/baseline.rs:18`, `grid/position.rs:444`, `inline/pack/mod.rs:613`)
 
 1 **frame** **LOCAL**, and **not one formula** — the three container-baseline sites take a
 container-content-relative *difference* (`lb.content.origin.y − container_origin.y + first_baseline`),

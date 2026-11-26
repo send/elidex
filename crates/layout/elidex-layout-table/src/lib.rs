@@ -263,8 +263,8 @@ pub fn layout_table(
                 offset_x + margin.left + border.left + padding.left,
                 offset_y + margin.top + border.top + padding.top,
             ),
-            input.assigned.content.width.unwrap_or(0.0),
-            input.assigned.content.height.unwrap_or(0.0),
+            input.assigned.target().width.unwrap_or(0.0),
+            input.assigned.target().height.unwrap_or(0.0),
             None,
         );
         dom.set_layout_box(entity, lb.clone());
@@ -340,6 +340,7 @@ pub fn layout_table(
                 font_db,
                 depth: depth + 1,
                 float_ctx: None,
+                scroll_limits: input.scroll_limits,
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
@@ -436,7 +437,7 @@ pub fn layout_table(
 
     if num_cols == 0 || num_rows == 0 {
         // Empty table.
-        let width = input.assigned.content.width.unwrap_or_else(|| {
+        let width = input.assigned.target().width.unwrap_or_else(|| {
             let natural = if is_horizontal_wm {
                 content_width
             } else if style.width != elidex_plugin::Dimension::Auto {
@@ -453,7 +454,7 @@ pub fn layout_table(
                 style.box_sizing,
             )
         });
-        let height = input.assigned.content.height.unwrap_or_else(|| {
+        let height = input.assigned.target().height.unwrap_or_else(|| {
             let natural = resolve_table_height(&style, containing_height, v_pb, caption_top_height);
             helpers::constrain_empty_extent(
                 natural,
@@ -544,6 +545,7 @@ pub fn layout_table(
         font_db,
         layout_child,
         depth,
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         medium: input.medium,
@@ -551,6 +553,19 @@ pub fn layout_table(
         is_probe: input.is_probe,
     };
     let col_widths = compute_column_widths(dom, &col_input, &table_env);
+
+    let total_table_width = col_widths.iter().sum::<f32>() + spacing_overhead_h;
+    // A fitted table must enclose its used columns and both outer spacing edges.
+    let content_width = if assigned_inline.is_some()
+        && matches!(
+            input.assigned.fit,
+            elidex_layout_block::FitTarget::GridArea(_)
+                | elidex_layout_block::FitTarget::ShrinkToFit(_)
+        ) {
+        content_width.max(total_table_width)
+    } else {
+        content_width
+    };
 
     // Pre-compute the table's explicit content height for cell percentage-height
     // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
@@ -602,6 +617,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            scroll_limits: input.scroll_limits,
             viewport: None,
             fragmentainer: None,
             break_token: None,
@@ -707,8 +723,6 @@ pub fn layout_table(
     // Position cells.
     // Compute column x offsets.
     // RTL: columns flow right-to-left, so we mirror the LTR offsets.
-    let total_table_width: f32 =
-        col_widths.iter().sum::<f32>() + spacing_h * (num_cols as f32 + 1.0);
     let mut col_x_offsets = vec![0.0_f32; num_cols];
     let mut x = spacing_h;
     for c in 0..num_cols {
@@ -786,6 +800,7 @@ pub fn layout_table(
             font_db,
             depth: depth + 1,
             float_ctx: None,
+            scroll_limits: input.scroll_limits,
             viewport: None,
             fragmentainer: None,
             break_token: None,
@@ -817,6 +832,7 @@ pub fn layout_table(
                 font_db,
                 depth: depth + 1,
                 float_ctx: None,
+                scroll_limits: input.scroll_limits,
                 viewport: None,
                 fragmentainer: None,
                 break_token: None,
@@ -836,10 +852,16 @@ pub fn layout_table(
     // Determine final table height.
     let total_caption_height = caption_top_height + caption_bottom_height;
     let min_content_height = total_caption_height + table_content_height_from_rows;
-    let mut content_height = assigned_block.unwrap_or_else(|| {
+    let preferred = assigned_block.unwrap_or_else(|| {
         resolve_table_height(&style, containing_height, v_pb, min_content_height)
-            .max(min_content_height)
     });
+    // CSS 2.1 §17.5.3: rows and captions set a minimum for the table's preferred height.
+    let established = if is_horizontal_wm {
+        input.assigned.content.height
+    } else {
+        input.assigned.content.width
+    };
+    let mut content_height = established.unwrap_or_else(|| preferred.max(min_content_height));
 
     // If fragmentation produced a break, clamp content height to consumed size.
     if let Some(ref bt) = result_break_token {
@@ -893,6 +915,7 @@ pub fn layout_table(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,

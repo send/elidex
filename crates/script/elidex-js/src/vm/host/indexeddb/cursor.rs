@@ -41,7 +41,7 @@ fn direction_str(d: CursorDirection) -> &'static str {
     }
 }
 
-/// Parse the optional `direction` argument (§4.9 default `"next"`).  An
+/// Store and index cursor methods default `direction` to `"next"` (IndexedDB §§4.5–4.6). An
 /// unrecognized string is a WebIDL enum conversion failure → `TypeError`.
 pub(super) fn parse_direction(
     ctx: &mut NativeContext<'_>,

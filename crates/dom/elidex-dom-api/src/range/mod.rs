@@ -340,9 +340,15 @@ pub(crate) fn adjust_ranges_for_replace_data(
     }
 }
 
-/// Adjust all live ranges when a `Text.splitText(offset)` splits `node`
-/// into `node` (head `[..offset]`) and `new_node` (tail `[offset..]`)
-/// per WHATWG DOM §4.10 "split a Text node" step 8.
+/// Node-side live-range migration of DOM §4.11 *split a Text node* steps
+/// 7.2 / 7.3, for a split of `node` into `node` (head `[..offset]`) and
+/// `new_node` (tail `[offset..]`).
+///
+/// The caller runs this only inside step 7 (`node` has a parent). For an
+/// orphan `node` the steps 7.2 / 7.3 do not run; only step 8 (*replace
+/// data*, i.e. the [`adjust_ranges_for_text_change`] clamp) touches ranges.
+/// The parent-side rule (steps 7.4–7.5) is the caller's (see
+/// `LiveRangeBridge::after_split_text`).
 ///
 /// **Ordering invariant** (mirrors
 /// [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
@@ -351,32 +357,20 @@ pub(crate) fn adjust_ranges_for_replace_data(
 /// otherwise the truncate-clamp on `node` destroys boundary offsets
 /// needed for migration to `new_node`.
 ///
-/// For each boundary:
-/// - On `node` at `off > offset` → migrate to `(new_node, off - offset)`.
-/// - On parent of `node` (i.e. `node`'s parent in the tree) at idx `≥
-///   node_idx + 1` → `idx += 1` (parent now has one extra child between
-///   `node` and `node_idx + 1`).
-///
-/// `node_index` is the pre-split index of `node` in its parent — caller
-/// computes it via [`elidex_ecs::EcsDom::index_in_parent`] (or omits
-/// the parent-side adjustment if `node` has no parent: orphan split
-/// cannot affect a parent boundary).
-#[allow(dead_code)] // wired up by range::live::LiveRangeRegistry below in the same PR
+/// For each boundary on `node` at `off > offset` → `(new_node, off -
+/// offset)`.
 pub(crate) fn adjust_ranges_for_split_text(
     ranges: &mut [Range],
     node: Entity,
     new_node: Entity,
     offset: usize,
-    parent: Option<Entity>,
-    node_index: Option<usize>,
 ) {
     for range in ranges.iter_mut() {
-        // WHATWG §4.10 step 7.2 / 7.3: strict `off > offset` migrates to
-        // `(new_node, off - offset)`. The equality case (`off == offset`)
-        // stays on `node` at its new end — a Range collapsed at the
-        // split point is preserved on the original node, NOT migrated to
-        // `(new_node, 0)` — DOM §4.11 "split a Text node" step 7.2 compares
-        // with a strict "greater than" (spec text as of 2026-05-14).
+        // DOM §4.11 *split a Text node* steps 7.2 / 7.3: strict
+        // `off > offset` migrates to `(new_node, off - offset)`. The
+        // equality case (`off == offset`) stays on `node` at its new end —
+        // a Range collapsed at the split point is preserved on the
+        // original node, NOT migrated to `(new_node, 0)`.
         if range.start_container == node && range.start_offset > offset {
             range.start_container = new_node;
             range.start_offset -= offset;
@@ -384,14 +378,6 @@ pub(crate) fn adjust_ranges_for_split_text(
         if range.end_container == node && range.end_offset > offset {
             range.end_container = new_node;
             range.end_offset -= offset;
-        }
-        if let (Some(parent), Some(node_idx)) = (parent, node_index) {
-            if range.start_container == parent && range.start_offset > node_idx {
-                range.start_offset += 1;
-            }
-            if range.end_container == parent && range.end_offset > node_idx {
-                range.end_offset += 1;
-            }
         }
     }
 }

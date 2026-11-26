@@ -39,8 +39,10 @@ pub fn canvas_dimensions(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 /// one at the entity's current attribute-derived dimensions if absent (the lazy
 /// `getContext('2d')` allocation). No-op when one already exists. Returns `true`
 /// if a context is now present; `false` only if the component insertion fails
-/// (a non-live entity). Dimensions are always representable — zero / huge sizes
-/// clamp to a 1×1 bitmap (see `make_context`), so they never cause `false`.
+/// (a non-live entity). Each zero axis is floored to 1
+/// (#11-canvas-zero-dimension-bitmap). If the backend rejects the bitmap size,
+/// the VM uses the 1×1 substitute documented at `make_context`
+/// (#11-canvas-bitmap-allocation-failure-substitute).
 pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
     if dom.world().get::<&Canvas2dContext>(entity).is_ok() {
         return true;
@@ -51,22 +53,17 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
         .is_ok()
 }
 
-/// Clamp a content-attribute dimension to the backing bitmap's representable
-/// floor of 1: tiny-skia cannot allocate a 0-sized `Pixmap`, so a `width`/
-/// `height` of 0 renders as 1×1 rather than leaving a stale bitmap (the
-/// `canvas.width`/`height` IDL getters still reflect the raw attribute,
-/// unclamped). True 0×0 bitmap support is deferred to
-/// `#11-canvas-zero-dimension-bitmap`.
+/// Defect (#11-canvas-zero-dimension-bitmap): tiny-skia needs a nonempty
+/// `Pixmap`, so the VM-defined floor turns a requested 0×4 into 1×4.
 pub(crate) fn bitmap_dim(n: u32) -> u32 {
     n.max(1)
 }
 
-/// Build a context bitmap that is always allocatable, clamping both ends of the
-/// representable range: the low end via [`bitmap_dim`] (0 → 1), and the high end
-/// via a 1×1 fallback when a huge dimension makes `Pixmap` allocation fail. A
-/// requested size that the backend cannot represent must still yield a *fresh*
-/// bitmap (never a stale prior one), so the per-frame sync can't keep publishing
-/// pixels at the old size. 1×1 always succeeds, so this is infallible.
+/// Allocate a context at the requested dimensions, with the per-axis floor
+/// from [`bitmap_dim`] (#11-canvas-zero-dimension-bitmap).
+/// Defect (#11-canvas-bitmap-allocation-failure-substitute): when the backend
+/// rejects the bitmap size, the VM-defined 1×1 substitute gives the bitmap
+/// dimensions different from the caller's requested dimensions.
 pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
     Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height))
         .unwrap_or_else(|| Canvas2dContext::new(1, 1).expect("1×1 bitmap is always allocatable"))
@@ -79,12 +76,11 @@ pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
 /// algorithm, two callers — no Drift-class strangler middle state.
 ///
 /// Returns `true` if a reset occurred, `false` if the entity has no
-/// [`Canvas2dContext`] (the no-op-before-`ensure_*_context` invariant). The
-/// return is observability-only — callers ignore it in production; tests
-/// assert on the no-op branch. Always re-allocates a *fresh* bitmap (never
-/// keeps a stale prior one) — `bitmap_dim` clamps the low end (0 → 1) and a
-/// 1×1 fallback covers the high end when `reset` fails. Marks the canvas
-/// dirty for re-sync on success.
+/// [`Canvas2dContext`]. Callers discard the return value.
+/// The reset applies the per-axis zero floor
+/// (#11-canvas-zero-dimension-bitmap) and marks the canvas dirty for re-sync.
+/// Defect (#11-canvas-bitmap-allocation-failure-substitute): when the backend rejects
+/// the requested bitmap size, the VM resets to its VM-defined 1×1 substitute.
 ///
 /// The (`Canvas2dContext`) XOR (`PlaceholderCanvas`) mutex is NOT asserted
 /// here because both can legitimately be absent on a freshly-spawned
@@ -160,13 +156,13 @@ pub fn has_dirty_canvas(dom: &EcsDom) -> bool {
     dom.world().query::<&CanvasDirty>().iter().next().is_some()
 }
 
-/// Parse a canvas `width`/`height` content attribute per the HTML "rules for
-/// parsing non-negative integers" (§2.4.4.2) as applied by the reflected
-/// `unsigned long`: skip leading ASCII whitespace + an optional `+`, take the
-/// leading ASCII-digit run (so `"100px"` → 100, trailing garbage ignored), and
-/// saturate to `u32::MAX` on overflow (clamp to the `unsigned long` range).
-/// Falls back to `default` (300 / 150) only when there is no leading digit
-/// (absent / non-numeric / negative value).
+/// Parse a canvas dimension from its content attribute (HTML §4.12.5).
+/// HTML §2.3.4.2 uses integer parsing and rejects negative results. The
+/// default is 300 for width and 150 for height when missing or unparseable.
+///
+/// Defect (#11-canvas-dimension-parse-signed-zero-and-overflow): this parser
+/// returns the default for `"-0"`, which HTML parses as zero. HTML specifies
+/// no upper bound. Saturating larger integers to `u32::MAX` is VM-defined.
 fn parse_canvas_dim(value: Option<&str>, default: u32) -> u32 {
     let Some(s) = value else {
         return default;
@@ -253,12 +249,11 @@ mod tests {
 
     #[test]
     fn parse_dim_leading_digit_run_and_overflow() {
-        // HTML "rules for parsing non-negative integers": leading digit run,
-        // trailing garbage ignored.
+        // HTML §2.3.4.2 accepts a leading digit run after an optional plus.
         assert_eq!(parse_canvas_dim(Some("100px"), DEFAULT_WIDTH), 100);
         assert_eq!(parse_canvas_dim(Some("12.9"), DEFAULT_WIDTH), 12);
         assert_eq!(parse_canvas_dim(Some("+50"), DEFAULT_WIDTH), 50);
-        // Overflow saturates to the unsigned-long max, not the default.
+        // Records VM-defined saturation (#11-canvas-dimension-parse-signed-zero-and-overflow).
         assert_eq!(
             parse_canvas_dim(Some("99999999999"), DEFAULT_WIDTH),
             u32::MAX
@@ -386,7 +381,7 @@ mod tests {
     fn ensure_context_clamps_zero_dims_to_one() {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "0", "0");
-        // tiny-skia can't allocate 0×0; clamp to the 1×1 floor (still succeeds).
+        // Both zero dimensions are floored to 1 (#11-canvas-zero-dimension-bitmap).
         assert!(ensure_context(&mut dom, e));
         assert_eq!(
             with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
@@ -399,9 +394,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "4", "4");
         ensure_context(&mut dom, e);
-        // Resize width to a value tiny-skia cannot allocate (> i32::MAX): the
-        // bitmap must fall back to 1×1, NOT keep the stale 4×4 that the per-frame
-        // sync would otherwise publish.
+        // The backend rejects this width, so reset replaces the prior 4×4 with the VM-defined
+        // 1×1 substitute (#11-canvas-bitmap-allocation-failure-substitute).
         dom.set_attribute(e, "width", "4294967295");
         let mut rec = CanvasReconciler;
         rec.handle(
@@ -425,7 +419,8 @@ mod tests {
     fn ensure_context_huge_dims_fall_back_to_one() {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "4294967295", "4294967295");
-        // Unrepresentable-huge attribute dims still yield a (1×1) context.
+        // The backend rejects these dimensions, triggering the same 1×1 substitute
+        // (#11-canvas-bitmap-allocation-failure-substitute).
         assert!(ensure_context(&mut dom, e));
         assert_eq!(
             with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
@@ -438,8 +433,7 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "4", "4");
         ensure_context(&mut dom, e);
-        // Resize width to 0: the bitmap must re-allocate to the 1×4 floor, NOT
-        // keep the stale 4×4 (which the sync would otherwise publish).
+        // Only the zero width is floored, yielding 1×4 (#11-canvas-zero-dimension-bitmap).
         dom.set_attribute(e, "width", "0");
         let mut rec = CanvasReconciler;
         rec.handle(

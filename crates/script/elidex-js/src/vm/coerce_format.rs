@@ -119,11 +119,11 @@ pub(crate) fn parse_array_index_u32(units: &[u16]) -> Option<u32> {
 }
 
 // ---------------------------------------------------------------------------
-// ES Number::toString (§7.1.12.1)
+// ES Number::toString (§6.1.6.1.20)
 // ---------------------------------------------------------------------------
 
 /// Write a finite positive or negative f64 to a `String` buffer in ES
-/// Number::toString format (§7.1.12.1).
+/// Number::toString format (§6.1.6.1.20).
 #[allow(
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,

@@ -2,8 +2,7 @@
 //!
 //! Exercises the constructor forms, statics, getters/setters, string
 //! conversions, `Symbol.toPrimitive` coercion, and `structuredClone` against
-//! the **UTC-baseline** (`getTimezoneOffset()` is `+0`; local components equal
-//! UTC — see `vm::natives_date::algorithms`).
+//! the UTC baseline described in `vm::natives_date::algorithms`.
 
 #![cfg(feature = "engine")]
 

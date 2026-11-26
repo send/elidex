@@ -438,6 +438,7 @@ pub fn validate_area_rectangles(rows: &[Vec<String>]) -> bool {
 keyword_enum! {
     /// The CSS `justify-items` property (CSS Box Alignment Level 3 §6.1).
     JustifyItems {
+        Normal => "normal",
         Stretch => "stretch",
         Start => "start",
         End => "end",
@@ -450,6 +451,7 @@ keyword_enum! {
     /// The CSS `justify-self` property (CSS Box Alignment Level 3 §6.2).
     JustifySelf {
         Auto => "auto",
+        Normal => "normal",
         Start => "start",
         End => "end",
         Center => "center",

@@ -39,6 +39,7 @@ pub(crate) fn collect_grid_items(
     let mut items = Vec::new();
     for (i, &child) in children.iter().enumerate() {
         let Some(mut child_style) = elidex_layout_block::try_get_style(dom, child) else {
+            // #11-intrinsic-contribution-producer: visible text still needs an anonymous grid item.
             continue; // Text node — skip.
         };
         if elidex_layout_block::inline::flow_participation(dom, child, Some(&child_style))
@@ -54,32 +55,33 @@ pub(crate) fn collect_grid_items(
             let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
-        let mut align = effective_align(child_style.align_self, container_style.align_items);
-        let mut justify =
-            effective_justify(child_style.justify_self, container_style.justify_items);
-
-        // CSS Grid 2 §11.2: auto margins take precedence over self-alignment.
-        let auto_x = [child_style.margin_left, child_style.margin_right]
-            .contains(&elidex_plugin::Dimension::Auto);
-        let auto_y = [child_style.margin_top, child_style.margin_bottom]
-            .contains(&elidex_plugin::Dimension::Auto);
-        let (auto_inline, auto_block) = if container_style.writing_mode.is_horizontal() {
-            (auto_x, auto_y)
-        } else {
-            (auto_y, auto_x)
-        };
-        if auto_inline {
-            justify = JustifyItems::Start;
-        }
-        if auto_block {
-            align = elidex_plugin::AlignItems::FlexStart;
-        }
+        let align = effective_align(child_style.align_self, container_style.align_items);
+        let justify = effective_justify(child_style.justify_self, container_style.justify_items);
 
         // Detect subgrid (CSS Grid Level 2 §2).
         let child_is_grid = matches!(child_style.display, Display::Grid | Display::InlineGrid);
         let is_subgrid_cols = child_is_grid && child_style.grid_template_columns.is_subgrid();
         let is_subgrid_rows = child_is_grid && child_style.grid_template_rows.is_subgrid();
 
+        // Grid 2 §11.2: an auto margin on the alignment axis removes
+        // this item from baseline sharing, including baseline displacement.
+        let auto_x = child_style.margin_left == elidex_plugin::Dimension::Auto
+            || child_style.margin_right == elidex_plugin::Dimension::Auto;
+        let auto_y = child_style.margin_top == elidex_plugin::Dimension::Auto
+            || child_style.margin_bottom == elidex_plugin::Dimension::Auto;
+        let (auto_inline, auto_block) = if container_style.writing_mode.is_horizontal() {
+            (auto_x, auto_y)
+        } else {
+            (auto_y, auto_x)
+        };
+
+        let (is_subgrid_cols, is_subgrid_rows) = if child_style.writing_mode.is_horizontal()
+            == container_style.writing_mode.is_horizontal()
+        {
+            (is_subgrid_cols, is_subgrid_rows)
+        } else {
+            (is_subgrid_rows, is_subgrid_cols)
+        };
         items.push(GridItem {
             entity: child,
             source_order: i,
@@ -94,8 +96,28 @@ pub(crate) fn collect_grid_items(
             grid_column_end: child_style.grid_column_end.clone(),
             margin: EdgeSizes::default(),
             pb: EdgeSizes::default(),
-            align,
-            justify,
+            inline_safety: if child_style.justify_self == elidex_plugin::JustifySelf::Auto {
+                container_style.justify_items_safety
+            } else {
+                child_style.justify_self_safety
+            },
+            block_safety: if child_style.align_self == elidex_plugin::AlignSelf::Auto {
+                container_style.align_items_safety
+            } else {
+                child_style.align_self_safety
+            },
+            align: if is_subgrid_rows
+                || (auto_block && align == elidex_plugin::AlignItems::Baseline)
+            {
+                elidex_plugin::AlignItems::Start
+            } else {
+                align
+            },
+            justify: if is_subgrid_cols || (auto_inline && justify == JustifyItems::Baseline) {
+                JustifyItems::Start
+            } else {
+                justify
+            },
             content_size: Size::ZERO,
             min_content_size: Size::ZERO,
             is_subgrid_cols,
@@ -117,11 +139,21 @@ pub(crate) fn collect_grid_items(
 pub(crate) fn measure_item_content(
     dom: &mut EcsDom,
     items: &mut [GridItem],
-    container_width: f32,
+    container_inline: f32,
+    horizontal_inline: bool,
     input: &LayoutInput<'_>,
     layout_child: ChildLayoutFn,
 ) {
-    let containing_height = input.containing.height;
+    let probe_area = |inline| {
+        if horizontal_inline {
+            CssSize {
+                width: inline,
+                height: input.containing.height,
+            }
+        } else {
+            CssSize::definite(input.containing.width, inline)
+        }
+    };
     let containing_inline_size = input.containing_inline_size;
     let parent_subgrid = input.subgrid;
     let probe_env = LayoutEnv::from_input(input, layout_child);
@@ -156,10 +188,7 @@ pub(crate) fn measure_item_content(
         let saved_styles = elidex_layout_block::save_descendant_styles(dom, item.entity);
         let min_input = LayoutInput {
             item_context: elidex_layout_block::ItemContext::Independent,
-            containing: CssSize {
-                width: 1.0,
-                height: containing_height,
-            },
+            containing: probe_area(1.),
             subgrid: probe_subgrid,
             ..LayoutInput::probe(&probe_env, 1.0)
         };
@@ -174,12 +203,9 @@ pub(crate) fn measure_item_content(
         // Max-content probe: layout at container width.
         let max_input = LayoutInput {
             item_context: elidex_layout_block::ItemContext::Independent,
-            containing: CssSize {
-                width: container_width,
-                height: containing_height,
-            },
+            containing: probe_area(container_inline),
             subgrid: probe_subgrid,
-            ..LayoutInput::probe(&probe_env, container_width)
+            ..LayoutInput::probe(&probe_env, container_inline)
         };
         let max_lb = layout_child(dom, item.entity, &max_input).layout_box;
         item.content_size = Size::new(
@@ -199,26 +225,35 @@ pub(crate) fn measure_item_content(
 pub(crate) fn build_contributions(
     items: &[GridItem],
     is_column: bool,
+    horizontal_inline: bool,
 ) -> Vec<track::TrackContribution> {
+    let horizontal = is_column == horizontal_inline;
     items
         .iter()
         .map(|item| {
-            if is_column {
-                track::TrackContribution {
-                    start: item.col_start,
-                    span: item.col_span,
-                    min_content: item.min_content_size.width + item.margin.left + item.margin.right,
-                    max_content: item.content_size.width + item.margin.left + item.margin.right,
-                }
+            let (start, span) = if is_column {
+                (item.col_start, item.col_span)
             } else {
-                track::TrackContribution {
-                    start: item.row_start,
-                    span: item.row_span,
-                    min_content: item.min_content_size.height
-                        + item.margin.top
-                        + item.margin.bottom,
-                    max_content: item.content_size.height + item.margin.top + item.margin.bottom,
-                }
+                (item.row_start, item.row_span)
+            };
+            let (min, max, margin) = if horizontal {
+                (
+                    item.min_content_size.width,
+                    item.content_size.width,
+                    item.margin.horizontal(),
+                )
+            } else {
+                (
+                    item.min_content_size.height,
+                    item.content_size.height,
+                    item.margin.vertical(),
+                )
+            };
+            track::TrackContribution {
+                start,
+                span,
+                min_content: min + margin,
+                max_content: max + margin,
             }
         })
         .collect()
@@ -506,6 +541,7 @@ pub(crate) fn effective_justify(
 ) -> JustifyItems {
     match justify_self {
         JustifySelf::Auto => container_justify_items,
+        JustifySelf::Normal => JustifyItems::Normal,
         JustifySelf::Start => JustifyItems::Start,
         JustifySelf::End => JustifyItems::End,
         JustifySelf::Center => JustifyItems::Center,
@@ -534,6 +570,7 @@ pub fn compute_grid_intrinsic(
     // Expand track lists (use 0.0 as available space for intrinsic sizing).
     let col_section = style.grid_template_columns.expand_with_names(0.0, 0.0);
     let row_section = style.grid_template_rows.expand_with_names(0.0, 0.0);
+    // #11-intrinsic-contribution-producer: area-defined tracks are missing from the intrinsic count.
     let explicit_cols = col_section.tracks.len();
     let explicit_rows = row_section.tracks.len();
 
@@ -545,9 +582,7 @@ pub fn compute_grid_intrinsic(
 
     // Collect and place items
     let mut items = collect_grid_items(dom, children, &style);
-    if items.is_empty() {
-        return elidex_layout_block::IntrinsicSizes::default();
-    }
+    // CSS Grid 2 §5.2: empty explicit tracks still contribute to intrinsic size.
     items.sort_by(|a, b| {
         a.order
             .cmp(&b.order)
@@ -572,12 +607,34 @@ pub fn compute_grid_intrinsic(
         &row_name_map,
     );
 
-    // Measure content sizes (min-content + max-content probes)
-    let probe = LayoutInput::probe(env, 0.0);
-    measure_item_content(dom, &mut items, 0.0, &probe, env.layout_child);
-
-    // Build column contributions from actual placement
-    let col_contribs = build_contributions(&items, true);
+    // Intrinsic track contributions use the child's content and outer edges
+    // even when the grid has no definite available size (Grid 2 §12.3).
+    let deeper = env.deeper();
+    let col_contribs: Vec<_> = items
+        .iter()
+        .map(|item| {
+            let sizes = elidex_layout_block::intrinsic::intrinsic_on_parent_axis(
+                dom,
+                item.entity,
+                style.writing_mode.is_horizontal(),
+                &deeper,
+                compute_grid_intrinsic,
+            );
+            let child_style = elidex_layout_block::get_style(dom, item.entity);
+            let margins = elidex_layout_block::resolve_margins(&child_style, 0.);
+            let inline_margin = if style.writing_mode.is_horizontal() {
+                margins.horizontal()
+            } else {
+                margins.vertical()
+            };
+            track::TrackContribution {
+                start: item.col_start,
+                span: item.col_span,
+                min_content: sizes.min_content + inline_margin,
+                max_content: sizes.max_content + inline_margin,
+            }
+        })
+        .collect();
 
     // Determine actual column count
     let actual_cols = items
@@ -585,8 +642,7 @@ pub fn compute_grid_intrinsic(
         .map(|item| item.col_start + item.col_span)
         .max()
         .unwrap_or(explicit_cols)
-        .max(explicit_cols)
-        .max(1);
+        .max(explicit_cols);
 
     // Resolve column tracks using the track sizing algorithm.
     // CSS Grid §7.2.1: in intrinsic sizing (available = 0), percentage tracks
@@ -594,23 +650,32 @@ pub fn compute_grid_intrinsic(
     let col_defs =
         build_track_definitions(&col_section.tracks, &style.grid_auto_columns, actual_cols);
     let col_defs = percentage_tracks_to_auto(col_defs);
-    let col_tracks = track::resolve_tracks(&col_defs, 0.0, 0.0, &col_contribs, false);
-
     let gap = elidex_layout_block::resolve_dimension_value(style.column_gap, 0.0, 0.0).max(0.0);
-    let gap_total = if actual_cols > 1 {
-        elidex_layout_block::total_gap(actual_cols, gap)
-    } else {
-        0.0
-    };
-
-    // min-content: sum of base sizes (min-content contributions)
-    let min: f32 = col_tracks.iter().map(|t| t.base).sum();
-    // max-content: sum of limit sizes (max-content contributions)
-    let max: f32 = col_tracks.iter().map(|t| t.limit.max(t.base)).sum();
-
+    let mut col_tracks = track::resolve_tracks(&col_defs, 0.0, gap, &col_contribs, false);
+    if style.grid_template_columns.is_auto_fit() {
+        crate::collapse_empty_auto_tracks(
+            &mut col_tracks,
+            &style.grid_template_columns,
+            0.0,
+            gap,
+            &items,
+            true,
+        );
+    }
+    for track in &mut col_tracks {
+        track.size = track.base;
+    }
+    let min_content = track::total_track_size(&col_tracks, gap);
+    for track in &mut col_tracks {
+        // With no contributions an unbounded growth limit adds no content.
+        // #11-intrinsic-contribution-producer: an unrelated item can leave an empty fr track unbounded.
+        if !items.is_empty() || track.limit.is_finite() {
+            track.size = track.limit.max(track.base);
+        }
+    }
     elidex_layout_block::IntrinsicSizes {
-        min_content: min + gap_total,
-        max_content: max + gap_total,
+        min_content,
+        max_content: track::total_track_size(&col_tracks, gap),
     }
 }
 

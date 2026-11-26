@@ -79,7 +79,7 @@ driver が書くのは lane SSoT の冒頭 block と、自分の PR・branch・p
 - **user に直接聞くのは PM の名が `ListAgents` に無い時だけ**。
 - harness の許可ダイアログは、この session の user が答えるもの。PM 経由で迂回しない。
 - **repo `CLAUDE.md` の文言**: 最終文言と前後の diff を PM に送る。その後の流れの正は `/pm` §3.4。
-- **聞く前に**: `~/.claude/CLAUDE.md`「判断と確認」(lens block、規則の読みの先例) と `/pm` §3.3 の 3 (手段の前に目的)・
+- **聞く前に**: `~/.claude/CLAUDE.md`「判断と確認」(lens block、規則の読みの先例) と `/pm` §3.3 の 4 (手段の前に目的)・
   6 (lens が棄却する案を選択肢に混ぜない) を自分の問いに当てる。
 - **決定番号は PM だけが引く**。lane の記録・報告に書く PM 番号は PM の返信にあった番号だけ
   (memory `feedback_driver-merge-needs-pm-go-and-no-decision-numbers.md`、PM 519)。

@@ -111,6 +111,7 @@ pub(super) fn contribution_input<'a>(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: None,
         fragmentainer: Some(frag),
         break_token: None,

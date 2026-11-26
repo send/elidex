@@ -264,8 +264,11 @@ impl VmInner {
 /// on its own input paths). The old element's `FocusValueSnapshot` is
 /// deliberately left intact (not consumed) rather than discarded, so that once
 /// the slot lands the deferred dispatch can still read its first-focus value
-/// and mark and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
-/// is accepted and ignored (spec polish).
+/// and mark and fire `change`.
+///
+/// Defect (#11-html-focus-options-ignored): this method ignores its options.
+/// HTML `focus(options)` steps 3–4 consult `focusVisible` to decide whether
+/// to indicate focus and scroll the element into view when `preventScroll` is false.
 fn native_html_element_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -624,12 +627,9 @@ fn native_enter_key_hint_set(
 
 // ---- contentEditable / isContentEditable ----
 //
-// WHATWG §6.7.3: `contentEditable` is a DOMString enumerated
-// reflecting the content attribute; missing value is `"inherit"`,
-// invalid is also treated as the missing-state per spec (§6.7.3.2).
-// `isContentEditable` is a readonly boolean that resolves the
-// effective state by walking ancestors — spec inherits from
-// `<html>` (which defaults to `false`).
+// HTML §6.8.1 maps missing and invalid content attribute values to "inherit".
+// Getter defect (#11-contenteditable-idl-accessors): the empty attribute has
+// the True state and must yield "true". The keyword lookup yields "inherit".
 fn native_content_editable_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -649,6 +649,10 @@ fn native_content_editable_set(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Setter defect (#11-contenteditable-idl-accessors): this stores the string
+    // verbatim. HTML §6.8.1 matches keywords ASCII case-insensitively, removes
+    // the attribute for "inherit", writes "true", "false" or "plaintext-only"
+    // in lowercase, and throws a SyntaxError DOMException for any other value.
     string_reflect_set(ctx, this, args, "contentEditable", "contenteditable")
 }
 
@@ -658,7 +662,8 @@ fn native_is_content_editable_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "isContentEditable")?;
-    // HTML §6.7.3 ancestor-walk algorithm hoisted to elidex-dom-api
+    // HTML §6.8.1 tests whether the element is an editing host or editable.
+    // The VM delegates its ancestor walk to elidex-dom-api
     // per the architectural Layering mandate (slot
     // `#11-tags-T1-v2-drift-hoist` D-5).
     let value = elidex_dom_api::element::is_content_editable(ctx.host().dom(), entity);
@@ -835,16 +840,17 @@ fn native_translate_set(
     Ok(JsValue::Undefined)
 }
 
-// ---- spellcheck (true / false, defaults to true unless inherited false) ----
+// ---- spellcheck ----
 fn native_spellcheck_get(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "spellcheck")?;
-    // §6.8.6 default-true: attr "true" / "" → true, "false" → false,
-    // missing / other → true (Phase 2 simplification; inheritance
-    // from ancestors is the spec rule but browsers diverge).
+    // Defect (#11-spellcheck-inherit-state): the getter returns true for a
+    // missing or invalid attribute. HTML §6.8.6 puts both in the Default
+    // state. An inherit-by-default child inherits its parent's spellcheck
+    // value, which can be false.
     let result = ctx
         .host()
         .dom()

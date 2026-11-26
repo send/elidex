@@ -325,9 +325,10 @@ pub(in crate::vm) fn call_wasm_exported_function(
 /// algorithm.
 ///
 /// - `I32`: `ToInt32` per JS coerce rules (Number input, mod-2^32).
-/// - `I64`: `ToBigInt64` per JS coerce rules; accepts BigInt only
-///   (low-64 two's-complement slice).  Number / undefined / null /
-///   Symbol throw TypeError per strict ToBigInt semantics.
+/// - `I64`: `ToBigInt64` (§7.1.17) uses `ToBigInt` (§7.1.15), then takes the
+///   signed low 64 bits. BigInts, booleans and strings accepted by `StringToBigInt`
+///   are valid primitive inputs. A Number throws TypeError. The VM’s string parser
+///   rejects the empty string where §7.1.16 requires 0n (#11-vm-strict-bigint-empty-string).
 /// - `F32` / `F64`: `ToNumber`.
 /// - `V128`: synchronous TypeError per F1 F13 (no JS surface to
 ///   construct a v128 value).
@@ -351,10 +352,7 @@ fn js_value_to_wasm_value(
             Ok(WasmValue::I32(f64_to_int32(n)))
         }
         WasmValueType::I64 => {
-            // ECMA-262 §7.1.16 ToBigInt64 via the shared helper —
-            // accepts BigInt (low-64 two's-complement slice), throws
-            // TypeError on Number / undefined / null / Symbol per
-            // strict ToBigInt semantics.
+            // The shared helper implements the ToBigInt64 conversion described above.
             Ok(WasmValue::I64(to_bigint64(ctx, val)?))
         }
         WasmValueType::F32 => {

@@ -1,3 +1,5 @@
+mod placed_continuation;
+
 use super::source_contributions::contribution_input;
 use super::*;
 
@@ -875,6 +877,7 @@ fn grid_item_box(
         &mut dom,
         Some(item),
         ComputedStyle {
+            width: Dimension::Length(80.0),
             margin_bottom: Dimension::Length(12.0),
             ..sized(Display::Block, 10.0)
         },

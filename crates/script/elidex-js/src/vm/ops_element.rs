@@ -17,20 +17,22 @@
 //!
 //! ## TypedArray key classification
 //!
-//! ECMA-262 §10.4.5 + §7.1.22 (`CanonicalNumericIndexString`) splits
+//! ECMA-262 §10.4.5 + §7.1.23 (`CanonicalNumericIndexString`) splits
 //! property keys against a TypedArray receiver into three buckets:
 //!
 //! - **`IntegerIndex(u32)`** — non-negative integer in `[0, u32::MAX]`.
 //!   In-range writes go through
 //!   `super::host::typed_array::write_element_raw` (engine-only); reads through
 //!   `super::host::typed_array::read_element_raw` (engine-only).  Out-of-range
-//!   reads return `undefined`; out-of-range writes are silent no-ops
-//!   (§10.4.5.18 step 3).
+//!   reads return undefined and writes leave storage unchanged. Known VM P4
+//!   conversion-order defect: indices beyond the stored count return before
+//!   RHS conversion (§10.4.5.18 steps 1–2). For an index within that count,
+//!   the raw writer converts the RHS before checking for a detached buffer.
 //! - **`CanonicalNonInteger`** — canonical numeric string that ISN'T a
 //!   valid integer index (`"-0"` / `"NaN"` / `"Infinity"` /
 //!   `"-Infinity"` / negative integer / fractional / exponential with
-//!   canonical round-trip).  Reads return `undefined`; writes are
-//!   silent no-ops; neither path creates an ordinary own property.
+//!   canonical round-trip). Reads return `undefined`. Writes skip the store
+//!   and create no own property. The VM also skips the required RHS conversion.
 //! - **`NotNumeric`** — falls through to ordinary property storage.
 //!
 //! The classification helpers (`classify_typed_array_number_key` /
@@ -46,21 +48,20 @@ use super::VmInner;
 use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
 /// Classification of a WTF-16 string key against the TypedArray
-/// integer-indexed exotic object contract (ECMA-262 §10.4.5 + §7.1.22
+/// integer-indexed exotic object contract (ECMA-262 §10.4.5 + §7.1.23
 /// `CanonicalNumericIndexString`).
 #[cfg(feature = "engine")]
 enum TypedArrayStringKey {
     /// Non-negative integer in [0, u32::MAX].  Dispatches to
     /// `read_element_raw` / `write_element_raw`.  If the caller's
-    /// length check fails, Get returns `undefined` and Set is a
-    /// silent no-op.
+    /// stored-count check fails, Get returns `undefined` and Set skips the
+    /// store. See the module’s conversion-order defect.
     IntegerIndex(u32),
     /// Canonical numeric string that is NOT a valid integer index
     /// (`"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"`, negative
     /// integer, fractional, exponential with canonical round-trip).
-    /// TypedArray Get returns `undefined`; Set is a silent no-op;
-    /// neither creates an ordinary property (§10.4.5.17 step 1 /
-    /// §10.4.5.18 step 3).
+    /// Get returns `undefined` (§10.4.5.17 step 1). Set skips the store
+    /// (§10.4.5.18 step 3). The VM returns before steps 1–2 convert the RHS.
     CanonicalNonInteger,
     /// Not a canonical numeric string — falls through to ordinary
     /// property storage.
@@ -72,7 +73,8 @@ enum TypedArrayStringKey {
 /// non-negative integers up to `u32::MAX` map to their index; all
 /// other numeric forms (`NaN`, ±`Infinity`, negative, fractional,
 /// out-of-u32-range) are canonical-numeric-but-not-integer, which
-/// §10.4.5.15/16 short-circuit to `undefined` / silent no-op.
+/// yield undefined on read (§10.4.5.17 step 1) and skip the store
+/// (§10.4.5.18 step 3).
 #[cfg(feature = "engine")]
 fn classify_typed_array_number_key(n: f64) -> TypedArrayStringKey {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -117,7 +119,7 @@ fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArra
         if let Some(idx) = parse_typed_array_index_u32(units) {
             return TypedArrayStringKey::IntegerIndex(idx);
         }
-        // ECMA-262 §7.1.22 step 1 hard-codes `"-0"` as canonical numeric
+        // ECMA-262 §7.1.23 step 1 hard-codes `"-0"` as canonical numeric
         // (returns -0) even though ToString(-0) = "0" — the round-trip
         // check below would otherwise miss it.
         if units == [u16::from(b'-'), u16::from(b'0')] {
@@ -196,13 +198,9 @@ impl VmInner {
         // §7.2.1 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
-            // TypedArray integer-indexed get (ECMA-262 §10.4.5.17).  Must
-            // run ahead of the generic numeric fast path so any
-            // CanonicalNumericIndexString Number key — including
-            // `NaN` / ±`Infinity` / negative / fractional /
-            // out-of-u32-range values rejected by `try_as_array_index`
-            // — short-circuits to `undefined` without consulting
-            // ordinary properties or the prototype chain.
+            // A Number key on a TypedArray uses indexed access before ordinary
+            // lookup. A valid index reads its element. An invalid index returns
+            // undefined (§10.4.5.17 step 1), including NaN and fractions.
             #[cfg(feature = "engine")]
             if let JsValue::Number(n) = key {
                 if let ObjectKind::TypedArray {
@@ -445,12 +443,9 @@ impl VmInner {
                     }
                 }
             }
-            // String numeric key on TypedArray — ECMA-262 §10.4.5 integer-
-            // indexed exotic dispatch.  Any CanonicalNumericIndexString
-            // (§7.1.22) — including `"-0"` / `"Infinity"` / `"NaN"` /
-            // negative integer / fractional — short-circuits to
-            // `undefined` rather than falling through to ordinary
-            // property access.
+            // A canonical numeric string (§7.1.23) bypasses ordinary lookup.
+            // A valid index such as "0" reads the element. Invalid indices,
+            // including "-0" and "NaN", return undefined (§10.4.5.17 step 1).
             #[cfg(feature = "engine")]
             {
                 if let ObjectKind::TypedArray {
@@ -602,9 +597,9 @@ impl VmInner {
 
     /// TypedArray integer-indexed-write fast path (ECMA-262 §10.4.5.18
     /// `TypedArraySetElement`).  Returns `Some(Ok(()))` when the
-    /// receiver is a TypedArray and `key` resolves to a canonical
-    /// integer index (in-range write or silent out-of-range no-op);
-    /// `Some(Err(…))` on coercion failure; `None` to defer to the
+    /// receiver handles the indexed assignment successfully, including the
+    /// early returns described above. Returns `Some(Err(…))` on conversion
+    /// failure and `None` to defer to the
     /// ordinary property path.  Keeps `set_element` under the
     /// 100-line clippy limit while preserving the required
     /// precedence ahead of Array / Arguments dispatch.
@@ -628,8 +623,8 @@ impl VmInner {
         // (`"01"`, `"1.5e2"`) fall through to ordinary property
         // storage; canonical forms that are NOT valid integer
         // indices — `NaN` / ±`Infinity` / negative / fractional /
-        // out-of-u32-range — are silent no-ops per §10.4.5.16 step 1
-        // and must NOT surface as ordinary own properties.  Objects
+        // out-of-u32-range — fail IsValidIntegerIndex (§10.4.5.16 steps
+        // 2–3 or 8). These returns skip RHS conversion (known VM P4 defect). Objects
         // with a custom `toString` routing to a canonical numeric
         // index string flow through the generic `ToString` branch
         // below; Symbols bypass the TypedArray exotic path and land
@@ -661,9 +656,8 @@ impl VmInner {
         };
         let len_elem = byte_length / u32::from(element_kind.bytes_per_element());
         if idx >= len_elem {
-            // Canonical integer but out-of-range → silent no-op
-            // (§10.4.5.16 step 1).  Does NOT create an own
-            // ordinary property.
+            // IsValidIntegerIndex (§10.4.5.16 step 8) rejects this index.
+            // Known VM P4 defect: this return bypasses RHS conversion.
             return Some(Ok(()));
         }
         // In-range: coerce through `write_element_raw` (handles

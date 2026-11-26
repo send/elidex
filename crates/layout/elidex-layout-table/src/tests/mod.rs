@@ -70,6 +70,7 @@ fn do_layout_table(
         font_db,
         depth,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,

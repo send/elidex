@@ -24,6 +24,12 @@ they belong to the registered DOM §5.x Range renumber sweep (memory `project_do
 part "DOM §5.x Range", PM 882: each cite is re-derived on its own there), which is why `tq` leaves them (not missed;
 §10 item 1's `///`-only limit is the consequence, not the reason).
 
+**Changelog.** *Erratum: the orphan-Text splitText fix* (2026-11-23; no rev bump; carried by the
+`#11-split-text-orphan-live-range-migration` PR, branch `split-text-orphan-live-range`). The orphan-Text `splitText`
+live-range move is fixed: `MutationEvent::SplitText` now fires only inside step 7 (parent non-null). So the §4.2
+split-text row, the census row's "(2) an orphan Text", the §4.2 scoped claim's "except split text on an orphan Text" exception and §10 item 9 describe
+the pre-fix tree (the record at this memo's base); they are not rewritten.
+
 Slice **`tq`** of the umbrella
 [2026-11-tree-model-shadow-root-is-a-root-umbrella.md](2026-11-tree-model-shadow-root-is-a-root-umbrella.md)
 (ratified at `4918a6c7`, PR #648; slice placed by D3, approved PM 820; order tp → tq → ta, and with the

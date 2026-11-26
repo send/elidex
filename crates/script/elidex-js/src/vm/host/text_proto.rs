@@ -59,7 +59,7 @@ impl VmInner {
 // Natives
 // ---------------------------------------------------------------------------
 
-/// `Text.prototype.splitText(offset)` — WHATWG §4.11.
+/// `Text.prototype.splitText(offset)` — WHATWG DOM §4.11 Interface Text.
 ///
 /// Marshalling-only wrapper around the engine-independent
 /// [`elidex_dom_api::char_data::split_text::split_text_at_offset`]
@@ -73,7 +73,8 @@ impl VmInner {
 /// ## Range live-tracking ordering (informational)
 ///
 /// `split_text_at_offset` orchestrates a three-step Range boundary
-/// dance: `insert_before(new_node)` fires
+/// dance (the first two only for a parented Text; see
+/// [`split_text_at_offset`]'s doc): `insert_before(new_node)` fires
 /// [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert)
 /// (parent-side `off > node_idx + 1 → +1`), then `fire_split_text`
 /// carrying the pre-split `parent` + `node_index` fires
@@ -81,7 +82,7 @@ impl VmInner {
 /// (node-side `off > offset → (new_node, off - offset)` + parent-side
 /// `off == node_idx + 1 → +1` delta top-up), then
 /// `set_text_data(head)` truncates the original node. The combined
-/// dispatch sequence implements WHATWG §4.10 step 7 in full when the
+/// dispatch sequence implements WHATWG DOM §4.11 step 7 in full when the
 /// standard [`elidex_dom_api::LiveRangeBridge`] consumer (composed by
 /// [`crate::vm::consumer_dispatcher::ConsumerDispatcher`]) is the installed
 /// dispatcher.  Engines installing a custom dispatcher that ignores

@@ -32,6 +32,7 @@ fn do_layout_table_fragmented(
         font_db,
         depth,
         float_ctx: None,
+        scroll_limits: elidex_layout_block::ScrollLimits::default(),
         viewport: None,
         fragmentainer: fragmentainer.as_ref(),
         break_token: break_token.as_ref(),

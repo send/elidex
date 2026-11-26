@@ -19,8 +19,8 @@
 //!   bound arrow, async function, generator function — all reject
 //!   with TypeError per spec §23.2.2.{1,2} step "If
 //!   IsConstructor(C) is false, throw".
-//! - User-defined subclass — `.of` / `.from` preserve
-//!   `(new Sub.of(...)).constructor === Sub`.
+//! - The tests call Sub.of(...) and Sub.from(...) with a manually linked constructor chain and
+//!   verify the returned instance’s constructor.
 //! - Iterator-getter-once (spec §7.3.10 GetMethod) — observable
 //!   count via `Object.defineProperty`-installed counting getter.
 //! - Deep subclass tower (visited-set termination, no fixed depth
@@ -52,9 +52,8 @@ fn eval_number(vm: &mut Vm, source: &str) -> f64 {
 #[test]
 fn typed_array_of_basic_uint8() {
     let mut vm = Vm::new();
-    // `Uint8Array.of(...items)` — variadic; `length` matches arg
-    // count, each element coerced via the destination kind's
-    // `[[Set]]` (here `ToUint8`).
+    // Of step 6.b writes via TypedArraySetElement. This test observes Uint8 values and the
+    // result length. (%TypedArray%.of §23.2.2.2.)
     assert_eq!(
         eval_number(
             &mut vm,
@@ -148,9 +147,9 @@ fn typed_array_from_array_source() {
 #[test]
 fn typed_array_from_string_iterable() {
     let mut vm = Vm::new();
-    // In this engine, String iteration is by UTF-16 code unit.
-    // Each iteration yields a single-char string; `ToUint8`
-    // coerces it to NaN → 0 for non-numeric chars.
+    // The VM string iterator combines a valid surrogate pair into one element
+    // (natives_symbol.rs:403–411). This test uses ASCII digits, which convert to numbers
+    // totaling 6.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -177,7 +176,7 @@ fn typed_array_from_with_map_fn_doubles_values() {
 fn typed_array_from_array_like_via_length() {
     let mut vm = Vm::new();
     // §23.2.2.1 array-like fallback — when `@@iterator` is absent,
-    // use `LengthOfArrayLike` + integer-indexed `[[Get]]`.
+    // obtain the length and read each index property from the object returned by ToObject.
     assert_eq!(
         eval_number(
             &mut vm,
@@ -231,10 +230,9 @@ fn typed_array_from_non_callable_map_fn_throws_type_error() {
 #[test]
 fn typed_array_from_bigint_subclass() {
     let mut vm = Vm::new();
-    // BigInt64Array source values must be BigInt — the iterator
-    // path passes raw BigInt values through `ToBigInt64` for the
-    // destination kind.  Confirms BigInt subclass dispatch
-    // works.
+    // This iterable supplies BigInts. The destination converts them with
+    // ToBigInt64 (§7.1.17). ToBigInt also accepts booleans and parseable
+    // integer strings. The fixture checks BigInt destination dispatch.
     assert!(eval_bool(
         &mut vm,
         "var a = BigInt64Array.from([1n, 2n, 3n]); \
@@ -320,13 +318,9 @@ fn typed_array_from_rejects_prototype_spoofed_receiver() {
 #[test]
 fn typed_array_of_rejects_async_function_spoof() {
     let mut vm = Vm::new();
-    // Async functions lack `[[Construct]]` per spec
-    // (§15.8.4 AsyncFunction abstract).  Even when the receiver's
-    // `[[Prototype]]` is spoofed to `Uint8Array`, the
-    // IsConstructor gate must reject because the async-function
-    // metadata flags `is_async = true`.  Catches a regression
-    // where `is_constructor` looks only at `this_mode` and
-    // misses the compiled-function flags.
+    // The async function expression has no `[[Construct]]`. Spoofing its prototype leaves the
+    // IsConstructor check in of step 3 false. §15.8.4 describes evaluation of an async
+    // function body.
     assert!(eval_bool(
         &mut vm,
         "var f = async function() {}; \
@@ -340,9 +334,8 @@ fn typed_array_of_rejects_async_function_spoof() {
 #[test]
 fn typed_array_of_rejects_generator_function_spoof() {
     let mut vm = Vm::new();
-    // Generator functions also lack `[[Construct]]`
-    // (§15.5.4 GeneratorFunction abstract).  Same gate as the
-    // async-function case, exercising `is_generator = true`.
+    // The generator function expression created here lacks `[[Construct]]`. Cite
+    // InstantiateGeneratorFunctionExpression §15.5.4 and the IsConstructor check in of step 3.
     assert!(eval_bool(
         &mut vm,
         "var f = function*() {}; \
@@ -356,14 +349,8 @@ fn typed_array_of_rejects_generator_function_spoof() {
 #[test]
 fn typed_array_of_rejects_bound_arrow_spoof() {
     let mut vm = Vm::new();
-    // Bound functions inherit constructability from their target
-    // (ECMA-262 §10.4.1.2 BoundFunction[[Construct]] is set iff the
-    // target has [[Construct]]).  An arrow function target has no
-    // `[[Construct]]`, so the bound wrapper must NOT pass the
-    // IsConstructor gate even when its `[[Prototype]]` is spoofed
-    // to `Uint8Array`.  Catches a regression where the chain walk
-    // accepts BoundFunction unconditionally instead of unwrapping
-    // to inspect the target.
+    // BoundFunctionCreate step 6 installs `[[Construct]]` only when the target has it. Binding
+    // an arrow and spoofing its prototype leaves it nonconstructable. (IsConstructor §7.2.4.)
     assert!(eval_bool(
         &mut vm,
         "var f = (() => {}).bind(null); \
@@ -388,21 +375,12 @@ fn typed_array_of_rejects_bound_arrow_spoof() {
 #[test]
 fn typed_array_of_user_subclass_preserves_constructor_identity() {
     let mut vm = Vm::new();
-    // The receiver of `.of` is a user-defined subclass.  Per spec,
-    // only `IsConstructor(C)` is required; the prototype-chain
-    // walk finds `Uint8Array` (registered in
-    // `subclass_array_ctors`) and the new instance inherits from
-    // `Sub.prototype` so its `.constructor === Sub`.
+    // The VM accepts this manually linked constructor chain and installs its object-valued
+    // prototype. The test checks the resulting identity. Spec of also requires the constructed
+    // result to pass TypedArrayCreateFromConstructor validation.
     //
-    // **Note**: this test sets up the subclass manually
-    // (`Object.setPrototypeOf` + `Object.create(parent.prototype)`)
-    // rather than via `class Sub extends Uint8Array {}`, because
-    // our engine's `class extends` does not currently link
-    // `Sub.__proto__ === Uint8Array` for built-in TypedArray
-    // parents.  That's a separate engine bug; once fixed, the
-    // manual setup here can be replaced with the `class extends`
-    // sugar.  The natives' prototype-chain walk works correctly
-    // for both shapes.
+    // The test explicitly links Sub to Uint8Array and installs Sub.prototype.constructor. It
+    // verifies this linked chain. Class-extends construction linkage is a separate issue.
     assert!(eval_bool(
         &mut vm,
         "function Sub() {} \
@@ -433,29 +411,14 @@ fn typed_array_from_user_subclass_preserves_constructor_identity() {
     ));
 }
 
-// Note: an accessor-`.prototype` regression test isn't reachable
-// from JS in this engine — function `.prototype` data properties
-// are installed non-configurable, so `Object.defineProperty(Sub,
-// 'prototype', {get: ...})` throws "Cannot redefine property:
-// cannot convert between data and accessor" before the static
-// natives ever see the receiver.  The R5 fix routes
-// `receiver_prototype` through `Get(C, "prototype")` semantics
-// (`get_property_value`) so an accessor `.prototype` would be
-// honoured if the engine ever lets one be installed (e.g. once
-// `Reflect.deleteProperty(Sub, 'prototype')` of the auto-installed
-// data property is supported, or for ctors built outside the
-// `function`-declaration path).
+// The non-configurable prototype on this function cannot be converted to an accessor or
+// removed with Reflect.deleteProperty. The helper uses Get and propagates errors.
 
 #[test]
 fn typed_array_of_handles_deep_subclass_tower() {
     let mut vm = Vm::new();
-    // The constructor-prototype walk uses cycle detection (visited
-    // set), not a fixed depth cap, so legitimate deep towers
-    // resolve correctly.  This builds a 6-level chain manually
-    // (mirroring `class A extends Uint8Array {}; class B extends A
-    // {}; class C extends B {}; …`) — a realistic spec-conformant
-    // shape that would have been rejected by an earlier `MAX_DEPTH
-    // = 32` cap as a stand-in for the same regression family.
+    // The walk tracks visited constructors and has no depth cap; this six-level chain
+    // exercises multi-level resolution.
     assert!(eval_bool(
         &mut vm,
         "function L1() {} Object.setPrototypeOf(L1, Uint8Array); \
@@ -483,13 +446,8 @@ fn typed_array_of_handles_deep_subclass_tower() {
 #[test]
 fn typed_array_from_honours_primitive_wrapper_iterator() {
     let mut vm = Vm::new();
-    // Spec `GetMethod(ToObject(source), @@iterator)` — non-Object
-    // primitives are boxed via `ToObject` for the lookup so a
-    // user-installed iterator on the wrapper prototype (here
-    // `Number.prototype`) is honoured.  The pre-fix
-    // `lookup_iterator_method` returned `Undefined` for non-Object
-    // / non-String sources, which fell through to the array-like
-    // branch and ignored the prototype iterator.
+    // GetMethod(source, %Symbol.iterator%) uses GetV. GetV boxes the primitive for lookup and
+    // preserves the source as receiver.
     assert!(eval_bool(
         &mut vm,
         "Number.prototype[Symbol.iterator] = function () { \
@@ -505,24 +463,14 @@ fn typed_array_from_honours_primitive_wrapper_iterator() {
 #[test]
 fn typed_array_of_accepts_bound_typed_array_constructor() {
     let mut vm = Vm::new();
-    // `Uint8Array.bind(...)` is a BoundFunction; spec
-    // `TypedArrayCreate(C, ⟨len⟩)` / `Construct(C, ⟨len⟩)` unwraps
-    // bound chains internally so the underlying ctor is what
-    // resolves the destination ek.  `require_subclass_ctor`
-    // mirrors that by walking `BoundFunction.target` before the
-    // `[[Prototype]]` chain walk.
+    // TypedArrayCreateFromConstructor step 1 calls Construct. Bound `[[Construct]]` delegates
+    // to the target. The VM unwraps bound targets to find the element kind.
+    // (TypedArrayCreateFromConstructor §23.2.4.1.)
     //
-    // **Note**: invoked via `.of.call(Bound, ...)` rather than
-    // `Bound.of(...)` because our engine's `Function.prototype.bind`
-    // doesn't currently preserve the target's `[[Prototype]]` on
-    // the wrapper (BoundFunction's `__proto__` ends up as
-    // `Function.prototype`, not the target's `__proto__`), so
-    // property-chain lookup of `.of` from the bound wrapper
-    // returns undefined.  That's a separate engine bug (spec
-    // §10.4.1.4 step 9 sets the bound function's `[[Prototype]]`
-    // to `target.[[GetPrototypeOf]]()`); once fixed, the
-    // `Bound.of(...)` form will work without the explicit
-    // `.call(Bound, ...)` thunk.
+    // Use .of.call(Bound, ...). BoundFunctionCreate steps 1 and 4 obtain and install the
+    // target’s prototype. The wrapper in this VM does not inherit that prototype.
+    // (BoundFunctionCreate §10.4.1.3.)
+    // #11-vm-bound-function-prototype-inheritance
     assert!(eval_bool(
         &mut vm,
         "var Bound = Uint8Array.bind(null); \
@@ -539,6 +487,7 @@ fn typed_array_from_accepts_bound_typed_array_constructor() {
     // accept a bound TypedArray constructor receiver via the
     // BoundFunction unwrap.  Same `.from.call(...)` workaround
     // for the engine's bind-prototype gap.
+    // #11-vm-bound-function-prototype-inheritance
     assert!(eval_bool(
         &mut vm,
         "var Bound = Float32Array.bind(null); \
@@ -551,15 +500,9 @@ fn typed_array_from_accepts_bound_typed_array_constructor() {
 #[test]
 fn typed_array_from_array_like_allocates_before_indexed_get() {
     let mut vm = Vm::new();
-    // Spec §23.2.2.1 step 8.d: `TypedArrayCreate(C, ⟨len⟩)` runs
-    // BEFORE any per-index `Get(arrayLike, k)` or `mapFn` side
-    // effect.  An over-long `length` (here 0x40000000 elements
-    // × 8 bpe = 0x200000000 bytes — overflows u32) must surface
-    // a `RangeError` from allocation BEFORE the first indexed
-    // getter fires.  Pre-fix `from(array-like)` drained values
-    // first, so a getter side effect on `[0]` would observably
-    // run before the alloc-side RangeError; the regression
-    // hits the same observable ordering bug spec catches.
+    // From step 10 calls TypedArrayCreateFromConstructor before step 12 indexed access and
+    // mapping. The VM rejects the u32 byte product for this Float64Array, and the test checks
+    // RangeError with zero indexed getter calls. (%TypedArray%.from §23.2.2.1.)
     assert!(eval_bool(
         &mut vm,
         "var hits = 0; \
@@ -604,12 +547,8 @@ fn typed_array_from_iterator_receives_source_as_this() {
 #[test]
 fn typed_array_from_invokes_iterator_getter_exactly_once() {
     let mut vm = Vm::new();
-    // Spec §7.3.10 `GetMethod` evaluates the @@iterator getter
-    // exactly once.  The pre-fix impl called `coerce::get_property`
-    // (which runs the getter) AND then `resolve_iterator` (which
-    // runs the getter again internally) — observable as `count
-    // === 2`.  After R1, the single `lookup_iterator_method` pass
-    // runs the getter exactly once.
+    // The getter runs once when resolve_property resolves the result of the property search.
+    // The test observes count === 1.
     assert_eq!(
         eval_number(
             &mut vm,

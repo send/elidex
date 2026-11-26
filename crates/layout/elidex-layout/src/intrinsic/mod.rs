@@ -1,140 +1,20 @@
-//! Intrinsic sizing computation (CSS Sizing Level 3).
-//!
-//! Provides [`compute_intrinsic_sizes`] which computes min-content and
-//! max-content intrinsic sizes for any element, routing to the appropriate
-//! algorithm based on `display` type.
-
-mod block;
-mod table;
-
+//! Intrinsic sizing with the Grid track-sizing formatter.
 use elidex_ecs::{EcsDom, Entity};
-use elidex_layout_block::{
-    composed_children_flat, get_style, inline_pb, sanitize_border, sanitize_padding,
-    IntrinsicSizes, LayoutEnv, MAX_LAYOUT_DEPTH,
-};
-#[cfg(test)]
-use elidex_plugin::WritingMode;
-use elidex_plugin::{BoxSizing, Dimension, Display, WritingModeContext};
+pub use elidex_layout_block::intrinsic::shrink_to_fit_width;
+use elidex_layout_block::{IntrinsicSizes, LayoutEnv};
 
-use block::{compute_block_intrinsic, compute_flex_intrinsic};
-use table::compute_table_intrinsic;
-
-/// Compute min-content and max-content intrinsic inline sizes for an element.
-///
-/// Writing-mode-aware: uses the element's `writing-mode` to determine the
-/// inline axis, so vertical writing modes compute intrinsic sizes along the
-/// vertical (block-flow) direction.
-///
-/// Routes to display-specific intrinsic sizing:
-/// - **Block**: inline children → inline min/max; block children → max of children.
-/// - **Flex row**: nowrap → sum, wrap → max for min-content.
-/// - **Flex column**: max of children's intrinsic widths.
-/// - **Grid**: placement-based per-column track sizing via `elidex-layout-grid`.
-/// - **Table**: cell → column → table (CSS 2.1 §17.5.2).
-/// - **Inline/Text**: delegates to inline measurement.
+/// Compute intrinsic inline sizes including the box's padding and border.
 pub fn compute_intrinsic_sizes(
     dom: &mut EcsDom,
     entity: Entity,
     env: &LayoutEnv<'_>,
 ) -> IntrinsicSizes {
-    if env.depth >= MAX_LAYOUT_DEPTH {
-        return IntrinsicSizes::default();
-    }
-
-    let style = get_style(dom, entity);
-
-    // Container padding + border contribute to intrinsic inline size (CSS Sizing L3 §5).
-    let padding = sanitize_padding(&style);
-    let border = sanitize_border(&style);
-    let wm = WritingModeContext::new(style.writing_mode, style.direction);
-    let pb = inline_pb(&wm, &padding, &border);
-
-    // Check for replaced elements or explicit sizes first.
-    if let Some(sizes) = explicit_intrinsic(dom, entity, &style, pb) {
-        return sizes;
-    }
-
-    let children = composed_children_flat(dom, entity);
-
-    if children.is_empty() {
-        return IntrinsicSizes {
-            min_content: pb,
-            max_content: pb,
-        };
-    }
-
-    let content = match style.display {
-        Display::Flex | Display::InlineFlex => compute_flex_intrinsic(dom, entity, &children, env),
-        Display::Grid | Display::InlineGrid => {
-            elidex_layout_grid::compute_grid_intrinsic(dom, entity, &children, env)
-        }
-        Display::Table | Display::InlineTable => {
-            compute_table_intrinsic(dom, entity, &children, env)
-        }
-        _ => compute_block_intrinsic(dom, entity, &children, env),
-    };
-
-    IntrinsicSizes {
-        min_content: content.min_content + pb,
-        max_content: content.max_content + pb,
-    }
-}
-
-/// Return intrinsic sizes for replaced elements or elements with explicit inline-axis size.
-///
-/// Replaced elements (images, form controls) have intrinsic dimensions.
-/// Elements with explicit inline-axis dimension (`width` in horizontal-tb,
-/// `height` in vertical modes) use that as both min and max content.
-fn explicit_intrinsic(
-    dom: &EcsDom,
-    entity: Entity,
-    style: &elidex_plugin::ComputedStyle,
-    pb: f32,
-) -> Option<IntrinsicSizes> {
-    let inline_horizontal =
-        WritingModeContext::new(style.writing_mode, style.direction).is_horizontal();
-
-    // Replaced elements: use intrinsic image/form dimensions (inline-axis).
-    if let Some(intr) = elidex_layout_block::get_intrinsic_size(dom, entity) {
-        let inline_size = if inline_horizontal {
-            intr.width
-        } else {
-            intr.height
-        };
-        return Some(IntrinsicSizes {
-            min_content: inline_size + pb,
-            max_content: inline_size + pb,
-        });
-    }
-    // Explicit inline-axis dimension: acts as both min-content and max-content.
-    let explicit_dim = if inline_horizontal {
-        style.width
-    } else {
-        style.height
-    };
-    if let Dimension::Length(len) = explicit_dim {
-        // border-box: dimension already includes padding+border.
-        let size = if style.box_sizing == BoxSizing::BorderBox {
-            len
-        } else {
-            len + pb
-        };
-        return Some(IntrinsicSizes {
-            min_content: size,
-            max_content: size,
-        });
-    }
-    None
-}
-
-/// Compute shrink-to-fit width for inline-level containers.
-///
-/// CSS 2.1 §10.3.5: shrink-to-fit width = min(max-content, max(min-content, `available_width`)).
-#[must_use]
-pub fn shrink_to_fit_width(intrinsic: &IntrinsicSizes, available_width: f32) -> f32 {
-    intrinsic
-        .max_content
-        .min(intrinsic.min_content.max(available_width))
+    elidex_layout_block::intrinsic::compute_intrinsic_sizes(
+        dom,
+        entity,
+        env,
+        elidex_layout_grid::compute_grid_intrinsic,
+    )
 }
 
 #[cfg(test)]
@@ -143,6 +23,7 @@ mod tests {
     use crate::layout::dispatch_layout_child;
     use elidex_ecs::Attributes;
     use elidex_plugin::{ComputedStyle, Dimension, FlexDirection, FlexWrap};
+    use elidex_plugin::{Display, WritingMode};
     use elidex_text::FontDatabase;
 
     fn test_env(font_db: &FontDatabase) -> LayoutEnv<'_> {
@@ -150,6 +31,7 @@ mod tests {
             font_db,
             layout_child: dispatch_layout_child,
             depth: 0,
+            scroll_limits: elidex_layout_block::ScrollLimits::default(),
             viewport: None,
             layout_generation: 0,
             medium: elidex_plugin::Medium::Screen,
@@ -444,8 +326,7 @@ mod tests {
 
         let font_db = FontDatabase::new();
         let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
-        assert!(sizes.min_content >= 60.0);
-        assert!(sizes.max_content >= sizes.min_content);
+        assert_eq!((sizes.min_content, sizes.max_content), (140., 140.));
     }
 
     #[test]
@@ -487,8 +368,7 @@ mod tests {
 
         let font_db = FontDatabase::new();
         let sizes = compute_intrinsic_sizes(&mut dom, flex, &test_env(&font_db));
-        assert!(sizes.min_content >= 40.0);
-        assert!(sizes.max_content >= sizes.min_content);
+        assert_eq!((sizes.min_content, sizes.max_content), (70., 70.));
     }
 
     #[test]

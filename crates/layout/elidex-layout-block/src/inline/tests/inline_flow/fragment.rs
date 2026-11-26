@@ -210,6 +210,7 @@ fn multicol_nested_in_paged_stamps_page_generation() {
         font_db: &font_db,
         layout_child: crate::layout_block_only,
         depth: 0,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         layout_generation: 2, // multicol on page 2
         medium: elidex_plugin::Medium::Screen,

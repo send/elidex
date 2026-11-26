@@ -491,6 +491,7 @@ fn build_column_input<'a>(
         font_db: input.font_db,
         depth: input.depth + 1,
         float_ctx: None, // Each column establishes an independent block formatting context (§2).
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         fragmentainer: Some(frag_ctx),
         break_token,

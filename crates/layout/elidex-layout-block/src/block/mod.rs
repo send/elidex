@@ -11,7 +11,7 @@ mod margin;
 mod replaced;
 mod sizing;
 use sizing::AxisSizing;
-pub use sizing::GridItemSizing;
+pub use sizing::{fit_inline_content, GridItemSizing};
 
 #[cfg(test)]
 #[allow(unused_must_use)]
@@ -92,6 +92,7 @@ pub fn layout_block(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,
@@ -130,6 +131,7 @@ pub fn layout_block_with_height(
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,
@@ -171,8 +173,6 @@ pub fn layout_block_inner(
     let input = &input.resolve_item(&style);
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
     let is_horizontal = wm.is_horizontal();
-
-    let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal);
 
     // --- Containing dimensions for inline and block axes ---
     // `containing_inline` is for margin/padding % (CSS Box Model L3 §5.3),
@@ -262,6 +262,14 @@ pub fn layout_block_inner(
         .zip(input.assigned.content.height)
         .map(|(w, h)| elidex_plugin::Size::new(w, h));
     let intrinsic = crate::helpers::replaced_size(dom, entity, established);
+    // CSS 2.1 §10.3.2: the replaced sizing algorithm resolves an auto inline
+    // dimension from the opposite axis. An intrinsic fit is only an available size.
+    let mut sizing = input.assigned;
+    if intrinsic.is_some() && matches!(sizing.fit, crate::FitTarget::ShrinkToFit(_)) {
+        sizing.fit = crate::FitTarget::None;
+    }
+    let (assigned_inline, assigned_block) = sizing.axes(is_horizontal);
+    let target = sizing.target();
 
     // --- Resolve inline-size ---
     // CSS: `width` and `height` are physical properties. In vertical modes,
@@ -285,25 +293,12 @@ pub fn layout_block_inner(
         size
     } else if let Some(intr) = intrinsic {
         // Replaced element: resolve physical dimensions, then extract inline-axis.
-        let phys_w = resolve_replaced_width(
-            &style,
-            width_reference,
-            intr,
-            input.assigned.content,
-            &padding,
-            &border,
-        );
+        let phys_w =
+            resolve_replaced_width(&style, width_reference, intr, target, &padding, &border);
         if is_horizontal {
             phys_w
         } else {
-            resolve_replaced_height(
-                &style,
-                phys_w,
-                intr,
-                input.assigned.content,
-                &padding,
-                &border,
-            )
+            resolve_replaced_height(&style, phys_w, intr, target, &padding, &border)
         }
     } else {
         AxisSizing::new(&style, is_horizontal).preferred(
@@ -510,23 +505,9 @@ pub fn layout_block_inner(
         if let Some(size) = assigned_block {
             size
         } else if is_horizontal {
-            resolve_replaced_height(
-                &style,
-                content_inline,
-                intr,
-                input.assigned.content,
-                &padding,
-                &border,
-            )
+            resolve_replaced_height(&style, content_inline, intr, target, &padding, &border)
         } else {
-            resolve_replaced_width(
-                &style,
-                width_reference,
-                intr,
-                input.assigned.content,
-                &padding,
-                &border,
-            )
+            resolve_replaced_width(&style, width_reference, intr, target, &padding, &border)
         }
     } else if children.is_empty() || depth >= MAX_LAYOUT_DEPTH {
         0.0
@@ -559,6 +540,7 @@ pub fn layout_block_inner(
             font_db,
             depth: depth + 1,
             float_ctx: input.float_ctx,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             fragmentainer: child_fragmentainer.as_ref(),
             break_token: child_bt_for_stack,
@@ -812,6 +794,7 @@ pub fn layout_block_inner(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,

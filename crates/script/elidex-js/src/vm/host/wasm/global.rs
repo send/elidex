@@ -256,8 +256,9 @@ fn js_value_to_wasm_value(
             Ok(WasmValue::I32(f64_to_int32(n)))
         }
         WasmValueType::I64 => {
-            // ECMA-262 §7.1.16 ToBigInt64 — BigInt-only per strict
-            // ToBigInt; Number rejected with TypeError.
+            // ToBigInt64 (§7.1.17) accepts booleans and strings parsed by StringToBigInt
+            // (§7.1.16). VM defect: the shared helper rejects the empty string, which
+            // the specification converts to 0n (#11-vm-strict-bigint-empty-string). A Number throws TypeError.
             Ok(WasmValue::I64(to_bigint64(ctx, val)?))
         }
         WasmValueType::F32 => {

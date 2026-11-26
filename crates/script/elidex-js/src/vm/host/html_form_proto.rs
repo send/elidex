@@ -258,7 +258,7 @@ form_string_attr!(
 );
 form_string_attr!(form_get_rel, form_set_rel, "rel", "rel");
 
-// `form.method` — HTML §4.10.18.6: enumerated keyword attribute,
+// `form.method` — HTML §4.10.19.6: enumerated keyword attribute,
 // values `get` / `post` / `dialog`, missing-value default = "get",
 // invalid-value default = "get".  Setter stores the raw value
 // (which `value` returns the next time the IDL getter normalises).
@@ -295,7 +295,7 @@ fn form_set_method(
     Ok(JsValue::Undefined)
 }
 
-// `form.enctype` — HTML §4.10.18.6: enumerated keyword attribute,
+// `form.enctype` — HTML §4.10.19.6: enumerated keyword attribute,
 // values `application/x-www-form-urlencoded` / `multipart/form-data`
 // / `text/plain`, missing- and invalid-value default both
 // `application/x-www-form-urlencoded`.

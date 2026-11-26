@@ -64,6 +64,7 @@ fn multi_style_line_height_uses_max() {
         font_db: &font_db,
         layout_child: crate::layout_block_only,
         depth: 0,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         layout_generation: 0,
         medium: elidex_plugin::Medium::Screen,

@@ -505,26 +505,10 @@ fn builtin_parser(name: &str) -> Option<BuiltinParser> {
                 ],
             )
         },
-        "align-items" => |name, input| {
-            parse_keyword_property(
-                input,
-                name,
-                &["stretch", "flex-start", "flex-end", "center", "baseline"],
-            )
-        },
-        "align-self" => |name, input| {
-            parse_keyword_property(
-                input,
-                name,
-                &[
-                    "auto",
-                    "stretch",
-                    "flex-start",
-                    "flex-end",
-                    "center",
-                    "baseline",
-                ],
-            )
+        "align-items" | "align-self" | "justify-items" | "justify-self" => |name, input| {
+            elidex_plugin::css_resolve::parse_item_alignment(name, input)
+                .map(|value| single_decl(name, value))
+                .unwrap_or_default()
         },
         "align-content" => |name, input| {
             parse_keyword_property(

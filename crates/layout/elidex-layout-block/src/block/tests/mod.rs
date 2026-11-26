@@ -98,6 +98,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
         font_db,
         depth: 0,
         float_ctx: None,
+        scroll_limits: crate::ScrollLimits::default(),
         viewport: None,
         fragmentainer: None,
         break_token: None,

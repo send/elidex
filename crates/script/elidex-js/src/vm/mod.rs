@@ -1117,7 +1117,7 @@ pub(crate) struct VmInner {
     /// double IDL) + `labels` stub.
     #[cfg(feature = "engine")]
     pub(crate) html_meter_prototype: Option<ObjectId>,
-    /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
+    /// `HTMLFormControlsCollection.prototype` (HTML §2.6.4.2) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a
     /// prototype chained to `HTMLCollection.prototype` with a
@@ -1128,7 +1128,7 @@ pub(crate) struct VmInner {
     /// when the proper register fn lands.
     #[cfg(feature = "engine")]
     pub(crate) html_form_controls_collection_prototype: Option<ObjectId>,
-    /// `HTMLOptionsCollection.prototype` (HTML §4.10.10.2) —
+    /// `HTMLOptionsCollection.prototype` (HTML §2.6.4.3) —
     /// reserved-not-yet-registered slot.  Will host the mutable
     /// surface (`length` setter / `add` / `remove` / `selectedIndex`)
     /// when the `#11-options-collection-mutable-surface` defer slot
@@ -1496,11 +1496,11 @@ pub(crate) struct VmInner {
     /// own-data slots (reuses the UA-dispatch `close_event` shape).
     #[cfg(feature = "engine")]
     pub(crate) close_event_prototype: Option<ObjectId>,
-    /// `SubmitEvent.prototype` (HTML §4.10.21.5.5).  Chains to
+    /// `SubmitEvent.prototype` (HTML §4.10.22.10).  Chains to
     /// [`event_prototype`].  Adds `submitter` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) submit_event_prototype: Option<ObjectId>,
-    /// `FormDataEvent.prototype` (HTML §4.10.21.5.4).  Chains to
+    /// `FormDataEvent.prototype` (HTML §4.10.22.11).  Chains to
     /// [`event_prototype`].  Adds `formData` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) formdata_event_prototype: Option<ObjectId>,
@@ -1752,8 +1752,8 @@ pub(crate) struct VmInner {
     /// runs on a given Request / Response, AND by the
     /// `Response.body` / `Request.body` getter the first time it
     /// materialises the lazy stream (Phase-2 simplification —
-    /// spec defers this until an actual chunk is read; M4-13
-    /// spec-polish moves the flag to the reader-read path).  A
+    /// spec defers this until an actual chunk is read;
+    /// #11-vm-fetch-body-disturbed-on-body-getter moves the flag to the reader-read path).  A
     /// second consumer then rejects with `TypeError`.
     ///
     /// `locked` is **not** a separate slot — it is derived from

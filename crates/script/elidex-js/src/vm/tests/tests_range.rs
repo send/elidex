@@ -512,3 +512,61 @@ fn range_to_string_skips_shadow_tree_text_p3b() {
 fn range_to_string_skips_shadow_tree_text_p3c() {
     range_to_string_over_host(LightShape::LightAfter, "reLIGHTpo");
 }
+
+// ---------------------------------------------------------------------------
+// `splitText` live-range migration — DOM §4.11 *split a Text node* step 7
+// ("If parent is non-null") holds 7.2 / 7.3; an orphan Text only gets step 8
+// (*replace data* clamp).
+// ---------------------------------------------------------------------------
+
+/// `[start container is t, start offset, end container is t / n / other, end offset]`.
+const SPLIT_BOUNDS: &str = "[r.startContainer === t ? 't' : r.startContainer === n ? 'n' : '?', \
+     r.startOffset, \
+     r.endContainer === t ? 't' : r.endContainer === n ? 'n' : '?', \
+     r.endOffset].join()";
+
+#[test]
+fn split_text_orphan_range_end_clamps_on_original() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.t = document.createTextNode('0123456789');\
+         globalThis.r = new Range(); r.setStart(t, 2); r.setEnd(t, 8);\
+         globalThis.n = t.splitText(5);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, SPLIT_BOUNDS), "t,2,t,5");
+    assert_eq!(eval_str(&mut vm, "r.toString()"), "234");
+    vm.unbind();
+}
+
+#[test]
+fn split_text_orphan_range_past_offset_collapses_at_split_point() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.t = document.createTextNode('0123456789');\
+         globalThis.r = new Range(); r.setStart(t, 6); r.setEnd(t, 8);\
+         globalThis.n = t.splitText(5);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, SPLIT_BOUNDS), "t,5,t,5");
+    assert_eq!(eval_str(&mut vm, "String(r.collapsed)"), "true");
+    vm.unbind();
+}
+
+#[test]
+fn split_text_parented_range_end_migrates_to_new_node() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.div = document.createElement('div');\
+         globalThis.t = document.createTextNode('0123456789');\
+         div.appendChild(t);\
+         globalThis.r = new Range(); r.setStart(t, 2); r.setEnd(t, 8);\
+         globalThis.n = t.splitText(5);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, SPLIT_BOUNDS), "t,2,n,3");
+    vm.unbind();
+}

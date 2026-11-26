@@ -73,6 +73,8 @@ struct GridItem {
     pb: EdgeSizes,
     /// Align-self for this item.
     align: AlignItems,
+    inline_safety: Option<elidex_plugin::AlignmentSafety>,
+    block_safety: Option<elidex_plugin::AlignmentSafety>,
     /// Justify-self for this item.
     justify: JustifyItems,
     /// Max-content size from initial layout (at container width).
@@ -121,7 +123,7 @@ pub fn layout_grid(
         elidex_layout_block::resolve_box_model(&style, containing_inline);
     let mut margin = input.assigned.margins(margin);
     let h_pb = horizontal_pb(&padding, &border);
-    let content_width = input.assigned.content.width.unwrap_or_else(|| {
+    let content_width = input.assigned.target().width.unwrap_or_else(|| {
         elidex_layout_block::resolve_content_width(
             &style,
             containing_width,
@@ -146,7 +148,7 @@ pub fn layout_grid(
         // Horizontal: inline = width, block = height
         let avail_h = input
             .assigned
-            .content
+            .target()
             .height
             .or_else(|| resolve_explicit_height(&style, containing_height));
         (content_width, avail_h)
@@ -155,26 +157,30 @@ pub fn layout_grid(
         let v_pb = elidex_layout_block::vertical_pb(&padding, &border);
         let v_margin = margin_top + margin_bottom;
         let inline_h = {
-            let auto_val = (containing_inline - v_pb - v_margin).max(0.0);
-            let mut h =
-                elidex_layout_block::sanitize(elidex_layout_block::resolve_dimension_value(
-                    style.height,
-                    containing_inline,
-                    auto_val,
-                ));
-            if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                if let elidex_plugin::Dimension::Length(_)
-                | elidex_plugin::Dimension::Percentage(_) = style.height
-                {
-                    h = (h - v_pb).max(0.0);
+            let available = input.available_height().unwrap_or(containing_inline);
+            let auto_val = (available - v_pb - v_margin).max(0.0);
+            let explicit = match style.height {
+                elidex_plugin::Dimension::Length(px) => Some(px),
+                elidex_plugin::Dimension::Percentage(pct) => {
+                    containing_height.map(|height| height * pct / 100.)
                 }
-            }
-            h
+                elidex_plugin::Dimension::Auto => None,
+            };
+            explicit.map_or(auto_val, |height| {
+                let height = elidex_layout_block::sanitize(height);
+                if style.box_sizing == elidex_plugin::BoxSizing::BorderBox {
+                    (height - v_pb).max(0.)
+                } else {
+                    height
+                }
+            })
         };
         // Block available = content_width (physical width = block direction).
         (
-            input.assigned.content.height.unwrap_or(inline_h),
-            Some(content_width),
+            input.assigned.target().height.unwrap_or(inline_h),
+            input.assigned.target().width.or_else(|| {
+                (style.width != elidex_plugin::Dimension::Auto).then_some(content_width)
+            }),
         )
     };
 
@@ -188,9 +194,9 @@ pub fn layout_grid(
     )
     .max(0.0);
 
-    // An empty fragmented grid can still have outstanding specified block size.
+    // Explicit tracks can size a grid even when it has no children.
     let children = elidex_layout_block::composed_children_flat(dom, entity);
-    if (children.is_empty() && input.fragmentainer.is_none()) || depth >= MAX_LAYOUT_DEPTH {
+    if depth >= MAX_LAYOUT_DEPTH {
         return elidex_layout_block::empty_container_box(
             dom,
             entity,
@@ -199,7 +205,7 @@ pub fn layout_grid(
                 content_width,
                 resolved_height: input
                     .assigned
-                    .content
+                    .target()
                     .height
                     .or_else(|| resolve_explicit_height(&style, containing_height)),
                 padding,
@@ -252,6 +258,7 @@ pub fn layout_grid(
         .filter(|_| row_track_list.is_subgrid())
         .and_then(|parent| parent.row_sizes.as_deref())
         .map(<[_]>::len);
+    // #11-intrinsic-contribution-producer: area-defined tracks are missing from the layout count.
     let explicit_cols = inherited_cols.unwrap_or(expanded_cols.len());
     let explicit_rows = inherited_rows.unwrap_or(expanded_rows.len());
 
@@ -317,11 +324,18 @@ pub fn layout_grid(
     for pass in 0..max_passes {
         // --- 8. Measure content sizes (initial layout) ---
         // Measure at inline-available width (column = inline axis).
-        measure_item_content(dom, &mut items, container_inline_size, input, layout_child);
+        measure_item_content(
+            dom,
+            &mut items,
+            container_inline_size,
+            is_horizontal_wm,
+            input,
+            layout_child,
+        );
 
         // --- Build per-item intrinsic size contributions ---
-        let mut col_contribs = build_contributions(&items, true);
-        let mut row_contribs = build_contributions(&items, false);
+        let mut col_contribs = build_contributions(&items, true, is_horizontal_wm);
+        let mut row_contribs = build_contributions(&items, false, is_horizontal_wm);
 
         // CSS Grid L2 §2.5: subgrid m/b/p contributes to parent track sizing.
         // A subgrid's margin, border, and padding on the subgridded axis are
@@ -553,6 +567,8 @@ pub fn layout_grid(
         row_positions: &row_positions,
         content_origin,
         container_inline_size,
+        block_extent: block_available
+            .unwrap_or_else(|| track::total_track_size(&row_tracks, gap_row)),
         direction: style.direction,
         subgrid_ctx: subgrid_ctx.as_ref(),
         writing_mode: style.writing_mode,
@@ -561,6 +577,7 @@ pub fn layout_grid(
         font_db,
         layout_child,
         depth,
+        scroll_limits: input.scroll_limits,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
         medium: input.medium,
@@ -579,6 +596,7 @@ pub fn layout_grid(
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env, &mut fragment);
     let total_row_size = track::total_track_size(&row_tracks, gap_row);
+    // #11-intrinsic-contribution-producer: vertical used widths can escape min/max limits.
     let mut final_block = block_available.unwrap_or(total_row_size);
     let mut result_break_token = None;
     let contribution = fragment.contribution;
@@ -590,7 +608,7 @@ pub fn layout_grid(
         );
         let content = row_extent.max(fragment.block_extent);
         let interrupted = row_break.is_some() || !fragment.outgoing.is_empty();
-        let target = if is_horizontal_wm || input.assigned.content.width.is_some() {
+        let target = if is_horizontal_wm || input.assigned.target().width.is_some() {
             block_available
         } else {
             match style.width {
@@ -635,7 +653,7 @@ pub fn layout_grid(
     };
 
     // --- 14. LayoutBox ---
-    // Grid container baseline (CSS Grid §4.2).
+    // Grid container baseline (CSS Grid 2 §11.6).
     let first_baseline = grid_baseline;
 
     let lb = LayoutBox {
@@ -685,6 +703,7 @@ pub fn layout_grid(
             font_db,
             layout_child,
             depth,
+            scroll_limits: input.scroll_limits,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
             medium: input.medium,

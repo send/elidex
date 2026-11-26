@@ -77,13 +77,13 @@ number rather than propagating the stale one — Axis-5 MIN.)
 ## 2. Spec basis (webref-verified `ecma262`; re-verify §-number/title at impl)
 
 - **§7.1.4 ToNumber** step 8 (Object case = steps 7-10): `? ToPrimitive(argument, number)` then step 10 `? ToNumber(primitiveValue)`.
-- **§7.1.18 ToString** step 10 (Object case = steps 9-12; step 9 asserts Object): `? ToPrimitive(argument, string)` then step 12 `? ToString(primitiveValue)`.
+- **§7.1.19 ToString** step 10 (Object case = steps 9-12; step 9 asserts Object): `? ToPrimitive(argument, string)` then step 12 `? ToString(primitiveValue)`.
 - **§7.1.1 ToPrimitive** — for an Object (step 1), dispatches an exotic `@@toPrimitive` (**step 1.b**) if present, else **step 1.d → §7.1.1.1 OrdinaryToPrimitive** (calls `valueOf`/`toString` per hint order). This is the sole spec path; there is no "read the wrapper's internal slot" shortcut.
 - **§25.5.4.2 SerializeJSONProperty** step 4 (webref-verified prose): 4.b `[[NumberData]]` → **`? ToNumber(value)`**; 4.c `[[StringData]]` → **`? ToString(value)`**; 4.d `[[BooleanData]]` → `value.[[BooleanData]]` **(direct — no override)**; 4.e `[[BigIntData]]` → `value.[[BigIntData]]` **(direct)**. So JSON's Number/String wrapper unwrap must honor overrides; Boolean/BigInt must **not**.
 - **§25.5.4 JSON.stringify** — the replacer-array PropertyList element coercion (**step 5.b.ii.4.f.i**: `[[StringData]]` **or** `[[NumberData]]` → `? ToString(propertyValue)` — **BOTH → ToString**, not ToNumber) and the `space` argument coercion (**step 6.a** `[[NumberData]]`→`? ToNumber` / **step 6.b** `[[StringData]]`→`? ToString`) are override-honoring (webref-verified, Axis-4 confirmed).
 
 **Asymmetry that any fix must preserve — it is *per-site*, not one rule** (Axis-2 MIN / Axis-5 IMP):
-- **coerce.rs `to_number`/`to_string`**: **all four** wrapper kinds (incl. Boolean/BigInt) route through `ToPrimitive` and **honor the override** — §7.1.4/§7.1.18 draw no per-kind distinction (BigInt-wrapper `to_number` still throws §7.1.4, but only *after* an overridden `valueOf` runs; e.g. `BigInt.prototype.valueOf=()=>42; +Object(1n)` → 42). Removing all four arms is correct; **the fix is symmetric on the coerce side** (§6 must test Boolean/BigInt coerce-override, not only Number/String).
+- **coerce.rs `to_number`/`to_string`**: **all four** wrapper kinds (incl. Boolean/BigInt) route through `ToPrimitive` and **honor the override** — §7.1.4/§7.1.19 draw no per-kind distinction (BigInt-wrapper `to_number` still throws §7.1.4, but only *after* an overridden `valueOf` runs; e.g. `BigInt.prototype.valueOf=()=>42; +Object(1n)` → 42). Removing all four arms is correct; **the fix is symmetric on the coerce side** (§6 must test Boolean/BigInt coerce-override, not only Number/String).
 - **JSON has three distinct Boolean/BigInt dispositions**: SerializeJSONProperty 4.d/4.e read `[[BooleanData]]`/`[[BigIntData]]` **direct** (KEEP); the replacer PropertyList (step 5.b.ii.4) **skips** non-String/Number wrappers; the `space` arg (step 6) leaves a non-Number/String Object as-is (no indent). Only JSON Number/String unwrap coerces.
 A naive "route every wrapper through ToPrimitive everywhere" over-corrects the JSON Boolean/BigInt sites; the fix is **per-arm per the §3 map**, not one blanket rule.
 
@@ -94,7 +94,7 @@ A naive "route every wrapper through ToPrimitive everywhere" over-corrects the J
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | ECMA-262 §7.1.4 ToNumber | step 8 | value is Object | `coerce::to_number` Object arm — remove wrapper fast-path → fallthrough `to_primitive(val,"number")` (`coerce.rs:61-62`) | ✓ | yes (`+wrapper`, `wrapper*n`, unary/bitwise/relational) |
-| ECMA-262 §7.1.18 ToString | step 10 | value is Object | `coerce::to_string` Object arm — remove fast-path → fallthrough `to_primitive(val,"string")` (`coerce.rs:245-246`) | ✓ | yes (template, `+''`, wrapper→string) |
+| ECMA-262 §7.1.19 ToString | step 10 | value is Object | `coerce::to_string` Object arm — remove fast-path → fallthrough `to_primitive(val,"string")` (`coerce.rs:245-246`) | ✓ | yes (template, `String(wrapper)`, wrapper→string) |
 | ECMA-262 §7.1.1 ToPrimitive | step 1.b | exotic `@@toPrimitive` present | `ops.rs::to_primitive` (UNCHANGED — the defer target) | ✓ | yes |
 | ECMA-262 §7.1.1.1 OrdinaryToPrimitive | steps 1-3 | `@@toPrimitive` absent → `valueOf`/`toString` by hint | `ops.rs::ordinary_to_primitive` (UNCHANGED) | ✓ | yes |
 | ECMA-262 §25.5.4.2 SerializeJSONProperty | step 4.b | `[[NumberData]]` | `stringify.rs:91` → `ToNumber(value)` | ✓ | yes (`JSON.stringify(new Number(…))`) |
