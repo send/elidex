@@ -65,6 +65,18 @@ pub(crate) fn collect_grid_items(
         let is_subgrid_cols = child_is_grid && child_style.grid_template_columns.is_subgrid();
         let is_subgrid_rows = child_is_grid && child_style.grid_template_rows.is_subgrid();
 
+        // Grid 2 §11.2: an auto margin on the alignment axis removes
+        // this item from baseline sharing, including baseline displacement.
+        let auto_x = child_style.margin_left == elidex_plugin::Dimension::Auto
+            || child_style.margin_right == elidex_plugin::Dimension::Auto;
+        let auto_y = child_style.margin_top == elidex_plugin::Dimension::Auto
+            || child_style.margin_bottom == elidex_plugin::Dimension::Auto;
+        let (auto_inline, auto_block) = if container_style.writing_mode.is_horizontal() {
+            (auto_x, auto_y)
+        } else {
+            (auto_y, auto_x)
+        };
+
         let (is_subgrid_cols, is_subgrid_rows) = if child_style.writing_mode.is_horizontal()
             == container_style.writing_mode.is_horizontal()
         {
@@ -96,12 +108,14 @@ pub(crate) fn collect_grid_items(
             } else {
                 child_style.align_self_safety
             },
-            align: if is_subgrid_rows {
+            align: if is_subgrid_rows
+                || (auto_block && align == elidex_plugin::AlignItems::Baseline)
+            {
                 elidex_plugin::AlignItems::Start
             } else {
                 align
             },
-            justify: if is_subgrid_cols {
+            justify: if is_subgrid_cols || (auto_inline && justify == JustifyItems::Baseline) {
                 JustifyItems::Start
             } else {
                 justify

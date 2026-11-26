@@ -265,11 +265,22 @@ pub enum ScrollEdge {
 pub struct ScrollLimits {
     pub x: Option<ScrollEdge>,
     pub y: Option<ScrollEdge>,
+    /// Root scroll edges before any descendant scroll container replaced them.
+    viewport_edges: (Option<ScrollEdge>, Option<ScrollEdge>),
     /// Sizing pass used to establish a scrollport's own padding-box frame.
     pub measuring: bool,
 }
 
 impl ScrollLimits {
+    #[must_use]
+    pub fn for_viewport(self) -> Self {
+        Self {
+            x: self.viewport_edges.0,
+            y: self.viewport_edges.1,
+            ..self
+        }
+    }
+
     #[must_use]
     pub fn for_scrollport(
         self,
@@ -286,7 +297,7 @@ impl ScrollLimits {
                 ScrollEdge::Low(low)
             })
         };
-        Self {
+        let mut limits = Self {
             x: if root || style.overflow_x.allows_programmatic_scroll() {
                 edge(
                     rect.origin.x,
@@ -306,7 +317,11 @@ impl ScrollLimits {
                 self.y
             },
             ..self
+        };
+        if root {
+            limits.viewport_edges = (limits.x, limits.y);
         }
+        limits
     }
 }
 

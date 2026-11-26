@@ -98,6 +98,7 @@ pub(super) fn compute_table_intrinsic(
     }
 
     // CSS 2.1 §17.6.2: in the collapsing border model, border-spacing is ignored.
+    // #11-intrinsic-contribution-producer: the intrinsic width omits the two outer spacing edges.
     // Use inline-axis border-spacing (horizontal in horizontal-tb, vertical in vertical modes).
     let gap = if style.border_collapse == elidex_plugin::BorderCollapse::Collapse {
         0.0

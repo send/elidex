@@ -143,3 +143,161 @@ fn flex_lines_multicol_spanners_and_grid_rows_supply_their_own_auto_height() {
         }
     }
 }
+
+#[test]
+fn fitted_table_includes_both_outer_spacing_edges() {
+    for paged in [false, true] {
+        for spacing in [0., 10.] {
+            let mut dom = EcsDom::new();
+            let grid = container(&mut dom, 100.);
+            let t = add(
+                &mut dom,
+                Some(grid),
+                ComputedStyle {
+                    display: Display::Table,
+                    justify_self: JustifySelf::Start,
+                    border_spacing_h: spacing,
+                    ..Default::default()
+                },
+            );
+            let row = add(
+                &mut dom,
+                Some(t),
+                ComputedStyle {
+                    display: Display::TableRow,
+                    ..Default::default()
+                },
+            );
+            let cell = add(
+                &mut dom,
+                Some(row),
+                ComputedStyle {
+                    display: Display::TableCell,
+                    width: Length(60.),
+                    ..Default::default()
+                },
+            );
+            layout(&mut dom, grid, paged);
+            let table = get_layout(&dom, t).content;
+            let cell = get_layout(&dom, cell).content;
+            assert_eq!(cell.origin.x - table.origin.x, spacing);
+            assert_eq!(table.size.width, 60. + 2. * spacing);
+            assert_eq!(cell.size.width, 60.);
+        }
+    }
+}
+
+#[test]
+fn fixed_grid_uses_the_scroll_limits_of_its_containing_block() {
+    use elidex_plugin::Overflow;
+    for (transformed, overflow, expected) in [
+        (false, Overflow::Visible, 20.),
+        (false, Overflow::Hidden, 20.),
+        (true, Overflow::Hidden, 100.),
+    ] {
+        let mut dom = EcsDom::new();
+        let root = add(
+            &mut dom,
+            None,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        let parent = add(
+            &mut dom,
+            Some(root),
+            ComputedStyle {
+                display: Display::Block,
+                position: Position::Relative,
+                has_transform: transformed,
+                margin_left: Length(100.),
+                width: Length(100.),
+                height: Length(100.),
+                overflow_x: overflow,
+                overflow_y: overflow,
+                ..Default::default()
+            },
+        );
+        let left = if transformed { 0. } else { 40. };
+        let grid = add(
+            &mut dom,
+            Some(parent),
+            ComputedStyle {
+                display: Display::Grid,
+                position: Position::Fixed,
+                left: Length(left),
+                top: Length(0.),
+                width: Length(100.),
+                grid_template_columns: GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                    TrackSize::Length(100.),
+                ])),
+                ..Default::default()
+            },
+        );
+        let item = add(
+            &mut dom,
+            Some(grid),
+            ComputedStyle {
+                display: Display::Block,
+                width: Length(120.),
+                justify_self: JustifySelf::End,
+                ..Default::default()
+            },
+        );
+        layout(&mut dom, root, false);
+        assert_eq!(
+            get_layout(&dom, grid).content.origin.x,
+            if transformed { 100. } else { 40. }
+        );
+        assert_eq!(get_layout(&dom, item).content.origin.x, expected);
+    }
+}
+
+#[test]
+fn auto_block_margins_exclude_the_item_from_the_shared_row_baseline() {
+    use elidex_plugin::AlignItems;
+    for paged in [false, true] {
+        for margin in [Length(0.), Dimension::Auto] {
+            let mut dom = EcsDom::new();
+            let grid = container(&mut dom, 100.);
+            {
+                let mut style = dom.world_mut().get::<&mut ComputedStyle>(grid).unwrap();
+                style.align_items = AlignItems::Baseline;
+                style.grid_template_columns =
+                    GridTrackList::Explicit(TrackSection::from_tracks(vec![
+                        TrackSize::Length(100.);
+                        2
+                    ]));
+            }
+            let small = add(
+                &mut dom,
+                Some(grid),
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Length(20.),
+                    margin_top: margin,
+                    margin_bottom: margin,
+                    ..Default::default()
+                },
+            );
+            let large = add(
+                &mut dom,
+                Some(grid),
+                ComputedStyle {
+                    display: Display::Block,
+                    height: Length(40.),
+                    ..Default::default()
+                },
+            );
+            layout(&mut dom, grid, paged);
+            let small = get_layout(&dom, small);
+            assert_eq!(
+                small.content.origin.y,
+                if margin == Dimension::Auto { 40. } else { 20. }
+            );
+            assert_eq!(get_layout(&dom, large).content.origin.y, 0.);
+            assert_eq!(get_layout(&dom, grid).first_baseline, Some(40.));
+        }
+    }
+}

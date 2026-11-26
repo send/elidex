@@ -515,6 +515,19 @@ pub fn layout_table(
     };
     let col_widths = compute_column_widths(dom, &col_input, &table_env);
 
+    let total_table_width = col_widths.iter().sum::<f32>() + spacing_overhead_h;
+    // A fitted table must enclose its used columns and both outer spacing edges.
+    let content_width = if assigned_inline.is_some()
+        && matches!(
+            input.assigned.fit,
+            elidex_layout_block::FitTarget::GridArea(_)
+                | elidex_layout_block::FitTarget::ShrinkToFit(_)
+        ) {
+        content_width.max(total_table_width)
+    } else {
+        content_width
+    };
+
     // Pre-compute the table's explicit content height for cell percentage-height
     // resolution (CSS 2.1 §17.5.3). If the table has an explicit height, cell
     // percentage heights resolve against the content-box height; otherwise auto.
@@ -683,8 +696,6 @@ pub fn layout_table(
     // Position cells.
     // Compute column x offsets.
     // RTL: columns flow right-to-left, so we mirror the LTR offsets.
-    let total_table_width: f32 =
-        col_widths.iter().sum::<f32>() + spacing_h * (num_cols as f32 + 1.0);
     let mut col_x_offsets = vec![0.0_f32; num_cols];
     let mut x = spacing_h;
     for c in 0..num_cols {

@@ -56,15 +56,28 @@ pub fn layout_positioned_children(
     //   so the viewport is the CB per CSS Positioned Layout L3 §3.
     let has_transform = try_get_style(dom, entity).is_some_and(|s| s.has_transform);
     for child in fixed_children {
-        let (cb, sp_default) = if has_transform {
-            (*cb_padding_box, cb_padding_box.origin)
+        let (cb, sp_default, scroll_limits) = if has_transform {
+            (*cb_padding_box, cb_padding_box.origin, env.scroll_limits)
         } else if let Some(vp) = env.viewport {
-            (Rect::new(0.0, 0.0, vp.width, vp.height), Point::ZERO)
+            (
+                Rect::new(0.0, 0.0, vp.width, vp.height),
+                Point::ZERO,
+                env.scroll_limits.for_viewport(),
+            )
         } else {
             continue;
         };
         let sp = static_positions.get(&child).copied().unwrap_or(sp_default);
-        layout_absolutely_positioned(dom, child, &cb, sp, env);
+        layout_absolutely_positioned(
+            dom,
+            child,
+            &cb,
+            sp,
+            &crate::LayoutEnv {
+                scroll_limits,
+                ..*env
+            },
+        );
     }
 }
 
