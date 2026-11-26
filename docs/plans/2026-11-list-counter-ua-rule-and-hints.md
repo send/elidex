@@ -4,8 +4,8 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.2, 2026-11-26
-(plan-review rounds 1 – 3 and the Step 4.5 re-review of rev 3.1 folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.3, 2026-11-26
+(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's rulings folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
 `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes ran at
 `bf1cae35`; `git diff --stat 01426656 aeecf9b0 -- crates` is empty, so they hold at rev 2.2's head too). **Docs
 only.**
@@ -16,7 +16,8 @@ implicit `list-item` increment and the reversed initial value live, the UA rule'
 and does not decide** (§1, §8): the engine modes in which the list hints apply, and the reading of HTML §2.1.8's
 *designation* that the answer rests on. Every answer but option A changes a ratified decision (E0), so the
 conclusion is written as proposal **P-1** with every reading and both sides' precedents, for the PM to route to E0's
-ratifier (PM 620, `PORTFOLIO-archive-2026-W46.md`).
+ratifier (PM 620, `PORTFOLIO-archive-2026-W46.md`); E0 is user-ratified, so the PM is asking the user (PM 1146, OQ-1,
+OQ-2).
 This memo edits neither `docs/plans/2026-06-e0-shell-style-compat-mode.md` nor
 `docs/plans/2026-09-inline-box-predicate.md`.
 
@@ -927,7 +928,7 @@ division must satisfy §5.2's constraints at nested-PR granularity. LC-0 is a me
 | **LC-0** | Touch-time split: `counter.rs` is 799 lines, 386 of them the `tests` module (`:414`–). Move the tests to `counter/tests.rs`. Standalone PR, no behaviour | — | — | nothing |
 | **LC-1** | The per-element step: §4's order (reset → increment → set); the implicit increment moved into the step **under the bake's key, the tag `li`**, read through one list-item predicate; explicit increments no longer negated; the absent-integer state through parser, resolve and `CounterResetEntry`; §4.4.2's initial value in the step; one boxless predicate for both drivers' gate and for the §4.4.2 walk. The bake loses its `li` increment arm with that arm's guard and `count_li_children` (its `ol[reversed]` arm passes the absent integer); the pre-layout gate's `is_list_tag` is replaced by the predicate | D-2 (the step), D-3 (order), D-4, D-9 | P1 (field), P4a (field), P4b, Q4c, Q4e, Q4f, Q4g, Q6, Q6b, Q13, Q20's and Q21's fields, W-O1, W-RV, W-BX; W-ML stays right | LC-0 |
 | **LC-2** | Author `counter-*` resolve for every element (N-1) | D-5 | P6, P4e, P19, P20, Q23; P4c, W-F2, W-F4 stay right | LC-1 |
-| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). **Conditionally**, one UA-sheet edit: if a form of §15.5.5's `summary` rule carrying `display: list-item` without `counter-increment: list-item 0` is in a UA sheet at LC-2k's base, LC-2k adds that declaration to the rule (§7 F-15 (b)); for the shadow form that sheet is CV-details', another program's file (OQ-6) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
+| **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). No UA-sheet edit: each form of §15.5.5's `summary` rule is landed whole by its own lander — the shadow form by CV-details (PM 1146, OQ-6 (b)) — and LC-2k checks W-SUM-D (and W-SUM, if the document form is in a sheet at its base) assuming that landing (§7 F-15) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
 | **LC-3** | The UA rule (`ol, ul, menu, dir`); the list hints at the hint seam with HTML integer parsing; the bake, and all three call sites, deleted | D-1, D-6, D-7, D-8 | P2b / Q2b, P3a / Q3a, P5, P14, W-N1 / W-N2, W-NS, W-OV, PM 637 | LC-2 (c6), LC-1 (c7); LC-2k by choice (§5.2); **OQ-1 (P-1)**, OQ-2 |
 | **LC-4** | The scope model: §4.3 / §4.4.1 inheritance and §4.4.2's instantiate (replace / nest). Both drivers, `flatten` and `set_counter` audited against it | D-3 (scope), D-9 | P8b, P11a / Q11a, P11b, W-S1, W-S2, W-RS | LC-3 |
 | **LC-5** | HTML §15.3.7's remaining units (§4.3: U3, U4, U6, U9 – U12) | D-11 | P17, P18, R1, R3 (margins / padding), R4 | LC-3 for the hint source; **OQ-1** for U12's placement |
@@ -1006,10 +1007,12 @@ against the final key only.
 
 **Cross-lane: HTML §15.5.5's `summary` rule, in its two forms.** HTML §15.5.5 gives `display: list-item` and
 `counter-increment: list-item 0` in **one rule**, for the document (`details > summary:first-of-type { … }`) and for
-the default summary in `details`' UA shadow tree (`:host summary { … }`) (§3.2). Neither form is in a plan whole:
-IBP's slot `#11-ua-sheet-html-rendering-display-fidelity` holds the document form's `display` declaration alone
-(IBP `:1964`), and CV-details builds "only §15.5.5's shadow `:host summary` (the default summary's display)"
-(`docs/plans/2026-10-content-visibility.md:880`); §7 F-15 has the facts. Each form does the two things c11 is
+the default summary in `details`' UA shadow tree (`:host summary { … }`) (§3.2). The shadow form is in a plan
+whole: PM 1146 (OQ-6 (b)) has CV-details land it with both declarations, one rule and one lander, and Layout adds
+that line to the E26 memo (`docs/plans/2026-10-content-visibility.md`, whose §8 row for
+`#11-ua-sheet-html-rendering-display-fidelity` said at `678d4abe` that CV-details builds "only" the default
+summary's display). The document form is not: IBP's slot `#11-ua-sheet-html-rendering-display-fidelity` holds its
+`display` declaration alone (IBP `:1964`); §7 F-15 has the facts. Each form does the two things c11 is
 about: it makes a non-`li` element a list item, and it relies on a `counter-*` declaration on an element that
 declares no `content`. Today `summary` computes `display: block` (`ua.rs:19`), no `details` UA shadow tree is built
 (CV `:96`, B7), and the only `display: list-item` rule in either sheet is `li`'s (`/usr/bin/grep -n 'list-item'
@@ -1032,9 +1035,10 @@ list-item predicate instead would be a second key against CSS Lists 3 §4.6's "e
 rule landing between LC-1 and LC-2 would have turned the cells wrong: c11's hazard, reached through another lane.
 LC-2k's plan greps every UA sheet for `list-item` at its base — `crates/css/elidex-style/src/ua.rs`,
 `crates/dom/elidex-dom-compat/src/legacy_ua.rs`, and the `details` UA shadow sheet once CV-details has landed it
-(its file is CV-details' plan's to name: CV `:986`'s placeholder `<the UA shadow sheet's file>`) — and, for each
-form present, pins its cell; a form present without its `counter-increment` gets the declaration added in LC-2k's
-change (§7 F-15; in CV-details' sheet that is a cross-program edit, OQ-6).
+(its file is CV-details' plan's to name: the E26 memo's §11 placeholder `<the UA shadow sheet's file>`) — and, for
+each form present, pins its cell. LC-2k edits no UA sheet for this rule (PM 1146, OQ-6 (b)): it checks W-SUM-D
+assuming CV-details' landing of the shadow form whole; a form present without its `counter-increment` is a finding
+against that form's lander, not an edit in LC-2k's change (§7 F-15).
 
 **The exhaustive tables under that order.** Windows: W1 = after LC-1, W2 = after LC-2, W2k = after LC-2k, W3 =
 after LC-3, W4 = after LC-4, W6 = after LC-6 (LC-4, LC-5 and LC-6 are unordered; no unit of one is an input of
@@ -1102,8 +1106,7 @@ adds to Table 2 every unit its own mechanism introduces.
 
 - **LC-1**: the implicit increment is derived in the step from the list-item predicate — **one definition**, its
   body the tag `li` in this slice, read by the step, by the caller gate and by the §4.4.2 walk (I5; LC-2k changes
-  the body and points the marker reconcile at it; its one other edit is §15.5.5's conditional declaration, §5.3
-  LC-2k) — so both drivers get it; the caller gate becomes "has a counter property or is a list
+  the body and points the marker reconcile at it, and edits no UA sheet — PM 1146, §5.3 LC-2k) — so both drivers get it; the caller gate becomes "has a counter property or is a list
   item", one gate for both drivers; the boxless set is **one predicate**, read by that gate and by the §4.4.2 walk
   (I7 × I9, I6 × I7); state which of steps 2 – 4 a continuation fragment runs (I3 × I9); decide the parsed encoding
   of an omitted integer (today `parse_counter_list` stores the default as a number, so `reversed(foo)` and
@@ -1148,16 +1151,15 @@ adds to Table 2 every unit its own mechanism introduces.
 - **LC-2k**: change the predicate's body from the tag to computed `display` — the increment, the gate and the
   §4.4.2 walk follow through the one definition (if they do not, LC-1 left a second key: a finding against LC-1,
   not a second edit here) — and make the marker reconcile read the predicate in place of its inline `display` test
-  (`generated_content.rs:97`–`:98`; I5), keeping its `list-style-type` half; nothing else in code, and in the UA
-  sheets only the conditional declaration below. Pin W-F3 and W-F4 as
+  (`generated_content.rs:97`–`:98`; I5), keeping its `list-style-type` half; nothing else in code, and no UA-sheet
+  edit. Pin W-F3 and W-F4 as
   cells that stay right, P8a as the cell that turns right and P8b at 1, 1. Grep every UA sheet for `list-item` at
   its base (§5.2 cross-lane names the files, the `details` UA shadow sheet included once CV-details has landed it);
-  for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form), and if a
-  form carries `display: list-item` without `counter-increment: list-item 0`, add that declaration to the rule in
-  this change rather than exclude `summary` from the predicate (§7 F-15). **Cross-program touch**: for the shadow
-  form the sheet is CV-details' UA shadow sheet (`docs/plans/2026-10-content-visibility.md`, CV `:986`'s
-  placeholder), a file another program owns; who makes that edit is OQ-6, and the plan follows its outcome. Drop
-  the predicate's defect note (§3.3).
+  for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form). **W-SUM-D
+  is checked assuming CV-details' landing** (PM 1146, OQ-6 (b)): CV-details lands the shadow form whole, both
+  declarations in one rule, and LC-2k does not edit CV-details' UA shadow sheet. A form found carrying
+  `display: list-item` without `counter-increment: list-item 0` is reported as a finding against its lander (§7
+  F-15 (a)); `summary` is not excluded from the predicate. Drop the predicate's defect note (§3.3).
 - **LC-3**: implement the OQ-1 / OQ-2 outcome; reuse one integer parser (SQ-1); delete the bake and its three call
   sites; put `dir` in the UA rule (D-6); read the element's `Namespace` in the hint source, so that only HTML
   elements get the hints (W-NS); clamp the hint's integers and the parser's result per §3.1 (W-OV); edit the rustdoc
@@ -1300,7 +1302,7 @@ reading (§0.1), and the owning slice runs each at its base.
 | W-PG2 (paged): an element with `counter-reset: c` continued on a second page, `c` read in the second page's margin box | LC-1's plan derives it (I3 × I9) | by reading: the continuation resets again; not run | LC-1 |
 | W-F4: `<ol><li>a<div style="display:list-item;counter-increment:list-item 0">x</div><li>b</ol>` | 1, 1, 2 | 1, 1, 2 (the `div` is not an `li`; its `counter-increment` is dropped, N-1) | stays: LC-2, LC-2k (c11) |
 | W-SUM: `<ol><li><details><summary>s</summary></details><li>b</ol>` | 1, 2 (with HTML §15.5.5's rule, the `summary` adds 0) | 1, 2 (no such rule; `summary` is `display: block`) | stays: LC-2k, when the rule is in the sheet at its base (§5.2, cross-lane) |
-| W-SUM-D: `<ol><li><details>x</details><li>b</ol>` | 1, 2 (the default summary, in `details`' UA shadow tree, is a list item that adds 0) | 1, 2 (no UA shadow tree is built) | stays: LC-2k, when CV-details' shadow rule is in its sheet at LC-2k's base; otherwise CV-details pins it (§7 F-15). With `display` alone after LC-2k: 1, 3 |
+| W-SUM-D: `<ol><li><details>x</details><li>b</ol>` | 1, 2 (the default summary, in `details`' UA shadow tree, is a list item that adds 0) | 1, 2 (no UA shadow tree is built) | stays: LC-2k, assuming CV-details lands the shadow rule whole (PM 1146, OQ-6 (b)); if CV-details lands after LC-2k, CV-details pins it (§7 F-15 (c)). With `display` alone after LC-2k it would read 1, 3 — excluded by that landing |
 | W-ML: `#o { counter-reset: reversed(a) b 2 } #o::before { content: counter(b) }` | 2; `getComputedStyle(#o).counterReset` is `reversed(a) b 2` | 0 (N-1); with `content: normal` on `#o`: 2 (the parser stores a number after every name) | stays: LC-1 (the absent-integer encoding must not make the resolve take `b` as `a`'s integer), LC-2 (the no-`content` form); the serialization LC-6 |
 | W-BX: `#o { counter-reset: reversed(foo) } p { counter-increment: foo -1 } p::before { content: counter(foo) }`, three `p`, the second `display: none` | 2, –, 1 | 0, –, 0 (N-1); with `content: normal` on `#o` and `p`: 1, –, 2 | LC-1 (the `content`-declaring form) / LC-2 |
 | W-K1: `#o { counter-increment: c 2 } #i { counter-increment: inherit } #i::before { content: counter(c) }`, `#i` a child of `#o` | 4 | 0 (N-1); 2 from LC-2 (the `inherit` resolves to the empty list) | LC-6 |
@@ -1331,7 +1333,9 @@ increments it, so it stays 0 and `counters()` prints it first.
 
 **Findings (each needs an owner or a slot; this memo registers nothing).** Every proposed slot below is drafted
 with name, *Gap*, *Why not this program's*, *Trigger*, *Owner* and *Re-eval-date*; names, owners and dates are
-proposals for the PM (OQ-4). Existing slots were searched first, in memory `project_open-defer-slots.md` on
+proposals for the PM. **PM 1146 (OQ-4)**: the three facets (F-3, F-7, F-14) and the input lines are approved; the
+four new slots (F-2, F-6, F-9, F-10) are not yet registered — the PM checks each premise at `file:line` first; F-4
+becomes a slot; F-8 gets none. Existing slots were searched first, in memory `project_open-defer-slots.md` on
 2026-11-26: `/usr/bin/grep -n -o -i -E` for slot ids containing any of `direction`, `dir-`, `match-parent`,
 `text-align`, `logical`, `handler`, `layer`, `revert`, `namespace` (control: the bare slot-id pattern finds 1031
 ids) — the hits used are named where they apply. The drafts are prose by choice, not rows of the slot-table
@@ -1343,13 +1347,14 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 - **F-1 (N-6)** — conforming-attribute dimension hints are compat-gated. Already `IBP-layout`'s by IBP §2; P-1b's
   outcome is its input. No new record.
 - **F-2 (N-7)** — `dir` → `direction` is a UA rule in HTML §15.3.5, generated as a hint in `elidex-dom-compat`
-  (`push_dir_attr`, `presentational.rs:430`), so `BrowserCore` / `App` ignore the `dir` attribute (R2). No slot
+  (`push_dir_attr`, `presentational.rs:430`; `:426` at `678d4abe`), so `BrowserCore` / `App` ignore the `dir` attribute (R2). No slot
   found (the search's one near hit, `#11-bidi-full-uba-fidelity`, is the bidi algorithm). **Proposed slot**:
   `#11-dir-attribute-ua-rule-in-core` — *Gap*: §15.3.5's `[dir]` rules are UA rules; elidex produces them as
   compat-gated hints. *Why not this program's*: no counter is involved; the repair moves a rule family to the core
   UA sheet and its plan must first check what `:dir()` and `dir=auto` support the selector engine has. *Trigger*: a
   core mode becoming production-selectable (`#11-async-core-storage-cookiestore`), or the next change to
-  `push_dir_attr`. *Owner* proposed: Layout (or L1). *Re-eval-date* proposed: 2026-12-31.
+  `push_dir_attr`. *Owner* proposed: Layout (or L1). *Re-eval-date* proposed: 2026-12-31. **Not yet registered
+  (PM 1146)**: pending the PM's premise check at `file:line`.
 - **F-3** — hints enter as `Origin::Author`, specificity 0, order 0 (`cascade/mod.rs:231`–`:238`). CSS Cascade 5
   §6.5's first paragraph puts document-language styling "in either the UA-origin or a special-purpose author
   presentational hint origin between the regular user origin and the author origin", independent for cascading and
@@ -1366,7 +1371,7 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   origin (`git grep -n -w 'Origin::User' -- crates` → 0; control `Origin::UserAgent` → 12). It becomes observable
   with any of the three: with layers, a hint at author order 0 would beat a layered author rule that a hint in its
   own origin loses to. The program adds its hints at the existing seam. **Record proposed: a facet of an existing
-  slot, not a new one** (rev 2 proposed an owner-less `#11-presentational-hint-cascade-origin`):
+  slot, not a new one — approved (PM 1146)** (rev 2 proposed an owner-less `#11-presentational-hint-cascade-origin`):
   `#11-css-wide-revert-keyword` — owner L1 (PM 470), backstop 2026-12-15 — already holds "revert support [needs a
   `CssValue` variant + cascade origin rollback]", so the origin model is that slot's work. Facet: *Gap*: hints are
   regular author declarations, not a separate origin (subject to the reading above, which that slot's plan
@@ -1376,7 +1381,22 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `spec_level` per tag and has no consumer outside `elidex-plugin`
   (`git grep -n -E 'create_html_element_registry|HtmlElementHandler' -- crates`, hits only under
   `crates/core/elidex-plugin`). It is the Plugin-first home OQ-2 weighs, and "dead code は接続するか削除" applies
-  to it either way. (IBP assigns its connection to `IBP-classify`, F4 / F7's home.)
+  to it either way. (IBP assigns its connection to `IBP-classify`, F4 / F7's home.) **Becomes a slot (PM 1146)**:
+  move the UA defaults, rules and hints together, into the plugin handlers. **Proposed slot**:
+  `#11-ua-defaults-in-html-element-handlers` — *Gap*: HTML elements' UA defaults have three forms, none on the
+  plugin seam — the core UA sheet (`UA_CSS`, `crates/css/elidex-style/src/ua.rs`), the compat UA sheet
+  (`LEGACY_UA_CSS`, `crates/dom/elidex-dom-compat/src/legacy_ua.rs`) and the compat hint generator
+  (`get_presentational_hints`, `crates/dom/elidex-dom-compat/src/presentational.rs`) — while `HtmlElementHandler`'s
+  `default_style` / `spec_level` have no caller; the repair moves rules and hints together into the per-element
+  handlers, the core / compat split classified by `HtmlSpecLevel`, so that one form holds every element's UA
+  defaults. *Why not this program's*: it is every element's rules and hints, not the list rules; the migration must
+  keep the UA origin's order and specificity when one sheet becomes per-element rule lists, and map E0's gate and
+  #408's classification onto `HtmlSpecLevel`; this program adds its rules and hints in today's forms (OQ-2's X; under
+  Y this slot is what keeps the list hints from being a second form), and the seam's connection is `IBP-classify`'s.
+  *Trigger*: the first of — `IBP-classify` connecting `HtmlElementHandler` (its first production caller); OQ-2
+  ruled Y; CV-details declaring `details`' UA shadow template, with its UA shadow sheet, on `HtmlElementHandler`
+  (E26 D7), a further form of UA defaults on the same seam. *Owner* proposed: Layout (IBP-classify's lane).
+  *Re-eval-date* proposed: 2026-12-31.
 - **F-5** — `menu { display: block }` is missing (R3) → input to `IBP-ua-display`.
 - **F-6** — `li { text-align: match-parent }` (U2) needs a `text-align` value elidex does not parse (`webref css
   css-text-3 text-align` lists `match-parent`; `git grep -n -F -e 'match-parent' -e 'MatchParent' -- crates` → 0,
@@ -1384,28 +1404,28 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   value, and the UA rule that uses it. *Why not this program's*: it is a text-module value with its own
   computed-value rule (against the parent's `direction`); no counter reads it. *Trigger*: the next change to
   `text-align` parsing or resolution, or right-to-left list rendering work (with F-9). *Owner* proposed: L1 (or
-  Layout). *Re-eval-date* proposed: 2026-12-31.
+  Layout). *Re-eval-date* proposed: 2026-12-31. **Not yet registered (PM 1146)**: pending the PM's premise check
+  at `file:line`.
 - **F-7** — HTML integer / dimension microsyntax parsers exist in at least four crates (`git grep -n -i -c 'rules for
   parsing' 7fcaffed -- crates` lists 12 files; the parser definitions among them:
   `crates/api/elidex-api-canvas/src/component.rs:170` `parse_canvas_dim`,
   `crates/dom/elidex-dom-api/src/element/numeric_reflect.rs:88` `parse_integer` (`:30` `parse_unsigned_long`),
   `crates/dom/elidex-dom-compat/src/presentational.rs:240` `parse_dimension_value`,
   `crates/dom/elidex-form-core/src/reflect.rs:48` `parse_positive_with_fallback`). LC-3 must not add another (D-8).
-  **Record proposed: a facet of an existing slot.** `#11-form-numeric-attr-html-integer-parsing`
+  **Record: a facet of an existing slot — approved (PM 1146).** `#11-form-numeric-attr-html-integer-parsing`
   (`project_open-defer-slots.md:345`) already names the repair, "a shared `parse_html_integer` primitive +
   per-rule wrappers across ~8 sites" (the row's words, verified 2026-11-26). Facet: *Gap*: the four parsers above, beside the form sites that slot lists.
   *Why not this program's*: LC-3 needs one signed-integer parser (§2.3.4.1), which SQ-1 places; the non-negative,
   dimension and per-reflection wrappers are reflection and form semantics, not counters. *Trigger*: the slot's own,
   or LC-3's landing of the shared signed-integer parser, whichever comes first — that is where the others can start
-  delegating. *Owner*, *Re-eval-date*: the slot's — its row names no owner and a Re-eval of 2026-11-30, so the
-  PM assigns the owner and a date (OQ-4).
+  delegating. *Owner*: **L3** (PM 1146; the slot's row named none). *Re-eval-date*: the slot's (its row's
+  2026-11-30).
 - **F-8** — no reader of HTML §4.4.8's *ordinal value* exists (`git grep -n -i -E 'ordinal|posinset' 7fcaffed --
   crates/dom/elidex-a11y` → 0; control `git grep -c -i -w listitem 7fcaffed -- crates/dom/elidex-a11y` →
-  `roles.rs` 3). **No record proposed**, and this defers no planned work: no reader is wrong today, because none
-  exists. *Trigger* (the promotion rule, §0.5 row 4): the first reader of list ordinals outside the two counter
-  drivers — an accessibility list-position mapping, say — makes the counters set a component written by the
-  pre-layout pass, in that reader's plan. *Receiver*: §0.5 row 4 of this memo; the PM decides in OQ-4 whether a
-  slot should hold it.
+  `roles.rs` 3). **No slot (PM 1146: no defect today)**, and this defers no planned work: no reader is wrong
+  today, because none exists. It stays in this memo as §0.5 row 4's trigger: the first reader of list ordinals
+  outside the two counter drivers — an accessibility list-position mapping, say — makes the counters set a component
+  written by the pre-layout pass, in that reader's plan.
 - **F-9** — the UA sheet writes physical box longhands where HTML §15.3.7 writes flow-relative ones (U3
   `margin-block`, U5 `margin-inline-start`, U6 `padding-inline-start`; `ua.rs:53`–`:57`, `:63`, `:64`), and no
   flow-relative box property is parsed at all (`/usr/bin/grep -rn -E '(margin|padding)-(inline|block)|inset-(inline|block)'
@@ -1418,7 +1438,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   css-logical-1 property support in the property system, which the list rules only consume; LC-5 adds `menu`'s and
   `dir`'s rules in the sheet's existing physical form and names them in the slot. *Trigger*: flow-relative box
   properties entering the property registry, or UA-sheet fidelity work for `direction` / vertical writing modes.
-  *Owner* proposed: L1 or Layout. *Re-eval-date* proposed: 2026-12-31.
+  *Owner* proposed: L1 or Layout. *Re-eval-date* proposed: 2026-12-31. **Not yet registered (PM 1146)**: pending the
+  PM's premise check at `file:line`.
 - **F-10** — the property-handler split (§5.3 LC-6): for most properties the built-in declaration parser and the
   cascade's resolve functions are one implementation and the registered handler's `parse` / `resolve` a second;
   `docs/design/ja/11-parser-design.md:19` says property parsing is delegated to the handlers. Extent not measured
@@ -1431,7 +1452,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   handler crate; LC-6 only refrains from adding a copy (D-10). *Trigger*: L1's typed-shorthand-handlers program
   changing `CssPropertyHandler` and all its implementations in one change
   (`docs/plans/2026-11-typed-shorthand-handlers.md`, §1) — the natural point to decide which implementation is the
-  one — or the next handler registered. *Owner* proposed: L1. *Re-eval-date* proposed: 2026-12-31.
+  one — or the next handler registered. *Owner* proposed: L1. *Re-eval-date* proposed: 2026-12-31. **Not yet
+  registered (PM 1146)**: pending the PM's premise check at `file:line`.
 - **F-11** — a citation drift outside this memo: `crates/script/elidex-js/src/vm/host/html_olist_proto.rs:8` cites
   "HTML §2.4.4.1 ("rules for parsing integers")"; `webref heading html 2.4.4.1` finds no such section, and the
   rules are §2.3.4.1 Signed integers (`webref heading html 2.3.4.1`). For the cite-sweep lane; not edited here.
@@ -1461,7 +1483,7 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   This program's part: the list hint source reads `Namespace` (D-7, LC-3, W-NS), and the bake goes. The rest
   belongs to an existing slot's class — `#11-html-element-type-tests-without-namespace` (owner L3, PM 780 in
   `PORTFOLIO-archive-2026-W47.md`; ledger `project_open-defer-slots.md:1702`: "elidex decides that an element is a
-  given HTML element type by its local name alone"). **Record proposed: a facet of that slot**, not a new one
+  given HTML element type by its local name alone"). **Record: a facet of that slot — approved (PM 1146)**, not a new one
   (neighbour: `#11-selector-foreign-name-case`). Facet: *Gap*: two more members — `get_presentational_hints`
   (`presentational.rs:47`) and the UA sheets' type selectors (no `@namespace` in the CSS parser) — give an SVG or
   MathML element with an HTML local name HTML's hints and UA rules. *Why not this program's*: the list hint source
@@ -1470,8 +1492,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   slot's own (the PR wiring `#11-vm-create-element-ns-missing`, or the first SVG / MathML DOM interface PR), or
   `@namespace` support entering the CSS parser. *Owner*: L3 (the slot's). *Re-eval-date*: 2026-12-31 (the
   slot's).
-- **F-15 — cross-lane, for the PM: HTML §15.5.5's `summary` rule against LC-2k** (§5.2 cross-lane). The facts, at
-  `7fcaffed`:
+- **F-15 — cross-lane, for the PM: HTML §15.5.5's `summary` rule against LC-2k** (§5.2 cross-lane; approved, PM
+  1146, with OQ-6 ruled (b)). The facts, at `7fcaffed` unless dated:
   (1) HTML §15.5.5 states `display: list-item` and `counter-increment: list-item 0` as **one rule**, in two forms:
   `details > summary:first-of-type { … }` for the document, and `:host summary { … }` for the default summary in
   `details`' UA shadow tree (§3.2).
@@ -1482,22 +1504,27 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `first-child` → 11 lines in 6 files, verified 2026-11-26). The slot is **not registered** (ledger `project_open-defer-slots.md:704`;
   IBP `:1695`: `IBP-ua-display` registers it only for the remainder its plan derives), so the member's lander is
   whoever registers and repairs that slot after `:first-of-type` exists — not `IBP-ua-display`'s own PR.
-  (3) CV-details builds the shadow form: "CV-details builds only §15.5.5's shadow `:host summary` (the default
-  summary's display)" (`docs/plans/2026-10-content-visibility.md:880`), in a UA shadow sheet whose file CV-details'
-  plan names (CV `:986`, the placeholder `<the UA shadow sheet's file>`).
-  (4) The `counter-increment: list-item 0` half is in **no plan**: `git grep -l 'counter-increment: list-item 0'
-  7fcaffed -- docs` → this memo only; 0 lines in the open-slot ledger (`/usr/bin/grep -c`).
+  (3) CV-details builds the shadow form, in a UA shadow sheet whose file CV-details' plan names (the E26 memo's §11
+  placeholder `<the UA shadow sheet's file>`, CV `:986` at `678d4abe`). At `678d4abe` the E26 memo scoped it to the
+  `display` declaration: "CV-details builds only §15.5.5's shadow `:host summary` (the default summary's display)"
+  (`docs/plans/2026-10-content-visibility.md:880`, its §8 row for `#11-ua-sheet-html-rendering-display-fidelity`).
+  **PM 1146 (OQ-6 (b))** widens that: CV-details lands the shadow rule whole, `display: list-item` and
+  `counter-increment: list-item 0` in one rule — one rule, one lander — and Layout adds that line to the E26 memo.
+  (4) At `7fcaffed` the `counter-increment: list-item 0` half was in **no plan** (`git grep -l 'counter-increment:
+  list-item 0' 7fcaffed -- docs` → this memo only; 0 lines in the open-slot ledger, `/usr/bin/grep -c`); since PM
+  1146 the shadow form's half is CV-details', and the document form's half is still in no plan.
   **Constraint, for the PM** (decided at rung 1: §15.5.5 states the two declarations as one rule, and CSS Lists 3
   §4.6 keys the implicit increment on every list item, so excluding `summary` from the predicate would be a second
   key against the spec — and against One issue, one way): (a) whoever lands either form lands
-  `counter-increment: list-item 0` in the same rule; (b) if a form carrying `display: list-item` without it is in a
-  UA sheet at LC-2k's base, LC-2k adds the declaration to that rule in its own change (for the shadow form a
-  cross-program edit of CV-details' sheet: who makes it is OQ-6); (c) whoever lands second pins
-  the form's cell — W-SUM for the document form, W-SUM-D for the shadow form (§6): LC-2k if the rule is in its sheet
-  at LC-2k's base, otherwise the rule's lander; (d) before LC-2 the `counter-increment` half is dropped by N-1 (it
-  declares no `content`) and is harmless only because the list-item key is still the tag — so the rule must not be
-  used as a reason to move the key earlier. To carry to: CV-details (the shadow form, now), and the eventual lander
-  of IBP's slot member, through that slot's registration (`IBP-ua-display`'s plan) (OQ-4).
+  `counter-increment: list-item 0` in the same rule — one rule, one lander (PM 1146); (b) LC-2k edits no UA sheet
+  for this rule (PM 1146, OQ-6 (b)): it checks W-SUM-D assuming CV-details' landing of the shadow form whole, and a
+  form found at its base without the declaration is a finding against that form's lander; (c) whoever lands second
+  pins the form's cell — W-SUM for the document form, W-SUM-D for the shadow form (§6): LC-2k if the rule is in its
+  sheet at LC-2k's base, otherwise the rule's lander; (d) before LC-2 the `counter-increment` half is dropped by N-1
+  (it declares no `content`) and is harmless only because the list-item key is still the tag — so the rule must not
+  be used as a reason to move the key earlier. Carried to (input lines approved, PM 1146): CV-details (the shadow
+  form, whole — PM 1146; Layout adds the line to the E26 memo), and the eventual lander of IBP's slot member,
+  through that slot's registration (`IBP-ua-display`'s plan).
 - **F-16 — cross-lane, for the PM: L1's G′a-geo page children and L1's P1 (#785) against LC-1, LC-3 and LC-4.** PM 1008
   (`PORTFOLIO-archive-2026-W48.md`; recorded on this slot's ledger row, `project_open-defer-slots.md:1482`; the
   boundary text is `handoff/codex-lanes/l1/gageo-recut-pm1007.md`, "L2 と共有する範囲") draws the L1 ↔ L2 line:
@@ -1526,6 +1553,7 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   base and name the L1 children landed or in flight there; (b) each states any change it makes to what
   `set_counter("page" | "pages")` and `flatten` give the margin boxes, with the cells L1's 3b.3 / 3b.4 would see
   (W-PG1, W-PG2 are this program's); (c) LC-3's plan re-reads the print entry at its base (§5.3 LC-3).
+  **Approved (PM 1146)**, as is F-15; the PM decides F-16's order once each per-slice plan has re-grepped on its base.
 
 **Scout questions (facts the slices' plans need; not blocking this memo):**
 
@@ -1549,7 +1577,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 
 ## §8. Open questions for the PM
 
-- **OQ-1 — P-1 (hint placement), with the designation reading it rests on.** Two linked questions for E0's
+- **OQ-1 — P-1 (hint placement), with the designation reading it rests on.** **OPEN — with the user (PM 1146)**:
+  every answer except A amends E0, which is user-ratified, so the PM asks the user. Two linked questions for E0's
   ratifier; the proposal also amends the anchor design (A0) §3.2b's "UA sheet + presentational hints on/off" and
   touches IBP's ratified premise and its applications (IBP §0.2, §0.3, §0.4, §0.6 item 3), so the routing names all
   three records.
@@ -1574,7 +1603,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   E0 (§1.3) — and under DR-4 it further needs every hint classed as legacy.
   Blocks LC-3, and through it LC-4, LC-5 and LC-6; LC-5's U12 placement directly. LC-1, LC-2 and LC-2k are not
   blocked.
-- **OQ-2 — the core hint source's home** (only if B0, B or C). (X) a module in `elidex-style` beside `ua.rs`, with
+- **OQ-2 — the core hint source's home** (only if B0, B or C). **OPEN — with the user (PM 1146)**: the principles
+  split (below), so the PM asks the user together with OQ-1. (X) a module in `elidex-style` beside `ua.rs`, with
   `resolve_styles_with_compat`'s `hint_generator` becoming the compat extra, as `extra_ua_sheets` is for rules; or
   (Y) a hints method on `HtmlElementHandler`, classified by its `HtmlSpecLevel`. Fixed under both: the cascade
   applies the core source itself, at every entry point of §5.3 — it is not a caller's argument. The principles
@@ -1582,7 +1612,7 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   are one kind of thing and today have one form; Y for the list hints alone is a second form, and Y for everything
   is the whole UA-defaults migration, F-4). **Recommendation: X**, with F-4 recorded so the migration, if wanted,
   moves rules and hints together.
-- **OQ-3 — scope growth.** The slot text does not list N-1 … N-5 or §15.3.7's other units. This memo folds them in
+- **OQ-3 — scope growth.** **Ruled: PM 1146 — the fold is approved.** The slot text does not list N-1 … N-5 or §15.3.7's other units. This memo folds them in
   (LC-1's order fix, LC-2's N-1, LC-3's N-4, LC-4's scope model, LC-5; N-3 falls out of LC-1; rev 3 adds `inherit`
   on `counter-*` to LC-6 and the namespace input to LC-3), because they are the
   same step, the same resolve function and the same spec section, the slot's exit criterion (no
@@ -1590,19 +1620,24 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   work (c1, c2, c4, c6, c11). **Recommendation: approve the fold**; the alternative is separate slots for N-1 / N-2
   and
   for LC-5, which §5.2 would still order between this slot's slices.
-- **OQ-4 — owners and records for the findings.** New slots proposed, each drafted in §7 with its fields: F-2
-  (`#11-dir-attribute-ua-rule-in-core`), F-6 (`#11-text-align-match-parent`), F-9
-  (`#11-ua-sheet-flow-relative-box-properties`), F-10 (`#11-css-property-handler-dual-implementation`). Facets of
-  existing slots instead of new ones: F-3 → `#11-css-wide-revert-keyword` (L1); F-7 →
-  `#11-form-numeric-attr-html-integer-parsing` (no owner on its row: the PM assigns one); F-14 →
-  `#11-html-element-type-tests-without-namespace` (L3). Input lines: F-5 and F-12 → `IBP-ua-display`; F-15 →
-  CV-details (the shadow form) and `IBP-ua-display`'s plan, for the registration of its slot's `summary` member;
-  §4.3 U13's three quirks rules → `#11-document-mode` (Layout); F-16 → the L1 lane and the PM's sequencing of L1's
-  page children against LC-1 / LC-3 / LC-4; F-11 → the cite-sweep lane. Whether F-4 gets a record, and whether F-8
-  (no defect today; its trigger is §0.5 row 4's promotion rule) should. And where §9 item 4's amendment (or
-  divergence) record goes when this slot closes: proposed, the closing PR's row of `memory/m4-12-landings-ledger.md`,
-  with E0's back-pointer re-pointed (§9 item 4 (v)).
-- **OQ-5 — under option A only**: LC-3 would make `BrowserCore` / `App`, and every hint-less cascade entry (the
+- **OQ-4 — owners and records for the findings.** **Ruled: PM 1146** —
+  (i) *facets approved*: F-3 → `#11-css-wide-revert-keyword` (L1); F-7 → `#11-form-numeric-attr-html-integer-parsing`,
+  owner **L3** (PM 1146, process (b)); F-14 → `#11-html-element-type-tests-without-namespace` (L3);
+  (ii) *input lines approved*: F-5 and F-12 → `IBP-ua-display`; F-15 → CV-details (the shadow form, whole: OQ-6 (b))
+  and `IBP-ua-display`'s plan, for the registration of its slot's `summary` member; §4.3 U13's three quirks rules →
+  `#11-document-mode` (Layout); F-16 → the L1 lane, the PM deciding its order once each per-slice plan has re-grepped
+  on its base; F-11 → the cite-sweep lane;
+  (iii) *new slots not yet registered*: F-2 (`#11-dir-attribute-ua-rule-in-core`), F-6
+  (`#11-text-align-match-parent`), F-9 (`#11-ua-sheet-flow-relative-box-properties`), F-10
+  (`#11-css-property-handler-dual-implementation`) — the PM checks each premise at `file:line` first;
+  (iv) *F-4 becomes a slot*: move the UA defaults, rules and hints together, into the plugin handlers (drafted in §7
+  F-4 as `#11-ua-defaults-in-html-element-handlers`; name, owner and date proposed);
+  (v) *F-8 gets no slot* (no defect today); it stays in this memo as §0.5 row 4's trigger;
+  (vi) *where the E0 / A0 record lives* (process (a)): in one place — this memo's §9 plus the PM decision that rules
+  it; the slot row and the landings ledger carry pointers only (§9 item 4, §10). Rev 3.2's proposal (the record as a
+  paragraph of the slot row, moved to the landings ledger at closure) is withdrawn.
+- **OQ-5 — under option A only**: **OPEN — with the user (PM 1146)**; it goes to the user only if the user picks A
+  in OQ-1. LC-3 would make `BrowserCore` / `App`, and every hint-less cascade entry (the
   WPT harness, the benches, the print entry's fixture, the tests that call `resolve_styles` or
   `prepare_print_style`), stop honouring `start` / `value` / `reversed`, which they honour today — the one
   right-to-wrong change in §5.2's tables. Is that an accepted, cell-pinned divergence, or does it need its own
@@ -1611,7 +1646,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   navigation rebuild hard-code `BrowserCompat`, so once a core session exists the same list is numbered from 1 in
   the top-level document and from its `start` in an iframe until that slot lands). Under A the divergence would be
   recorded against both.
-- **OQ-6 — LC-2k's conditional edit to another program's UA sheet.** §7 F-15 (b) has LC-2k add `counter-increment:
+- **OQ-6 — LC-2k's conditional edit to another program's UA sheet.** **Ruled: PM 1146 — (b)**: CV-details lands
+  HTML §15.5.5's `:host summary` rule whole, both declarations — one rule, one lander; Layout adds that line to its
+  E26 memo; LC-2k does not edit that sheet and checks W-SUM-D assuming that landing (§5.1, §5.3 LC-2k, §6, §7 F-15).
+  The question as it was put (rev 3.2): rev 3.2's §7 F-15 (b) had LC-2k add `counter-increment:
   list-item 0` to a §15.5.5 `summary` rule that is in a UA sheet at LC-2k's base with `display: list-item` alone.
   For the document form the sheet is one this program already edits (`ua.rs` / `legacy_ua.rs`); for the shadow form
   it is CV-details' UA shadow sheet (`docs/plans/2026-10-content-visibility.md`; its file is CV `:986`'s placeholder
@@ -1651,33 +1689,32 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   (`docs/plans/2026-06-e0-shell-style-compat-mode.md`) and for the anchor design A0 §3.2b
   (`docs/plans/2026-06-web-api-compat-split-design.md:516`), in IBP's idiom "recorded, not edited" (IBP §0.3's
   heading; A114): one record naming the ratifier's decision, the option and the reading it was taken under, and
-  the passages of §1.7 that no longer hold as written. **Where** (neither plan has a ledger of its own, so the
-  record goes where this program's decisions already are, and the plans' readers are pointed at it — One issue,
-  one way: one record, the rest pointers; the spec is silent here): (i) the record is a paragraph of this slot's
-  row in the open-slot ledger (`project_open-defer-slots.md:1482`), headed with both plan paths so that a search
-  for either file name finds it; (ii) E0's back-pointer goes on its landing line in the landings ledger
-  (`m4-12-landings-ledger.md:224`, the #410 line that done-ifies E0), naming that paragraph; (iii) A0 has no
-  ledger or landing line (`/usr/bin/grep -c web-api-compat-split-design <memory dir>/m4-12-landings-ledger.md` → 0 on 2026-11-26;
-  control `/usr/bin/grep -c -F '#406'` on the same file → 1),
-  so (i)'s heading is its pointer; (iv) the ratifier's decision itself is the PM's decision line in the PORTFOLIO,
-  cited by number in (i); (v) **the record outlives the slot**: (i) sits on an open-slot row, and a closed slot's
-  row leaves that ledger (the ledger's header banners record each closure as an entry removed), so the paragraph
-  must not go with it — when the PM closes the slot, the paragraph moves unchanged to the landings-ledger row of
-  the closing PR (`memory/m4-12-landings-ledger.md`), and E0's back-pointer of (ii) is re-pointed to it there. This
-  destination is **pending the PM's ruling** (sent with §8's open questions, OQ-4). The two plan files are not
-  edited; the rustdoc and comments of §1.7 are edited by LC-3.
-  If A is ratified: no amendment record; OQ-5's divergence record instead, in the same place (i). Whatever the
-  option, the reading the ratifier names is recorded once, in (i), against IBP's premise (§0.2), and goes to
-  `IBP-layout` and `IBP-ua-display` as input lines (below), since they consume it.
+  the passages of §1.7 that no longer hold as written. **Where (PM 1146, process (a))**: the record lives in **one
+  place** — this section of this memo, as a paragraph under this item headed with both plan paths (so that a search
+  for either file name finds it), added by the docs change that folds the ruling, plus the PM decision line that
+  rules it (in the PORTFOLIO, cited by number in the paragraph). Everything else carries a **pointer only, not a
+  paragraph**: (i) this slot's row in the open-slot ledger (`project_open-defer-slots.md:1482`) names this memo's §9
+  and the PM decision; (ii) E0's landing line in the landings ledger (`m4-12-landings-ledger.md:224`, the #410 line
+  that done-ifies E0) names the same two; (iii) A0 has no ledger or landing line
+  (`/usr/bin/grep -c web-api-compat-split-design <memory dir>/m4-12-landings-ledger.md` → 0 on 2026-11-26; control
+  `/usr/bin/grep -c -F '#406'` on the same file → 1), so the paragraph's heading is its pointer. The record is in the
+  repository, so it outlives the slot's row with no move at closure. The two plan files are not edited; the rustdoc
+  and comments of §1.7 are edited by LC-3.
+  If A is ratified: no amendment record; OQ-5's divergence record instead, in the same place and with the same
+  pointers. Whatever the option, the reading the ratifier names is recorded once, in that paragraph, against IBP's
+  premise (§0.2), and goes to `IBP-layout` and `IBP-ua-display` as input lines (below), since they consume it.
 - `IBP-layout` input lines: P-1's outcome and the designation reading (F-1); `IBP-ua-display` input lines: `menu`
   (F-5); HTML §16.3.3's five equivalences, `dir` among them (F-12); the `summary` rule's unit and pin (F-15), for
-  the registration of its slot's member; CV-details input line: the shadow form's unit and pin W-SUM-D (F-15).
+  the registration of its slot's member; CV-details input line: the shadow form's rule lands whole, both declarations
+  (PM 1146, OQ-6 (b); Layout adds the line to the E26 memo), and W-SUM-D (F-15).
 - `#11-document-mode` input line: §15.3.7's three quirks-mode list rules (§4.3 U13).
 - F-16: no ledger write — PM 1008's boundary is already on this slot's row (`project_open-defer-slots.md:1482`);
   the PM sequences L1's page children against LC-1, LC-3 and LC-4 when their plans name them.
 - Cite-sweep lane input: F-11.
-- Proposed, pending OQ-4: new slots for F-2, F-6, F-9, F-10; facets of `#11-css-wide-revert-keyword` (F-3),
-  `#11-form-numeric-attr-html-integer-parsing` (F-7) and `#11-html-element-type-tests-without-namespace` (F-14).
+- Approved (PM 1146): facets of `#11-css-wide-revert-keyword` (F-3), `#11-form-numeric-attr-html-integer-parsing`
+  (F-7; owner L3) and `#11-html-element-type-tests-without-namespace` (F-14). Not yet registered (PM 1146): new slots
+  for F-2, F-6, F-9, F-10, after the PM's premise check at `file:line`; and F-4's slot,
+  `#11-ua-defaults-in-html-element-handlers` (name, owner, date proposed). No record for F-8.
 
 ## §10. Definition of done (the program)
 
@@ -1686,12 +1723,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   tests, the "stays" cells of its window included.
 - The list-item predicate has one definition and its body reads computed `display` (LC-2k); no reader of "is a
   list item" for counters keys on a tag.
-- OQ-1's outcome is recorded (§9, item 4): under B0 / B / C the E0 / A0 amendment paragraph exists on this slot's
-  ledger row, headed with both plan paths, with E0's back-pointer on its landings-ledger line; under A the
-  divergence record of OQ-5 exists there instead; the reading is recorded there against IBP's premise. The record
-  outlives the slot: when the row is closed, the paragraph is on the closing PR's row of
-  `memory/m4-12-landings-ledger.md` and E0's back-pointer names it there (§9 item 4 (v); destination pending the
-  PM's ruling).
+- OQ-1's outcome is recorded (§9, item 4): under B0 / B / C the E0 / A0 amendment paragraph exists in this memo's
+  §9, headed with both plan paths, beside the PM decision that rules it; under A the divergence record of OQ-5 is
+  there instead; the reading is recorded there against IBP's premise. The slot row and E0's landings-ledger line
+  carry pointers to it only (PM 1146, process (a)).
 - `git grep -n 'list-counter-baking' -- crates` → 0 hits (the pointer comments are gone with their defects), and
   §5.3's concept sweep leaves no comment that describes the bake or a cascade-time count.
 - `getComputedStyle` returns the computed `counter-*` values (P10 / Q10), and `counter-*` have one parse and one
@@ -1700,6 +1735,30 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
 
 ## Changelog
 
+- **Rev 3.3 (2026-11-26)** — folds **PM 1146**, the PM's rulings on rev 3.2 (`d3c122d6`). No slice reordered, no
+  section restructured; no code ref re-anchored except where dated `678d4abe`.
+  - **OQ-1, OQ-2, OQ-5** — kept OPEN, marked "with the user (PM 1146)": every answer but A amends the user-ratified
+    E0, and the principles split on OQ-2; OQ-5 goes to the user only if A is picked. Options text unchanged; the
+    intro paragraph says the PM is asking the user.
+  - **OQ-3** — ruled: the fold is approved.
+  - **OQ-4** — ruled: facets F-3, F-7, F-14 and the input lines approved; F-7's slot owner is L3 (process (b)); the
+    four new slots (F-2, F-6, F-9, F-10) stay unregistered until the PM's premise check at `file:line` (each marked
+    in §7); F-4 becomes a slot, drafted in §7 as `#11-ua-defaults-in-html-element-handlers` (rules and hints
+    together into the plugin handlers; name, owner, date proposed); F-8 gets no slot and stays as §0.5 row 4's
+    trigger (the "the PM decides whether a slot should hold it" sentence removed). §7's lead and §9's last bullet
+    follow.
+  - **OQ-6** — ruled (b): CV-details lands HTML §15.5.5's `:host summary` rule whole (both declarations, one rule,
+    one lander) and Layout adds the line to its E26 memo; LC-2k edits no UA sheet and checks W-SUM-D assuming that
+    landing. §5.1 LC-2k's "What it lands" (the conditional edit removed), §5.2's cross-lane paragraph, §5.3 LC-1 and
+    LC-2k, §6 W-SUM-D, §7 F-15 (facts (3), (4); constraint (b); carried-to line), §9's CV-details input line. The
+    document form's lander is held to the same rule by F-15 (a); a form found without its declaration is a finding
+    against its lander, not an edit in LC-2k.
+  - **F-15, F-16** — approved; the PM decides F-16's order once each per-slice plan has re-grepped on its base.
+  - **Process (a)** — the E0 / A0 record lives in one place, this memo's §9 plus the PM decision that rules it; the
+    slot row and the landings ledger carry pointers only. Replaces rev 3.2's §9 item 4 (i) paragraph-on-the-row and
+    (v) move-at-closure, and the related §10 line and OQ-4 sentence.
+  - F-2's `push_dir_attr` cite gains its `678d4abe` line (`:426`); F-15 (3) and §5.2 cite the E26 memo at
+    `678d4abe` (`:880` its §8 row, `:986` its §11 placeholder).
 - **Rev 3.2 (2026-11-26)** — folds the Step 4.5 focused re-review of rev 3.1 (`4fd8752a`; CRIT 0 / IMP 0 / MIN 7,
   C-M1 – C-M7, plus two clerical notes). Each finding was checked against its evidence before it was applied; none
   was wrong. No slice reordered, no section restructured. Code refs re-verified at `4fd8752a` (`git diff --stat
