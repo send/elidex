@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use elidex_ecs::EcsDom;
 use elidex_layout_block::{LayoutEnv, LayoutInput, SubgridContext};
 use elidex_plugin::{
-    AlignItems, CssSize, Dimension, Direction, GridTrackList, JustifyItems, LayoutBox, Point,
+    AlignItems, CssSize, Direction, GridTrackList, JustifyItems, LayoutBox, Point, Size,
     WritingMode,
 };
 
@@ -112,7 +112,6 @@ pub(crate) struct GridPlacement<'a> {
     /// Container inline-axis size (CSS Writing Modes §6.3, used for RTL mirroring).
     pub(crate) container_inline_size: f32,
     pub(crate) direction: Direction,
-    pub(crate) containing: CssSize,
     /// Subgrid context for passing parent track sizes to subgrid children.
     pub(crate) subgrid_ctx: Option<&'a SubgridContext>,
     /// Container's writing mode (CSS Writing Modes §6.3).
@@ -134,6 +133,73 @@ pub(super) struct ItemFragmentation<'a> {
     pub incomplete: bool,
 }
 
+fn item_baseline(lb: &LayoutBox, x_axis: bool) -> f32 {
+    if x_axis {
+        lb.margin.left
+            + lb.border.left
+            + lb.padding.left
+            + lb.first_baseline
+                .unwrap_or(lb.content.size.width + lb.padding.right + lb.border.right)
+    } else {
+        lb.margin.top
+            + lb.border.top
+            + lb.padding.top
+            + lb.first_baseline
+                .unwrap_or(lb.content.size.height + lb.padding.bottom + lb.border.bottom)
+    }
+}
+
+fn measure_in_area(
+    dom: &mut EcsDom,
+    item: &GridItem,
+    env: &LayoutEnv<'_>,
+    area_width: f32,
+    area_height: f32,
+    is_horizontal_wm: bool,
+) -> (elidex_layout_block::block::GridItemSizing, LayoutBox) {
+    let area = CssSize::definite(area_width, area_height);
+    let item_inline_size = if is_horizontal_wm {
+        area_width
+    } else {
+        area_height
+    };
+    let inline_stretch = item.justify == JustifyItems::Stretch;
+    let block_stretch = item.align == AlignItems::Stretch;
+    let stretch = if is_horizontal_wm {
+        Size {
+            width: inline_stretch,
+            height: block_stretch,
+        }
+    } else {
+        Size {
+            width: block_stretch,
+            height: inline_stretch,
+        }
+    };
+    let sizing = elidex_layout_block::block::GridItemSizing {
+        stretch,
+        intrinsic: Size {
+            width: Some((item.content_size.width - item.pb.horizontal()).max(0.0)),
+            height: None,
+        },
+    };
+    let prelim_input = LayoutInput {
+        item_context: elidex_layout_block::ItemContext::GridArea(sizing),
+        containing: area,
+        containing_inline_size: item_inline_size,
+        ..LayoutInput::probe(env, area_width)
+    };
+    let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
+    let sizing = elidex_layout_block::block::GridItemSizing {
+        intrinsic: Size {
+            width: sizing.intrinsic.width,
+            height: Some(prelim_lb.content.size.height),
+        },
+        ..sizing
+    };
+    (sizing, prelim_lb)
+}
+
 /// Position each item within its grid area and perform final layout.
 ///
 /// Returns the grid container's first baseline (CSS Grid §4.2).
@@ -150,7 +216,6 @@ pub(crate) fn position_items(
     let content_x = placement.content_origin.x;
     let content_y = placement.content_origin.y;
     let container_inline_size = placement.container_inline_size;
-    let containing_height = placement.containing.height;
     let col_tracks = placement.col_tracks;
     let row_tracks = placement.row_tracks;
     let col_positions = placement.col_positions;
@@ -183,54 +248,14 @@ pub(crate) fn position_items(
             } else {
                 (row_size, col_size)
             };
-            let avail_w = (bl_area_w - item.margin.left - item.margin.right).max(0.0);
-            let _avail_h = (bl_area_h - item.margin.top - item.margin.bottom).max(0.0);
-
-            let prelim_inline_size = if is_horizontal_wm {
-                bl_area_w
-            } else {
-                bl_area_h
-            };
-            let prelim_input = LayoutInput {
-                containing: CssSize {
-                    width: avail_w,
-                    height: containing_height,
-                },
-                containing_inline_size: prelim_inline_size,
-                ..LayoutInput::probe(env, avail_w)
-            };
-            let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
-
+            let (_, lb) = measure_in_area(dom, item, env, bl_area_w, bl_area_h, is_horizontal_wm);
             if align_bl {
-                // CSS Grid §10.6: synthesized baseline = border-box bottom from
-                // margin-box top. Items without a baseline use the border-box bottom.
-                if let Some(b) = prelim_lb.first_baseline {
-                    let baseline = item.margin.top + item.pb.top + b;
-                    let entry = row_baselines.entry(item.row_start).or_insert(0.0_f32);
-                    *entry = entry.max(baseline);
-                } else {
-                    // Border-box bottom from margin-box top.
-                    let baseline = item.margin.top
-                        + item.pb.top
-                        + prelim_lb.content.size.height
-                        + item.pb.bottom;
-                    let entry = row_baselines.entry(item.row_start).or_insert(0.0_f32);
-                    *entry = entry.max(baseline);
-                }
+                let entry = row_baselines.entry(item.row_start).or_insert(0.0);
+                *entry = entry.max(item_baseline(&lb, !is_horizontal_wm));
             }
             if justify_bl {
-                if let Some(b) = prelim_lb.first_baseline {
-                    let baseline = item.margin.left + item.pb.left + b;
-                    let entry = col_baselines.entry(item.col_start).or_insert(0.0_f32);
-                    *entry = entry.max(baseline);
-                } else {
-                    let baseline = item.margin.left
-                        + item.pb.left
-                        + prelim_lb.content.size.width
-                        + item.pb.right;
-                    let entry = col_baselines.entry(item.col_start).or_insert(0.0_f32);
-                    *entry = entry.max(baseline);
-                }
+                let entry = col_baselines.entry(item.col_start).or_insert(0.0);
+                *entry = entry.max(item_baseline(&lb, is_horizontal_wm));
             }
         }
     }
@@ -263,96 +288,42 @@ pub(crate) fn position_items(
             (row_pos, area_y, row_size, col_size)
         };
 
-        // Available space for the item after subtracting margins.
-        let avail_w = (area_width - item.margin.left - item.margin.right).max(0.0);
-        let avail_h = (area_height - item.margin.top - item.margin.bottom).max(0.0);
-
-        // Resolve item content width.
-        // CSS Grid §11.3: the containing block for a grid item is the grid area.
-        // Percentage widths resolve against the grid area size (before margins).
+        // Grid 2 §§6.1–6.2: tracks establish the containing block. The item
+        // formatter fits its content box in that area before alignment.
         let child_style = elidex_layout_block::get_style(dom, item.entity);
-        let item_content_w = if item.width_auto && item.justify != JustifyItems::Stretch {
-            // Non-stretch: use content width (shrink-wrap).
-            item.content_size.width
-        } else if item.width_auto {
-            (avail_w - item.pb.left - item.pb.right).max(0.0)
-        } else {
-            resolve_item_dimension(
-                child_style.width,
-                area_width,
-                item.pb.left + item.pb.right,
-                child_style.box_sizing,
-            )
-            .max(0.0)
-        };
-
-        // Preliminary layout to measure content height.
-        // CSS Grid §11.3: margin/padding % on grid items resolves against the
-        // grid area's content-box dimension (before margins), not avail (after margins).
+        let area = CssSize::definite(area_width, area_height);
         let item_inline_size = if is_horizontal_wm {
             area_width
         } else {
             area_height
         };
-        let prelim_input = LayoutInput {
-            containing: CssSize {
-                width: area_width,
-                height: containing_height,
-            },
-            containing_inline_size: item_inline_size,
-            ..LayoutInput::probe(env, area_width)
-        };
-        let prelim_lb = (env.layout_child)(dom, item.entity, &prelim_input).layout_box;
-
-        // Resolve item content height: stretch fills the area, otherwise use content.
-        let prelim_content_h = prelim_lb.content.size.height;
-        let item_content_h = if should_stretch_cross(item.align, item.height_auto) {
-            (avail_h - item.pb.top - item.pb.bottom).max(prelim_content_h)
+        let (sizing, prelim_lb) =
+            measure_in_area(dom, item, env, area_width, area_height, is_horizontal_wm);
+        let outer = prelim_lb.margin_box().size;
+        let (outer_inline, outer_block) = if is_horizontal_wm {
+            (outer.width, outer.height)
         } else {
-            prelim_content_h
+            (outer.height, outer.width)
         };
-
-        let item_outer_h =
-            item_content_h + item.pb.top + item.pb.bottom + item.margin.top + item.margin.bottom;
-
-        // Cross-axis alignment (vertical) — baseline-aware.
-        // Multi-row items don't participate in baseline sharing (CSS Grid §10.6).
-        let item_align_baseline = if item.align == AlignItems::Baseline && item.row_span == 1 {
-            prelim_lb
-                .first_baseline
-                .map(|b| item.margin.top + item.pb.top + b)
-        } else {
-            None
-        };
-        let row_bl = row_baselines.get(&item.row_start).copied().unwrap_or(0.0);
-        let y_offset = compute_alignment_offset(
+        let block_offset = compute_alignment_offset(
             item.align,
-            area_height,
-            item_outer_h,
-            item_align_baseline,
-            row_bl,
+            row_size,
+            outer_block,
+            (item.row_span == 1).then(|| item_baseline(&prelim_lb, !is_horizontal_wm)),
+            row_baselines.get(&item.row_start).copied().unwrap_or(0.0),
         );
-
-        // Inline-axis alignment (horizontal) — baseline-aware.
-        let item_outer_w =
-            item_content_w + item.pb.left + item.pb.right + item.margin.left + item.margin.right;
-        // Multi-column items don't participate in baseline sharing (CSS Grid §10.6).
-        let item_justify_baseline = if item.justify == JustifyItems::Baseline && item.col_span == 1
-        {
-            prelim_lb
-                .first_baseline
-                .map(|b| item.margin.left + item.pb.left + b)
-        } else {
-            None
-        };
-        let col_bl = col_baselines.get(&item.col_start).copied().unwrap_or(0.0);
-        let x_offset = compute_justify_offset(
+        let inline_offset = compute_justify_offset(
             item.justify,
-            area_width,
-            item_outer_w,
-            item_justify_baseline,
-            col_bl,
+            col_size,
+            outer_inline,
+            (item.col_span == 1).then(|| item_baseline(&prelim_lb, is_horizontal_wm)),
+            col_baselines.get(&item.col_start).copied().unwrap_or(0.0),
         );
+        let (x_offset, y_offset) = if is_horizontal_wm {
+            (inline_offset, block_offset)
+        } else {
+            (block_offset, inline_offset)
+        };
 
         // Build child SubgridContext if this item is a subgrid (CSS Grid Level 2 §2).
         let child_subgrid_ctx = if let Some(parent) = placement
@@ -391,11 +362,6 @@ pub(crate) fn position_items(
         // Final layout at resolved position.
         // CSS Grid §11.3: margin/padding % resolves against the grid area's
         // content-box dimension, consistent with preliminary passes.
-        let final_inline_size = if is_horizontal_wm {
-            area_width
-        } else {
-            area_height
-        };
         let row_offset = if entry.resume_row == 0 {
             row_pos
         } else {
@@ -427,16 +393,10 @@ pub(crate) fn position_items(
         let final_input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
-            assigned: elidex_layout_block::UsedAssignment {
-                content: elidex_plugin::Size {
-                    width: Some(item_content_w),
-                    height: Some(item_content_h),
-                },
-                ..Default::default()
-            },
-            containing: CssSize::definite(area_width, item_content_h),
-            containing_inline_size: final_inline_size,
+            item_context: elidex_layout_block::ItemContext::GridArea(sizing),
+            assigned: elidex_layout_block::UsedAssignment::default(),
+            containing: area,
+            containing_inline_size: item_inline_size,
             offset,
             font_db: env.font_db,
             depth: env.depth + 1,
@@ -522,14 +482,6 @@ fn cell_span_size(
     end_pos - start_pos
 }
 
-/// Check if an item should stretch in the cross axis.
-///
-/// Stretch only applies when the item's resolved alignment is `Stretch`
-/// AND the item's size on that axis is `auto`.
-fn should_stretch_cross(item_align: AlignItems, size_auto: bool) -> bool {
-    size_auto && matches!(item_align, AlignItems::Stretch)
-}
-
 /// Compute alignment offset within available space.
 ///
 /// `item_baseline` is the item's baseline measured from its margin-box edge.
@@ -593,31 +545,4 @@ fn compute_justify_offset(
         item_baseline,
         col_baseline,
     )
-}
-
-/// Resolve an item dimension (width/height).
-fn resolve_item_dimension(
-    dim: Dimension,
-    available: f32,
-    pb: f32,
-    box_sizing: elidex_plugin::BoxSizing,
-) -> f32 {
-    match dim {
-        Dimension::Length(px) => {
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (px - pb).max(0.0)
-            } else {
-                px
-            }
-        }
-        Dimension::Percentage(pct) => {
-            let resolved = available * pct / 100.0;
-            if box_sizing == elidex_plugin::BoxSizing::BorderBox {
-                (resolved - pb).max(0.0)
-            } else {
-                resolved
-            }
-        }
-        Dimension::Auto => (available - pb).max(0.0),
-    }
 }

@@ -49,7 +49,7 @@ fn direct_dispatch_after_publish_invalidates_the_phase() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -101,7 +101,7 @@ fn a_boxless_dispatch_after_publish_leaves_the_phase_alone() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -159,7 +159,7 @@ fn a_boxless_layout_generation_stamp_leaves_the_phase_alone() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -201,7 +201,7 @@ fn a_write_that_bypasses_the_dispatcher_still_invalidates() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 600.0),
         containing_inline_size: 800.0,
@@ -259,7 +259,7 @@ fn layout_fragmented_invalidates_screen_geometry_provenance() {
     let input = elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,

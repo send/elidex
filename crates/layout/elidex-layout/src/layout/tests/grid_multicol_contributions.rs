@@ -837,3 +837,137 @@ fn stretched_grid_item_uses_same_content_size_with_or_without_page_room() {
         }
     }
 }
+
+fn grid_item_box(
+    style: ComputedStyle,
+    vertical: bool,
+    fragmented: bool,
+) -> elidex_plugin::LayoutBox {
+    let fonts = FontDatabase::new();
+    let frag = page(500.0);
+    let mut dom = EcsDom::new();
+    let grid = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            display: Display::Grid,
+            writing_mode: if vertical {
+                elidex_plugin::WritingMode::VerticalLr
+            } else {
+                elidex_plugin::WritingMode::HorizontalTb
+            },
+            width: Dimension::Length(100.0),
+            height: Dimension::Length(100.0),
+            grid_template_rows: tracks(100.0),
+            grid_template_columns: tracks(100.0),
+            ..Default::default()
+        },
+    );
+    let item = element(
+        &mut dom,
+        Some(grid),
+        ComputedStyle {
+            display: Display::Block,
+            ..style
+        },
+    );
+    element(
+        &mut dom,
+        Some(item),
+        ComputedStyle {
+            margin_bottom: Dimension::Length(12.0),
+            ..sized(Display::Block, 10.0)
+        },
+    );
+    let input = elidex_layout_block::LayoutInput {
+        fragmentainer: fragmented.then_some(&frag),
+        ..contribution_input(&fonts, &frag)
+    };
+    assert!(dispatch_layout_child(&mut dom, grid, &input)
+        .end
+        .is_complete());
+    let lb = (*dom.world().get::<&elidex_plugin::LayoutBox>(item).unwrap()).clone();
+    lb
+}
+
+#[test]
+fn grid_item_stretch_obeys_constraints() {
+    for fragmented in [false, true] {
+        for (min, max, width) in [(0.0, 40.0, 40.0), (120.0, 200.0, 120.0)] {
+            let lb = grid_item_box(
+                ComputedStyle {
+                    min_width: Dimension::Length(min),
+                    max_width: Dimension::Length(max),
+                    ..Default::default()
+                },
+                false,
+                fragmented,
+            );
+            assert_eq!(lb.content.size.width, width);
+        }
+    }
+}
+
+#[test]
+fn grid_item_auto_margins_absorb_free_space_before_alignment() {
+    for fragmented in [false, true] {
+        let lb = grid_item_box(
+            ComputedStyle {
+                max_width: Dimension::Length(40.0),
+                justify_self: elidex_plugin::JustifySelf::Start,
+                margin_left: Dimension::Auto,
+                margin_right: Dimension::Auto,
+                height: Dimension::Length(50.0),
+                align_self: elidex_plugin::AlignSelf::FlexEnd,
+                margin_top: Dimension::Auto,
+                margin_bottom: Dimension::Auto,
+                ..Default::default()
+            },
+            false,
+            fragmented,
+        );
+        assert_eq!(lb.content.origin.x, 30.0);
+        assert_eq!(lb.content.origin.y, 25.0);
+        let auto = grid_item_box(
+            ComputedStyle {
+                align_self: elidex_plugin::AlignSelf::FlexEnd,
+                margin_top: Dimension::Auto,
+                margin_bottom: Dimension::Auto,
+                ..Default::default()
+            },
+            false,
+            fragmented,
+        );
+        assert_eq!(
+            auto.content.origin.y,
+            (100.0 - auto.content.size.height) / 2.0
+        );
+    }
+}
+
+#[test]
+fn grid_item_contains_child_margin() {
+    for fragmented in [false, true] {
+        let lb = grid_item_box(ComputedStyle::default(), false, fragmented);
+        assert_eq!(lb.margin.bottom, 0.0);
+    }
+}
+
+#[test]
+fn vertical_grid_item_aligns_on_track_axes() {
+    for fragmented in [false, true] {
+        let lb = grid_item_box(
+            ComputedStyle {
+                writing_mode: elidex_plugin::WritingMode::VerticalLr,
+                align_self: elidex_plugin::AlignSelf::FlexEnd,
+                width: Dimension::Length(40.0),
+                max_height: Dimension::Length(70.0),
+                ..Default::default()
+            },
+            true,
+            fragmented,
+        );
+        assert_eq!(lb.content.origin.x, 60.0);
+        assert_eq!(lb.content.size.height, 70.0);
+    }
+}

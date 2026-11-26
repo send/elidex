@@ -33,8 +33,8 @@ use elidex_layout_block::{
     LayoutInput, SubgridContext, MAX_LAYOUT_DEPTH,
 };
 use elidex_plugin::{
-    AlignItems, CssSize, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox,
-    Point, Rect, Size,
+    AlignItems, EdgeSizes, GridAutoFlow, GridLine, GridTrackList, JustifyItems, LayoutBox, Point,
+    Rect, Size,
 };
 
 use elidex_layout_block::horizontal_pb;
@@ -75,10 +75,6 @@ struct GridItem {
     align: AlignItems,
     /// Justify-self for this item.
     justify: JustifyItems,
-    /// Whether the item's height is `auto` (for stretch).
-    height_auto: bool,
-    /// Whether the item's width is `auto` (for stretch).
-    width_auto: bool,
     /// Max-content size from initial layout (at container width).
     content_size: Size,
     /// Min-content size from narrow-probe layout.
@@ -115,6 +111,7 @@ pub fn layout_grid(
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
 
     // --- 1. Container box model resolution ---
     // Percentage margins/padding resolve against the containing block's inline size
@@ -557,10 +554,6 @@ pub fn layout_grid(
         content_origin,
         container_inline_size,
         direction: style.direction,
-        containing: CssSize {
-            width: containing_width,
-            height: containing_height,
-        },
         subgrid_ctx: subgrid_ctx.as_ref(),
         writing_mode: style.writing_mode,
     };

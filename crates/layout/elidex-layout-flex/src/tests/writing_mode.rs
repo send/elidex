@@ -206,7 +206,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 500.0),
         containing_inline_size: 500.0,
@@ -247,7 +247,7 @@ fn vertical_rl_margin_percent_resolves_against_inline_size() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(800.0, 500.0),
         containing_inline_size: 500.0,

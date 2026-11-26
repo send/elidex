@@ -371,6 +371,17 @@ impl FragmentPlacement {
     }
 }
 
+/// Outer formatting context of the box being laid out.
+#[derive(Debug, Clone, Copy, Default)]
+pub enum ItemContext {
+    #[default]
+    NormalFlow,
+    /// Flex items and intrinsic Grid probes establish an independent context.
+    Independent,
+    /// CSS Grid 2 §§6.1–6.2: fit the item in its definite grid area.
+    GridArea(block::GridItemSizing),
+}
+
 /// Contextual parameters for a single child layout invocation.
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutInput<'a> {
@@ -382,8 +393,8 @@ pub struct LayoutInput<'a> {
     pub available_height_if_indefinite: Option<f32>,
     /// Whether the available physical width is a definite percentage reference.
     pub containing_width_definite: bool,
-    /// Whether this box establishes an independent context as a flex item (Flexbox §4).
-    pub is_flex_item: bool,
+    /// Parent formatting context for this box only.
+    pub item_context: ItemContext,
     /// Assignments for this box only.
     pub assigned: UsedAssignment,
     /// Available containing dimensions. Width definiteness is recorded separately.
@@ -434,6 +445,19 @@ pub struct LayoutInput<'a> {
 }
 
 impl<'a> LayoutInput<'a> {
+    /// Resolve the outer grid-item box before the inner formatter lays out its contents.
+    #[must_use]
+    pub fn resolve_item(self, style: &elidex_plugin::ComputedStyle) -> Self {
+        match self.item_context {
+            ItemContext::GridArea(target) => Self {
+                assigned: target.resolve(style, &self),
+                item_context: ItemContext::Independent,
+                ..self
+            },
+            _ => self,
+        }
+    }
+
     /// Physical space for auto layout, including a measured but percentage-indefinite height.
     #[must_use]
     pub fn available_height(&self) -> Option<f32> {
@@ -456,7 +480,7 @@ impl<'a> LayoutInput<'a> {
         Self {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
+            item_context: crate::ItemContext::NormalFlow,
             assigned: UsedAssignment::default(),
             containing: CssSize::width_only(containing_width),
             containing_inline_size: containing_width,

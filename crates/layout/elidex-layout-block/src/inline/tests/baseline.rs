@@ -141,7 +141,7 @@ fn block_inline_text_baseline() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -202,7 +202,7 @@ fn nested_block_baseline_propagation() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -260,7 +260,7 @@ fn block_without_baseline_none() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -323,7 +323,7 @@ fn mixed_block_inline_baseline() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,

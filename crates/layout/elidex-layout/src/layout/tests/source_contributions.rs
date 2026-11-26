@@ -103,7 +103,7 @@ pub(super) fn contribution_input<'a>(
     elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(200.0, 100.0),
         containing_inline_size: 200.0,

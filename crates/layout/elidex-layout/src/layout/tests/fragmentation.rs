@@ -24,7 +24,7 @@ fn layout_fragmented_single_fragment_when_content_fits() {
     let input = elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -78,7 +78,7 @@ fn layout_fragmented_two_fragments_on_overflow() {
     let input = elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -150,7 +150,7 @@ fn layout_fragmented_forced_break_produces_two_fragments() {
     let input = elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,
@@ -191,7 +191,7 @@ fn layout_fragmented_without_fragmentainer_returns_one() {
     let input = elidex_layout_block::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(400.0, 1000.0),
         containing_inline_size: 400.0,

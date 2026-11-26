@@ -876,7 +876,7 @@ fn first_child_dispatch_uses_published_display_through_contents() {
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: elidex_layout_block::UsedAssignment::default(),
         containing: CssSize::definite(200., 150.),
         containing_inline_size: 200.,

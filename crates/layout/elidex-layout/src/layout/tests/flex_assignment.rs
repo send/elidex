@@ -23,7 +23,10 @@ fn observe(
     entity: Entity,
     input: &LayoutInput<'_>,
 ) -> elidex_layout_block::LayoutOutcome {
-    assert!(input.is_flex_item);
+    assert!(matches!(
+        input.item_context,
+        elidex_layout_block::ItemContext::Independent
+    ));
     let style = elidex_layout_block::get_style(dom, entity);
     let result = dispatch_layout_child(dom, entity, input);
     CALLS.with_borrow_mut(|calls| {
@@ -51,7 +54,7 @@ fn run_at_generation(dom: &mut EcsDom, parent: Entity, width: f32, generation: u
     let input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: elidex_layout_block::ItemContext::NormalFlow,
         assigned: UsedAssignment::default(),
         containing: CssSize::width_only(width),
         containing_inline_size: width,
@@ -358,7 +361,7 @@ fn empty_and_depth_limited_boxes_keep_assigned_zero_and_signed_edges() {
             let input = LayoutInput {
                 available_height_if_indefinite: None,
                 containing_width_definite: true,
-                is_flex_item: false,
+                item_context: elidex_layout_block::ItemContext::NormalFlow,
                 assigned: UsedAssignment {
                     content: Size {
                         width: Some(0.0),
@@ -719,7 +722,7 @@ fn empty_vertical_table_direct_receiver_clamps_only_the_missing_axis() {
         let input = LayoutInput {
             available_height_if_indefinite: None,
             containing_width_definite: true,
-            is_flex_item: false,
+            item_context: elidex_layout_block::ItemContext::NormalFlow,
             assigned: UsedAssignment {
                 content: Size {
                     width: None,

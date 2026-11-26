@@ -36,7 +36,7 @@ fn mixed_block_inline_anonymous_box() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -104,7 +104,7 @@ fn block_only_children_no_anonymous_boxes() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,
@@ -171,7 +171,7 @@ fn display_none_skipped_in_block_context() {
     let input = crate::LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: false,
+        item_context: crate::ItemContext::NormalFlow,
         assigned: crate::UsedAssignment::default(),
         containing: elidex_plugin::CssSize::width_only(800.0),
         containing_inline_size: 800.0,

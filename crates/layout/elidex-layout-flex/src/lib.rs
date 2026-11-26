@@ -286,6 +286,7 @@ pub fn layout_flex(
     let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
+    let input = &input.resolve_item(&style);
 
     let inline_containing = input.containing_inline_size;
     let padding = elidex_layout_block::resolve_padding(&style, inline_containing);

@@ -7,8 +7,8 @@ use elidex_layout_block::{
     effective_align, sanitize_border, ChildLayoutFn, LayoutEnv, LayoutInput,
 };
 use elidex_plugin::{
-    AlignContent, AlignmentSafety, ComputedStyle, CssSize, Dimension, Display, EdgeSizes,
-    GridAutoFlow, JustifyContent, JustifyItems, JustifySelf, Point, Rect, Size, TrackSize,
+    AlignContent, AlignmentSafety, ComputedStyle, CssSize, Display, EdgeSizes, GridAutoFlow,
+    JustifyContent, JustifyItems, JustifySelf, Point, Rect, Size, TrackSize,
 };
 
 use elidex_layout_block::block::resolve_margin;
@@ -54,8 +54,26 @@ pub(crate) fn collect_grid_items(
             let _ = dom.world_mut().insert_one(child, child_style.clone());
         }
 
-        let align = effective_align(child_style.align_self, container_style.align_items);
-        let justify = effective_justify(child_style.justify_self, container_style.justify_items);
+        let mut align = effective_align(child_style.align_self, container_style.align_items);
+        let mut justify =
+            effective_justify(child_style.justify_self, container_style.justify_items);
+
+        // CSS Grid 2 §11.2: auto margins take precedence over self-alignment.
+        let auto_x = [child_style.margin_left, child_style.margin_right]
+            .contains(&elidex_plugin::Dimension::Auto);
+        let auto_y = [child_style.margin_top, child_style.margin_bottom]
+            .contains(&elidex_plugin::Dimension::Auto);
+        let (auto_inline, auto_block) = if container_style.writing_mode.is_horizontal() {
+            (auto_x, auto_y)
+        } else {
+            (auto_y, auto_x)
+        };
+        if auto_inline {
+            justify = JustifyItems::Start;
+        }
+        if auto_block {
+            align = elidex_plugin::AlignItems::FlexStart;
+        }
 
         // Detect subgrid (CSS Grid Level 2 §2).
         let child_is_grid = matches!(child_style.display, Display::Grid | Display::InlineGrid);
@@ -78,8 +96,6 @@ pub(crate) fn collect_grid_items(
             pb: EdgeSizes::default(),
             align,
             justify,
-            height_auto: child_style.height == Dimension::Auto,
-            width_auto: child_style.width == Dimension::Auto,
             content_size: Size::ZERO,
             min_content_size: Size::ZERO,
             is_subgrid_cols,
@@ -139,6 +155,7 @@ pub(crate) fn measure_item_content(
         // (e.g. flex's relayout_item_at_position overwrites child widths).
         let saved_styles = elidex_layout_block::save_descendant_styles(dom, item.entity);
         let min_input = LayoutInput {
+            item_context: elidex_layout_block::ItemContext::Independent,
             containing: CssSize {
                 width: 1.0,
                 height: containing_height,
@@ -156,6 +173,7 @@ pub(crate) fn measure_item_content(
 
         // Max-content probe: layout at container width.
         let max_input = LayoutInput {
+            item_context: elidex_layout_block::ItemContext::Independent,
             containing: CssSize {
                 width: container_width,
                 height: containing_height,

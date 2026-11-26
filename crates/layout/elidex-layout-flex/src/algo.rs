@@ -218,7 +218,7 @@ pub(crate) fn layout_items_cross(
             ctx.resolved_height.unwrap_or(0.0)
         };
         let child_input = LayoutInput {
-            is_flex_item: true,
+            item_context: elidex_layout_block::ItemContext::Independent,
             assigned: elidex_layout_block::UsedAssignment {
                 content: Size {
                     width: ctx.horizontal.then_some(item.final_main),
@@ -453,7 +453,7 @@ fn relayout_item_at_position(
     let child_input = LayoutInput {
         available_height_if_indefinite: None,
         containing_width_definite: true,
-        is_flex_item: true,
+        item_context: elidex_layout_block::ItemContext::Independent,
         assigned: elidex_layout_block::UsedAssignment {
             content: Size {
                 width: Some(item_content_width),
