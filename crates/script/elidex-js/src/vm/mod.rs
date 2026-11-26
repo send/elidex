@@ -1752,8 +1752,8 @@ pub(crate) struct VmInner {
     /// runs on a given Request / Response, AND by the
     /// `Response.body` / `Request.body` getter the first time it
     /// materialises the lazy stream (Phase-2 simplification —
-    /// spec defers this until an actual chunk is read; M4-13
-    /// spec-polish moves the flag to the reader-read path).  A
+    /// spec defers this until an actual chunk is read;
+    /// #11-vm-fetch-body-disturbed-on-body-getter moves the flag to the reader-read path).  A
     /// second consumer then rejects with `TypeError`.
     ///
     /// `locked` is **not** a separate slot — it is derived from

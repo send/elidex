@@ -286,6 +286,7 @@ fn canonical_numeric_keys_set_is_silent_no_op() {
     let mut vm = Vm::new();
     // §10.4.5.18 step 3 skips each invalid-index store. The numeric RHS
     // masks the VM conversion-order defect: its early return skips steps 1–2.
+    // #11-vm-typed-array-invalid-index-store-skips-conversion
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([5, 6]); \
@@ -315,6 +316,7 @@ fn canonical_numeric_number_keys_set_is_silent_no_op() {
     // These numeric keys select no element and create no ordinary property.
     // §10.4.5.18 steps 1–2 convert the RHS before step 3 skips the store.
     // The literal 99 masks the VM defect in the key and stored-count early returns.
+    // #11-vm-typed-array-invalid-index-store-skips-conversion
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array([5, 6]); \
@@ -399,6 +401,7 @@ fn set_non_finite_offset_throws_range_error() {
     // ECMA-262 §23.2.3.26.1 steps 5–6 reject +Infinity and a source range
     // exceeding the target. These arrays have ordinary length properties,
     // so the cases do not exercise the VM P4 offset-check ordering defect.
+    // #11-vm-typed-array-set-offset-check-order
     assert!(eval_bool(
         &mut vm,
         "var ok = false; \

@@ -470,6 +470,7 @@ fn typed_array_of_accepts_bound_typed_array_constructor() {
     // Use .of.call(Bound, ...). BoundFunctionCreate steps 1 and 4 obtain and install the
     // target’s prototype. The wrapper in this VM does not inherit that prototype.
     // (BoundFunctionCreate §10.4.1.3.)
+    // #11-vm-bound-function-prototype-inheritance
     assert!(eval_bool(
         &mut vm,
         "var Bound = Uint8Array.bind(null); \
@@ -486,6 +487,7 @@ fn typed_array_from_accepts_bound_typed_array_constructor() {
     // accept a bound TypedArray constructor receiver via the
     // BoundFunction unwrap.  Same `.from.call(...)` workaround
     // for the engine's bind-prototype gap.
+    // #11-vm-bound-function-prototype-inheritance
     assert!(eval_bool(
         &mut vm,
         "var Bound = Float32Array.bind(null); \
