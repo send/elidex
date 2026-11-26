@@ -41,7 +41,7 @@ pub fn canvas_dimensions(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 /// if a context is now present; `false` only if the component insertion fails
 /// (a non-live entity). Each zero axis is floored to 1
 /// (#11-canvas-zero-dimension-bitmap). If the backend rejects the bitmap size,
-/// the VM uses the 1×1 substitute documented at [`make_context`]
+/// the VM uses the 1×1 substitute documented at `make_context`
 /// (#11-canvas-bitmap-allocation-failure-substitute).
 pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
     if dom.world().get::<&Canvas2dContext>(entity).is_ok() {
