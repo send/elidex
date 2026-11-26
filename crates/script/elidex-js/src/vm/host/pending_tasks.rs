@@ -103,7 +103,7 @@ pub(crate) enum PendingTask {
     /// (deferred) phase of committing a transaction: set state `finished`,
     /// fire `complete`, and (for an upgrade transaction) clear the open
     /// request's `transaction`. The VM also fires open success here, although
-    /// §4.3 requires a separate task. The synchronous
+    /// §4.3 requires a separate task (#11-vm-idb-upgrade-open-success-same-task). The synchronous
     /// first phase (`state = committing` + the durable backend write) ran
     /// in `txn::commit_transaction`; deferring the event keeps the
     /// auto-commit sweep's map iteration safe (no user JS mid-iteration).

@@ -211,6 +211,7 @@ impl VmInner {
         // `Object.defineProperty` reconfig / `delete`, both rare on
         // intrinsic surfaces; matches the engine convention for other
         // exposed-readonly constants.
+        // #11-vm-webidl-constants-configurable
         let proto_id = self
             .wheel_event_prototype
             .expect("register_wheel_event_global just stored wheel_event_prototype");
