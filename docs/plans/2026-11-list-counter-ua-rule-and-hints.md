@@ -4,9 +4,10 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 2, 2026-11-23
-(plan-review round 1 folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree `wt-lch-plan`,
-base `bf1cae35`. **Docs only.**
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 2.1, 2026-11-26
+(plan-review round 1 folded; code refs re-anchored; changelog at the end). Branch `layout-list-counter-hints-plan`,
+worktree `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes
+ran at `bf1cae35`). **Docs only.**
 
 **What this memo decides** (§0.4): the homes of the facts (who writes the computed `counter-*` values, where the
 implicit `list-item` increment and the reversed initial value live, the UA rule's sheet), the slice set and order
@@ -83,17 +84,17 @@ that matters. "Spec" is this memo's derivation from the cited text (§3.2), not 
 | P8a | `<ol>`, second `li` `display: block` | 1, –, 3 | 1, –, 2 | "counted by tag" → **confirmed** |
 | P8b | two `div` with `display: list-item; list-style-type: decimal` | "0", "0" | 1, 2 | "a non-`li` list item does not increment" → **confirmed** |
 | P10 | `getComputedStyle` of `counter-reset` / `-increment` / `-set` on `ol start=3`, `li value=7`, `li`, and a `div` with all three author values (+c in Q10, so the fields are populated: `[foo 2, bar 0]`, `[("foo", 3)]`, `[("bar", 9)]`) | `"initial"` for every read, and for the IDL attribute `counterReset` | the computed value (CSSOM 1 §9) | facet → **confirmed** |
-| — | PM 637 duplicate bake | 3 call sites of `apply_implicit_list_counters_from_dom` (`git grep -n 'apply_implicit_list_counters_from_dom(' -- crates`, less the definition `counter.rs:378`: `crates/css/elidex-style/src/walk.rs:194`, `crates/css/elidex-style/src/generated_content.rs:144`, `crates/core/elidex-render/src/builder/walk.rs:134`); P1 shows one entry per field, so the second and third calls change nothing | — | structural → **confirmed** by grep; no behaviour to observe |
+| — | PM 637 duplicate bake | 3 call sites of `apply_implicit_list_counters_from_dom` (`git grep -n 'apply_implicit_list_counters_from_dom(' -- crates`, less the definition `counter.rs:377`: `crates/css/elidex-style/src/walk.rs:168`, `crates/css/elidex-style/src/generated_content.rs:144`, `crates/core/elidex-render/src/builder/walk.rs:134`); P1 shows one entry per field, so the second and third calls change nothing | — | structural → **confirmed** by grep; no behaviour to observe |
 
 **Findings the probes added** (not in the slot text; §0.3 routes each):
 
 | ID | Markup / author CSS | elidex at `bf1cae35` | Spec value | Finding |
 |---|---|---|---|---|
-| N-1 | every row above marked "author value absent"; also Q23: `<div style="counter-reset: foo 3">` + `p::before { content: counter(foo) }` → pseudo 0, `counter_reset = []` | an author `counter-reset` / `-increment` / `-set` is dropped unless the **same element also declares `content`** | the properties apply to all elements (`webref css css-lists-3 counter-reset`: appliesTo "all elements") | `resolve_content` returns at "not declared → default (Normal)" (`crates/css/elidex-style/src/resolve/box_model/mod.rs:399`) before it reaches the three counter resolves (`:448`–`:455`) |
+| N-1 | every row above marked "author value absent"; also Q23: `<div style="counter-reset: foo 3">` + `p::before { content: counter(foo) }` → pseudo 0, `counter_reset = []` | an author `counter-reset` / `-increment` / `-set` is dropped unless the **same element also declares `content`** | the properties apply to all elements (`webref css css-lists-3 counter-reset`: appliesTo "all elements") | `resolve_content` returns at "not declared → default (Normal)" (`crates/css/elidex-style/src/resolve/box_model/mod.rs:416`) before it reaches the three counter resolves (`:465`–`:472`) |
 | N-2 | Q11a: `h1 { counter-reset: sub } p { counter-increment: sub } p::before { content: counter(sub) }` (+c), `h1` and two `p` siblings | pseudo 1, 1 | 1, 2 (§4.3: scope includes "its following siblings with their descendants") | a counter lives only until its creator's subtree ends: `resolve_tree` calls `push_scope` before `process_element` (`generated_content.rs:122`, `:145`) and `pop_scope` drops it (`counter.rs:48`) |
 | N-2 | P11b: `<div><li><li></div>`, `li { list-style-type: decimal }` | 1, 1 | 1, 2 | same; reachable in production with no author counter property |
-| N-3 | Q13: `<li value=5>` + `#b { counter-increment: list-item 2; content: normal }` | 1, 3, 4 | 1, 5, 6 (increment, then the hint's `counter-set`) | the bake's `li` arm skips the `value` attribute whenever the computed `counter-increment` names `list-item` (`counter.rs:344`–`:352`) |
-| N-4 | P14: `<ol start=" 5">`, `<ol start="5abc">`, `<li value="7abc">` | 1; 1; 1 (`start="+5"` → 5) | 5; 5; 7 (HTML §2.3.4.1 rules for parsing integers: skip ASCII whitespace, collect the digit run) | attributes are parsed with `str::parse::<i32>` (`counter.rs:317`, `:327`, `:349`) |
+| N-3 | Q13: `<li value=5>` + `#b { counter-increment: list-item 2; content: normal }` | 1, 3, 4 | 1, 5, 6 (increment, then the hint's `counter-set`) | the bake's `li` arm skips the `value` attribute whenever the computed `counter-increment` names `list-item` (`counter.rs:343`–`:351`) |
+| N-4 | P14: `<ol start=" 5">`, `<ol start="5abc">`, `<li value="7abc">` | 1; 1; 1 (`start="+5"` → 5) | 5; 5; 7 (HTML §2.3.4.1 rules for parsing integers: skip ASCII whitespace, collect the digit run) | attributes are parsed with `str::parse::<i32>` (`counter.rs:316`, `:326`, `:348`) |
 | N-5 | P17: `<ol type=a>`; P18 / R1: `<ul>` in `<ul>`, `<ul>` in `<ol>`; R3: `<menu>`; R4: nested `<ul>` | P17 marker "1"; P18 inner marker "•"; R1 inner `list-style-type` is `Decimal`, marker "1"; R3 `menu` is `display: inline`, no margin / padding; R4 inner `ul` `margin-top` 16px | "a"; circle; circle; block with `margin-block: 1em`, `padding-inline-start: 40px`; 0 | HTML §15.3.7's `type` hints and most of its non-counter rules are absent (census: §4.3) |
 | N-6 | P16: `<img width=100 height=50>`, `<iframe width=600>` | `BrowserCompat`: computed `width` 100px / 600px. `BrowserCore`: `auto` / `auto` | the hint applies wherever the UA honours hints | conforming-attribute hints are compat-gated today (the premise of IBP Revision 38 item (1)); the list attributes are **not** — the bake applies them in every mode (every P-row is mode-independent) |
 | N-7 | R2: `<div dir=rtl>` | `BrowserCompat`: `direction: rtl`. `BrowserCore`: `ltr` | `rtl`: HTML §15.3.5 gives `[dir]:dir(rtl) { direction: rtl; }` as a UA rule, not a hint | `dir` is generated as a presentational hint (`push_dir_attr`, `crates/dom/elidex-dom-compat/src/presentational.rs:430`) and so falls under the compat gate |
@@ -181,7 +182,7 @@ Each line names the ground rung that decides it.
   designation reading of §1.2; the decision is the same under every reading and every option of §1.6. `dir`: §4.3.
 - **D-7 — the list attributes are presentational hints, at the hint position.** `ol[start]` / `[reversed]` →
   `counter-reset` and `li[value]` → `counter-set` enter the cascade through the existing hint seam
-  (`extra_declarations` of `collect_and_cascade`, `crates/css/elidex-style/src/cascade/mod.rs:175`), so an author
+  (`extra_declarations` of `collect_and_cascade`, `crates/css/elidex-style/src/cascade/mod.rs:231`), so an author
   declaration of the same property replaces them and the UA rule sits below them. *Rung 1*: HTML §15.3.7, §15.2.
   **In which engine modes they are generated is P-1 (§1), not decided here.** The hint output is a function of the
   element's `TagType` and of its `start` / `reversed` / `value` (and, in LC-5, `type`) attributes: a change of any
@@ -196,7 +197,7 @@ Each line names the ground rung that decides it.
 - **D-10 — the resolved value comes through the property-handler seam, and `counter-*` keep one parse and one
   resolve implementation.** `getComputedStyle` serves `counter-*` from `CssPropertyHandler::get_computed` like every
   other property; no special case in `get_computed_with_registry`. The trait also carries `parse` and `resolve`
-  (`crates/core/elidex-plugin/src/traits.rs:103`, `:113`): for `counter-*` the single parse path is the declaration
+  (`crates/core/elidex-plugin/src/traits.rs:111`, `:121`): for `counter-*` the single parse path is the declaration
   parser in `elidex-css` and the single resolve path is the cascade's resolve step, and the handler's two
   trait-forced entries call those implementations — they hold no copy (§5.3 LC-6). It lands after D-1, so the first
   value script sees is the cascade's. *Rung 1*: CSSOM 1 §9. *Rung 2*: Plugin-first (the seam); One issue, one way
@@ -215,7 +216,7 @@ Each line names the ground rung that decides it.
 | A post-cascade fix-up mutates the style object by element class (`match tag { "ol" … "li" … }`), re-run by three callers "to be safe" | The style component has one writer (the cascade system). Markup facts reach it as cascade inputs: a UA rule and a pure function `(TagType, Attributes) → declarations` |
 | The numbering state is smuggled through the style object (a `reversed` flag and a pre-counted integer baked into `counter_reset`; the increment's sign fixed up inside the machine) | Counter values are **derived** by a system that reads `ComputedStyle` in tree order and writes `ListItemMarker` / pseudo `TextContent`; nothing derived is written back into `ComputedStyle` |
 | "Is this a list item?" asked of the element's class (tag) | Asked of the component the cascade wrote (`display`) |
-| Per-element counters set, and a reversed counter's initial value (the spec's model is per element) | Walk-local state of the counter system, not a component and not an entity-keyed side store: at this base the only readers are the system's own two drivers (`git grep -n 'CounterState' -- crates`, non-test: `generated_content.rs`, `elidex-render/src/builder/mod.rs` and `walk.rs`, and a doc comment in `builder/paint/mod.rs`), and each run recomputes it from components (`ComputedStyle` in tree order), so the two drivers cannot disagree. **Criterion for promoting it**: a reader outside the system (accessibility ordinals, say, §7 F-8) makes the counters set a component written by the pre-layout pass; the paged driver then reads it instead of recomputing |
+| Per-element counters set, and a reversed counter's initial value (the spec's model is per element) | Walk-local state of the counter system, not a component and not an entity-keyed side store: at this base the only readers are the system's own two drivers (`git grep -n 'CounterState' -- crates`, non-test: `generated_content.rs`, `elidex-render/src/builder/mod.rs`, `paged.rs` and `walk.rs`, and a doc comment in `builder/paint/mod.rs`), and each run recomputes it from components (`ComputedStyle` in tree order), so the two drivers cannot disagree. **Criterion for promoting it**: a reader outside the system (accessibility ordinals, say, §7 F-8) makes the counters set a component written by the pre-layout pass; the paged driver then reads it instead of recomputing |
 
 ---
 
@@ -368,7 +369,7 @@ three hints, B for every current-feature hint, C for all), except where a column
 | E0 §5 item 4 (`:193`–`:194`) | "`BrowserCore`/`App` path = core resolution (no legacy UA, no hints)" | amends | void |
 | E0 §5 item 5 (`:195`) | "Compat algorithm stays in `elidex-dom-compat`" | kept for this program (the list hint source is new code); under B a conforming-attribute hint is not compat, so `IBP-layout`'s move takes that conversion out of `elidex-dom-compat` | void |
 | `StyleCompatPolicy` rustdoc (`crates/core/elidex-plugin/src/spec_level.rs:203`–`:204`, `:206`–`:209`, `:218`–`:219`, `:224`–`:226`) | the same sentences as E0 §1a | amends; LC-3 edits them | void |
-| Shell comments landed with #406 (`crates/shell/elidex-shell/src/lib.rs:138`–`:145`, `:160`–`:161`) and the `hint_generator` doc (`crates/css/elidex-style/src/lib.rs:328`–`:330`) | core arm: "no legacy UA sheet, no presentational hints" | amends; LC-3 edits them (not ratified text) | void |
+| Shell comments landed with #406 (`crates/shell/elidex-shell/src/lib.rs:138`–`:145`, `:160`–`:161`) and the `hint_generator` doc (`crates/css/elidex-style/src/lib.rs:333`–`:335`) | core arm: "no legacy UA sheet, no presentational hints" | amends; LC-3 edits them (not ratified text) | void |
 | A0 anchor design §3.2b (`docs/plans/2026-06-web-api-compat-split-design.md:516`) | "style layer derives: style-compat policy (UA sheet + presentational hints on/off)" | amends (one on/off unit → the legacy unit) | void |
 | A0 §5, E0 row (`:750`–`:755`) | the policy derives from the engine-wide `EngineMode`, parallel to `SpecLevelPolicy` | kept | void (nothing to derive) |
 | Design docs `docs/design/ja/15-rendering-pipeline.md` §15.3 (`:66`–`:67`), `29-survey-analysis.md` §29.5 (`:165`–`:169`) | width / height hints are a P0 item "of the compat layer" | B0: kept. B: amends, when `IBP-layout` applies P-1b | amends |
@@ -416,7 +417,7 @@ these words — the PM adds those when routing.
 | IBP §0.6 item 7, the cell test (`:886`–`:892`) | ratified rule | M is markup "under elidex's **current** cascade (UA and compat sheets included)"; ownership of an exposure is the exposer's | neither: whether core-mode iframe sizing is a cell is `IBP-layout`'s to derive |
 | IBP Revision 38 item (1) (`:279`–`:282`); §2 pair `IBP-classify × IBP-layout` (`:1269`–`:1275`); Appendix D (`:1859`–`:1863`); §3's §15.3.1 row (`:1312`) | **input**, not ratified (IBP's approval-scope paragraph, `:3`–`:9`) | the repair is "the dimension-attribute hints on the core path"; criterion: "a rendering-section hint, not a legacy presentational attribute" | B's outcome for those hints, by a **different criterion**: IBP's separates hints by where the spec defines them and does not say which hints are legacy; P-1b separates by the mapped feature's status. For §15.5.9 (the hint maps the element's value, not a content attribute) IBP's wording says core; P-1b says core only because it is worded over "markup feature", not "attribute" |
 | Shell test `engine_mode_gates_presentational_hints` (`crates/shell/elidex-shell/src/tests.rs:925`) | landed | `BrowserCore` drops `<font color>` | A and B (obsolete attribute) |
-| The bake (`counter.rs:298`), probes §0.2 | behaviour, never ratified | `start` / `value` / `reversed` apply in every mode and at every cascade entry | B0 / B in effect |
+| The bake (`counter.rs:299`), probes §0.2 | behaviour, never ratified | `start` / `value` / `reversed` apply in every mode and at every cascade entry | B0 / B in effect |
 
 ### §1.9 What this memo does not touch
 
@@ -461,7 +462,7 @@ The program holds these at once. Each slice's plan re-derives the pairs it touch
 | Pair | Where they meet |
 |---|---|
 | I1 × I2 | an author `counter-reset: foo` on `ol[start]` removes both the hint's and the UA rule's `list-item` (Q3a); the bake's `already_has` guards approximated this per counter name and are deleted with it |
-| I1 × I3 | today the bake compensates for the step's order: for `li[value]` it writes the set and **withholds** the increment (`counter.rs:349`–`:363`). With I1 the fields hold only what the cascade resolved, and I3 alone orders increment before set (P2a) |
+| I1 × I3 | today the bake compensates for the step's order: for `li[value]` it writes the set and **withholds** the increment (`counter.rs:348`–`:364`). With I1 the fields hold only what the cascade resolved, and I3 alone orders increment before set (P2a) |
 | I1 × I5 | the implicit increment may never appear in a field: P1's `li` must read `counter-increment: none` |
 | I1 × I6 | the reversed initial value may never appear in a field: `ol[reversed]` computes to `reversed(list-item)` with the absent-integer state, in the cascade and in `getComputedStyle` (§3.2, F7 note) |
 | I1 × I7 | a boxless element still has its computed `counter-*` (the cascade writes them whatever `display` is; `getComputedStyle` shows them); only the step ignores them (§4.5: "still valid on such an element, but they must have no effect") |
@@ -670,15 +671,15 @@ at its base. Names below are placeholders.
 
 | Fact | Home at `bf1cae35` | Home at the end | Slice |
 |---|---|---|---|
-| `ol` / `ul` / `menu` reset `list-item` | the bake's `"ol"` / `"ul"` arms (`counter.rs:305`, `:335`); `menu` nowhere | a UA rule in `UA_CSS` | LC-3 |
-| `start` / `reversed` → `counter-reset`; `value` → `counter-set` | the bake (`counter.rs:305`–`:352`), after the cascade | hint declarations, a pure function of `TagType` + `Attributes`, entering at the hint seam | LC-3 |
-| The implicit increment | a baked `("list-item", 1)` in the computed field (`counter.rs:363`), keyed on the tag `li`; the pre-layout pass gated by tag (`generated_content.rs:124`, `:141`) | the counter step, keyed on computed `display` | LC-1 |
+| `ol` / `ul` / `menu` reset `list-item` | the bake's `"ol"` / `"ul"` arms (`counter.rs:306`, `:334`); `menu` nowhere | a UA rule in `UA_CSS` | LC-3 |
+| `start` / `reversed` → `counter-reset`; `value` → `counter-set` | the bake (`counter.rs:306`–`:351`), after the cascade | hint declarations, a pure function of `TagType` + `Attributes`, entering at the hint seam | LC-3 |
+| The implicit increment | a baked `("list-item", 1)` in the computed field (`counter.rs:364`), keyed on the tag `li`; the pre-layout pass gated by tag (`generated_content.rs:124`, `:141`) | the counter step, keyed on computed `display` | LC-1 |
 | The implicit increment's sign | `process_element` negates **every** increment of a reversed counter (`counter.rs:117`) | the step applies −1 for the implicit one only | LC-1 |
-| A reversed counter's initial value with no integer | a baked `li_count + 1` (`counter.rs:313`–`:321`); `0` for an author `reversed(foo)` (`unwrap_or(0)`, `box_model/mod.rs:512`; the parser already stores the default as a number) | absent in the parsed and computed value; computed by the counter step per §4.4.2, walk-local (D-4) | LC-1 |
+| A reversed counter's initial value with no integer | a baked `li_count + 1` (`counter.rs:312`–`:320`); `0` for an author `reversed(foo)` (`unwrap_or(0)`, `box_model/mod.rs:529`; the parser already stores the default as a number) | absent in the parsed and computed value; computed by the counter step per §4.4.2, walk-local (D-4) | LC-1 |
 | Step order | reset → set → increment (`counter.rs:84`–`:128`) | reset → increment → set | LC-1 |
-| Author `counter-*` on an element | resolved only when the element declares `content` (`box_model/mod.rs:399`) | resolved for every element | LC-2 |
+| Author `counter-*` on an element | resolved only when the element declares `content` (`box_model/mod.rs:416`) | resolved for every element | LC-2 |
 | Counter scope | the creator's subtree (`push_scope` before the step, `pop_scope` after the children) | §4.3 / §4.4: subtree and following siblings; replace / nest on instantiate | LC-4 |
-| Resolved value of `counter-*` | none: `get_computed_with_registry` falls to `get_initial_value` (`resolve/mod.rs:73`) | a registered handler's `get_computed` | LC-6 |
+| Resolved value of `counter-*` | none: `get_computed_with_registry` falls to `get_initial_value` (`resolve/mod.rs:92`) | a registered handler's `get_computed` | LC-6 |
 | `ol[type]`, `ul` / `menu` / `dir` marker styles, nested styles and margins, `menu` box rules | absent (N-5) | UA rules and hints per §4.3 | LC-5 |
 
 ### §4.2 The counter step (input to LC-1 and LC-4; mechanism is theirs)
@@ -766,9 +767,9 @@ wrong in some window. Each hazard found is a **constraint** on the order ("X lan
 | c1 | the end of the negation ≼ N-1's removal | P4c: 3, 2, 1 → 5, 6, 7 (the author's explicit −1 becomes visible and is negated) | rev 1 |
 | c2 | N-1's removal ≼ sibling scope | W-H4, W-H4b: b = 1 → 2 / 3 — under sibling scope the `ol`'s counter reaches the later `div`, whose author `counter-reset` / `counter-set` is still dropped | rev 2 |
 | c3 | `menu`'s reset ≼ sibling scope | W-H3, W-H3b: b = 1 → 2 — the previous sibling's counter reaches `menu`'s items while `menu` has no reset | rev 2 |
-| c4 | the bake's `li` guard on the computed increment goes ≼ N-1's removal | W-F2: 1, 5, 6 → 1, 3, 4 — the guard (`counter.rs:344`–`:348`) wraps the `value` → set push as well as the increment, so a visible author `counter-increment: list-item 2` drops the hint (R1 finding F2) | R1 |
-| c5 | the reversed count's producer changes ≼ the increment's key changes from tag to `display` | W-F3: y = 1 → 2 — `count_li_children` counts `li` tags whatever their `display` (R1 finding F3). It cannot be re-keyed in place: the bake runs for the `ol` in the cascade walk before its children are styled (`crates/css/elidex-style/src/walk.rs:194`), so the count moves to §4.4.2 in the step | R1 |
-| c6 | N-1's removal ≼ the UA rule and the hints | a `counter-reset` on an `ol` that declares no `content` would be dropped by `resolve_content` (`box_model/mod.rs:399`): every list would lose its reset | rev 1 (implicit) |
+| c4 | the bake's `li` guard on the computed increment goes ≼ N-1's removal | W-F2: 1, 5, 6 → 1, 3, 4 — the guard (`counter.rs:343`–`:347`) wraps the `value` → set push as well as the increment, so a visible author `counter-increment: list-item 2` drops the hint (R1 finding F2) | R1 |
+| c5 | the reversed count's producer changes ≼ the increment's key changes from tag to `display` | W-F3: y = 1 → 2 — `count_li_children` counts `li` tags whatever their `display` (R1 finding F3). It cannot be re-keyed in place: the bake runs for the `ol` in the cascade walk before its children are styled (`crates/css/elidex-style/src/walk.rs:168`), so the count moves to §4.4.2 in the step | R1 |
+| c6 | N-1's removal ≼ the UA rule and the hints | a `counter-reset` on an `ol` that declares no `content` would be dropped by `resolve_content` (`box_model/mod.rs:416`): every list would lose its reset | rev 1 (implicit) |
 | c7 | the absent integer and §4.4.2 ≼ the `reversed` hint | step 3.2's `reversed(list-item)` has no integer to give | rev 1 |
 | c8 | the order fix ≼ the implicit increment's move into the step | P2a: 1, 5, 6 → 1, 6, 7 — under set → increment the step would add the implicit 1 after `li[value]`'s set (today the bake withholds the increment instead) | rev 2 |
 | c9 | the sign change and the implicit increment's move are one change | every reversed list would count up, or every explicit increment would stay negated | rev 1 |
@@ -791,23 +792,23 @@ new input reaches the unit in that window.
 
 | Unit at `bf1cae35` | W1 (i – iv) | W2 (v) | W3 (vi – ix) | W4 (x) |
 |---|---|---|---|---|
-| Bake tag gate `ol \| ul \| li` (`counter.rs:393`) | stays, for the arms that remain; (ii) does not reach it — the step's own gate is `display` | — | gone | gone |
-| `ol` arm guard `already_has` (`:306`) | — | ✓ author names `list-item` → the author's value (Q3c: 10, 11 before and after); names another counter → the reset is kept, wrong before and after (P3a, W-N2) | gone; Q3a, W-N1 / W-N2 turn right | gone |
-| `ol` arm `start` parse (`str::parse`, `:317`, `:327`) and ±1 | — | — | gone; P14 turns right | gone |
-| `ol[reversed]` value `li_count + 1` (`:313`–`:321`) and `count_li_children` (`:276`) | gone in LC-1 (c5): the arm passes the absent integer; ✓ W-F3 stays 1, P4a stays 3, 2, 1, P4b and W-RV turn right | — | the arm is gone; the hint passes the same absent integer | gone |
-| `ul` arm and its guard (`:335`–`:337`); `menu` absent | — | ✓ as the `ol` guard | gone; P5 turns right; ✓ W-H3 stays 1 (subtree scope) | ✓ W-H3, W-H3b stay 1: `menu` resets by the rule (c3) |
-| `li` arm guard on the computed increment (`:344`–`:348`) | gone in LC-1 (c4); ✓ P1's markers stay; Q13 turns right | (the guard is gone) ✓ W-F2 stays 1, 5, 6 | gone | gone |
-| `li` arm `value` → set, guard `already_set`, parse (`:349`–`:352`); no increment when `value` parses | ✓ (i): the step now adds the implicit increment before the set — P2a stays 1, 5, 6 (c8). ✓ (ii): a `li` with `display: block` and `value` still sets (the hint applies to the element whatever its `display`) | ✓ author `counter-set` names `list-item` → the author's value, which is the spec's; names another counter → the hint is kept, wrong before and after (P2b) | gone; P2b / Q2b turn right | gone |
-| `li` arm increment push `("list-item", 1)` (`:363`) | gone in LC-1; ✓ P1 markers stay, P8a and P1's field turn right | gone | gone | gone |
+| Bake tag gate `ol \| ul \| li` (`counter.rs:392`) | stays, for the arms that remain; (ii) does not reach it — the step's own gate is `display` | — | gone | gone |
+| `ol` arm guard `already_has` (`:307`) | — | ✓ author names `list-item` → the author's value (Q3c: 10, 11 before and after); names another counter → the reset is kept, wrong before and after (P3a, W-N2) | gone; Q3a, W-N1 / W-N2 turn right | gone |
+| `ol` arm `start` parse (`str::parse`, `:316`, `:326`) and ±1 | — | — | gone; P14 turns right | gone |
+| `ol[reversed]` value `li_count + 1` (`:312`–`:320`) and `count_li_children` (`:277`) | gone in LC-1 (c5): the arm passes the absent integer; ✓ W-F3 stays 1, P4a stays 3, 2, 1, P4b and W-RV turn right | — | the arm is gone; the hint passes the same absent integer | gone |
+| `ul` arm and its guard (`:334`–`:336`); `menu` absent | — | ✓ as the `ol` guard | gone; P5 turns right; ✓ W-H3 stays 1 (subtree scope) | ✓ W-H3, W-H3b stay 1: `menu` resets by the rule (c3) |
+| `li` arm guard on the computed increment (`:343`–`:347`) | gone in LC-1 (c4); ✓ P1's markers stay; Q13 turns right | (the guard is gone) ✓ W-F2 stays 1, 5, 6 | gone | gone |
+| `li` arm `value` → set, guard `already_set`, parse (`:348`–`:351`); no increment when `value` parses | ✓ (i): the step now adds the implicit increment before the set — P2a stays 1, 5, 6 (c8). ✓ (ii): a `li` with `display: block` and `value` still sets (the hint applies to the element whatever its `display`) | ✓ author `counter-set` names `list-item` → the author's value, which is the spec's; names another counter → the hint is kept, wrong before and after (P2b) | gone; P2b / Q2b turn right | gone |
+| `li` arm increment push `("list-item", 1)` (`:364`) | gone in LC-1; ✓ P1 markers stay, P8a and P1's field turn right | gone | gone | gone |
 | Step order reset → set → increment (`:84`–`:128`) | fixed in LC-1; ✓ no element holds both a set and an increment of one counter today except through `content`-declaring author rules, which turn right (Q6, Q6b, W-O1) | ✓ P6 turns right | — | — |
 | Negation of every increment on a reversed counter (`:117`) | fixed in LC-1 with the implicit increment's move; ✓ P4a stays; Q4c, Q4f, Q4g turn right | ✓ P4c stays 3, 2, 1 (c1): the explicit −1 applies as written and §4.4.2 gives 4 | — | — |
 | Instantiate: reset and instantiate-if-absent push at the current depth, no replace (`:86`–`:125`) | ✓ (ii): a non-`li` list item instantiates under subtree scope — P8b "0", "0" → "1", "1", wrong before and after | ✓ (v): author counters under subtree scope — P11a 0, 0 → 1, 1, wrong before and after; W-H4, W-H4b stay 1 (the `div`'s own reset / set is now visible and the `ol`'s counter does not reach it) | ✓ the rule's resets nest and pop per subtree; sibling lists each start at 1 | replaced in LC-4; ✓ W-H4, W-H4b stay 1 (c2); P8b, P11a / Q11a, P11b, W-S1, W-S2 turn right; P12 must stay |
 | Scope `push_scope` / `pop_scope` (`:42`–`:58`), `flatten` (`:165`), `set_counter` (`:64`) | — (the §4.4.2 walk takes its scope from the same model) | — | — | replaced in LC-4; the paged driver's `flatten` and `page` / `pages` re-audited (I4 × I9) |
 | `is_continuation` skips increments only (`:113`) | ✓ the implicit increment is skipped with them (I5 × I9); by reading, a continuation re-runs reset and set — LC-1 states which steps a continuation runs (I3 × I9) | — | — | re-audited with `flatten` |
 | Caller gates: pre-layout `is_list_tag \|\| has_counter_props` (`generated_content.rs:141`), returning for `none` and `contents` (`:105`, `:114`); paged walk: every styled element except `display: none` (`builder/walk.rs:131`) | one gate in LC-1: "has a counter property, or is a list item", minus the boxless set. By reading, the paged walk steps a `display: contents` element today (I7 × I9); not a right-today cell of the pre-layout pass | ✓ (v): many more elements pass the gate (§3.1's bound) | — | — |
-| N-1: `resolve_content` returns before the counter resolves (`box_model/mod.rs:399`) | hides (iii) and (iv) on elements that declare no `content`; ✓ P4c stays (implicit −1) | gone in LC-2 | — (c6: the rule and the hints rely on it) | — (c2: the scope model relies on it) |
-| `reversed(name)` without an integer resolves to 0 (`box_model/mod.rs:512`; parser default, `crates/css/elidex-css/src/declaration.rs:526`) | gone in LC-1 (the absent-integer state); ✓ Q4e, Q4g turn right | ✓ P4e turns right | (c7: the hint relies on it) | — |
-| The three call sites (`crates/css/elidex-style/src/walk.rs:194`, `generated_content.rs:144`, `builder/walk.rs:134`) | stay; each still runs the shrunken bake | stay | gone | gone |
+| N-1: `resolve_content` returns before the counter resolves (`box_model/mod.rs:416`) | hides (iii) and (iv) on elements that declare no `content`; ✓ P4c stays (implicit −1) | gone in LC-2 | — (c6: the rule and the hints rely on it) | — (c2: the scope model relies on it) |
+| `reversed(name)` without an integer resolves to 0 (`box_model/mod.rs:529`; parser default, `crates/css/elidex-css/src/declaration.rs:653`) | gone in LC-1 (the absent-integer state); ✓ Q4e, Q4g turn right | ✓ P4e turns right | (c7: the hint relies on it) | — |
+| The three call sites (`crates/css/elidex-style/src/walk.rs:168`, `generated_content.rs:144`, `builder/walk.rs:134`) | stay; each still runs the shrunken bake | stay | gone | gone |
 | Hint population by mode (no unit today: the bake applies the attributes in every mode and at every cascade entry) | — | — | (ix): under B0 / B / C ✓ every mode and entry keeps `start` / `value` / `reversed`; **under A, P2a and P4a turn wrong in `BrowserCore` / `App` and at every hint-less entry (§5.3)** — the one right-to-wrong change the program can ship, and only by decision (OQ-5) | — |
 
 LC-5 and LC-6 open no window against the units above: LC-5 adds rules and hints for cells that are wrong today
@@ -841,7 +842,7 @@ that the slice touches must stay right), and re-derives this table for any neste
 
   | Cascade entry | Hint argument today | `start` / `value` / `reversed` today | After LC-3 under A | under B0 / B | under C |
   |---|---|---|---|---|---|
-  | `elidex_style::resolve_styles` (`crates/css/elidex-style/src/lib.rs:306`), which passes `no_hints` (`:296`, `:318`); callers: `crates/tools/elidex-wpt/src/harness.rs:41`, `crates/css/elidex-style/benches/style_resolve.rs` (3), the `elidex-style` tests | none | honoured (the bake) | **lost**: no generator reaches this entry, so the WPT `css/css-lists` subset (SQ-3) cannot see the attributes | honoured: the core source is inside the cascade | honoured only if every hint source moves inside |
+  | `elidex_style::resolve_styles` (`crates/css/elidex-style/src/lib.rs:311`), which passes `no_hints` (`:301`, `:323`); callers: `crates/tools/elidex-wpt/src/harness.rs:41`, `crates/css/elidex-style/benches/style_resolve.rs` (3), the `elidex-style` tests | none | honoured (the bake) | **lost**: no generator reaches this entry, so the WPT `css/css-lists` subset (SQ-3) cannot see the attributes | honoured: the core source is inside the cascade | honoured only if every hint source moves inside |
   | shell `resolve_with_mode`, compat arm (`crates/shell/elidex-shell/src/lib.rs:128`) | `get_presentational_hints` | honoured | honoured (the compat generator) | honoured | honoured |
   | shell `resolve_with_mode`, core arm (`:146`; `no_hints`, `:162`) | none | honoured | **lost** | honoured | honoured |
   | inside the walk: `hint_generator` is called at `crates/css/elidex-style/src/walk.rs:174` and passed at all five `resolve_and_attach_style` sites — `:270`, `:281` (light tree), `:409`, `:438`, `:461` (shadow host, shadow-tree child, slotted) | — | — | all five keep it: hints already reach shadow trees, unlike the compat *sheet* | the core source is applied at the same five | the same |
@@ -859,7 +860,7 @@ that the slice touches must stay right), and re-derives this table for any neste
   with and without an integer, §3.2's F7 reading), with `#11-cssvalue-list-separator-fidelity` and
   `#11-computed-style-enumeration` as neighbours it must not duplicate. **One parse, one resolve (D-10).** The trait
   brings `parse` and `resolve` with `get_computed`. For `counter-*` the single parse path is the declaration parser
-  (`crates/css/elidex-css/src/declaration.rs:526`–`:527`): it is the only one a registry-less parse reaches, and the
+  (`crates/css/elidex-css/src/declaration.rs:653`–`:654`): it is the only one a registry-less parse reaches, and the
   UA sheet that will carry `counter-reset` is parsed that way (`crates/css/elidex-style/src/ua.rs:199`), as is the
   WPT harness's author CSS (`crates/tools/elidex-wpt/src/harness.rs:40`). The single resolve path is the cascade's
   resolve step. The handler's `parse` and `resolve` entries call those implementations (the handler crates already
@@ -867,11 +868,11 @@ that the slice touches must stay right), and re-derives this table for any neste
   handler can call them) and hold no copy; its plan states where they live and shows that I1 holds — the cascade's
   resolve step stays the only caller that writes a live component. This is **not** how the other handlers are built:
   for most properties two parse and two resolve implementations exist side by side — e.g. `list-style-type` is
-  parsed at `declaration.rs:374` and in `crates/css/elidex-css-text/src/lib.rs:94`, resolved in
+  parsed at `declaration.rs:467` and in `crates/css/elidex-css-text/src/lib.rs:94`, resolved in
   `crates/css/elidex-style/src/resolve/font.rs:81` and at `elidex-css-text/src/lib.rs:174`, and served to
   `getComputedStyle` from `:287`; the handler's `parse` runs only for names the built-in match does not know
-  (`declaration.rs:530`), and only the transform family resolves through its handler
-  (`crates/css/elidex-style/src/resolve/mod.rs:305`). That project-wide split is a finding for the PM (§7 F-10), not
+  (`PropertyGrammar::select`, `declaration.rs:258`–`:262`), and only the transform family resolves through its handler
+  (`crates/css/elidex-style/src/resolve/mod.rs:354`). That project-wide split is a finding for the PM (§7 F-10), not
   this program's to repair; LC-6 does not add another copy to it.
 - **Every slice**: carry §3.3's docstring-citation table for its own functions.
 - **Every slice**: remove the comment that points at this slot for the defect it closes (`git grep -n
@@ -953,18 +954,18 @@ increment still applies.
 - **F-2 (N-7)** — `dir` → `direction` is a UA rule in HTML §15.3.5, generated as a hint in `elidex-dom-compat`, so
   `BrowserCore` / `App` ignore the `dir` attribute (R2). No owner found. Proposed: a slot, owner Layout or L1, to
   move the rule to the core UA sheet (its plan checks what `:dir()` support the selector engine has).
-- **F-3** — hints enter as `Origin::Author`, specificity 0, order 0 (`cascade/mod.rs:175`–`:182`); CSS Cascade 5
+- **F-3** — hints enter as `Origin::Author`, specificity 0, order 0 (`cascade/mod.rs:231`–`:238`); CSS Cascade 5
   §6.5 makes them an independent origin between the user origin and the author origin, part of the author origin
   for `revert` only. **Not observable today**: `revert` is not a CSS-wide keyword elidex parses
-  (`parse_global_keyword`, `crates/css/elidex-css/src/values.rs:96`, accepts `initial` / `inherit` / `unset`
-  only), there are no cascade layers (`git grep -n -i -F '@layer' -- crates/css` → 0; control `@media` → 37 lines in
-  `parser.rs`) and no user origin (`git grep -n -w 'Origin::User' -- crates` → 0; control `Origin::UserAgent` → 10).
+  (`parse_global_keyword`, `crates/css/elidex-css/src/values.rs:5`, accepts `initial` / `inherit` / `unset`
+  only), there are no cascade layers (`git grep -n -i -F '@layer' -- crates/css` → 0; control `@media` → 36 lines in
+  `parser.rs`) and no user origin (`git grep -n -w 'Origin::User' -- crates` → 0; control `Origin::UserAgent` → 12).
   It becomes observable with any of the three: with layers, a hint at author order 0 would beat a layered author
   rule it should lose to. The program adds its hints at the existing seam. **Proposed slot** (no owner found):
   `#11-presentational-hint-cascade-origin` — *Gap*: hints are author declarations, not Cascade 5 §6.5's own origin.
   *Why deferred*: no reader can tell today. *Trigger*: `revert`, `@layer` or a user-origin sheet entering the
   cascade. Owner proposed: the lane that lands the first of them.
-- **F-4** — `HtmlElementHandler` (`crates/core/elidex-plugin/src/traits.rs:214`) offers `default_style` and
+- **F-4** — `HtmlElementHandler` (`crates/core/elidex-plugin/src/traits.rs:222`) offers `default_style` and
   `spec_level` per tag and has no consumer outside `elidex-plugin`
   (`git grep -n -E 'create_html_element_registry|HtmlElementHandler' -- crates`, hits only under
   `crates/core/elidex-plugin`). It is the Plugin-first home OQ-2 weighs, and "dead code は接続するか削除" applies
@@ -994,7 +995,7 @@ increment still applies.
   cascade's resolve functions are one implementation and the registered handler's `parse` / `resolve` a second;
   `docs/design/ja/11-parser-design.md:19` says property parsing is delegated to the handlers. Extent not measured
   here (seen for `list-style-type` and `content`: `crates/css/elidex-css-box/src/lib.rs:162`, `:303` beside
-  `declaration.rs:523`). Constraint any repair meets: registry-less parses (the UA sheet, the WPT harness) reach
+  `declaration.rs:650`). Constraint any repair meets: registry-less parses (the UA sheet, the WPT harness) reach
   only the built-in parser, and the handler crates depend on `elidex-css`. No slot found in the open-slot registry
   under `CssPropertyHandler`, `property-handler` or 二重実装. Proposed: a slot, owner L1.
 - **F-11** — a citation drift outside this memo: `crates/script/elidex-js/src/vm/host/html_olist_proto.rs:8` cites
@@ -1084,6 +1085,15 @@ increment still applies.
 
 ## Changelog
 
+- **Rev 2.1 (2026-11-26)** — re-anchors the `file:line` refs into code to main `01426656` (merged at `2e922681`);
+  no design change. Moves only: `counter.rs` (+1 for `:277`–`:307`, −1 from `:312`), style `walk.rs` (the bake's call site `:168`),
+  `box_model/mod.rs`, `cascade/mod.rs` (hint source `:231`), `traits.rs`, style `lib.rs`, `resolve/mod.rs`,
+  `declaration.rs` (the built-in table is now `builtin_parser`; registry fallback `PropertyGrammar::select`),
+  `values.rs` (`parse_global_keyword` `:5`); the `CounterState` reader list gains `builder/paged.rs` (split out of
+  `builder/mod.rs`); F-3's two control counts re-measured (`@media` 36, `Origin::UserAgent` 12). The `li` arm's
+  increment push is cited at its own line (`:364`; rev 2's `:363` sat two lines above it). Not re-anchored, pending
+  the PM: §5.3 LC-3's walk row (the walk now has one `resolve_and_attach_style` site and one `hint_generator` call
+  in `compute_element_style`) and the entry table's coverage of the print entry `elidex_style::page::prepare_print_style`.
 - **Rev 2 (2026-11-23)** — folds `/elidex-plan-review` round 1 on rev 1 (`65a38919`; CRIT 0 / IMP 9 / MIN 12; change
   type STRUCTURAL). Round-1 finding IDs are written R1-F*n* / R1-M*n* to keep them apart from this memo's F-*n*.
   - **R1-F1** — §1 re-derived from rung 1 with HTML §2.1.8's designation: three readings (§1.2), what rung 1 decides
