@@ -4,9 +4,9 @@ This memo is the **umbrella** for slot `#11-list-counter-baking-ua-rule-and-hint
 PM 629; slot text = `docs/plans/2026-11-pr-a2-elidex-style-parallel.md` §7.1, between its BEGIN / END markers). The
 slot is edge-dense by its own text (cascade origin × presentational hints × counter processing × render × engine
 modes), so by CLAUDE.md *Edge-dense work* it is a multi-PR program: this memo fixes the end state, the slices and
-their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.6, 2026-11-27
-(plan-review rounds 1 – 3, the Step 4.5 re-review of rev 3.1 and PM 1146's, PM 1148's, PM 1150's and PM 1152's rulings
-folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
+their order, and each slice then gets its own plan-memo and `/elidex-plan-review` before code. Rev 3.7, 2026-11-27
+(plan-review rounds 1 – 3, the Step 4.5 re-reviews of rev 3.1 and rev 3.6, and PM 1146's, PM 1148's, PM 1150's,
+PM 1152's, PM 1153's and PM 1158's rulings folded; changelog at the end). Branch `layout-list-counter-hints-plan`, worktree
 `wt-lch-plan`, base `bf1cae35`; `file:line` refs into code are anchored at main `01426656` (§0.2's probes ran at
 `bf1cae35`; `git diff --stat 01426656 aeecf9b0 -- crates` is empty, so they hold at rev 2.2's head too). **Docs
 only.**
@@ -22,7 +22,8 @@ as the record of what was weighed), for the PM to route to E0's ratifier (PM 620
 E0 is user-ratified, so the PM asked the user (PM 1146), who ruled B and waived E0's earlier decision explicitly. The
 amendment of E0 and A0 is recorded in §9. OQ-2 (the core hint source's home) was ruled next: **Z** (PM 1153,
 2026-11-27) — F-4 (`#11-ua-defaults-in-html-element-handlers`) runs first as its own program, and LC-3 lands the
-list hints in the form F-4 lands.
+list hints in the form F-4 lands. **PM 1158** (2026-11-27; the user left it to the PM) puts HTML §16.1's *obsolete but
+conforming* features in compat with §16.2's, as P-1b already reads; no slice changes (§8 OQ-1 (c)).
 This memo edits neither `docs/plans/2026-06-e0-shell-style-compat-mode.md` nor
 `docs/plans/2026-09-inline-box-predicate.md`.
 
@@ -218,8 +219,9 @@ the boa `HostBridge` side-store to the VM. ECS first
   earlier pass survives on an element that no longer resets a reversed counter. Under every shape the value has
   **one definition** and both drivers obtain the same value (§2, I6 × I9; §0.5 row 4 draws the system boundary).
 - **D-5 — `counter-*` resolve independently of `content`** (N-1). *Rung 1*: appliesTo "all elements".
-- **D-6 — the UA rule is in the core UA sheet.** `ol, ul, menu { counter-reset: list-item; }` goes into `UA_CSS`
-  (`crates/css/elidex-style/src/ua.rs`). *Rung 1* gives the rule's text (HTML §15.3.7) and, in every engine mode,
+- **D-6 — the UA rule is in the core UA sheet.** `ol, ul, menu { counter-reset: list-item; }` goes into the core
+  UA sheet — `UA_CSS` (`crates/css/elidex-style/src/ua.rs`) at `bf405b71`, F-4's form once F-4 has landed (below).
+  *Rung 1* gives the rule's text (HTML §15.3.7) and, in every engine mode,
   CSS Lists 3 §4.6's "should" (the UA sheet reflects the host language's numbering). *Rung 2* gives the sheet:
   #408's criterion for UA rules (rules of conforming elements → the core sheet, applied in every mode; `ol`, `ul`,
   `menu` are conforming, HTML §4.4.5 – §4.4.7). Whether rung 1 makes the rule a "must" in a given mode is the
@@ -444,7 +446,8 @@ lens is the ground of the carve criterion, and the user ruled B.
 > **P-1b.** In general, a presentational hint's layer follows the status of the markup feature it maps (a content
 > attribute, or element state such as §15.5.9's color-well value): a current-language feature → **core**, generated
 > in every engine mode; a feature HTML §16 lists as obsolete — §16.2 non-conforming, and §16.1 obsolete but
-> conforming (the spec's own name for it is obsolete, and it gives the CSS replacement) — → **compat**, behind
+> conforming (the spec's own name for it is obsolete, and it gives the CSS replacement; ruled by PM 1158, §8 OQ-1 (c))
+> — → **compat**, behind
 > `presentational_compat()` of `StyleCompatPolicy`. For this program: `ol[type]` is core; `li[type]`, `ul[type]`
 > are compat. *Ground: rung 2 under DR-2 and DR-3 (§1.4). Under DR-4 the core half is the reading's reach applied
 > to hints, in DR-4's force (rung 1 with a recorded nonconformance, or rung 2), and the compat half is the carve,
@@ -493,7 +496,7 @@ have been removed.)
 | Rung | none found: rung 1 sets a "should" against it for three hints under every reading (and, under DR-4, §15's "must" for every current-feature hint, in DR-4's force: rung 1 with a recorded nonconformance, or rung 2); rung 2 finds no ground to set them aside | rung 1 "should" + rung 2 (no ground to set it aside) | P-1a as B0; P-1b at rung 2 (DR-2 / DR-3), or DR-4's reach (in DR-4's force) with a rung-2 carve | rung 1 |
 | Keeps | every passage of §1.7 verbatim; design doc §15.3 / §29.5's listing of width / height hints under the compat layer | E0's mechanism; all of §1.7 except its "every hint" wording; `engine_mode_gates_presentational_hints`; today's mode-independent list numbering | E0's mechanism and its one-boolean policy; #408's criterion; the three-layer rule; `engine_mode_gates_presentational_hints` (it pins `<font color>`, an obsolete attribute); today's mode-independent list numbering | today's list numbering |
 | Overturns, or costs | no ratified record. Today's behaviour: `start` / `value` / `reversed` apply in every mode and at every cascade entry (§0.2); under A, LC-3 **removes** them from `BrowserCore` / `App` and from every hint-less entry, the WPT harness included (§5.3); and once a core session exists, a list in it is numbered differently from the same list in its own iframe, whose builders hard-code `BrowserCompat` (`#11-enginemode-full-session-threading`). IBP Revision 38's repair shape. And §15.5.9's color-well hint, which IBP's ratified §2 I1 states (`docs/plans/2026-09-inline-box-predicate.md:1206`, the hint at `:1222`–`:1224`), is withheld in core modes (the last row) | E0's "every hint" sentences (§1.7), for three hints. Leaves two criteria plus an exception on the §15.2 surface; `ol[type]` and `IBP-layout`'s question stay as A | E0's sentences of §1.7 (they become "legacy presentational hints"); design doc §15.3 / §29.5's placement of width / height hints, once `IBP-layout` applies the criterion | E0's gate entirely, with its plan; #408's compat sheet (the obsolete-element rules become core); the three-layer rule for styles; `engine_mode_gates_presentational_hints` |
-| This program under it | LC-3 puts the list hints in the compat generator; its plan adds cells pinning "numbered from 1" in core modes and at hint-less entries (OQ-5); LC-5's `type` hints all compat | LC-3 adds a core hint source (OQ-2) for the three hints; LC-5's `type` hints all compat | LC-3 adds a core hint source (OQ-2); LC-5 puts `ol[type]` there and `li[type]` / `ul[type]` in the compat generator | as B for this program's hints, with `li[type]` / `ul[type]` core; moving every other hint and the legacy sheet is outside this slot |
+| This program under it | LC-3 puts the list hints in the compat generator; its plan adds cells pinning "numbered from 1" in core modes and at hint-less entries (OQ-5); LC-5's `type` hints all compat | LC-3 adds a core hint source (OQ-2) for the three hints; LC-5's `type` hints all compat | LC-3 adds a core hint source (OQ-2); LC-5 puts `ol[type]` there and `li[type]` / `ul[type]` in the compat generator (as weighed; under Z, PM 1153, both halves are written in F-4's form, §5.3 LC-3 / LC-5) | as B for this program's hints, with `li[type]` / `ul[type]` core; moving every other hint and the legacy sheet is outside this slot |
 | §15.5.9's color-well hint (maps the element's value; `IBP-layout`'s) | compat | compat | core (current-language state) | core |
 
 ### §1.7 The ratified and landed text each option amends
@@ -509,7 +512,7 @@ record of options not taken.
 | E0 plan §0 (`docs/plans/2026-06-e0-shell-style-compat-mode.md:26`–`:30`) | the compat path "applies HTML presentational hints"; a core session resolves "against the modern UA baseline only" | amends: the baseline includes the core hints | amends |
 | E0 §1a (`:43`–`:46`) | `presentational_compat()`: "Legacy UA stylesheet + HTML presentational-hint declarations … `BrowserCore`/`App` → false" | amends ("legacy presentational-hint declarations") | void |
 | E0 §1a (`:59`–`:63`) | one boolean; "can grow a field if a future mode must split "legacy UA sheet" from "presentational hints"" | kept: the boolean still gates the legacy sheet and the legacy hints together; the split is inside the hint set, along #408's line, not the one E0 foresaw | void |
-| E0 §1c (`:79`–`:86`) | core arm = "`resolve_styles` semantics (empty extra-UA, no hints, no registry)"; `no_hints` is "no compat data" | amends "no hints" → "no compat hints" (the core source is not the caller's argument, §5.3) | void |
+| E0 §1c (`:79`–`:86`) | core arm = "`resolve_styles` semantics (empty extra-UA, no hints, no registry)"; `no_hints` is "no compat data" | amends "no hints" → "no compat hints" (every cascade entry gets the core hints, whatever hint argument it passes, §5.3) | void |
 | E0 note on `registry` (`:93`–`:96`) | "the *only* real compat-vs-core delta is the legacy UA sheet + presentational hints" | amends (the locus the slot text itself names) | void |
 | E0 §2 Axis 3 (`:112`–`:116`) | the core arm is test-only until `#11-async-core-storage-cookiestore` | kept (a fact; it is why A's loss ships unseen) | kept |
 | E0 §2 Axis 4 (`:117`–`:120`) | "The compat layer (legacy UA sheet + presentational hints) … E0 only gates *whether* it applies" | amends | void |
@@ -521,7 +524,7 @@ record of options not taken.
 | E0 §5 item 5 (`:195`) | "Compat algorithm stays in `elidex-dom-compat`" | kept for this program (the list hint source is new code); under B a conforming-attribute hint is not compat, so `IBP-layout`'s move takes that conversion out of `elidex-dom-compat` | void |
 | `StyleCompatPolicy` rustdoc (`crates/core/elidex-plugin/src/spec_level.rs:203`–`:204`, `:206`–`:209`, `:218`–`:219`, `:224`–`:226`) | the same sentences as E0 §1a | amends; LC-3 edits them | void |
 | `EngineMode::style_compat_policy` rustdoc (`spec_level.rs:126`–`:127`) | "`BrowserCompat` applies the legacy presentational surface; `BrowserCore` / `App` resolve against the modern UA baseline only" | kept: it is exact under B0 / B (the baseline includes the core hints) | void |
-| `elidex-dom-compat` crate doc (`crates/dom/elidex-dom-compat/src/lib.rs:1`–`:6`, `:16`–`:18`) and package description (`Cargo.toml:3`) | the crate normalises "legacy HTML and CSS patterns" and is linked by the shell, not by core crates; its hints convert "HTML attributes (`bgcolor`, `width`, `border`, `color`, etc.)"; "legacy tags, presentational hints, vendor prefixes" | A: LC-3 adds the list hints to this generator and to these lists. B0 / B: kept as the description of the legacy generator (LC-3 words the hint lines "legacy"); `width` leaves it only when `IBP-layout` applies P-1b | void |
+| `elidex-dom-compat` crate doc (`crates/dom/elidex-dom-compat/src/lib.rs:1`–`:6`, `:16`–`:18`) and package description (`Cargo.toml:3`) | the crate normalises "legacy HTML and CSS patterns" and is linked by the shell, not by core crates; its hints convert "HTML attributes (`bgcolor`, `width`, `border`, `color`, etc.)"; "legacy tags, presentational hints, vendor prefixes" | A: LC-3 adds the list hints to this generator and to these lists. B0: kept, as the description of the legacy generator. B: amends, when `IBP-layout` applies P-1b — `width`, a conforming attribute, leaves the `:16`–`:18` list (`border` stays: on `img` it is §16.1 when its value is "0" and §16.2 otherwise, compat either way — the §16.1 half by PM 1158); not this program's edit. Under B0 and B, LC-3 words the hint lines "legacy" (a clarification: the passages stay true) | void |
 | Parser test comments (`crates/dom/elidex-html-parser/src/convert.rs:461`, `:467`; an `<img width height>` test) | "Presentational hints are now handled by elidex-dom-compat"; "generated by compat layer during cascade" | B0: kept. B: amends, when `IBP-layout` applies P-1b; not this program's edit | amends |
 | Shell comments landed with #406 (`crates/shell/elidex-shell/src/lib.rs:138`–`:145`, `:160`–`:161`) and the `hint_generator` doc (`crates/css/elidex-style/src/lib.rs:333`–`:335`) | core arm: "no legacy UA sheet, no presentational hints" | amends; LC-3 edits them (not ratified text) | void |
 | A0 anchor design §3.2b (`docs/plans/2026-06-web-api-compat-split-design.md:516`) | "style layer derives: style-compat policy (UA sheet + presentational hints on/off)" | amends (one on/off unit → the legacy unit) | void |
@@ -693,6 +696,10 @@ the reason.
 
 ## §3. Spec coverage map
 
+The touch columns of this section's tables (here and §3.3) name the locations at `bf405b71` (`UA_CSS` / `ua.rs`,
+`legacy_ua.rs`, the hint sources as they are there). After F-4 lands (OQ-2 ruled Z, PM 1153), LC-3 and LC-5 re-derive
+them on their base, in F-4's form; this memo does not name that form.
+
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | WHATWG HTML §2.1.8 Conformance classes | "may be designated … as supporting the suggested default rendering"; "must, while so designated, implement the rules the Rendering section defines" | designated / not; "possibly as a user option" | none — the reading input of OQ-1 (§1.2; ruled DR-4, PM 1152) | ✓ (the spec's three readings; DR-4 is IBP's applied reach) | no |
@@ -704,7 +711,7 @@ the reason.
 | WHATWG HTML §2.3.4.1 Signed integers | rules for parsing integers, steps 1–9 | whitespace skip; `-`; `+`; non-digit error; trailing characters ignored | one shared parser (LC-3; SQ-1) | ✓ | yes |
 | WHATWG HTML §4.4.5 The ol element | `reversed`, `start`, `type` are conforming content attributes | — | classification input to P-1 | ✗ (the *starting value* algorithm is not implemented as such: CSS UAs go through §15.3.7) | yes |
 | WHATWG HTML §4.4.8 The li element | `value` is a conforming content attribute; *list owner*, *ordinal value* | — | classification input to P-1; no reader of ordinal values at this base (§7) | ✗ | yes |
-| WHATWG HTML §16.1 Obsolete but conforming features | "Authors should not specify … CSS should be used instead" | the features with a §15 mapping (`border` on `img`) | classification input to P-1b: compat | ✗ (no list attribute is in §16.1) | yes |
+| WHATWG HTML §16.1 Obsolete but conforming features | "Authors should not specify … CSS should be used instead" | the features with a §15 mapping (`border` on `img`) | classification input to P-1b: compat (PM 1158) | ✗ (no list attribute is in §16.1) | yes |
 | WHATWG HTML §16.2 Non-conforming features | obsolete attributes: `type on li elements`, `type on ul elements`; the `dir` element | — | classification input to P-1 (LC-5) | ✗ (the list rows only) | yes |
 | WHATWG HTML §16.3.3 Other elements, attributes and APIs | "User agents must treat dir elements in a manner equivalent to ul elements in terms of semantics and for purposes of rendering" | the `dir` sentence | §4.3: `dir` gets every rule `ul` has, in `ul`'s sheet and in every mode — its `counter-reset` in LC-3 (D-6, U7), the other non-`display` units in LC-5; `display` is `IBP-ua-display`'s (§7 F-12, with the section's sibling sentences) | ✗ (that sentence only) | no |
 | WHATWG HTML §15.5.5 The details and summary elements | `details > summary:first-of-type { display: list-item; counter-increment: list-item 0; … }` and, in `details`' UA shadow tree, `:host summary { display: list-item; counter-increment: list-item 0; … }` | document form / shadow form (the default summary) | none in this program: the shadow form's counter pair (`display: list-item`, `counter-increment: list-item 0`) is CV-details' (PM 1146, PM 1148); the document form's `display` is the member of IBP's unregistered `#11-ua-sheet-html-rendering-display-fidelity`, and its `counter-increment` is held to that form's lander (F-15 (a), PM 1148); both forms' `list-style` declaration and `[open]` rule are F-17's (PM 1148); ordered against LC-2k in §5.2 (cross-lane) and §7 F-15 | ✗ (those two rules only) | no |
@@ -727,7 +734,7 @@ subset (no slice exceeds three specs; LC-6 spans three: CSSOM 1 §9, CSS Lists 3
 Cascade 5 §6.5 only as the unchanged seam).
 
 Section numbers and titles above were each looked up: `webref heading html {2.1.8, 15.2, 15.3.7, 15.5.5, 2.3.4.1,
-4.4.5, 4.4.8, 16.1, 16.2, 16.3.3}`; `webref heading css-lists-3 {4.1, 4.2, 4.3, 4.4.1, 4.4.2, 4.5, 4.6, 4.7}` and `webref
+4.4.5, 4.4.8, 16.1, 16.1.1, 16.2, 16.3.3}`; `webref heading css-lists-3 {4.1, 4.2, 4.3, 4.4.1, 4.4.2, 4.5, 4.6, 4.7}` and `webref
 body css-lists-3 auto-numbering` (§4); `webref heading css-cascade-5 {4.4, 4.5, 6.5}`; `webref heading cssom-1 9`. The
 step numbers are those `webref body` prints: `html lists` (1–4, 3.1–3.2, 4.1–4.2), `html signed-integers` (1–9),
 `css-lists-3 inheriting-counters` (1–5), `css-lists-3 instantiating-counters` (1–3 and 1–5). `preflight.py` verifies
@@ -892,6 +899,10 @@ at its base. Names below are placeholders.
 
 ## §4. The end state
 
+The home columns of this section's tables name the locations at `bf405b71`; a home given as `UA_CSS` (`ua.rs`), the
+compat sheet or a hint source is F-4's form once F-4 has landed (OQ-2 ruled Z, PM 1153), and LC-3 and LC-5 re-derive
+it on their base. The fact, its layer and its modes do not change with the form (D-6).
+
 ### §4.1 Facts and their homes
 
 | Fact | Home at `bf1cae35` | Home at the end | Slice |
@@ -974,7 +985,7 @@ division must satisfy §5.2's constraints at nested-PR granularity. LC-0 is a me
 | **LC-2k** | The list-item predicate's body changes from the tag `li` to computed `display: list-item`: the increment, the caller gate and the §4.4.2 walk change key together, and the marker reconcile's inline `display` test becomes a read of the predicate (I5). No UA-sheet edit, in either form: each form's counter pair (`display: list-item` and `counter-increment: list-item 0`, together) is its own lander's — the shadow form's CV-details' (PM 1146, OQ-6 (b); PM 1148), the document form's whoever lands IBP's slot member (PM 1148) — and LC-2k checks W-SUM-D (and W-SUM, if the document form is in a sheet at its base) assuming that landing (§7 F-15); each form's `list-style` declaration and `[open]` rule are F-17's (PM 1148) | D-2 (the key) | P8a; P8b reaches 1, 1; W-F3, W-F4, W-SUM, W-SUM-D stay right | LC-2 (c11) |
 | **LC-3** | The UA rule (`ol, ul, menu, dir`); the list hints at the hint seam with HTML integer parsing; the bake, and all three call sites, deleted | D-1, D-6, D-7, D-8 | P2b / Q2b, P3a / Q3a, P5, P14, W-N1 / W-N2, W-NS, W-OV, PM 637 | LC-2 (c6), LC-1 (c7); LC-2k by choice (§5.2); **F-4**, a prerequisite program (OQ-2 ruled Z, PM 1153). No open question (OQ-1 ruled B, PM 1152) |
 | **LC-4** | The scope model: §4.3 / §4.4.1 inheritance and §4.4.2's instantiate (replace / nest). Both drivers, `flatten` and `set_counter` audited against it | D-3 (scope), D-9 | P8b, P11a / Q11a, P11b, W-S1, W-S2, W-RS | LC-3 (and through it F-4) |
-| **LC-5** | HTML §15.3.7's remaining units (§4.3: U3, U4, U6, U9 – U12) | D-11 | P17, P18, R1, R3 (margins / padding), R4 | LC-3 (and through it F-4) for the hint source (U12's placement resolved by OQ-1, ruled B, PM 1152: `ol[type]` core; `li[type]`, `ul[type]` and `dir[type]`, `ul[type]`'s equivalent, compat — §4.3 U12) |
+| **LC-5** | HTML §15.3.7's remaining units (§4.3: U3, U4, U6, U9 – U12) | D-11 | P17, P18, R1, R3 (margins / padding), R4 | LC-3, and **F-4** directly (the rules and the `ol[type]` hint are written in F-4's form, §5.3 LC-5), for the hint source and the rule units (U12's placement resolved by OQ-1, ruled B, PM 1152: `ol[type]` core; `li[type]`, `ul[type]` and `dir[type]`, `ul[type]`'s equivalent, compat — §4.3 U12) |
 | **LC-6** | `counter-*` resolved values through the property-handler seam; with it, `inherit` on `counter-*` | D-10 | P10 / Q10, W-K1, W-K2; W-K3 stays right | LC-3 (and through it F-4) |
 
 Order: LC-0 → LC-1 → LC-2 → LC-2k → LC-3 → { LC-4, LC-5, LC-6 } (the last three are independent of one another),
@@ -1046,7 +1057,8 @@ nested PR. The boxless predicate goes with the first nested PR that reads it.
 c6 puts LC-2 before the cascade inputs (LC-3). c2, c3 and c10 put the scope model after both — LC-4 — where
 `menu`'s and `dir`'s resets are the cascade's and no author reset is hidden. No constraint orders LC-2k against
 LC-3 – LC-6, nor LC-4, LC-5 and LC-6 among themselves. **LC-2k is placed before LC-3 by choice, not by a
-constraint**: it was unblocked while LC-3 waited on OQ-1 (ruled, PM 1152; LC-3 now waits on no open question, only on the prerequisite program F-4, PM 1153), and a fixed
+constraint**: it was unblocked while LC-3 waited on OQ-1 (ruled, PM 1152; LC-3 now waits on no open question, only on the prerequisite program F-4, PM 1153 — any dependency
+on `IBP-classify` reaches LC-3 through F-4's sequencing, §7 F-4), and a fixed
 position lets every later window be checked against the final key only.
 
 **Cross-lane: HTML §15.5.5's `summary` rule, in its two forms.** HTML §15.5.5 gives `display: list-item` and
@@ -1081,10 +1093,13 @@ list-item 0` turns W-SUM or W-SUM-D wrong at LC-2k, or at once if LC-2k has land
 list-item predicate instead would be a second key against CSS Lists 3 §4.6's "every list item" — rejected at rung
 1, and by One issue, one way. Under rev 2's order — the `display` key in LC-1, before N-1's removal — the counter
 pair landing between LC-1 and LC-2 would have turned the cells wrong: c11's hazard, reached through another lane.
-LC-2k's plan greps every UA sheet for `list-item` at its base — `crates/css/elidex-style/src/ua.rs`,
-`crates/dom/elidex-dom-compat/src/legacy_ua.rs`, and the `details` UA shadow sheet once CV-details has landed it
-(its file is CV-details' plan's to name: the E26 memo's §11 placeholder `<the UA shadow sheet's file>`) — and, for
-each form present, pins its cell. LC-2k edits no UA sheet for this rule, in either form (PM 1146, OQ-6 (b), for the shadow
+LC-2k's plan searches for `list-item` in **every form the UA rules take at its base** — at `bf405b71`
+`crates/css/elidex-style/src/ua.rs` and `crates/dom/elidex-dom-compat/src/legacy_ua.rs`; the `details` UA shadow
+sheet once CV-details has landed it (its file is CV-details' plan's to name: the E26 memo's §11 placeholder `<the UA
+shadow sheet's file>`); and, if F-4 has landed before LC-2k, F-4's form in place of the sheets it replaced (below,
+"F-4's landing") — and, for each `summary` form present, pins its cell. The search carries a **control hit**:
+`li { display: list-item }` (`ua.rs:59` at this base) is a UA rule in every form, so the same search must find it
+before a 0-hit is read as "no `summary` rule"; a search that misses it is pointed at the wrong form, not clean. LC-2k edits no UA sheet for this rule, in either form (PM 1146, OQ-6 (b), for the shadow
 form; PM 1148, for the document form): it checks W-SUM-D assuming CV-details' landing of the shadow form's counter
 pair, and W-SUM if the document form is present; a form present without its `counter-increment` is a finding
 against that form's lander, not an edit in LC-2k's change (§7 F-15).
@@ -1138,7 +1153,7 @@ table survives to read (xi) except the resolve path, whose row says so.
 | — (LC-2 adds no unit: it removes N-1) | | |
 | — (LC-2k adds no unit: it changes the predicate's body) | | |
 | The UA rule `ol, ul, menu, dir { counter-reset: list-item }` (LC-3) | the cascade (needs N-1 gone, c6) | W3 ✓ every list keeps its reset (the bake's `ol` / `ul` arms go in the same change); P5 turns right; an author `counter-reset` replaces it (W-N1, W-N2 turn right). W4 ✓ W-H3, W-H3b, W-H5 (c3, c10) |
-| The list hint source (LC-3) | `TagType`, `Namespace`, `Attributes`; the shared integer parser; the mode (ix) | W3 ✓ P2a, P4a stay, in every mode (option B, PM 1152; so would they under B0 / C); (vi) P2b, P3a turn right; (viii) P14, W-OV turn right; a non-HTML element named `ol` / `li` stops getting the hint (W-NS: wrong → right; the bake was namespace-blind). (Under A, not taken: (ix), Table 1's last row) |
+| The list hint source (LC-3) | `TagType`, `Namespace`, `Attributes`; the shared integer parser. (ix), the mode: not an input under B (the source applies in every mode) | W3 ✓ P2a, P4a stay, in every mode (option B, PM 1152; so would they under B0 / C); (vi) P2b, P3a turn right; (viii) P14, W-OV turn right; a non-HTML element named `ol` / `li` stops getting the hint (W-NS: wrong → right; the bake was namespace-blind). (Under A, not taken: (ix), Table 1's last row) |
 | The scope model: inherit, instantiate with replace / nest (LC-4) | the flattened element tree; the counters set | W4 (x): Table 1's rows for instantiate and scope; ✓ every "stays" cell of §6 pinned by LC-4 |
 | §15.3.7's other rules and the `type` hints (LC-5) | the cascade; `list-style-type`, margins, padding | no counter unit reads any of them. Its own cells are wrong today (P17, P18, R1, R3, R4); `menu`'s and `dir`'s box rules sit on an inline box until `IBP-ua-display` gives them `display: block`, wrong before and after |
 | The `counter-*` handler: `get_computed`, `initial_value`, `is_inherited`, and the trait-forced `parse` / `resolve` entries (LC-6) | the computed fields; **and it is read by the cascade** for the CSS-wide keywords (I1) | W6 (xi). `getComputedStyle`: the string `"initial"`, no property's computed value here, becomes the fields the cascade wrote (P10 / Q10). `inherit`: the empty list becomes the parent's computed list — wrong → right, **if** `get_computed`'s output has the shape `resolve_counter_reset` / `resolve_counter_property` read; a shape they do not recognise resolves to the empty list again, silently (W-K1; W-K2 for `reversed(name)` without an integer). `unset` / `initial`: right before LC-6 (they resolve to the empty list) and they stay right only if `is_inherited` is false and `initial_value` resolves to the empty list (`webref css css-lists-3 counter-reset`: initial `none`, inherited `no`) — W-K3, the one way LC-6 could turn a right cell wrong |
@@ -1150,7 +1165,11 @@ any counter unit.
 **F-4's landing** (OQ-2 ruled Z, PM 1153). F-4 is a prerequisite of LC-3 and of nothing earlier: no constraint of
 this section orders it against LC-1 – LC-2k, and the PM sequences it. It changes the form the UA rules and hints
 are held in, not the counter facts this program moves, so it adds no unit to Table 2; what this program asks of it
-is an input line (§9): every cell of §6 that is right in the window F-4 lands in stays right across it.
+is an input line (§9): every cell of §6 that is right in the window F-4 lands in stays right across it. **One
+reader depends on the form**: LC-2k's search for the `summary` rule (the cross-lane paragraph above). If F-4 lands
+before LC-2k — the order leaves that open — a document-form rule moved onto the handlers is no longer in `ua.rs`
+or `legacy_ua.rs`, and a search fixed to those files would read 0 and leave W-SUM unpinned without a signal. So the
+search is over the forms at LC-2k's base, F-4's included, with the control hit stated there.
 
 Each slice's plan re-checks its window with its own cells at its base (the cells of §6 that are right in the
 window before it and that the slice touches must stay right), re-derives both tables for any nested division, and
@@ -1207,9 +1226,10 @@ adds to Table 2 every unit its own mechanism introduces.
   not a second edit here) — and make the marker reconcile read the predicate in place of its inline `display` test
   (`generated_content.rs:97`–`:98`; I5), keeping its `list-style-type` half; nothing else in code, and no UA-sheet
   edit. Pin W-F3 and W-F4 as
-  cells that stay right, P8a as the cell that turns right and P8b at 1, 1. Grep every UA sheet for `list-item` at
-  its base (§5.2 cross-lane names the files, the `details` UA shadow sheet included once CV-details has landed it);
-  for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form). **W-SUM-D
+  cells that stay right, P8a as the cell that turns right and P8b at 1, 1. Search every form the UA rules take at
+  its base for `list-item` — the sheets §5.2 cross-lane names at `bf405b71`, the `details` UA shadow sheet once
+  CV-details has landed it, and F-4's form if F-4 has landed (§5.2, "F-4's landing") — with the control hit
+  `li { display: list-item }`, which every form holds, found by the same search before any 0-hit is read; for each form of §15.5.5's `summary` rule present, pin W-SUM (document form) or W-SUM-D (shadow form). **W-SUM-D
   is checked assuming CV-details' landing** (PM 1146, OQ-6 (b); PM 1148): CV-details lands the shadow form's
   counter pair together, and LC-2k does not edit CV-details' UA shadow sheet — nor the document form's sheet
   (PM 1148). A form found, in either form, carrying `display: list-item` without `counter-increment: list-item 0`
@@ -1224,7 +1244,10 @@ adds to Table 2 every unit its own mechanism introduces.
   and comments §1.7 lists — among them #408's statements of its criterion, which stop being complete when `dir`'s
   reset lands in the core sheet: the criterion at `crates/css/elidex-style/src/ua.rs:111`–`:116`, and its one named
   exception, `tt`, at `ua.rs:68`–`:72` and in the `crates/dom/elidex-dom-compat/src/legacy_ua.rs` header
-  (`:1`–`:11`); LC-3 records `dir` there as the second exception, on HTML §16.3.3's ground (D-6). (The core-mode and
+  (`:1`–`:11`), at `bf405b71`; LC-3 records `dir` as the second exception wherever its base states the criterion, on
+  HTML §16.3.3's ground (D-6). Where F-4 has already rewritten one of these passages, the rewrite is F-4's record,
+  not LC-3's edit (as §9's later-ruling note has it for the E0 / A0 passages), and LC-3 edits what its base holds.
+  (The core-mode and
   hint-less-entry cells of §1.6 were owed under option A only; A was not taken, PM 1152.) Re-read the print entry and the paged driver at its base: L1 lands
   page-side children there (§7 F-16), and IBP-sandbox deletes `build_paged_pipeline` as a touch-time cleanup
   (`docs/plans/2026-09-inline-box-predicate.md:1488`–`:1497`), after which rows 4 – 5 of the entry table below keep
@@ -1248,10 +1271,11 @@ adds to Table 2 every unit its own mechanism introduces.
   | inside the walk: one flat-tree `walk_node` (`crates/css/elidex-style/src/walk.rs:308`) resolves every node — light tree, shadow-tree children (through `walk_shadow_tree`) and slotted nodes — at its one `resolve_and_attach_style` site (`:321`); that calls `compute_element_style`, which calls `hint_generator` once (`:219`), and then runs the bake (`:168`). `preliminary_root` (`:252`, the print entry's first step) also calls `compute_element_style` with the hints but does not run the bake | — | — | the one site and `preliminary_root` keep the caller's generator: hints already reach shadow trees, unlike the compat *sheet* | the core source is applied inside `compute_element_style`, so the walk's site and `preliminary_root` both get it | the same |
 
   The ruled column is "under B0 / B" (option B, PM 1152); the "under A" and "under C" columns are the record of
-  options not taken. Under B every entry point gets the core hints: they are applied **by the cascade itself**, not
-  passed by its callers, so no entry point can omit them (fixed under every home OQ-2 weighed; under the ruled Z,
-  PM 1153, it is asked of the form F-4 lands — an input line to F-4, §9 — and LC-3 verifies it at every entry of
-  the table).
+  options not taken. **The invariant, observable**: under B every row of this table gets the core hints — at every
+  entry, whatever hint argument it passes, `start` / `reversed` / `value` are honoured (and, from LC-5, `ol[type]`),
+  in every mode. How a form guarantees it is mechanism: the cells that say how ("inside the cascade", "inside
+  `compute_element_style`") record the mechanism OQ-2 weighed at `bf405b71`; under the ruled Z (PM 1153) the form
+  is F-4's. The invariant is an input line to F-4 (§9), and LC-3 verifies it at every row of the table.
 - **LC-4**: state the counters-set model it implements, the tree it walks (the flattened element tree, I4 × I7),
   and how `flatten` and the paged continuation path keep I4 and I9; the §4.4.2 walk follows the new scope through
   the shared definition (I4 × I6), and its plan derives W-RS (a reversed counter's count under sibling scope); P12
@@ -1265,10 +1289,12 @@ adds to Table 2 every unit its own mechanism introduces.
   (B). The `ol[type]` hint's keyword
   set is the one `OL_TYPE_VALUES` already holds (`crates/dom/elidex-dom-api/src/element/enumerated_reflect.rs:155`,
   `["1", "a", "A", "i", "I"]`, read by the VM's `ol.type` reflection at
-  `crates/script/elidex-js/src/vm/host/html_olist_proto.rs:211`, at `bf405b71`). `elidex-style` cannot depend on `elidex-dom-api`
-  (the dependency runs the other way: `crates/dom/elidex-dom-api/Cargo.toml:19`), so the hint source and the
-  reflection share one table in a crate below both — the question SQ-1 asks for the integer parser — not a second
-  copy (One issue, one way); if the plan finds the two sets must differ, it says why. The `ul[type]` / `li[type]`
+  `crates/script/elidex-js/src/vm/host/html_olist_proto.rs:211`, at `bf405b71`). At `bf405b71`, with the hint
+  source in `elidex-style` as X would have put it, `elidex-style` cannot depend on `elidex-dom-api` (the dependency
+  runs the other way: `crates/dom/elidex-dom-api/Cargo.toml:19`), so the hint source and the reflection would share
+  one table in a crate below both — the question SQ-1 asks for the integer parser. Under Z (PM 1153) the hint source
+  is in F-4's form, so the crate question is re-asked on that form at LC-5's base; what stands under every form is
+  one table, not a second copy (One issue, one way); if the plan finds the two sets must differ, it says why. The `ul[type]` / `li[type]`
   set (`none`, `disc`, `circle`, `square`, ASCII case-insensitive) has no HTML-attribute table today; the
   `list-style-type` keyword lists (`crates/css/elidex-css/src/declaration.rs:471` and two more) are the property's
   grammar, not the attribute's.
@@ -1448,7 +1474,10 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `spec_level` per tag and has no consumer outside `elidex-plugin`
   (`git grep -n -E 'create_html_element_registry|HtmlElementHandler' -- crates`, hits only under
   `crates/core/elidex-plugin`). It is the Plugin-first home OQ-2 weighed, and "dead code は接続するか削除" applies
-  to it either way. (IBP assigns its connection to `IBP-classify`, F4 / F7's home.) **Becomes a slot (PM 1146)**:
+  to it either way. (IBP assigns its connection to `IBP-classify`, F4 / F7's home: "IBP-classify connects it",
+`docs/plans/2026-09-inline-box-predicate.md:1200`, and its §5 row, `:1365`.) Under Z, F-4 uses the seam before
+LC-3, so **the order against `IBP-classify` — who connects the seam — is for F-4's umbrella and the PM to
+sequence (PM 1153)**; this memo does not decide it. **Becomes a slot (PM 1146)**:
   move the UA defaults, rules and hints together, into the plugin handlers. **Now a prerequisite program to LC-3
   (OQ-2 ruled Z, PM 1153)**: owner Layout; its umbrella memo is a separate unit, and this memo does not design its
   form. One fact it inherits (the PM's, re-verified at `bf405b71`): `HtmlSpecLevel`
@@ -1465,7 +1494,9 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   keep the UA origin's order and specificity when one sheet becomes per-element rule lists, and map E0's gate and
   #408's classification onto `HtmlSpecLevel`; this program adds its rules and hints in today's forms (OQ-2's X; under
   Y this slot is what keeps the list hints from being a second form), and the seam's connection is `IBP-classify`'s.
-  (Superseded by PM 1153: under Z this program's LC-3 – LC-6 wait for F-4 and land in its form.)
+  (Superseded by PM 1153: under Z this program's LC-3 – LC-6 wait for F-4 and land in its form. The last clause —
+  the connection is `IBP-classify`'s — is **open, superseded pending** F-4's umbrella and the PM's sequencing: under
+  Z, F-4 uses the seam before LC-3, whoever connects it.)
   *Trigger* (as drafted; fired by PM 1153, OQ-2 ruled Z): the first of — `IBP-classify` connecting
   `HtmlElementHandler` (its first production caller); OQ-2 ruled Y; CV-details declaring `details`' UA shadow template, with its UA shadow sheet, on `HtmlElementHandler`
   (E26 D7), a further form of UA defaults on the same seam. *Owner* proposed: Layout (IBP-classify's lane).
@@ -1684,7 +1715,9 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   (`crates/dom/elidex-dom-api/src/element/numeric_reflect.rs:88`). Which crate below both can hold the one HTML integer
   parser, and who else calls the four copies of F-7? The same crate question holds for `OL_TYPE_VALUES`
   (`crates/dom/elidex-dom-api/src/element/enumerated_reflect.rs:155`), which LC-5's `ol[type]` hint shares (§5.3
-  LC-5).
+  LC-5). The premise is X's location (a hint source in `elidex-style`); under Z (PM 1153) the question is re-asked
+  on F-4's form: the crates that must share the parser and the table are the ones F-4's hint source and the
+  reflections live in.
 - **SQ-2**: `list-style-type` is served to `getComputedStyle` by `elidex-css-text`'s handler (`lib.rs:287`) and
   `content` by `elidex-css-box`'s (`lib.rs:491`). Which handler crate is the home for `counter-*`, and where do the
   shared resolve functions live so that both the cascade and the handler call them (D-10)?
@@ -1708,12 +1741,22 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   features). Its force is the first of §1.2's two forms: a designation with a recorded departure — **rung 1, with a
   recorded nonconformance**; the carve is recorded as such (§9).
   (b) *Option* = **B**, by the mapped feature's status: `start`, `reversed`, `value`, `ol[type]` and §15.5.9's
-  color-well hint are core, in every engine mode; `li[type]`, `ul[type]` and the other §16.2-obsolete hints are
-  compat. `dir` ≡ `ul` (§16.3.3) stays core, as D-6 has it.
+  color-well hint are core, in every engine mode; `li[type]`, `ul[type]` and the other hints that map a feature
+  HTML §16 lists as obsolete — §16.2 non-conforming and §16.1 obsolete but conforming (the latter **PM 1158**, (c)
+  below) — are compat. `dir` ≡ `ul` (§16.3.3) stays core, as D-6 has it.
   E0 (#406 / #410) is amended per §1.7 — the user waived the earlier decision explicitly; the amendment record is
-  §9's. OQ-5 lapses (it was conditional on A). OQ-2 stays open with the user. LC-3 is no longer blocked by OQ-1
-  (only by OQ-2), and LC-5's U12 placement is resolved (§4.3 U12). (OQ-2 was ruled next, Z, PM 1153: LC-3 now waits
-  on no open question, only on the prerequisite program F-4.)
+  §9's. OQ-5 lapses (it was conditional on A). At PM 1152, OQ-2 stayed open with the user, and LC-3, no longer
+  blocked by OQ-1, was blocked by OQ-2 only; LC-5's U12 placement was resolved (§4.3 U12). (OQ-2 was ruled next, Z,
+  PM 1153: LC-3 now waits on no open question, only on the prerequisite program F-4 — any dependency on
+  `IBP-classify` reaches LC-3 through F-4's sequencing, §7 F-4.)
+  (c) **PM 1158 (2026-11-27) — HTML §16.1's obsolete-but-conforming features go to compat.** The user left the
+  call to the PM: 「ある程度自由にあなたが考えてもらっても良い」 (gloss: you may decide this fairly freely). Ground:
+  §16.1 says authors should not use these features ("Authors should not specify a border attribute on an img
+  element … CSS should be used instead") and §16.1.1 says conformance checkers "must warn the user when the
+  following features are used"; CLAUDE.md's three-layer rule asks a core feature for a "modern standard baseline"
+  reason, which these lack; design doc `07` §7.6's `HtmlSpecLevel` reading agrees (its `Legacy` level is 非推奨, a classification by status).
+  So B's carve is §16.1 + §16.2, as P-1b and §9 already state. No unit of this program is a §16.1 feature (§3's
+  §16.1 row), so LC-1 – LC-6 do not change.
   The question as it was put (rev 3.5; status then **OPEN — with the user (PM 1146)**):
   every answer except A amends E0, which is user-ratified, so the PM asks the user. Two linked questions for E0's
   ratifier; the proposal also amends the anchor design (A0) §3.2b's "UA sheet + presentational hints on/off" and
@@ -1753,7 +1796,8 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   mapped feature — `li` is current, `li[type]` obsolete — so Y as written ("classified by its `HtmlSpecLevel`")
   cannot express B, and the plugin seam needs a per-attribute status classification. That classification is F-4's
   design, not this memo's. Consequences: F-4 is a prerequisite program to LC-3, owner Layout (§7 F-4; §9); LC-3 –
-  LC-6 wait on it, LC-1, LC-2 and LC-2k do not; LC-3 waits on no open question; LC-3 lands the three list hints, and
+  LC-6 wait on it, LC-1, LC-2 and LC-2k do not; LC-3 waits on no open question (any dependency on `IBP-classify`
+  reaches it through F-4's sequencing, §7 F-4); LC-3 lands the three list hints, and
   LC-5 `ol[type]`, in the form F-4 lands, with `li[type]` / `ul[type]` in compat per B (§5.1, §5.3). This memo does
   not design that form.
   The question as it was put (rev 3.5; status then **OPEN — with the user (PM 1146)**): the principles split
@@ -1878,8 +1922,9 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   `BrowserCore` / `App` elidex does not implement, against HTML §15 as designated, (1) the quirks rules (for this
   slot, §15.3.7's three quirks-mode list rules, U13; elidex has no quirks mode, IBP §0.4's ground), (2) the rules of
   §16.2-obsolete elements (#408's compat sheet), less `dir`'s, which HTML §16.3.3 equates with `ul` (D-6), and (3)
-  the hints option B carves: those that map a feature HTML §16 lists as obsolete (§16.2 non-conforming; §16.1
-  obsolete but conforming, P-1b) — for this program `li[type]`, `ul[type]`, and `dir[type]` with `ul[type]` (U12).
+  the hints option B carves: those that map a feature HTML §16 lists as obsolete (§16.2 non-conforming, PM 1152;
+  §16.1 obsolete but conforming, **PM 1158** — the user left that call to the PM: 「ある程度自由にあなたが考えてもらっても良い」;
+  P-1b, §8 OQ-1 (c)) — for this program `li[type]`, `ul[type]`, and `dir[type]` with `ul[type]` (U12).
   In `BrowserCompat` nothing is carved. *Option*: **B** = P-1a + P-1b (§1.5): a presentational hint's layer follows
   the status of the markup feature it maps — `ol[start]`, `ol[reversed]`, `li[value]`, `ol[type]` and §15.5.9's
   color-well hint are core, generated in every engine mode; the obsolete-feature hints above are compat, behind
@@ -1894,15 +1939,19 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   (c) landed, not ratified, edited by LC-3: the `StyleCompatPolicy` rustdoc (`crates/core/elidex-plugin/src/spec_level.rs:203`–`:204`,
   `:206`–`:209`, `:218`–`:219`, `:224`–`:226`); the shell comments landed with #406
   (`crates/shell/elidex-shell/src/lib.rs:138`–`:145`, `:160`–`:161`) and the `hint_generator` doc
-  (`crates/css/elidex-style/src/lib.rs:333`–`:335`);
+  (`crates/css/elidex-style/src/lib.rs:333`–`:335`), at `bf405b71`; where F-4 has already rewritten one of these
+  passages when LC-3 starts, the rewrite is F-4's record, not LC-3's edit (as the later-ruling note below has it for
+  E0 / A0);
   (d) amended when `IBP-layout` applies P-1b to the width / height hints (not this program's edit): E0 §3.1
   (`:147`–`:153`); the parser test comments (`crates/dom/elidex-html-parser/src/convert.rs:461`, `:467`); the
   design docs `docs/design/ja/15-rendering-pipeline.md` §15.3 (`:66`–`:67`) and `29-survey-analysis.md` §29.5
-  (`:165`–`:169`); and E0 §5 item 5 (`:195`), which holds for this program and stops holding for that conversion
-  when `IBP-layout` moves it out of `elidex-dom-compat`.
+  (`:165`–`:169`); the `elidex-dom-compat` crate doc's hint list (`crates/dom/elidex-dom-compat/src/lib.rs:16`–`:18`:
+  `width` is a conforming attribute); and E0 §5 item 5 (`:195`), which holds for this program and stops holding for
+  that conversion when `IBP-layout` moves it out of `elidex-dom-compat`.
   Kept as written (§1.7's B cells that keep): E0 §1a (`:59`–`:63`), §2 Axis 1 (`:100`–`:107`), §2 Axis 3
   (`:112`–`:116`), §6 Q1 (`:200`–`:203`); the `EngineMode::style_compat_policy` rustdoc (`spec_level.rs:126`–`:127`);
-  the `elidex-dom-compat` crate doc and package description (LC-3 words their hint lines "legacy"); A0 §5's E0 row
+  the `elidex-dom-compat` crate doc's other lines and package description (LC-3 words their hint lines "legacy", a
+  clarification); A0 §5's E0 row
   (`:750`–`:755`); #408's criterion, with `dir` as its second exception (D-6) and extended to hints by B. *Against
   IBP*: the reading is recorded here against IBP's premise (§0.2, `:664`–`:666`): DR-4 is the reach IBP's ratified
   §0.3, §0.4 and §0.6 item 3 apply, and this ruling takes that reach to cover hints (§1.3's caveat, now ratified);
@@ -1931,9 +1980,16 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   ruled Z); its umbrella memo is a separate unit.** Input lines from this program (not F-4's design): (1) HTML
   §15.3.7's list hints are classified by B — `ol[start]`, `ol[reversed]`, `li[value]`, `ol[type]` core;
   `li[type]`, `ul[type]` (and `dir[type]`, with `ul[type]`) compat — which a per-tag `HtmlSpecLevel` cannot express
-  (§8 OQ-2); (2) the core hints reach every cascade entry point, applied by the cascade, not passed by callers
-  (§5.3 LC-3's entry table); (3) every cell of §6 that is right in the window F-4 lands in stays right across it
-  (§5.2).
+  (§8 OQ-2); (2) every row of §5.3 LC-3's entry table gets the core hints — at every cascade entry, whatever hint
+  argument it passes, `start` / `reversed` / `value` (and, from LC-5, `ol[type]`) are honoured in every mode (how the
+  form guarantees it is F-4's); (3) every cell of §6 that is right in the window F-4 lands in stays right across it
+  (§5.2); (4) the layer of the UA rules: HTML §15.3.7's UA rules are core in every engine mode (D-6; #408's criterion,
+  conforming elements), and `dir`'s rules are in `ul`'s layer by HTML §16.3.3's "must" — #408's second exception
+  (`tt`'s, the first, is by reach) — so a per-tag classification by status, which would class `dir` (§16.2) as
+  legacy, cannot express it; (5) D-6's invariant: the rule's text, its layer and its modes do not change with the
+  form F-4 lands; (6) a ruling, not a design input: §16.1's obsolete-but-conforming features → compat, beside
+  §16.2's (**PM 1158**, §8 OQ-1 (c)); (7) the order against `IBP-classify` — who connects the `HtmlElementHandler`
+  seam — is for F-4's umbrella and the PM to sequence (PM 1153; §7 F-4).
 
 ## §10. Definition of done (the program)
 
@@ -1950,11 +2006,45 @@ memo is not in that family; the PM transcribes the drafts into the ledger (§9).
   §5.3's concept sweep leaves no comment that describes the bake or a cascade-time count.
 - `getComputedStyle` returns the computed `counter-*` values (P10 / Q10), and `counter-*` have one parse and one
   resolve implementation (D-10).
-- The list hints (and LC-5's `ol[type]` and rules) are in the form F-4 landed (OQ-2 ruled Z, PM 1153); no second form
-  of UA defaults is added by this program.
+- LC-3's UA rule (`ol, ul, menu, dir { counter-reset: list-item }`), the list hints, and LC-5's `ol[type]` and rules
+  are in the form F-4 landed (OQ-2 ruled Z, PM 1153); no second form of UA defaults is added by this program.
 - The slot row is closed by the PM with the last slice's merge; §9's records are applied.
 
 ## Changelog
+
+- **Rev 3.7 (2026-11-27)** — folds the Step 4.5 focused re-review of rev 3.6 (`a64d910f`; CRIT 0 / IMP 5 / MIN 6) and
+  **PM 1158**. No slice reordered, no cell changed; F-4's design is not touched (no API, no classification type, no
+  order against `IBP-classify`). Code refs unchanged (`git diff --stat bf405b71 a64d910f -- crates` is empty).
+  - **PM 1158** — HTML §16.1's obsolete-but-conforming features → compat (the user left it to the PM; the user's
+    words quoted). New OQ-1 (c) with the ground (§16.1, §16.1.1, the three-layer rule, design `07` §7.6); the header,
+    P-1b, §3's §16.1 row and §9's carve (3) cite it; §9's F-4 entry carries it as a ruling. B's carve is §16.1 +
+    §16.2, as P-1b and §9 already read; LC-1 – LC-6 unchanged.
+  - **IMP-1** — §5.2 cross-lane and §5.3 LC-2k: LC-2k's search covers every form the UA rules take at its base, F-4's
+    included if F-4 has landed, with the control hit `li { display: list-item }`; §5.2's "F-4's landing" names the
+    hazard (a search fixed to `ua.rs` / `legacy_ua.rs` going 0 and leaving W-SUM unpinned).
+  - **IMP-2** — one sentence at the head of §3 and of §4: the touch / home columns name the locations at
+    `bf405b71`, and LC-3 / LC-5 re-derive them on F-4's form. D-6's first sentence names `UA_CSS` as the location at
+    `bf405b71`. §5.3 LC-3's edit list and §9 (c): a passage F-4 has already rewritten is F-4's record. §1.6's B
+    column marked "as weighed".
+  - **IMP-3** — §9's F-4 entry: input lines (4) the UA-rule layer fact (§15.3.7's rules core in every mode; `dir` in
+    `ul`'s layer by §16.3.3, #408's second exception; a per-tag status classification cannot express it) and (5)
+    D-6's invariant.
+  - **IMP-4** — §7 F-4 and §9's F-4 entry (line (7)): the order against `IBP-classify` (who connects the seam) is
+    for F-4's umbrella and the PM (PM 1153); the draft's "the seam's connection is `IBP-classify`'s" marked open,
+    superseded pending. §5.2's LC-2k note, OQ-1's ruled text and OQ-2's consequences: an `IBP-classify` dependency
+    reaches LC-3 through F-4's sequencing.
+  - **IMP-5** — OQ-1 (b): the compat hints are those of §16.2 and §16.1 (the latter PM 1158).
+  - **MIN-1** — OQ-1's ruled text time-stamped ("At PM 1152, OQ-2 stayed open …").
+  - **MIN-2** — Table 2's list hint source row: (ix) is not an input under B.
+  - **MIN-3** — §5.3 LC-3's entry-table note and §9's F-4 input line (2) state the observable invariant (every row
+    of the entry table gets the core hints); "applied by the cascade" is marked as mechanism. §1.7's E0 §1c cell
+    follows.
+  - **MIN-4** — §5.3 LC-5 and SQ-1: the "below both crates" premise is X's location; under Z the crate question is
+    re-asked on F-4's form.
+  - **MIN-5** — §5.1 LC-5's gate names F-4 directly; §10's F-4 line adds LC-3's UA rule.
+  - **MIN-6** — §1.7's `elidex-dom-compat` crate-doc row: B0 kept; B amends when `IBP-layout` applies P-1b (`width`
+    leaves the `lib.rs:16`–`:18` list; read at HEAD), as the parser-test row; §9 (d) gains the crate doc's hint list
+    and the "kept" line keeps the other lines.
 
 - **Rev 3.6 (2026-11-27)** — folds **PM 1152** and **PM 1153**, the user's rulings on OQ-1 and OQ-2, and re-anchors after main's #792
   (`301eae83`, merged into this branch at `bf405b71`).
