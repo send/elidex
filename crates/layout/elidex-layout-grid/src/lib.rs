@@ -586,10 +586,6 @@ pub fn layout_grid(
     // #11-intrinsic-contribution-producer: vertical used widths can escape min/max limits.
     let full_extent = placement.block_extent;
     let selected_rows = &row_tracks[resume_row.min(end_row)..end_row];
-    let row_extent = row_break.map_or_else(
-        || track::total_track_size(selected_rows, gap_row),
-        |(_, extent)| extent,
-    );
     let target = if is_horizontal_wm || input.assigned.target().width.is_some() {
         block_available
     } else {
@@ -603,19 +599,27 @@ pub fn layout_grid(
     };
     let resolve_fragment = |item_extent: f32, child_continues: bool| {
         let room = content_room?;
-        let content = row_extent.max(item_extent);
+        // An internal split admits the child pieces, not their full tracks.
+        let content = if child_continues {
+            item_extent
+        } else if let Some((_, extent)) = row_break {
+            extent
+        } else {
+            track::total_track_size(selected_rows, gap_row).max(item_extent)
+        };
         let interrupted = row_break.is_some() || child_continues;
         if input.break_token.is_some()
             || interrupted
             || target.is_some_and(|size| size > room.available_block_size)
         {
-            Some(elidex_layout_block::FragmentSize::resolve(
+            let size = elidex_layout_block::FragmentSize::resolve(
                 target,
                 input.break_token.and_then(|t| t.specified_size_fraction),
                 content,
                 room.available_block_size,
                 interrupted,
-            ))
+            );
+            Some((size, content))
         } else {
             None
         }
@@ -627,20 +631,22 @@ pub fn layout_grid(
         &grid_env,
         &mut fragment,
         |extent, continues| {
-            resolve_fragment(extent, continues).map_or(full_extent, |size| size.extent)
+            resolve_fragment(extent, continues).map_or(full_extent, |(size, _)| size.extent)
         },
     );
     let mut final_block = full_extent;
     let mut result_break_token = None;
     let contribution = fragment.contribution;
     let child_continues = !fragment.outgoing.is_empty();
-    if let Some(size) = resolve_fragment(fragment.block_extent, child_continues) {
+    if let Some((size, consumed_block_size)) =
+        resolve_fragment(fragment.block_extent, child_continues)
+    {
         final_block = size.extent;
         if row_break.is_some() || child_continues || size.remaining {
             result_break_token = Some(BreakToken {
                 specified_size_fraction: size.fraction,
                 entity,
-                consumed_block_size: row_extent.max(fragment.block_extent),
+                consumed_block_size,
                 mode_data: Some(BreakTokenData::Grid {
                     coverage: contribution.after_fragment(input.break_token),
                     row_index: end_row,

@@ -358,3 +358,64 @@ fn reversed_grid_keeps_pixel_precision_in_a_large_fragmentainer() {
         assert_eq!(get_layout(&dom, leaf).content.origin.x, 40.);
     }
 }
+
+#[test]
+fn reversed_grid_internal_split_uses_the_admitted_piece() {
+    use elidex_plugin::WritingMode;
+    let fonts = FontDatabase::new();
+    let frag = page(100.);
+    let mut dom = EcsDom::new();
+    let grid = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            display: Display::Grid,
+            writing_mode: WritingMode::VerticalRl,
+            grid_template_rows: tracks(240.),
+            grid_template_columns: tracks(30.),
+            ..Default::default()
+        },
+    );
+    let item = element(
+        &mut dom,
+        Some(grid),
+        ComputedStyle {
+            display: Display::Block,
+            writing_mode: WritingMode::VerticalRl,
+            align_self: AlignSelf::Stretch,
+            ..Default::default()
+        },
+    );
+    let initial = contribution_input(&fonts, &frag);
+    let continuous = dispatch_layout_child(
+        &mut dom,
+        grid,
+        &LayoutInput {
+            fragmentainer: None,
+            ..initial
+        },
+    );
+    assert!(continuous.end.is_complete());
+    assert_eq!(continuous.layout_box.content.size.width, 240.);
+    assert_eq!(get_layout(&dom, item).content.origin.x, 0.);
+    assert_eq!(get_layout(&dom, item).content.size.width, 240.);
+    let mut token = None;
+    for (index, width) in [100., 100., 40.].into_iter().enumerate() {
+        let out = dispatch_layout_child(
+            &mut dom,
+            grid,
+            &LayoutInput {
+                break_token: token.as_ref(),
+                ..initial
+            },
+        );
+        assert_eq!(out.layout_box.content.size.width, width);
+        assert_eq!(get_layout(&dom, item).content.origin.x, 0.);
+        assert_eq!(get_layout(&dom, item).content.size.width, width);
+        token = out.end.into_token();
+        assert_eq!(
+            token.as_ref().map(|t| t.consumed_block_size),
+            (index < 2).then_some(width)
+        );
+    }
+}
