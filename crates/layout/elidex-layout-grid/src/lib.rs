@@ -110,7 +110,6 @@ pub fn layout_grid(
     let containing_height = input.containing.height;
     let offset_x = input.offset.x;
     let offset_y = input.offset.y;
-    let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
     let input = &input.resolve_item(&style);
@@ -532,15 +531,7 @@ pub fn layout_grid(
         subgrid_ctx: subgrid_ctx.as_ref(),
         writing_mode: style.writing_mode,
     };
-    let grid_env = elidex_layout_block::LayoutEnv {
-        font_db,
-        layout_child,
-        depth,
-        scroll_limits: input.scroll_limits,
-        viewport: input.viewport,
-        layout_generation: input.layout_generation,
-        is_probe: input.is_probe,
-    };
+    let grid_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
 
     // --- 12b. Fragmentation (CSS Grid L1 §10) ---
@@ -617,15 +608,7 @@ pub fn layout_grid(
             name_map: &row_name_map,
             explicit_count: explicit_rows,
         };
-        let pos_env = elidex_layout_block::LayoutEnv {
-            font_db,
-            layout_child,
-            depth,
-            scroll_limits: input.scroll_limits,
-            viewport: input.viewport,
-            layout_generation: input.layout_generation,
-            is_probe: input.is_probe,
-        };
+        let pos_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
         for child in abs_children {
             let cb = resolve_grid_abspos_cb(dom, child, &col_axis, &row_axis, content_origin, &pb);
             let sp = static_positions.get(&child).copied().unwrap_or(cb.origin);

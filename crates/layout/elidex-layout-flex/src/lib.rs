@@ -283,7 +283,6 @@ pub fn layout_flex(
     let containing_height = input.containing.height;
     let offset_x = input.offset.x;
     let offset_y = input.offset.y;
-    let font_db = input.font_db;
     let depth = input.depth;
     let style = elidex_layout_block::get_style(dom, entity);
     let input = &input.resolve_item(&style);
@@ -385,15 +384,7 @@ pub fn layout_flex(
         writing_mode: style.writing_mode,
     };
 
-    let env = algo::LayoutEnv {
-        font_db,
-        layout_child,
-        depth,
-        scroll_limits: input.scroll_limits,
-        viewport: input.viewport,
-        layout_generation: input.layout_generation,
-        is_probe: input.is_probe,
-    };
+    let env = algo::LayoutEnv::from_input(input, layout_child);
 
     // --- Parse break token for resumption ---
     let (resume_line, resume_item, resume_child_bt) = match input.break_token {
@@ -570,15 +561,7 @@ pub fn layout_flex(
             ctx.content_origin,
         );
         let pb = lb.padding_box();
-        let pos_env = elidex_layout_block::LayoutEnv {
-            font_db,
-            layout_child,
-            depth,
-            scroll_limits: input.scroll_limits,
-            viewport: input.viewport,
-            layout_generation: input.layout_generation,
-            is_probe: input.is_probe,
-        };
+        let pos_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
