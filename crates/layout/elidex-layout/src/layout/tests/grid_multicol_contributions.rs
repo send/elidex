@@ -974,3 +974,36 @@ fn vertical_grid_item_aligns_on_track_axes() {
         assert_eq!(lb.content.size.height, 70.0);
     }
 }
+
+#[test]
+fn forced_break_before_first_child_survives_paged_driver() {
+    let mut dom = EcsDom::new();
+    let owner = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        },
+    );
+    let child = element(
+        &mut dom,
+        Some(owner),
+        ComputedStyle {
+            break_before: elidex_plugin::BreakValue::Page,
+            ..sized(Display::Block, 50.)
+        },
+    );
+    let fonts = FontDatabase::new();
+    let frag = page(500.);
+    let (pages, tokens) =
+        layout_fragmented_with_tokens(&mut dom, owner, &contribution_input(&fonts, &frag), frag);
+    assert_eq!(pages.len(), 2);
+    assert!(tokens[0].is_none());
+    assert_eq!(tokens[1].as_ref().unwrap().consumed_block_size, 0.);
+    assert!(pages[0].end.token().is_some());
+    assert!(!pages[0].contribution.is_finished(owner, child));
+    assert!(pages[1].end.is_complete());
+    assert!(pages[1].contribution.is_finished(owner, child));
+    assert_eq!(pages[1].layout_box.content.size.height, 50.);
+}
