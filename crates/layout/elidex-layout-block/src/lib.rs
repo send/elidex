@@ -244,8 +244,7 @@ pub enum BreakTokenData {
         row_index: usize,
         /// The grid selected its last row, including the empty grid case.
         rows_exhausted: bool,
-        /// Items with actual child continuations.
-        /// Each entry is `(item_entity, child_break_token)` for resumption.
+        /// Geometry already covered by items spanning this row boundary.
         child_break_tokens: Vec<(Entity, Box<BreakToken>)>,
     },
     /// Column cap reached inside a normal segment. Resume its Block stack.

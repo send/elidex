@@ -504,21 +504,10 @@ pub fn layout_grid(
     }
 
     // --- Parse break token for resumption ---
-    let (resume_row, resume_child_bts) = match input.break_token {
-        Some(bt) => match &bt.mode_data {
-            Some(BreakTokenData::Grid {
-                row_index,
-                child_break_tokens,
-                ..
-            }) => (*row_index, child_break_tokens.as_slice()),
-            _ => (0, &[][..]),
-        },
-        None => (0, &[][..]),
+    let resume_row = match input.break_token.and_then(|t| t.mode_data.as_ref()) {
+        Some(BreakTokenData::Grid { row_index, .. }) => *row_index,
+        _ => 0,
     };
-    let incoming: std::collections::HashMap<_, _> = resume_child_bts
-        .iter()
-        .map(|(id, token)| (*id, token.as_ref()))
-        .collect();
     let content_room = input.fragmentainer.map(|room| {
         let wm = elidex_plugin::WritingModeContext::new(style.writing_mode, style.direction);
         let logical = |edges| elidex_plugin::LogicalEdges::from_physical(edges, wm);
@@ -539,10 +528,31 @@ pub fn layout_grid(
             (None, None, None)
         };
     let end_row = row_break.map_or(row_tracks.len(), |(row, _)| row);
+    // CSS Grid 2 §13 defines Class A breaks between rows (CSS Break 3 §4.1).
+    // Grid internal-row-split slice: an oversized row currently overflows whole.
+    // Preserve track coverage of spanning items across a between-row boundary.
+    let spanning = row_break.map_or_else(Vec::new, |(row, _)| {
+        items
+            .iter()
+            .filter(|i| i.row_start < row && row < i.row_start + i.row_span)
+            .map(|i| {
+                (
+                    i.entity,
+                    Box::new(BreakToken {
+                        entity: i.entity,
+                        consumed_block_size: track::total_track_size(
+                            &row_tracks[i.row_start..row],
+                            gap_row,
+                        ),
+                        specified_size_fraction: None,
+                        mode_data: None,
+                    }),
+                )
+            })
+            .collect()
+    });
     if input.fragmentainer.is_some() {
-        items.retain(|item| {
-            (resume_row..end_row).contains(&item.row_start) || incoming.contains_key(&item.entity)
-        });
+        items.retain(|item| (resume_row..end_row).contains(&item.row_start));
     }
 
     // --- 12. Position items + final layout ---
@@ -578,9 +588,6 @@ pub fn layout_grid(
         contribution: elidex_layout_block::source_progress::SourceProgress::default(),
         room: content_room.as_ref(),
         resume_row,
-        incoming: &incoming,
-        outgoing: Vec::new(),
-        block_extent: 0.0,
         incomplete: false,
     };
     // #11-intrinsic-contribution-producer: vertical used widths can escape min/max limits.
@@ -597,65 +604,47 @@ pub fn layout_grid(
             _ => None,
         }
     };
-    let resolve_fragment = |item_extent: f32, child_continues: bool| {
-        let room = content_room?;
-        // An internal split admits the child pieces, not their full tracks.
-        let content = if child_continues {
-            item_extent
-        } else if let Some((_, extent)) = row_break {
-            extent
-        } else {
-            track::total_track_size(selected_rows, gap_row).max(item_extent)
-        };
-        let interrupted = row_break.is_some() || child_continues;
-        if input.break_token.is_some()
-            || interrupted
-            || target.is_some_and(|size| size > room.available_block_size)
-        {
-            let size = elidex_layout_block::FragmentSize::resolve(
+    let consumed_block_size = row_break.map_or_else(
+        || track::total_track_size(selected_rows, gap_row),
+        |(_, extent)| extent,
+    );
+    let size = content_room.and_then(|room| {
+        (input.break_token.is_some()
+            || row_break.is_some()
+            || target.is_some_and(|size| size > room.available_block_size))
+        .then(|| {
+            elidex_layout_block::FragmentSize::resolve(
                 target,
                 input.break_token.and_then(|t| t.specified_size_fraction),
-                content,
+                consumed_block_size,
                 room.available_block_size,
-                interrupted,
-            );
-            Some((size, content))
-        } else {
-            None
-        }
-    };
+                row_break.is_some(),
+            )
+        })
+    });
+    let final_block = size.map_or(full_extent, |s| s.extent);
     let grid_baseline = position::position_items(
         dom,
         &items,
         &placement,
         &grid_env,
         &mut fragment,
-        |extent, continues| {
-            resolve_fragment(extent, continues).map_or(full_extent, |(size, _)| size.extent)
-        },
+        final_block,
     );
-    let mut final_block = full_extent;
-    let mut result_break_token = None;
     let contribution = fragment.contribution;
-    let child_continues = !fragment.outgoing.is_empty();
-    if let Some((size, consumed_block_size)) =
-        resolve_fragment(fragment.block_extent, child_continues)
-    {
-        final_block = size.extent;
-        if row_break.is_some() || child_continues || size.remaining {
-            result_break_token = Some(BreakToken {
-                specified_size_fraction: size.fraction,
-                entity,
-                consumed_block_size,
-                mode_data: Some(BreakTokenData::Grid {
-                    coverage: contribution.after_fragment(input.break_token),
-                    row_index: end_row,
-                    rows_exhausted: row_break.is_none(),
-                    child_break_tokens: fragment.outgoing,
-                }),
-            });
-        }
-    }
+    let result_break_token = size
+        .filter(|s| row_break.is_some() || s.remaining)
+        .map(|s| BreakToken {
+            specified_size_fraction: s.fraction,
+            entity,
+            consumed_block_size,
+            mode_data: Some(BreakTokenData::Grid {
+                coverage: contribution.after_fragment(input.break_token),
+                row_index: end_row,
+                rows_exhausted: row_break.is_none(),
+                child_break_tokens: spanning,
+            }),
+        });
     let (final_content_width, final_content_height) = if is_horizontal_wm {
         (content_width, final_block)
     } else {

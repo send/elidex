@@ -305,31 +305,15 @@ fn route_advanced(
         Some(BreakTokenData::Grid {
             row_index,
             rows_exhausted,
-            child_break_tokens,
             ..
         }) => {
-            let (prior_row, children) = match before {
-                Some(BreakTokenData::Grid {
-                    row_index,
-                    child_break_tokens,
-                    ..
-                }) => (*row_index, child_break_tokens.as_slice()),
-                None => (0, &[][..]),
+            let prior_row = match before {
+                Some(BreakTokenData::Grid { row_index, .. }) => *row_index,
+                None => 0,
                 _ => return false,
             };
-            if *row_index != prior_row {
-                return *row_index > prior_row;
-            }
-            if *rows_exhausted && child_break_tokens.is_empty() {
-                return fraction_advanced(old, new);
-            }
-            let by_id: std::collections::HashMap<_, _> = children
-                .iter()
-                .map(|(id, token)| (*id, token.as_ref()))
-                .collect();
-            child_break_tokens
-                .iter()
-                .any(|(entity, next)| route_advanced(dom, by_id.get(entity).copied(), next, None))
+            *row_index > prior_row
+                || (*row_index == prior_row && *rows_exhausted && fraction_advanced(old, new))
         }
         Some(BreakTokenData::Multicol {
             segment_index,

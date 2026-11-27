@@ -12,6 +12,17 @@ Carry source coordinates through collection, whitespace processing, transformati
 
 Give the Block token three explicit alternatives. A **local run continuation** carries run identity and consumed intervals on the owning block or mixed stack. Both mid-run and trailing-run flushes produce this alternative. An **interrupted child** identifies the current child and carries its nested token. A **child boundary** identifies the next child for ordinary sibling resumption. Match these alternatives in stack and Multicol. Route local runs directly to the formatter, nested tokens to the identified child, and child boundaries to the next child. Only an interrupted child selects the spanning-child snapshot/shift path. Preserve whole-column persistence for a complete run. The counting and paint layout passes each start from the same immutable input progress and geometry; capture their results before per-entity output is overwritten.
 
+### Grid internal-row-split slice (PM 1177, L1)
+
+#785 admits whole rows. The Grid internal-row-split slice owns partial item dispatch,
+the source cursor within the current row, and placement of parallel continuations.
+Write and review its per-PR plan with /elidex-plan-review before implementation.
+Its first acceptance cell is the vertical-rl 240px stretch row in 100px pages:
+the child is at x=0 in pieces 100, 100 and 40, and the next row is untouched
+until the current row completes. Preserve the continuous 240px control. Restore
+the aligned P/Q and parallel source-replay fixtures from `ce0a4b2c` when
+implementing this slice. Between-row spanning geometry remains in #785.
+
 ### Block coverage prerequisite for Flex and Grid (PM 1113)
 
 PM 1141 sets the landing order: **PR-GA → P1 + P2 together (#785, PM 1123) → 3b.2f → 3b.2g**. [PR-GA](2026-11-grid-item-sizing-alignment.md) branches from origin/main and owns the ordinary CSS-to-layout path, including inner sizing, used margins, signed alignment, subgrid overrides and physical placement. Its end-to-end geometry fixtures run through the regular child dispatcher. P1 produces Block, Multicol, Flex and Table contributions; P2 consumes that outcome and the landed PR-GA path for same-width interrupted Grid children. After PR-GA lands, merge main into #785, replace overlapping prototype Grid sizing hunks, rerun the PR-GA suite and prove the actual two-piece count/replay contract in the [Grid memo §2.1](2026-11-grid-source-cursor.md). Review the umbrella delta and both per-PR contracts together before implementation. Keep the independent Flex row-boundary fix on the 3b.2f branch. Before the prerequisite lands, PM checks overlapping Block edits with L2. The nested formatter owns the decision about which source it consumed.
