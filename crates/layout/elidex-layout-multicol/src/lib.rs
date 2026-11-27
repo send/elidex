@@ -53,8 +53,6 @@ pub fn layout_multicol(
     let input = &input.resolve_item(&style);
     let wm = WritingModeContext::new(style.writing_mode, style.direction);
     let is_horizontal = wm.is_horizontal();
-    let font_db = input.font_db;
-    let depth = input.depth;
 
     let (assigned_inline, assigned_block) = input.assigned.axes(is_horizontal);
 
@@ -194,15 +192,7 @@ pub fn layout_multicol(
                 } else {
                     None
                 };
-                let layout_env = elidex_layout_block::LayoutEnv {
-                    font_db,
-                    layout_child,
-                    depth,
-                    scroll_limits: input.scroll_limits,
-                    viewport: input.viewport,
-                    layout_generation: input.layout_generation,
-                    is_probe: input.is_probe,
-                };
+                let layout_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
                 let env = ColumnFillEnv {
                     input,
                     geom: &geom,
@@ -322,15 +312,7 @@ pub fn layout_multicol(
     let is_cb = style.position != Position::Static || is_root || style.has_transform;
     if is_cb {
         let pb = lb.padding_box();
-        let pos_env = elidex_layout_block::LayoutEnv {
-            font_db,
-            layout_child,
-            depth,
-            scroll_limits: input.scroll_limits,
-            viewport: input.viewport,
-            layout_generation: input.layout_generation,
-            is_probe: input.is_probe,
-        };
+        let pos_env = elidex_layout_block::LayoutEnv::from_input(input, layout_child);
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
             entity,
