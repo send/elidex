@@ -501,6 +501,7 @@ pub(crate) fn position_items(
                 offset.x -= row_origin;
             }
         }
+        // Receiver: docs/plans/2026-11-page-source-cursor.md, “Grid internal-row-split slice (PM 1177, L1)”.
         // Grid internal-row-split slice: publish the entire admitted item.
         let outcome = (env.layout_child)(
             dom,

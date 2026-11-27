@@ -529,6 +529,7 @@ pub fn layout_grid(
         };
     let end_row = row_break.map_or(row_tracks.len(), |(row, _)| row);
     // CSS Grid 2 §13 defines Class A breaks between rows (CSS Break 3 §4.1).
+    // Receiver: docs/plans/2026-11-page-source-cursor.md, “Grid internal-row-split slice (PM 1177, L1)”.
     // Grid internal-row-split slice: an oversized row currently overflows whole.
     // Preserve track coverage of spanning items across a between-row boundary.
     let spanning = row_break.map_or_else(Vec::new, |(row, _)| {

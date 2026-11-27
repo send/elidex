@@ -20,7 +20,7 @@ Write and review its per-PR plan with /elidex-plan-review before implementation.
 Its first acceptance cell is the vertical-rl 240px stretch row in 100px pages:
 the child is at x=0 in pieces 100, 100 and 40, and the next row is untouched
 until the current row completes. Preserve the continuous 240px control. Restore
-the aligned P/Q and parallel source-replay fixtures from `ce0a4b2c` when
+the aligned P/Q and parallel source-replay fixtures from PR #785 at `ce0a4b2c` when
 implementing this slice. Between-row spanning geometry remains in #785.
 
 ### Block coverage prerequisite for Flex and Grid (PM 1113)
