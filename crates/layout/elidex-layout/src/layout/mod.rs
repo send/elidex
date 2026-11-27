@@ -370,17 +370,15 @@ pub fn layout_page_fragment(
     use elidex_layout_block::{source_progress::fragment_advanced, FragmentEnd, FragmentPlacement};
     let made_progress = |dom: &EcsDom, outcome: &elidex_layout_block::LayoutOutcome| {
         outcome.end.token().is_none_or(|next| {
-            // Entering the first forced boundary consumes the break itself.
-            // The next page has an input token, so replay cannot claim it twice.
-            let initial_forced_break = input.break_token.is_none()
-                && outcome.propagated_break_before.is_some_and(|value| {
-                    elidex_layout_block::block::fragmentation::is_forced_break(
-                        value,
-                        elidex_layout_block::FragmentationType::Page,
-                    )
-                });
-            initial_forced_break
-                || fragment_advanced(dom, input.break_token, next, &outcome.contribution, None)
+            fragment_advanced(
+                dom,
+                input.break_token,
+                next,
+                &outcome.contribution,
+                elidex_layout_block::FragmentationType::Page,
+                outcome.propagated_break_before,
+                None,
+            )
         })
     };
     let first = dispatch_layout_child(dom, entity, input);

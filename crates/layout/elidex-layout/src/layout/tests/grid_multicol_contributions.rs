@@ -453,6 +453,8 @@ fn pages_advance_across_empty_grid_rows_and_new_size_only_children() {
             Some(boundary),
             boundary,
             &pages[0].contribution,
+            elidex_layout_block::FragmentationType::Page,
+            pages[0].propagated_break_before,
             None
         ));
         let last = pages.last().unwrap();
@@ -826,4 +828,39 @@ fn forced_break_before_first_child_survives_paged_driver() {
     assert!(pages[1].end.is_complete());
     assert!(pages[1].contribution.is_finished(owner, child));
     assert_eq!(pages[1].layout_box.content.size.height, 50.);
+}
+
+#[test]
+fn forced_break_before_first_child_continues_in_second_column() {
+    let fonts = FontDatabase::new();
+    let frag = page(500.);
+    let mut dom = EcsDom::new();
+    let owner = element(
+        &mut dom,
+        None,
+        ComputedStyle {
+            column_count: Some(2),
+            column_gap: Dimension::Length(0.),
+            column_fill: elidex_plugin::ColumnFill::Auto,
+            ..sized(Display::Block, 100.)
+        },
+    );
+    let child = element(
+        &mut dom,
+        Some(owner),
+        ComputedStyle {
+            break_before: elidex_plugin::BreakValue::Column,
+            ..sized(Display::Block, 20.)
+        },
+    );
+    let input = LayoutInput {
+        fragmentainer: None,
+        ..contribution_input(&fonts, &frag)
+    };
+    let out = dispatch_layout_child(&mut dom, owner, &input);
+    assert!(out.end.is_complete());
+    assert!(out.contribution.is_finished(owner, child));
+    let lb = get_layout(&dom, child);
+    assert_eq!(lb.content.origin, Point::new(100., 0.));
+    assert_eq!(lb.content.size.height, 20.);
 }

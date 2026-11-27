@@ -227,8 +227,20 @@ pub fn fragment_advanced(
     old: Option<&crate::BreakToken>,
     next: &crate::BreakToken,
     contribution: &SourceProgress,
+    fragmentation_type: crate::FragmentationType,
+    break_before: Option<elidex_plugin::BreakValue>,
     segment: Option<&[Entity]>,
 ) -> bool {
+    // CSS Break 3 §4.3: a forced break moves ensuing content into the next
+    // matching fragmentainer. Entering that boundary advances once, even
+    // before any source has been consumed.
+    if old.is_none()
+        && break_before.is_some_and(|value| {
+            crate::block::fragmentation::is_forced_break(value, fragmentation_type)
+        })
+    {
+        return true;
+    }
     let empty = SourceProgress::default();
     let previous = old.and_then(token_coverage).unwrap_or(&empty);
     contribution.advances(previous) || route_advanced(dom, old, next, segment)

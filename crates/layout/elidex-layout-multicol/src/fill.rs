@@ -233,6 +233,8 @@ pub fn fill_columns_sequential(
                 carry_break_token.as_ref(),
                 next,
                 &result.contribution,
+                frag_ctx.fragmentation_type,
+                result.propagated_break_before,
                 Some(children),
             );
         }

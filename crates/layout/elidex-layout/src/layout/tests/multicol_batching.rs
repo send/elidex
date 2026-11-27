@@ -191,7 +191,7 @@ fn nested_screen_multicol_keeps_overflow_columns_at_the_inner_pitch() {
 #[test]
 fn stalled_multicol_remains_incomplete_through_whole_children_and_page_counting() {
     use elidex_layout_block::{FragmentEnd, FragmentainerContext, FragmentationType};
-    use elidex_plugin::{BreakValue, ColumnFill, ColumnSpan, Float, Medium};
+    use elidex_plugin::{ColumnFill, ColumnSpan, Float, Medium};
 
     for (float, span) in [
         (Float::None, ColumnSpan::None),
@@ -223,7 +223,8 @@ fn stalled_multicol_remains_incomplete_through_whole_children_and_page_counting(
             Some(wrapper),
             ComputedStyle {
                 column_count: Some(2),
-                height: Dimension::Length(40.0),
+                // Zero room cannot advance the child’s remaining definite extent.
+                height: Dimension::Length(0.0),
                 column_fill: ColumnFill::Auto,
                 float,
                 column_span: span,
@@ -233,7 +234,6 @@ fn stalled_multicol_remains_incomplete_through_whole_children_and_page_counting(
         let pending = node(
             Some(inner),
             ComputedStyle {
-                break_before: BreakValue::Column,
                 height: Dimension::Length(1.0),
                 ..block
             },
