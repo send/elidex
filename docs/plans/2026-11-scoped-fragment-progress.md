@@ -1,0 +1,24 @@
+# P-B: Scoped breaks, progress and continuation
+
+## §1. Owner and consumers
+
+Consume [P-A](2026-11-selected-source-and-formatter-end.md) at accepted boundaries. One progress predicate validates immutable run, owning flow, source/route kind and monotonic coverage, then accepts a new interval, terminal, valid owner-local route, definite-size fraction, or discharged boundary. Reject wrong owner, regressed coverage, exchanged intervals and identical evidence. Page normal/fresh attempts, Grid between-row routing and Multicol fill/balance share the predicate. Expose accepted pieces, entering policy and end (Complete, resumable Continue, or nonresumable Incomplete) to [P-C](2026-11-paged-result-publication.md). Keep the old public entry intact until all readers can consume the new result.
+
+## §2. Review inputs and fixtures
+
+- R1 F1, PM 1177 F2, PM 1179 G1/G2 (prefix population supplied by P-A’s H1): match page vs column to reachable recipients on screen and in print. A consumed first forced boundary allows progress with empty ordinary coverage. Identity includes run, affected flow, adjacent stable source endpoints and target transition requirements. Re-entering after discharge cannot apply it again.
+- R2-1: combine adjoining before/after requests in flow order at the selected layout boundary. Return the winning side requirement and all required context transitions with their flow/boundary identity. Supply a page transition that also starts a column row; it discharges both requirements once. A column-only transition leaves the page request pending. Exercise reversed declaration positions, side conflict (later in flow wins), last in-flow child with excluded trailing siblings, no following content, and an initial side request. Assert the emitted requirement and matching transition receipt at layout entry. The real chooser and no-leading-blank/printed-side/replay assertions run at 3b.3 and P-C.
+- R2-2: scope the request to the fragmented flow. A float-internal break leaves fitting outside text on page one; a break on the following in-flow sibling interrupts the parent. A Grid item boundary propagates to its row; an internal request in a whole-admitted item stays contained and cannot eject its sibling sentinel. Actual internal splitting belongs to PM 1177/1178.
+- R1 F5, R2-4: direct producer with 155/210 covered rejects zero room without changing the caller's saved input; positive room 30 replayed from that input yields 185/210, then 25 completes. In the driver, a fresh retry has its own selected geometry; accept it if it progresses, otherwise return Incomplete with admitted prefix and no tail. Never append the rejected piece. Also test bytes-only, terminal-only, route-only, boundary-only, fraction-only, wrong owner and selected retreat.
+- R2-5: keep the fitting 210×40 orthogonal control. Make two 20px columns stack across a 30px page with an admissible gap: choose the gap, publish only the first child, save the column suffix, place the second at page-local block start on page two and select each once. P-C checks paint after 3b.3. Without the gap an indivisible first item may overflow once. Verify Block/Grid share the orthogonal rule; no subtraction from unused room or descendant post-shift.
+- PM 1177 F1/1178: whole rows only; compare overlapping-span geometric carry and terminal sets with P-A, empty first row and vertical-rl placement from final extent. Keep the existing saved child-token control. P-B cannot simulate an internal split with repeated Whole dispatch.
+- Producer evidence for P-C’s R1 F4/F6 and R2-6: P-B drains real Multicol batches and detects stalls. Through P-A’s supplied-end reader test a selected Whole atom with 1001 progressing columns (last sentinel selected once and terminal earned) and a stalled run (earlier prefix only, no atomic terminal). Exercise page and column caps at 999/1000/1001, screen/print, definitive auto/balance, progressing/stalled tail, and Whole through float and spanner. Record last selected sentinel and positions, saved route and attempt generation; identify unreachable combinations with caller evidence. Re-run base sentinel probes and add paged-Multicol crossing the batch limit, selected retreat and gap continuation. Forward the run and requirements for P-C to compare both consumers after 3b.3 resolves actual parity. A cap bounds work per batch; equal list lengths may have different ends.
+
+## §3. Spec coverage map
+
+| Spec section | Contract |
+|---|---|
+| css-break-3 §2.1–2.2, 3.1.1, 4.1, 4.3–4.4 | Parallel/nested flows, adjoining forced boundaries, permitted breaks and overflow. |
+| css-page-3 §3.3 | P-B emits the side requirement; 3b.3 selects printed sides and blanks. |
+| css-writing-modes-4 §7.3.4 | Test orthogonal gap as a permitted break in the outer page. |
+| css-grid-2 §13 | Keep between-row geometry distinct from future internal splitting. |
