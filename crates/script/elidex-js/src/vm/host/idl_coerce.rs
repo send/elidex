@@ -88,16 +88,15 @@ pub(super) fn coerce_optional_long_idl_arg(
 }
 
 /// Coerce a required IDL `double` argument (e.g. `<progress>.value`
-/// setter, `<meter>.value` setter) to its `f64` representation per
-/// WebIDL §3.2.7 ToNumber.  Sibling of [`coerce_long_idl_arg`] for
+/// setter, `<meter>.value` setter) to its `f64` representation.
+/// Sibling of [`coerce_long_idl_arg`] for
 /// floating-point reflect setters (slot `#11-tags-T2d-interactive`).
 ///
-/// Routes through [`to_number`] so `valueOf` / `toString` on object
-/// arguments fires per spec; `Symbol` / `BigInt` raise `TypeError`.
-/// Per WebIDL §3.2.7 the **restricted** `double` IDL type rejects
-/// `NaN` / ±`Infinity` with a `TypeError` — HTML §4.10.14 and
-/// §4.10.15 declare their reflect attributes as plain `double`
-/// (not `unrestricted double`), so the rejection applies.
+/// WebIDL §3.2.7 step 1 calls ToNumber. Object conversion can invoke
+/// user code. `Symbol` and `BigInt` inputs throw `TypeError`.
+/// Step 2 throws `TypeError` for `NaN` and both infinities. HTML
+/// §4.10.13 (`progress`) and §4.10.14 (`meter`) both declare `value`
+/// as `double`, so this finite-value check applies to both setters.
 pub(super) fn coerce_double_idl_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
