@@ -57,7 +57,7 @@ pub(super) fn native_event_get_default_prevented(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Event.prototype.preventDefault()` — WHATWG DOM §2.9 step 1 only
+/// `Event.prototype.preventDefault()` — WHATWG DOM §2.2 set the canceled flag only
 /// sets `canceled flag` when the event is `cancelable` AND the listener
 /// is NOT passive; otherwise silent no-op.  The spec warning-in-console
 /// case for passive listeners is omitted (we follow the silent-no-op

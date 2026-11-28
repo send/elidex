@@ -451,7 +451,7 @@ fn stop_immediate_propagation_halts_further_listeners() {
 #[test]
 fn once_listener_fires_only_once() {
     // `{once: true}` listeners MUST auto-remove after their first
-    // invocation (WHATWG DOM §2.10 step 15).
+    // invocation (WHATWG DOM §2.9 inner invoke step 2.5).
     setup_bound_vm!(vm, session, dom, doc);
     vm.eval(
         "globalThis.count = 0;
@@ -471,7 +471,7 @@ fn once_listener_fires_only_once() {
 fn listener_with_aborted_signal_does_not_fire() {
     // Passing an already-aborted `AbortSignal` via
     // `addEventListener(..., {signal})` MUST skip registration
-    // entirely (WHATWG DOM §2.10 step 4) — no invocation on
+    // entirely (WHATWG DOM §2.7 add an event listener step 2) — no invocation on
     // subsequent dispatch.
     setup_bound_vm!(vm, session, dom, doc);
     vm.eval(
@@ -650,8 +650,8 @@ fn post_message_dict_target_origin_via_getter_is_observed() {
 #[test]
 fn signal_abort_during_listener_body_removes_remaining() {
     // Aborting the signal mid-dispatch MUST remove the still-pending
-    // listener paired with that signal (WHATWG DOM §2.10 step 15
-    // + remove-listener side of §3 AbortSignal "removed listeners").
+    // listener paired with that signal (DOM §2.7 add an event listener step 6).
+    // DOM §2.9 inner invoke step 2 skips the removed listener.
     // Here A and B are paired with the same signal; A calls
     // `ctl.abort()`, which must unregister B so it does not fire.
     setup_bound_vm!(vm, session, dom, doc);

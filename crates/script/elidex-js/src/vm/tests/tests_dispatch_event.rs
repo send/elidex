@@ -5,7 +5,7 @@
 //! - Capture / at-target / bubble phase ordering.
 //! - `preventDefault()` + `defaultPrevented` + return value.
 //! - `stopPropagation` / `stopImmediatePropagation`.
-//! - `once` listener auto-removal (before invocation per §2.10 step 15).
+//! - `once` listener auto-removal (before invocation per §2.9 inner invoke step 2.5).
 //! - Re-entrant dispatch throws `InvalidStateError` `DOMException`.
 //! - `addEventListener` from inside a dispatch does NOT add to the
 //!   current plan (snapshot semantics).
@@ -382,7 +382,7 @@ fn target_and_current_target_set_during_dispatch() {
 
 #[test]
 fn current_target_is_null_after_dispatch() {
-    // WHATWG §2.9 step 31 — currentTarget restored to null at end.
+    // WHATWG §2.9 dispatch step 8 — currentTarget restored to null at end.
     let out = eval_tree_bool(
         "var evt = new Event('c');\
          el.addEventListener('c', function () {});\
@@ -629,7 +629,7 @@ fn dispatch_ignores_user_delete_of_bubbles_for_phase_walk() {
 
 #[test]
 fn passive_listener_prevent_default_is_silently_ignored() {
-    // WHATWG DOM §2.10 step 15: passive is a per-listener flag.
+    // WHATWG DOM §2.9 inner invoke steps 2.11 and 2.14: passive is a per-listener flag.
     // While a passive listener's callback runs, the event's
     // `in passive listener flag` is set so `preventDefault()`
     // becomes a silent no-op for that call.  After the

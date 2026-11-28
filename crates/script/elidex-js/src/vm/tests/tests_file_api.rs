@@ -1340,7 +1340,7 @@ fn add_event_listener_delivers_full_read_sequence() {
 
 #[test]
 fn add_event_listener_once_fires_only_once() {
-    // {once:true} self-removes after the first dispatch (§2.9 step 15).
+    // DOM §2.9 inner invoke step 2.5 removes a once listener before its first call.
     // Two reads on one reader fire `load` twice; the once listener sees one.
     let mut vm = fr_vm();
     vm.eval(

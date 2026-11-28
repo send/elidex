@@ -907,11 +907,10 @@ fn add_event_listener_during_dispatch_does_not_fire_in_same_tick() {
 
 #[test]
 fn remove_event_listener_during_dispatch_does_not_fire_in_same_tick() {
-    // WHATWG DOM §2.9 inner-invoke: the listener list is cloned before
-    // the walk, but a listener whose `removed` flag is set mid-dispatch
-    // is skipped ("If listener's removed is true, then continue").  So
+    // DOM §2.9 invoke step 8 clones the current target's listener list.
+    // Inner invoke step 2 skips listeners removed since the clone. So
     // `b`, removed by the first listener before its turn, does NOT fire
-    // this tick — the shared §2.9 core implements this via the step 6
+    // this tick — the shared §2.9 core implements this via the inner invoke step 2
     // removed-field check (`resolve_callable` returns None).  The
     // bespoke SSE shim fired the pre-snapshot copy, which was not
     // spec-faithful.

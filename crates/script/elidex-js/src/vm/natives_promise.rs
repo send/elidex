@@ -549,7 +549,7 @@ fn dispatch_unhandled_rejection_event(
             continue;
         };
 
-        // WHATWG DOM §2.10 step 15: remove `once` listeners BEFORE
+        // WHATWG DOM §2.9 inner invoke step 2.5: remove `once` listeners BEFORE
         // invoking, so re-entrant dispatch in the callback doesn't
         // re-fire them.  Mirrors `script_dispatch_event_core` line 452.
         if entry.once {

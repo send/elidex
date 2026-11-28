@@ -313,7 +313,7 @@ fn dispatch_file_read(
 /// Build a MessageEvent and dispatch it at `target_window_id`'s
 /// backing entity through the shared `dispatch_script_event` walker.
 ///
-/// Matches WHATWG HTML §9.3.3 step 14 + §2.9 "fire a trusted event
+/// Matches WHATWG HTML §9.3.3 step 14 + DOM §2.10 "fire a trusted event
 /// with name `message` at a Window".  Routing through
 /// `dispatch_script_event` gives correct per-listener `{once}` /
 /// `{signal}` / `{passive}` handling for free — the manual walk

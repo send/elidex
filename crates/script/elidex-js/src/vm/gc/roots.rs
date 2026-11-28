@@ -245,7 +245,7 @@ pub(super) struct GcRoots<'a> {
     /// `Event` object IS marked, so its mark bit IS set, so the
     /// `retain` call keeps the leaked id forever.  In practice the
     /// leak is unreachable — `dispatch_script_event` reports
-    /// listener-thrown JS exceptions through the spec §2.10
+    /// listener-thrown JS exceptions through the DOM §2.9 inner invoke step 2.13
     /// "report the exception" path (no Rust unwind) and surfaces
     /// VM-level failures via `Err(VmError)` instead of panicking,
     /// so the insert/remove pair always pairs up.  A real

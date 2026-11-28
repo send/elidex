@@ -1,4 +1,4 @@
-//! Script-initiated `dispatchEvent` walk (WHATWG DOM §2.9-§2.10).
+//! Script-initiated `dispatchEvent` walk (WHATWG DOM §2.9 Dispatching events).
 //!
 //! Split from [`super::event_target`] to keep both files below the
 //! 1000-line convention (cleanup tranche 2).  The entry point
@@ -406,7 +406,7 @@ fn sync_flags_from_event(
 /// - removes a `once` listener from its home BEFORE the call (§2.9
 ///   step 15 — so a re-entrant dispatch sees it gone),
 /// - resolves the callable (a miss = removed between plan-freeze and now,
-///   i.e. the §2.9 step 6 "removed field" / removed-flag check — silent
+///   i.e. the §2.9 inner invoke step 2 "removed field" / removed-flag check — silent
 ///   continue),
 /// - toggles the event's `passive` slot around the call so
 ///   `preventDefault()` observes it,
@@ -450,7 +450,7 @@ pub(super) fn invoke_listeners_shared(
             break;
         }
 
-        // §2.9 step 15: remove `once` listeners BEFORE invocation so
+        // §2.9 inner invoke step 2.5: remove `once` listeners BEFORE invocation so
         // re-entrant dispatch sees them gone (home-dispatched via the
         // adapter).  The corresponding `listener_store` + AbortSignal
         // back-ref cleanup happens after `call_value` returns so it also
@@ -466,7 +466,7 @@ pub(super) fn invoke_listeners_shared(
         // plan-freeze and now (addEventListener inside an earlier
         // listener can't add to this plan but removeEventListener / abort
         // signals can drop planned entries).  Silent continue matches
-        // §2.9 step 6 (the removed-field / removed-flag check).
+        // §2.9 inner invoke step 2 (the removed-field / removed-flag check).
         let Some(func_obj_id) = home.resolve_callable(ctx, entry) else {
             continue;
         };

@@ -1380,7 +1380,7 @@ pub(crate) struct VmInner {
     ///   map in the common case).
     #[cfg(feature = "engine")]
     pub(crate) pending_timeout_signals: HashMap<u32, ObjectId>,
-    /// In-flight dispatch flag side table — WHATWG DOM §2.9 step 3
+    /// In-flight dispatch flag side table — WHATWG DOM §2.7 dispatchEvent() step 1
     /// rejects re-entrant `dispatchEvent()` on an event that is
     /// already propagating.  Kept out-of-band so `ObjectKind::Event`
     /// stays payload-free.  Membership is cleared at dispatch

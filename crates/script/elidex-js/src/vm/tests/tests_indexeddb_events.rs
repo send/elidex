@@ -193,7 +193,7 @@ fn dispatch_event_sets_target_and_brackets_dispatch_state() {
             "(() => { const e = new Event('foo'); globalThis.__o.dispatchEvent(e); \
              return e.target === globalThis.__o && e.currentTarget === null; })()"
         ));
-        // §2.9 step 1: a re-entrant re-dispatch of an in-flight event throws
+        // §2.7 dispatchEvent() step 1: a re-entrant re-dispatch of an in-flight event throws
         // InvalidStateError (caught inside the listener here).
         assert!(eval_bool(
             vm,

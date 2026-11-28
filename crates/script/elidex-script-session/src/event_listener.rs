@@ -89,7 +89,7 @@ pub struct ListenerEntry {
     pub capture: bool,
     /// WHATWG DOM §2.7: if `true`, the listener is automatically removed
     /// after its first invocation (removed **before** the callback runs,
-    /// per §2.10 step 15).
+    /// per §2.9 inner invoke step 2.5).
     pub once: bool,
     /// WHATWG DOM §2.7: if `true`, `preventDefault()` inside this listener
     /// is a silent no-op (the canceled flag is not set).

@@ -130,8 +130,8 @@ pub(super) fn native_event_target_add_event_listener(
 ///      `{once}` auto-removal can prune the back-ref symmetrically.
 ///
 /// Deferred:
-/// - Object-form callback with `handleEvent` method (§2.7 step 8) —
-///   not yet a hot-path.
+/// - DOM §2.9 inner invoke step 2.13 calls the listener's `handleEvent`
+///   operation. Object listeners are tracked by #11-eventtarget-handleevent-object-listener.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_add_event_listener(
     ctx: &mut NativeContext<'_>,
@@ -694,7 +694,7 @@ pub(super) fn native_event_target_dispatch_event(
         return Ok(JsValue::Boolean(true));
     };
 
-    // ---- 3. Dispatch-flag check (WHATWG §2.9 step 1) ----
+    // ---- 3. Dispatch-flag check (WHATWG DOM §2.7 dispatchEvent() step 1) ----
     // `dispatched_events` tracks in-flight membership only — the
     // set-and-clear is bracketed across the walk, so a sequential
     // `dispatchEvent(e); dispatchEvent(e);` succeeds both times
