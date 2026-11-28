@@ -236,7 +236,7 @@ pub(super) fn native_selection_collapse(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "collapse")?;
-    // WebIDL §3.7.6 — arg conversion in declared order.
+    // WebIDL §3.6 — arg conversion in declared order.
     let node = arg_node_required(ctx, args.first().copied(), "collapse")?;
     let offset = arg_offset_or_default(ctx, args.get(1).copied())?;
     mutate_selection(ctx, "collapse", |s, reg, dom, doc| {

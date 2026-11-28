@@ -121,7 +121,7 @@ impl VmInner {
                 self.well_known.collapse_method,
                 super::dom_selection_mutation::native_selection_collapse,
             ),
-            // setPosition is a spec alias of collapse (Selection API §3.2).
+            // setPosition is a spec alias of collapse (Selection API §3).
             (
                 self.well_known.set_position_method,
                 super::dom_selection_mutation::native_selection_collapse,
@@ -199,7 +199,7 @@ impl VmInner {
         self.selection_prototype = Some(proto_id);
 
         // Selection has NO user-callable constructor (Selection API
-        // §3.2 — instances are obtained via `window.getSelection()` /
+        // §3; §§4.1–4.2 — instances are obtained via `window.getSelection()` /
         // `document.getSelection()`).  We still expose the global
         // `Selection` constructor function so `sel instanceof
         // Selection` works; invoking it throws `TypeError` per spec
@@ -299,7 +299,7 @@ pub(super) fn require_selection_receiver(
 // ---------------------------------------------------------------------------
 
 /// Map an engine-indep `SelectionError` into the matching JS
-/// `DOMException` per Selection API §3.2 / §3.3.
+/// `DOMException` per Selection API §3.
 ///
 /// Shared with sibling [`super::dom_selection_mutation`].
 pub(super) fn map_selection_error(
@@ -405,8 +405,8 @@ pub(super) fn arg_offset_or_default(
     arg: Option<JsValue>,
 ) -> Result<usize, VmError> {
     // Selection `collapse(node, offset)`: offset defaults to 0 per
-    // Selection API §3.2.  Cast through `to_uint32` for the
-    // ToUint32 coercion (per WebIDL §3.10).
+    // Selection API §3.  Cast through `to_uint32` for the
+    // ToUint32 coercion (per WebIDL §3.2.4.6).
     let val = arg.unwrap_or(JsValue::Number(0.0));
     let n = super::super::coerce::to_uint32(ctx.vm, val)?;
     Ok(n as usize)
