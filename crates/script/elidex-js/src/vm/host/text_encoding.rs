@@ -698,7 +698,7 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// Callers whose IDL signature marks the parameter required (SubtleCrypto.digest —
 /// `BufferSource data` with no `?`) pass `false` so missing /
 /// `undefined` data flows through the BufferSource-conversion
-/// TypeError path per WebIDL §3.10.18.
+/// TypeError path per WebIDL §3.2.26.
 ///
 /// `param_index` is the 1-based WebIDL parameter index used to
 /// render Chrome-parity `parameter N` text in the rejection

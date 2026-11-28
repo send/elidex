@@ -386,7 +386,7 @@ fn native_formdata_event_constructor(
         ));
     }
     // WebIDL dictionary conversion: `required FormData formData` —
-    // the value must be a FormData instance (per WHATWG IDL §3.10.21
+    // the value must be a FormData instance (per WHATWG IDL §3.2.15
     // interface-type coercion), which throws TypeError at
     // dictionary conversion time if the value is not a FormData; we
     // brand-check via `ObjectKind::FormData`.  Anything else
@@ -517,7 +517,7 @@ fn native_clipboard_event_constructor(
     let opts_id = opts_object_id(init_arg);
     // `clipboardData: DataTransfer?` — D-9 brand upgrade.  Accepts
     // DataTransfer-brand Object OR null/undefined; any other Object
-    // value throws TypeError per WebIDL §3.10.21.  Was any-pass-
+    // value throws TypeError per WebIDL §3.2.15.  Was any-pass-
     // through in D-10 pending D-9 ObjectKind.
     let clipboard_data = match opts_id {
         Some(id) => {

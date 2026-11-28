@@ -321,7 +321,7 @@ fn clipboard_event_default_clipboard_data_null() {
 fn clipboard_event_data_brand_check() {
     // D-9 upgrade: `clipboardData` must be a DataTransfer brand OR
     // null / undefined.  Non-DataTransfer Objects throw TypeError
-    // per WebIDL §3.10.21 interface-type coercion.
+    // per WebIDL §3.2.15 interface-type coercion.
     let out = run("var threw = false; \
          try { new ClipboardEvent('copy', { clipboardData: { kind: 'fake' } }); } \
          catch (e) { threw = (e instanceof TypeError); } \

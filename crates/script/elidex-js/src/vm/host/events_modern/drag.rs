@@ -46,7 +46,7 @@ fn native_drag_event_constructor(
     } = parse_mouse_event_members(ctx, opts_id)?;
     // `dataTransfer: DataTransfer? = null` — IDL coercion accepts
     // DataTransfer brand OR null/undefined; any other Object throws
-    // TypeError per WebIDL §3.10.21 interface-type coercion.
+    // TypeError per WebIDL §3.2.15 interface-type coercion.
     let dt_val = if let Some(opts_id) = opts_id {
         let k = ctx.vm.well_known.data_transfer;
         let raw = ctx.vm.get_property_value(opts_id, PropertyKey::String(k))?;

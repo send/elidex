@@ -773,7 +773,7 @@ fn native_input_event_constructor(
         let input_type_sid = read_string(ctx, opts_id, k_input_type)?;
         // dataTransfer: WebIDL `DataTransfer?` — D-9 brand upgrade.
         // Accepts DataTransfer-brand Object OR null/undefined; any
-        // other Object value throws TypeError per WebIDL §3.10.21.
+        // other Object value throws TypeError per WebIDL §3.2.15.
         // Was any-pass-through in D-10 pending the D-9 ObjectKind
         // landing.
         let dt_raw = ctx

@@ -165,7 +165,7 @@ fn native_mutation_observer_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Validate the callback up front — must be callable per WebIDL
-    // §3.10.2 (MutationCallback).
+    // §3.2.19 (MutationCallback).
     let callback_id = match args.first().copied() {
         Some(JsValue::Object(id)) if ctx.vm.get_object(id).kind.is_callable() => id,
         _ => {
