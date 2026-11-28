@@ -1,5 +1,7 @@
 # P-A: Selected source and formatter completion
 
+**Pending PM 1258 amendment.** The [formatter-slice proposal](2026-11-selected-source-formatter-slices.md) reallocates these exit controls and the private landing order. Independent plan review is pending.
+
 ## §1. Producer and consumer contract
 
 Under the [page-source program](2026-11-page-source-cursor.md), Block, inline collection, ordinary whole Flex items and Table rows, Multicol and whole-row Grid describe the definitive selection in a stable owner's source coordinates. Only that owner's selection commit writes its child terminal. Measure/probe, rejected line or avoided break, and positioned side effects cannot write it. A winning empty participating box can finish; excluded descendants contribute no source. Preserve exposed children of contents, distinguish collapsed whitespace from a selected line, and separate first/last in-flow box propagation from source participation. Keep stable IDs across flattened wrappers. Consumers are parent stack/inline owners, P-B's evidence validator and P-C's generation-filtered traversal.
