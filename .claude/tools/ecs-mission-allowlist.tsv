@@ -82,7 +82,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/headers
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// / `InvalidNodeKind`) are silent no-ops to match Chrome /
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	// Firefox. The spec's `manually assigned nodes` slot is only
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/html_slot_proto.rs	//! match browser behaviour.
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/idl_coerce.rs	/// matches Chromium / Firefox observable behaviour for
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// SyntaxError matching the Chrome / Firefox shape.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/intersection_observer.rs	// to construct 'IntersectionObserver'" shape (Chrome parity);
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/multipart.rs	//! This matches Chromium / Firefox's "random boundary, no body
@@ -91,7 +90,6 @@ N	-	crates/script/elidex-js/src/vm/host/navigator.rs	("product", "Gecko"),
 N	-	crates/script/elidex-js/src/vm/host/navigator.rs	//! (constant `"Mozilla"`), `appName` (`"Netscape"`), `product` (`"Gecko"`),
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/node_proto.rs	/// `IntersectionObserver` / `MutationObserver`). Matches Chrome's
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/observer_common.rs	/// failed the `MutationObserver` brand check — matches Chrome).
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/offscreen_canvas/mod.rs	// (Chrome, Firefox) throw RangeError at similar practical thresholds.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/range_proto.rs	/// canonical Chrome/Firefox "parameter is not of type 'Range'" message.
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	// semantics (matches Chromium / Firefox `new
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/readable_stream/mod.rs	/// WebIDL dict-from-null semantics (matches Chromium's
@@ -105,7 +103,6 @@ T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_en
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/text_encoding.rs	/// silently process zero bytes — divergent from browser behaviour).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/url/mod.rs	// identity comparison holds (matches V8 + boa precedent).
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/websocket.rs	//! TypeError with the Chrome / Firefox parity message
-T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/host/websocket.rs	/// 3. Any other string → `TypeError` with the Chrome / Firefox
 N	-	crates/script/elidex-js/src/vm/host/worker_scope.rs	("product", "Gecko"),
 T	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_bigint.rs	/// [`super::coerce::to_index_u64`] with the V8-shape error prefix
 D	#11-core-browser-parity-deviations	crates/script/elidex-js/src/vm/natives_json/mod.rs	/// Release matches V8's ~1000 and was verified to hold for all three walkers
