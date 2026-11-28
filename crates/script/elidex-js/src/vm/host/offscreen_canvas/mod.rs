@@ -300,35 +300,25 @@ pub(super) fn require_offscreen_canvas_2d_context(
 // Constructor + getContext
 // ---------------------------------------------------------------------------
 
-/// Coerce a JsValue per WebIDL `[EnforceRange] unsigned long long` (the IDL
-/// type declared for the `OffscreenCanvas` ctor args + `width` / `height`
-/// setters, HTML §4.12.5.3). Enforces the spec contract via
-/// `[EnforceRange]` (WebIDL §3.10.4): values outside `[0, 2^64-1]` throw
-/// `RangeError`. Implementation: ToNumber → finite check → integer truncate
-/// → range check `[0, u32::MAX]` (the backend allocates `u32` pixmaps; values
-/// in `(u32::MAX, 2^64-1]` are technically valid per IDL but would overflow
-/// the backend, so we throw `RangeError` rather than silently saturate).
+/// OffscreenCanvas dimensions are `[EnforceRange] unsigned long long` (HTML
+/// §4.12.5.3, WebIDL §3.2.4.8). ConvertToInt (§3.2.4.9) truncates finite
+/// inputs and throws TypeError outside 0 through 2^53 − 1. The VM instead
+/// limits dimensions to u32 and throws RangeError outside that range
+/// (#11-webidl-integer-conversion-canonical).
 ///
-/// The contract is "spec-strict": no clamping, no wrapping. `<canvas>.width`
-/// (D-21) by contrast uses `coerce::to_uint32` (WebIDL §3.10.9 `unsigned
-/// long` without `[EnforceRange]`, mod-2³² wrap) — the difference matches
-/// the spec IDL declarations for the two interfaces.
+/// HTMLCanvasElement uses plain unsigned long conversion (WebIDL §3.2.4.6),
+/// which wraps modulo 2³².
 fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
     let n = coerce::to_number(vm, value)?;
-    // `[EnforceRange]` step 1 (WebIDL §3.10.4): NaN / non-finite → throw
-    // TypeError per WebIDL `[EnforceRange]` algorithm. The spec actually
-    // throws TypeError for the non-finite path (not RangeError), distinct
-    // from the out-of-range path which is RangeError.
+    // WebIDL §3.2.4.9 ConvertToInt step 6.1 rejects non-finite inputs.
+    // The finite overflow branch below diverges (#11-webidl-integer-conversion-canonical).
     if !n.is_finite() {
         return Err(VmError::type_error(
             "Failed to coerce OffscreenCanvas dimension: value is not a finite number",
         ));
     }
     let truncated = n.trunc();
-    // `[EnforceRange]` step 2: out-of-`[0, 2^64-1]` → throw RangeError. We
-    // tighten the upper bound to `u32::MAX` because the backend cannot
-    // represent values above that (pixmap is `u32`-indexed). Browsers
-    // (Chrome, Firefox) throw RangeError at similar practical thresholds.
+    // The pixmap backend uses u32. See the conversion defect on coerce_oc_dim.
     if !(0.0..=f64::from(u32::MAX)).contains(&truncated) {
         return Err(VmError::range_error(
             "Failed to coerce OffscreenCanvas dimension: value is out of range [0, 2^32-1]",

@@ -30,13 +30,9 @@ use super::super::value::{JsValue, NativeContext, VmError};
 /// Convert the first argument of an IDL `long` reflect setter to its
 /// content-attribute serialisation (base-10 decimal `i32`).
 ///
-/// Routes through ECMAScript ToNumber per WebIDL §3.10.7 (which fires
-/// `@@toPrimitive` / `valueOf` / `toString` on objects), then
-/// saturates at the i32 bound via the engine-indep helper.  This
-/// matches Chromium / Firefox observable behaviour for
-/// `<ol>.start = 1e20` (= `i32::MAX`) and for
-/// `<ol>.start = {valueOf: () => 5.7}` (= `5`, not `"5.7"` —
-/// `to_number` truncates the fractional part via the saturating cast).
+/// WebIDL §3.2.4.5 converts a `long` modulo 2³² after ToNumber and
+/// truncation. The shared helper saturates on overflow instead
+/// (#11-webidl-integer-conversion-canonical).
 ///
 /// `Symbol` and `BigInt` arguments throw `TypeError` per spec, raised
 /// from `to_number`.
@@ -50,10 +46,9 @@ pub(super) fn serialise_long_idl_arg(
 }
 
 /// Coerce a required IDL `long` argument (e.g. `deleteRow(index)`) to
-/// its `i32` representation per WebIDL §3.10.7 ToNumber + i32
-/// saturation.  Sibling of [`serialise_long_idl_arg`] for callers
-/// that need the integer rather than the serialised string (e.g.
-/// methods whose spec algorithm operates on the integer directly).
+/// its `i32` representation. WebIDL §3.2.4.5 specifies modular conversion.
+/// This uses the same saturating helper as [`serialise_long_idl_arg`]
+/// (#11-webidl-integer-conversion-canonical).
 ///
 /// Used by HTMLTable family mutation method dispatch sites
 /// (`<table>.deleteRow` / `<tr>.insertCell` / etc., slot

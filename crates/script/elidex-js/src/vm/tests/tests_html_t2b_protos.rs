@@ -433,9 +433,8 @@ fn ol_start_setter_overflow_saturates() {
 
 #[test]
 fn ol_start_setter_routes_object_through_value_of() {
-    // `serialise_long_idl_arg` goes through ECMAScript ToNumber per
-    // WebIDL §3.10.7, which fires user-defined `valueOf` on objects
-    // (and truncates 5.7 → 5 via the saturating cast).  Pre-refactor
+    // WebIDL §3.2.4.5 applies ToNumber, which calls this object's valueOf.
+    // Here the result 5.7 truncates to 5. Pre-refactor
     // the bespoke match dispatched objects to `coerce_first_arg_to_string_id`,
     // which routed through `toString` and stored "5.7" as the
     // attribute value — observably wrong for IDL `long`.

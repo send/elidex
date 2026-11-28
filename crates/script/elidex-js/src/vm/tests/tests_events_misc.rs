@@ -633,7 +633,7 @@ fn input_event_get_target_ranges_works_on_real_input_event() {
 
 #[test]
 fn progress_event_loaded_negative_wraps_per_unsigned_long_long() {
-    // R6 IMP regression: WebIDL `unsigned long long` (§3.10.10 without
+    // R6 IMP regression: WebIDL `unsigned long long` (§3.2.4.8 without
     // [EnforceRange]) coerces `-1` via mod-2^64 to 2^64 - 1 (a very
     // large positive).  Pre-fix the raw `-1` was reflected verbatim.
     // Test asserts `loaded > 0` and `loaded !== -1` to avoid f64
@@ -656,8 +656,8 @@ fn progress_event_loaded_fractional_truncates_toward_zero() {
 
 #[test]
 fn progress_event_loaded_negative_fraction_normalises_to_positive_zero() {
-    // R10 MIN regression: `-0.5` truncates to `-0.0` which
-    // per WebIDL §3.10.10 step 2 must be normalised to `+0`.
+    // WebIDL §3.2.4.9 ConvertToInt truncates and reduces modulo 2^64,
+    // so the result for -0.5 is positive zero.
     // Pre-fix the fast-path returned `-0.0` directly, observable
     // via `Object.is(e.loaded, 0) === false` and
     // `1 / e.loaded === -Infinity`.

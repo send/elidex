@@ -566,7 +566,7 @@ fn native_progress_event_constructor(
         let k_loaded = ctx.vm.well_known.loaded;
         let k_total = ctx.vm.well_known.total;
         let lc = read_bool(ctx, opts_id, k_lc, false)?;
-        // `loaded` / `total` are WebIDL `unsigned long long` (§3.10.10
+        // `loaded` / `total` are WebIDL `unsigned long long` (§3.2.4.8
         // without `[EnforceRange]`): ToNumber → sign-magnitude truncate
         // toward zero → mod 2^64.  Routes the raw ToNumber result
         // through `coerce::f64_to_uint64_loose` so `loaded: -1` yields
@@ -762,8 +762,7 @@ fn native_wheel_event_constructor(
         mut slots,
     } = parse_mouse_event_members(ctx, opts_id)?;
     // 4 wheel-specific slots: deltaX, deltaY, deltaZ, deltaMode.
-    // `delta_mode` is WebIDL `unsigned long` (§3.10.10) — ToNumber +
-    // ToUint32 clamp.
+    // WebIDL §3.2.4.6 converts deltaMode to unsigned long modulo 2³².
     let (delta_x, delta_y, delta_z, delta_mode) = if let Some(opts_id) = opts_id {
         let k_dx = ctx.vm.well_known.delta_x;
         let k_dy = ctx.vm.well_known.delta_y;

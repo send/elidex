@@ -260,7 +260,7 @@ pub(super) fn read_string(
     }
 }
 
-// ToInt16 (WebIDL §3.10.4).  Modular conversion for out-of-range
+// ToInt16 (WebIDL §3.2.4.3).  Modular conversion for out-of-range
 // values; NaN/±Infinity/0 → 0.  Used by MouseEventInit.button.
 fn to_int16(n: f64) -> i16 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {

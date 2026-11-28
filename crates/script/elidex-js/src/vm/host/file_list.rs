@@ -191,7 +191,7 @@ fn native_file_list_item(
 ) -> Result<JsValue, VmError> {
     let id = require_file_list_this(ctx, this, "item")?;
     let index_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL `unsigned long` ToUint32 per §3.10.10 — NaN / ±∞ → 0,
+    // WebIDL `unsigned long` ToUint32 per §3.2.4.6 — NaN / ±∞ → 0,
     // negatives wrap mod 2^32 (so `-1` → 0xFFFFFFFF).  So
     // `fileList.item(NaN)` returns the index-0 entry on
     // non-empty lists rather than null.
