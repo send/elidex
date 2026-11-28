@@ -1,5 +1,5 @@
 //! Tests for `new Event(type, init)` / `new CustomEvent(type, init)`
-//! (WebIDL §2.2, §2.3).
+//! (DOM §2.5 Constructing events and §2.4 Interface CustomEvent).
 //!
 //! Covers:
 //! - EventInit dictionary parsing (bubbles / cancelable / composed)
@@ -214,12 +214,12 @@ fn event_prototype_preventdefault_brand_check() {
 }
 
 // ---------------------------------------------------------------------------
-// CustomEvent (WHATWG §2.3)
+// CustomEvent (WHATWG §2.4)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn new_custom_event_detail_default_null() {
-    // WHATWG §2.3 `any detail = null;` — missing init or missing
+    // WHATWG §2.4 `any detail = null;` — missing init or missing
     // `detail` key both default to JS null.
     assert!(matches!(
         Vm::new().eval("new CustomEvent('x').detail").unwrap(),

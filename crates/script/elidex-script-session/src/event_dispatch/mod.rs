@@ -572,7 +572,7 @@ pub fn script_dispatch_event(
     prevented
 }
 
-/// WHATWG DOM §2.5 `retarget(A, B)` — iterative retarget algorithm.
+/// WHATWG DOM §4.8 `retarget(A, B)` — iterative retarget algorithm.
 ///
 /// Adjusts the event target `A` relative to a scope entity `B` (the listener
 /// entity). If `A` is inside a shadow tree that does not contain `B`, `A` is

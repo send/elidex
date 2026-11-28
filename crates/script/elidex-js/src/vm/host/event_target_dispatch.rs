@@ -286,7 +286,7 @@ fn walk_phase(
             break;
         }
 
-        // Retarget (§2.5) — updates `local.target` which we mirror
+        // Retarget (DOM §4.8) — updates `local.target` which we mirror
         // into the event's `target` slot.  Retarget is a no-op for
         // the common case (no shadow host crossing), matching the
         // `retarget(A, B)` algorithm's identity short-circuit.

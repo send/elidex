@@ -602,7 +602,7 @@ pub(super) fn install_ctor(
     vm.globals.insert(global_sid, JsValue::Object(ctor));
 }
 
-/// `EventInit` dictionary (WHATWG DOM §2.4).  Defaults: all `false`.
+/// `EventInit` dictionary (WHATWG DOM §2.2).  Defaults: all `false`.
 ///
 /// `pub(crate)` because [`VmInner::create_fresh_event_object`]
 /// exposes it — both the plain `Event` ctor and the specialized
@@ -615,7 +615,7 @@ pub(crate) struct EventInit {
     pub(crate) composed: bool,
 }
 
-/// WHATWG DOM §2.4: parse an `EventInit` dictionary from `val`.
+/// WHATWG DOM §2.2: parse an `EventInit` dictionary from `val`.
 ///
 /// - `undefined` / `null` / missing → all flags `false`.
 /// - Object → read `bubbles`, `cancelable`, `composed` (boolean coercion;
@@ -658,7 +658,7 @@ pub(super) fn parse_event_init(
     }
 }
 
-/// `new Event(type, eventInitDict?)` (WHATWG DOM §2.4).
+/// `new Event(type, eventInitDict?)` (WHATWG DOM §2.5).
 ///
 /// - `type` required; absent → `TypeError`.  Non-string values
 ///   coerce via `ToString` (Symbol throws).
@@ -692,7 +692,7 @@ fn native_event_constructor(
     Ok(JsValue::Object(id))
 }
 
-/// `new CustomEvent(type, customEventInitDict?)` (WHATWG DOM §2.3).
+/// `new CustomEvent(type, customEventInitDict?)` (WHATWG DOM §2.4).
 ///
 /// Extends `EventInit` with `detail: any = null`.  Missing `detail`
 /// defaults to `null` (WHATWG default); an explicit `{detail:
