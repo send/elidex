@@ -129,11 +129,11 @@ impl SelectionType {
 }
 
 // ---------------------------------------------------------------------------
-// SelectionError (spec exceptions)
+// SelectionError
 // ---------------------------------------------------------------------------
 
-/// Spec-defined exception cases surfaced by mutating Selection methods.
-/// The VM-side wrapper maps each variant to the matching `DOMException`.
+/// Errors returned by the selection engine. The different-Range case in
+/// removeRange uses InvalidState (#11-selection-api-algorithm-conformance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionError {
     /// `node` is a `DocumentType` (DOM §5.6, setting a range boundary point).

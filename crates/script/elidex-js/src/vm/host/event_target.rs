@@ -92,12 +92,11 @@ pub(super) fn native_event_target_add_event_listener(
 
 /// `EventTarget.prototype.addEventListener(type, listener, options)`.
 ///
-/// WHATWG DOM §2.7.  Behaviour:
+/// Registration behavior:
 ///
-/// 1. `this` must be a `HostObject` — extract the entity.  Calls on
-///    non-HostObject receivers are silent no-ops, matching browsers'
-///    "doesn't do anything visible" handling for objects that
-///    feature-test the prototype method.
+/// 1. Registration accepts a DOM-backed target or a VM EventTarget such as
+///    EventSource. An ordinary object returns undefined here
+///    (#11-vm-host-receiver-brand-check-unification).
 /// 2. `type` is `ToString(arg[0])`.
 /// 3. `listener` (`arg[1]`) — `null`/`undefined` returns silently
 ///    (spec §2.6 step 2: "If callback is null, then return.").
@@ -646,9 +645,7 @@ pub(super) fn native_event_target_dispatch_event(
 /// `DOMException`, and the WebIDL receiver brand check is a
 /// silent no-op per elidex's detach-tolerant convention).
 ///
-/// Listener body throws are caught and ignored — this matches
-/// WHATWG §2.9 inner-invoke "report the exception" and keeps dispatch
-/// advancing through the remainder of the plan.
+/// Listener exceptions are discarded and the walk continues.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_dispatch_event(
     ctx: &mut NativeContext<'_>,

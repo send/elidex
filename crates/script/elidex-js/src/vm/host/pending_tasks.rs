@@ -65,11 +65,9 @@ use super::structured_clone::clone_value;
 /// the caller synchronously.
 #[derive(Clone, Debug)]
 pub(crate) enum PendingTask {
-    /// Produced by `window.postMessage(message, targetOrigin)` after
-    /// the origin has been matched.  The stored `data` is the
-    /// already-`structuredClone`d payload; `origin` is the source
-    /// window's origin (WHATWG HTML §9.3.3 step 12 "origin of the
-    /// source's relevant settings").
+    /// The same-window path queues cloned data after comparing targetOrigin.
+    /// It captures the sender origin at enqueue time. HTML §9.3.3 puts the
+    /// comparison and origin serialization in queued steps 8.1 and 8.2.
     PostMessage {
         target_window_id: ObjectId,
         data: JsValue,
@@ -324,10 +322,7 @@ fn dispatch_post_message(
     last_event_id_sid: StringId,
     source_window_id: Option<ObjectId>,
 ) {
-    // Resolve the target window's backing entity.  If the VM lost
-    // its HostData between enqueue and drain (vm.unbind()), silently
-    // drop — matching WHATWG §9.3.3 step 11 "if the target's
-    // associated Document is not fully active, then abort".
+    // Drop queued delivery if the VM has lost or unbound its host data.
     let Some(host) = vm.host_data.as_deref() else {
         return;
     };
@@ -447,11 +442,8 @@ fn dispatch_post_message(
     let mut ctx = NativeContext::new_call(&mut g);
     let dispatch_result = dispatch_script_event(&mut ctx, event_id, target_entity);
     g.dispatched_events.remove(&event_id);
-    // VM-level errors (allocation failure etc.) are very rare and
-    // swallowed here — the dispatch has already advanced through
-    // as many listeners as possible, and postMessage has no
-    // observable error channel to the enqueuing caller (the task
-    // is an async point, §9.3.3 step 13).
+    // Delivery runs in the task queued by HTML §9.3.3 step 8. This helper
+    // discards VM dispatch errors after removing the temporary GC root.
     let _ = dispatch_result;
 }
 
@@ -581,8 +573,7 @@ pub(super) fn native_window_post_message(
     // 6. Resolve target origin match vs own origin.
     let own_origin_sid = compute_own_origin_sid(ctx.vm);
     if !match_target_origin(ctx, parsed_target.as_ref(), own_origin_sid) {
-        // Silent return (spec §9.3.3 step 9 "if the origin of
-        // targetWindow is not … then return").
+        // The same-window path drops a mismatch before enqueueing.
         return Ok(JsValue::Undefined);
     }
 

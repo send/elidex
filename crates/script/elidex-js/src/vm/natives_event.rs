@@ -8,25 +8,8 @@
 //! pointer, and the flag fields live in the canonical internal-slot
 //! location rather than as hidden JS properties.
 //!
-//! ## Receiver type-check policy (PR3)
-//!
-//! Detached method handles — `const pd = e.preventDefault; pd()` —
-//! see `this === undefined`.  Calls with a non-`ObjectKind::Event`
-//! receiver get the same treatment.  PR3 chooses **silent no-op**
-//! for both cases.
-//!
-//! This deviates from WebIDL: the spec generates non-generic
-//! bindings that throw `TypeError: Illegal invocation` when `this`
-//! fails the [[Brand]] check.  Spec-correct enforcement is
-//! deferred to a later M4-12 tranche that lands the `Event`
-//! constructor and the rest of the Event prototype's strict
-//! bindings (also covers the `defaultPrevented` getter).
-//!
-//! Until then, the no-op is a pragmatic choice: real-world code
-//! that escapes a method handle off an Event is exceedingly rare
-//! (linters block it), and the silent path keeps the dispatch
-//! machinery in PR3 simple.  WPT alignment tests for §2.9 receiver
-//! brand-checks will surface the gap when they run (Phase 4 late).
+//! Event members return fallback values on incompatible receivers
+//! (#11-event-members-receiver-brand).
 
 use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 
@@ -46,10 +29,8 @@ pub(super) fn native_event_get_default_prevented(
             return Ok(JsValue::Boolean(*default_prevented));
         }
     }
-    // Unreachable in well-formed callers — the getter is installed on
-    // the event object only, so `this` is always an `ObjectKind::Event`.
-    // Return `false` rather than throwing to match detached-method
-    // behaviour on the other event methods.
+    // Borrowing the getter with an incompatible receiver reaches this fallback
+    // (#11-event-members-receiver-brand).
     Ok(JsValue::Boolean(false))
 }
 

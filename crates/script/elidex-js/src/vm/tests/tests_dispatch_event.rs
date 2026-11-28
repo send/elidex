@@ -132,9 +132,7 @@ fn dispatch_return_is_not_default_prevented() {
 
 #[test]
 fn default_prevented_reflects_prevent_default_during_and_after() {
-    // WHATWG §2.9: `defaultPrevented` reflects the canceled flag;
-    // once dispatch ends the flag is NOT reset (return value reads
-    // it).  Matches browser semantics.
+    // The DOM §2.2 getter reflects cancellation during and after dispatch.
     assert!(eval_tree_bool(
         "var evt = new Event('p', {cancelable: true});\
          el.addEventListener('p', function (e) { e.preventDefault(); });\

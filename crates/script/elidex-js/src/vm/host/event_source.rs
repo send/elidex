@@ -3,12 +3,8 @@
 //!
 //! ## Layering
 //!
-//! Per CLAUDE.md "Layering mandate", this file contains only the
-//! engine-bound responsibilities: prototype install, brand check,
-//! constructor + URL parse glue, close emission, and minimal
-//! `addEventListener` / `removeEventListener` shim required by
-//! WHATWG §9.2 for named-event delivery (per the in-PR fold of
-//! the originally-spec-violating silent-drop alternative).
+//! This module installs the prototype, checks receivers, parses the constructor
+//! URL, and sends close requests. EventTarget supplies listener registration.
 //! The broker handles SSE framing, reconnection, and lastEventId
 //! sticky semantics.
 //!
@@ -16,10 +12,9 @@
 //!
 //! - [`ObjectKind::EventSource`][] is payload-free.
 //! - Per-instance state ([`super::super::host_data::EventSourceState`]):
-//!   readyState + url + pre-interned origin + withCredentials +
-//!   sticky lastEventId + broker `conn_id` + 3 `on*` handler
-//!   `ObjectId`s + per-instance `addEventListener` registry
-//!   (`HashMap<String, Vec<ObjectId>>`).  Lives in
+//!   readyState, URL, origin, withCredentials, lastEventId, and broker
+//!   connection ID. Named listeners and on-event handlers use the shared
+//!   VM EventTarget listener store. EventSource state lives in
 //!   [`super::super::host_data::HostData::event_source_states`]
 //!   keyed by the instance `ObjectId`.
 //! - Reverse lookup

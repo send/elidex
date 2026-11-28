@@ -81,10 +81,7 @@ impl VmInner {
             ),
             ("composedPath", native_event_composed_path),
         ]);
-        // `defaultPrevented` is an accessor (live getter), not a data
-        // property — WHATWG DOM §2.9 requires it to reflect the current
-        // canceled flag including writes from `preventDefault()` made
-        // inside the same listener body.
+        // DOM §2.2 defaultPrevented reads the event's current canceled flag.
         self.install_accessor_pair(
             proto_id,
             self.well_known.default_prevented,
