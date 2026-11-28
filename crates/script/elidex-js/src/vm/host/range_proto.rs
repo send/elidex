@@ -704,9 +704,8 @@ fn native_range_compare_boundary_points(
     let how = super::super::coerce::to_uint16(ctx.vm, how_val)?;
     let other_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let other_id = require_range_arg(ctx, other_arg, "compareBoundaryPoints")?;
-    // WebIDL §3.10.7 — `how` must be one of the 4 spec constants;
-    // any other value throws NotSupportedError per spec.  Runs AFTER
-    // both arg conversions per the precedence above.
+    // DOM §5.6 compareBoundaryPoints throws NotSupportedError for `how`
+    // outside the four comparison modes, after both argument conversions.
     if !matches!(
         how,
         START_TO_START | START_TO_END | END_TO_END | END_TO_START
