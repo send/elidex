@@ -336,36 +336,41 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
 
 /// Convert the remaining input to RGB components (HTML §2.3.6 steps 6–19).
 fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
-    // Step 6: replace non-BMP code points with "00".
-    let mut s = String::with_capacity(input.len());
+    // Steps 6–9 work on one byte per code point, so every count below is a
+    // code-point count. Hex digits and '#' keep their own byte; every other
+    // code point becomes '0' now (step 9 would map it to '0' anyway, and step 8
+    // only looks for '#'). A non-BMP code point is two code points after step 6.
+    let mut digits: Vec<u8> = Vec::with_capacity(input.len());
     for ch in input.chars() {
         if ch as u32 > 0xFFFF {
-            s.push_str("00");
+            // Step 6: replace it with "00".
+            digits.extend_from_slice(b"00");
+        } else if ch.is_ascii_hexdigit() || ch == '#' {
+            digits.push(ch as u8);
         } else {
-            s.push(ch);
+            digits.push(b'0');
         }
     }
 
-    // Step 7: keep at most the first 128 code points. Cut at the byte offset
-    // of the 129th code point, which is always a char boundary.
-    if let Some((cut, _)) = s.char_indices().nth(128) {
-        s.truncate(cut);
-    }
+    // Step 7: keep at most the first 128 code points.
+    digits.truncate(128);
 
     // #11-dom-compat-legacy-color-whitespace-empty-order
     // Step 8 removes a leading '#'. Defect: rejecting an empty remainder here
     // skips step 10, which pads it to three zeros.
-    let s = s.strip_prefix('#').unwrap_or(&s);
-    if s.is_empty() {
+    if digits.first() == Some(&b'#') {
+        digits.remove(0);
+    }
+    if digits.is_empty() {
         return None;
     }
 
-    // Step 9: replace each non-hex code point with one '0'. After this every
-    // element is an ASCII byte, so later steps can index by position.
-    let mut digits: Vec<u8> = s
-        .chars()
-        .map(|c| if c.is_ascii_hexdigit() { c as u8 } else { b'0' })
-        .collect();
+    // Step 9: the remaining non-hex code points are the '#'s after the first.
+    for d in &mut digits {
+        if *d == b'#' {
+            *d = b'0';
+        }
+    }
 
     // Step 10: pad to multiple of 3 (min 3).
     while digits.len() < 3 || !digits.len().is_multiple_of(3) {
@@ -783,6 +788,16 @@ mod tests {
         assert_eq!(
             parse_html_color(&input),
             Some(CssColor::new(0x00, 0xff, 0xff, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step9_second_hash_becomes_zero() {
+        // Step 8 removes only the first '#': "##ff12" → "#ff12". Step 9 maps
+        // the remaining '#' to '0': "0ff12" → pad to 6 → "0f" / "f1" / "20".
+        assert_eq!(
+            parse_html_color("##ff12"),
+            Some(CssColor::new(0x0f, 0xf1, 0x20, 255))
         );
     }
 
