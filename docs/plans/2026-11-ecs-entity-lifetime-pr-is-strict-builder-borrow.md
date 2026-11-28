@@ -1,10 +1,10 @@
 # ECS entity lifetime, PR (is): the strict tree builder borrows the caller's dom — per-PR plan
 
 Status: **plan (pre-implementation)**; `/elidex-plan-review` before code. A per-PR slice of the umbrella
-[2026-11-ecs-entity-lifetime-umbrella.md](2026-11-ecs-entity-lifetime-umbrella.md) (its §5 row **is**, added by
+`docs/plans/2026-11-ecs-entity-lifetime-umbrella.md` (on branch `ecs-shadow-root-lifetime-plan`, unlanded; its §5 row **is**, added by
 PM 708; the slice id is PM 714 (3)'s), so it is the base case of CLAUDE.md's *Edge-dense* rule: a narrowly scoped
 slice under the umbrella, not a program of its own. It lands **before** PR (ig)
-([2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md](2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md)),
+(`docs/plans/2026-11-ecs-entity-lifetime-pr-ig-dispatcher-take-guard.md`, on branch `ecs-shadow-root-lifetime-plan`, unlanded),
 whose strict take window then opens on the caller's dom (§8 hand-off); the program's order is PR (is) → PR (ig) →
 [the tree-model program, `docs/plans/2026-11-tree-model-shadow-root-is-a-root-umbrella.md`] → PR (io) → PR (ii) (PM 730; the umbrella §5 order predates it). Owner: L3. Base: `93ba0257`; every code anchor is at that commit (verified
 2026-11-13 at `cee74989`, re-anchored 2026-11-28: every `git grep` below re-run at `93ba0257`, same output apart from the line shifts now written in; an inline "verified 2026-11-13" marks the first measurement, at `cee74989`, and every such measurement reproduced at `93ba0257`; §3's coverage-map and §9's webref lookups were re-checked in the 2026-11-28 plan-review). Rulings: PM 730 (the tree-model program between PR (ig) and PR (io)); PM 1197 (the closing slot's Re-eval, 2026-12-05); PM 708 (this slice, its order before the dispatcher-take guard, structure only, and the slot it
@@ -12,6 +12,22 @@ closes); PM 714 (the slice ids; the slot `#11-unwind-leaves-detached-build-subtr
 the PM with PM 714: the append-panic fixture is this PR's, and PR (ig) uses it (§6); in the strict window this PR's
 U-1 pins that the caller's tree is intact and PR (ig)'s U-5 pins that the dispatcher is back in the caller's dom (§6).
 Before PM 714 the slice was named "i-s" and PR (ig) was half of a PR (i).
+
+**Standalone (PM 1223).** This memo lands alone; the umbrella and the PR (ig) plan stay on branch `ecs-shadow-root-lifetime-plan`, unlanded, and land later with
+PR (ig)'s own re-review. Every other reference to them below is context. What this memo relies on from them is
+stated here, with its origin:
+- **The slice and its order.** The program is sliced into PR (is), PR (ig), PR (io) and PR (ii) (umbrella §5;
+  PM 708 added this slice, PM 714 named the slices), and the order is is → ig → [the tree-model program] → io → ii
+  (PM 730). This PR is a narrowly scoped slice of that program: one mechanism (who owns the dom during a parse),
+  structure only (§0 "Behaviour"), which is why it is a single PR (CLAUDE.md *Edge-dense*, base case).
+- **`DispatcherTake`** (PR (ig) plan §0 item 1 and §4.1): PR (ig)'s Drop guard, the one way to take the mutation
+  dispatcher out of an `EcsDom`. It borrows the `EcsDom` it was opened on, and restores the dispatcher into it on
+  `close` or, on unwind, on drop. Each of the four take windows holds one. The ordering edge "is before ig" rests
+  on this: the guard on the strict window must borrow the caller's dom, which only this PR's borrowing builder makes
+  possible (§0 "Why now").
+- **What the guard does not do** (PR (ig) plan §4.1, "Caller-owned teardown still holds"): it owns only the
+  dispatcher's restore; which teardown runs, and when, stays with the caller. So PR (ig) does not reclaim the
+  throwaway an unwind leaves (§8, `#11-unwind-leaves-detached-build-subtree`).
 
 ## §0. Charter
 
@@ -48,7 +64,7 @@ outermost frame, and the lost document is never observed. The defect is a contra
 user-visible one.
 
 **Why now, and why before PR (ig).** PR (ig) puts all four dispatcher take windows under one Drop guard
-(`DispatcherTake`, PR (ig) plan §4.1) that borrows the place it was opened on. On the strict window that place is the
+(`DispatcherTake`, defined in "Standalone" above) that borrows the place it was opened on. On the strict window that place is the
 caller's `*dom`, and at base the build runs on a value moved out of it, so without this PR the guard's plan would have
 to state that on unwind it restores the dispatcher into the placeholder (PR (ig) plan §2 TAKE × SHUF). With the builder borrowing, the
 guard and the builder both borrow the caller's dom, and the restore lands in the document it was taken from.
@@ -164,7 +180,7 @@ non-test caller of `parse_fragment_strict` (`git grep -n -P '\bparse_fragment_st
 `crates/script/elidex-script-session/src/mutation/html_fragment.rs` (lines 93/174/209/218/235/245, verified
 2026-11-13 with `git grep -n -P '\bparse_fragment_progressive\(' 93ba0257 -- crates ':!*tests*'`; the seventh hit,
 `crates/dom/elidex-dom-api/src/range/mutation.rs:649`, is a doc comment), and `DOMParser.parseFromString` reaches the
-same applier through `parse_into_inert_document` (PR (ig) plan §3.1 lists the script entry points). The document parse
+same applier through `parse_into_inert_document` (PR (ig) plan §3.1, on branch `ecs-shadow-root-lifetime-plan`, unlanded, lists the script entry points; context only). The document parse
 is reached with document markup through `crates/dom/elidex-html-parser/src/lib.rs:66-67` (`parse_strict`) and
 `:187` (`parse_progressive_str`).
 
@@ -451,7 +467,7 @@ fixtures for one purpose. A panicking dispatcher cannot fire inside the window (
   `<html>` root and every node built under them live in the caller's dom, unreachable from its tree. At base this
   holds for the tolerant window (`parse_html_fragment`) and, through it, for the inert-document build's nested
   parses; the strict window's case was hidden by the lost document and is now the same. Neither PR (ig) (its guard
-  restores only the dispatcher; teardown stays caller-owned, PR (ig) plan §4.1) nor PR (ii) (it reclaims owned units,
+  restores only the dispatcher; teardown stays caller-owned; "Standalone" above) nor PR (ii) (it reclaims owned units,
   and the throwaway is owned by nothing) covers it.
 
 ## §9. Citation table
