@@ -30,17 +30,10 @@
 //!
 //! ## addEventListener scope
 //!
-//! WHATWG HTML §9.2 lets servers emit named events
-//! (`event: notification\ndata: ...`) that JS code receives via
-//! `evtsrc.addEventListener("notification", cb)`.  Silent-dropping
-//! these would be a spec-violating user-data loss, so this PR
-//! ships the minimal `addEventListener(type, listener)` /
-//! `removeEventListener(type, listener)` pair.  Full options
-//! surface (capture / once / passive / signal) is deferred to
-//! `#11-realtime-event-listeners`.  Per WHATWG DOM §2.7 the
-//! `(type, callback, capture)` triple is de-duplicated on
-//! registration — the minimal shim collapses `capture` to `false`
-//! so the dedup check reduces to `(type, callback ObjectId)`.
+//! HTML §9.2 allows named server-sent events. EventSource inherits
+//! `addEventListener` and `removeEventListener` from EventTarget.
+//! Shared registration reads the listener options and checks for duplicates
+//! by type, callback, and capture (DOM §2.7).
 //!
 //! ## Lifecycle
 //!

@@ -298,8 +298,10 @@ pub(super) fn require_selection_receiver(
 // Error mapping (SelectionError → DOMException)
 // ---------------------------------------------------------------------------
 
-/// Map an engine-indep `SelectionError` into the matching JS
-/// `DOMException` per Selection API §3.
+/// Map engine selection errors to JS exceptions. For removeRange() with a
+/// different Range, the engine supplies InvalidState and this mapper emits
+/// InvalidStateError. Selection API §3 requires NotFoundError
+/// (#11-selection-api-algorithm-conformance).
 ///
 /// Shared with sibling [`super::dom_selection_mutation`].
 pub(super) fn map_selection_error(

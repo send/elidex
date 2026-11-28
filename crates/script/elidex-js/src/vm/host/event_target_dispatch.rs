@@ -403,8 +403,8 @@ fn sync_flags_from_event(
 /// a VM EventTarget).  Iterates `entries`, and per listener:
 ///
 /// - honors `stopImmediatePropagation` (break),
-/// - removes a `once` listener from its home BEFORE the call (§2.9
-///   step 15 — so a re-entrant dispatch sees it gone),
+/// - removes a `once` listener before calling it (DOM §2.9 inner invoke
+///   step 2.5), so a re-entrant dispatch observes the removal,
 /// - resolves the callable (a miss = removed between plan-freeze and now,
 ///   i.e. the §2.9 inner invoke step 2 "removed field" / removed-flag check — silent
 ///   continue),

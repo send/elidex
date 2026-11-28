@@ -32,11 +32,7 @@ use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 
 /// Accessor getter for `Event.prototype.defaultPrevented`.
 ///
-/// WHATWG DOM §2.9 defines `defaultPrevented` as a getter attribute
-/// that returns the current state of the canceled flag — i.e. it must
-/// reflect a `preventDefault()` call inside the same listener.
-/// Exposing as a live getter (rather than a stale data property) is
-/// the only spec-conforming representation.
+/// DOM §2.2 returns true when the event's canceled flag is set.
 pub(super) fn native_event_get_default_prevented(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -83,8 +79,7 @@ pub(super) fn native_event_prevent_default(
     Ok(JsValue::Undefined)
 }
 
-/// `Event.prototype.stopPropagation()` — WHATWG DOM §2.9 sets the
-/// event's `stop propagation flag`.  No preconditions.
+/// DOM §2.2 `stopPropagation()` sets the event's stop propagation flag.
 pub(super) fn native_event_stop_propagation(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -102,10 +97,8 @@ pub(super) fn native_event_stop_propagation(
     Ok(JsValue::Undefined)
 }
 
-/// `Event.prototype.stopImmediatePropagation()` — WHATWG DOM §2.9
-/// sets BOTH the `stop propagation flag` and `stop immediate propagation
-/// flag`.  Setting only the latter is non-conforming: spec text
-/// "Set this's stop propagation flag" precedes the immediate-flag set.
+/// DOM §2.2 `stopImmediatePropagation()` sets the event's stop propagation
+/// and stop immediate propagation flags.
 pub(super) fn native_event_stop_immediate_propagation(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

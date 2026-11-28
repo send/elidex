@@ -244,11 +244,10 @@ pub(super) struct GcRoots<'a> {
     /// achievable now: rooting the entry here means the underlying
     /// `Event` object IS marked, so its mark bit IS set, so the
     /// `retain` call keeps the leaked id forever.  In practice the
-    /// leak is unreachable — `dispatch_script_event` reports
-    /// listener-thrown JS exceptions through the DOM §2.9 inner invoke step 2.13
-    /// "report the exception" path (no Rust unwind) and surfaces
-    /// VM-level failures via `Err(VmError)` instead of panicking,
-    /// so the insert/remove pair always pairs up.  A real
+    /// leak is unreachable on the listener-exception path. The walker records
+    /// whether a listener threw, discards the exception, and continues without
+    /// unwinding. DOM §2.9 inner invoke step 2.13.1 also requires reporting the
+    /// exception to the callback's associated global, which the VM omits. A real
     /// panic-safe shape would need either `unsafe` (`*mut VmInner`
     /// in a Drop guard) or a `RefCell<HashSet>` refactor; both are
     /// out of scope for this PR (`-D unsafe-code` workspace + the

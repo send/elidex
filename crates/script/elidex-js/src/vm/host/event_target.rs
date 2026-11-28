@@ -102,13 +102,9 @@ pub(super) fn native_event_target_add_event_listener(
 /// 3. `listener` (`arg[1]`) — `null`/`undefined` returns silently
 ///    (spec §2.6 step 2: "If callback is null, then return.").
 ///    Otherwise must be callable; non-callable throws `TypeError`.
-/// 4. `options` (`arg[2]`):
-///    - boolean → `capture` flag.
-///    - object → `{capture, once, passive, signal}` properties read.
-///      Missing booleans default to `false`; missing/`null`/`undefined`
-///      `signal` means no AbortSignal is bound.  A non-AbortSignal
-///      `signal` value throws `TypeError` (WebIDL `AbortSignal?`).
-///    - undefined / missing → all flags `false`, no signal.
+/// 4. `options` (`arg[2]`) supplies capture as a boolean or supplies
+///    listener options as a dictionary. See `parse_listener_options` for
+///    the VM's handling of omitted passive and explicit null signal.
 /// 5. DOM §2.7 "add an event listener" step 2: an already-aborted `signal` short-circuits
 ///    registration entirely — no ECS write, no listener_store entry,
 ///    no back-ref.
@@ -370,13 +366,10 @@ pub(super) struct ListenerOptions {
     pub(super) signal: Option<ObjectId>,
 }
 
-/// DOM §2.7 addEventListener() step 1 flattens the third argument with
-/// “flatten more options”.
-///
-/// - undefined / missing → all flags false.
-/// - boolean → capture only (legacy form).
-/// - object  → read `capture`, `once`, `passive` as booleans (missing
-///   keys default to false).
+/// DOM §2.7 flattens listener options with capture and once initially false
+/// and passive initially null. Registration step 4 resolves null using the
+/// event type and target. The VM stores false for omitted passive even when
+/// the default passive value should be true.
 #[cfg(feature = "engine")]
 pub(super) fn parse_listener_options(
     ctx: &mut NativeContext<'_>,
@@ -402,10 +395,9 @@ pub(super) fn parse_listener_options(
                     .get_property_value(opts_id, PropertyKey::String(key_sid))?;
                 *slot = super::super::coerce::to_boolean(ctx.vm, v);
             }
-            // `signal` (WebIDL `AbortSignal? signal`): `null` /
-            // `undefined` / missing key all mean "no signal"; any
-            // other non-AbortSignal value is a WebIDL conversion
-            // failure that throws TypeError, matching browsers.
+            // DOM §2.7 declares the optional dictionary member as `AbortSignal signal`.
+            // Missing or undefined leaves it unset. The VM also accepts explicit
+            // null, which WebIDL §3.2.15 interface conversion rejects with TypeError.
             let signal_val = ctx
                 .vm
                 .get_property_value(opts_id, PropertyKey::String(ctx.vm.well_known.signal))?;
