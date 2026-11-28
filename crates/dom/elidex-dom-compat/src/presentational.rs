@@ -370,7 +370,8 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         return None;
     }
 
-    // Step 9: the remaining non-hex code points are the '#'s after the first.
+    // Step 9: the only non-hex code points left are '#'s that step 8 did not
+    // remove.
     for d in &mut digits {
         if *d == b'#' {
             *d = b'0';
