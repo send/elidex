@@ -198,8 +198,7 @@ fn digest_rejects_non_buffer_source_data_with_type_error() {
 fn digest_rejects_missing_data_arg_with_type_error() {
     // WebCrypto §14.3.5 IDL signature is `digest(algorithm, data:
     // BufferSource)` — `data` is REQUIRED, so `digest('SHA-256')`
-    // must throw TypeError per WebIDL §3.10.18 rather than silently
-    // hashing empty input.  Copilot R2 finding.
+    // must throw TypeError under WebIDL §3.6 when no overload accepts one argument.
     assert_eq!(
         eval_global_string(
             "globalThis.r = ''; \

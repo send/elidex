@@ -70,10 +70,9 @@ pub(super) fn coerce_long_idl_arg(
 }
 
 /// Coerce an optional IDL `long` argument with default value (e.g.
-/// `insertRow(optional long index = -1)`) to `i32`.  Per WebIDL
-/// §3.10.7, both omitted args (`args.is_empty()`) AND explicit
-/// `undefined` use the default; any other input goes through
-/// ToNumber + i32 saturation.
+/// `insertRow(optional long index = -1)`) to `i32`. WebIDL §3.6 uses the
+/// default for an omitted argument or explicit `undefined`. Other values
+/// use the same saturating conversion as [`coerce_long_idl_arg`].
 pub(super) fn coerce_optional_long_idl_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
