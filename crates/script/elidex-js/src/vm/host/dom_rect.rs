@@ -318,7 +318,7 @@ fn native_dom_rect_to_json(
 // ---------------------------------------------------------------------------
 
 /// `unrestricted double` positional argument with default `0` (WebIDL
-/// §3.10.5 ToNumber — NaN / ±Infinity pass through, no TypeError).
+/// §3.2.8 ToNumber — NaN / ±Infinity pass through, no TypeError).
 fn coerce_coord_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],

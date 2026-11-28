@@ -1050,9 +1050,8 @@ fn meter_value_setter_serialises_negative_zero_as_zero() {
 
 #[test]
 fn progress_value_setter_rejects_non_finite() {
-    // WebIDL §3.10.5: restricted `double` setter throws TypeError
-    // on NaN / ±Infinity.  HTML §4.10.14 declares `<progress>.value`
-    // as plain `double` (not `unrestricted double`).
+    // WebIDL §3.2.7 rejects NaN and both infinities with TypeError.
+    // HTML §4.10.13 declares `progress.value` as `double`.
     let out = run("var p = document.createElement('progress'); \
          try { p.value = NaN; 'no-throw'; } catch (e) { 'TypeError'; }");
     assert_eq!(out, "TypeError");
