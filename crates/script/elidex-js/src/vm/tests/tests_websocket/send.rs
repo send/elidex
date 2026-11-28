@@ -162,9 +162,8 @@ fn send_dataview_uses_byte_length() {
 
 #[test]
 fn send_plain_object_throws_type_error() {
-    // WebIDL §3.10.18 union resolution: Object that doesn't brand as
-    // Blob / ArrayBuffer / TypedArray / DataView → TypeError (NO
-    // implicit fall-through to DOMString).
+    // This records the VM defect #11-websocket-send-string-union-fallback.
+    // WebIDL §3.2.25 step 15 converts an unbranded object to USVString.
     with_ws_vm(false, |vm| {
         open_ws(vm);
         let err = vm.eval("s.send({a: 1});").unwrap_err();

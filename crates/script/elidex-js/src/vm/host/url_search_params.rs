@@ -214,7 +214,7 @@ fn parse_init_entries(
                     .unwrap_or_default());
             }
             // Iterable-of-pairs (sequence) vs. record union, per
-            // WebIDL §3.10.34: probe `@@iterator` first; if callable,
+            // WebIDL §3.2.25: probe `@@iterator` first; if callable,
             // take the sequence branch via the shared helper.  Arrays
             // carry `Array.prototype[@@iterator]` so they reach this
             // path too — strict spec compliance, no dense-Array fast
