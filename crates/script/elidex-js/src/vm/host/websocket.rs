@@ -191,10 +191,8 @@ impl VmInner {
             );
         }
 
-        // `binaryType` — getter + setter pair.  Setter throws TypeError
-        // on any non-{"blob","arraybuffer"} value per WebIDL §3.10.21
-        // enum coercion (spec-mandated; the boa reference silently
-        // ignored unknown strings).
+        // The VM throws for an unknown binaryType string. WebIDL §3.7.6
+        // ignores the assignment (#11-vm-webidl-enum-attribute-invalid-assignment).
         self.install_accessor_pair(
             proto_id,
             self.well_known.binary_type,
@@ -619,18 +617,9 @@ fn native_ws_get_binary_type(
     Ok(JsValue::String(sid))
 }
 
-/// `WebSocket.prototype.binaryType` setter per WHATWG WebSockets
-/// §9.3 + WebIDL §3.10.21 enum setter:
-///
-/// 1. `ToString(v)` — propagates ECMA-262 TypeError for `Symbol`
-///    values (the `?` on `to_string` does this BEFORE the enum
-///    check fires, which is the spec-mandated ordering).
-/// 2. Compare the resulting `StringId` against the pre-interned
-///    `binary_type_blob` / `binary_type_arraybuffer` slots (cheap
-///    integer equality — no UTF-8 walk).
-/// 3. Any other string → `TypeError` with the Chrome / Firefox
-///    parity wording (spec-mandated; the boa reference silently
-///    ignored unknown values).
+/// Set `WebSocket.binaryType`. WebIDL §3.7.6 converts the input to a string
+/// and ignores unknown values. The VM throws for an unknown string
+/// (#11-vm-webidl-enum-attribute-invalid-assignment).
 fn native_ws_set_binary_type(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -638,9 +627,8 @@ fn native_ws_set_binary_type(
 ) -> Result<JsValue, VmError> {
     let id = require_websocket_this(ctx, this, "binaryType")?;
     let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL §3.10.21 step 1: ToString first.  Symbol throws here
-    // (correct spec ordering — enum-check TypeError must not pre-empt
-    // the ToString TypeError).
+    // WebIDL §3.7.6 applies ToString first. Symbol throws here. The later
+    // invalid-string exception is #11-vm-webidl-enum-attribute-invalid-assignment.
     let s_sid = super::super::coerce::to_string(ctx.vm, new_val)?;
     let bt = if s_sid == ctx.vm.well_known.binary_type_blob {
         BinaryType::Blob

@@ -44,9 +44,8 @@ fn binary_type_setter_accepts_blob_round_trip() {
 
 #[test]
 fn binary_type_setter_rejects_other_string_with_type_error() {
-    // Regression: the boa reference silently ignored unknown
-    // strings; the spec-correct behaviour is TypeError per WebIDL
-    // §3.10.21 enum coercion.
+    // WebIDL §3.7.6 ignores an unknown enum attribute value. This test
+    // records the VM exception (#11-vm-webidl-enum-attribute-invalid-assignment).
     with_ws_vm(false, |vm| {
         vm.eval(
             "globalThis.s = new WebSocket('ws://example.com/socket'); \
