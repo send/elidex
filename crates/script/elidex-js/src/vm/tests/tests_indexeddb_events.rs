@@ -193,7 +193,7 @@ fn dispatch_event_sets_target_and_brackets_dispatch_state() {
             "(() => { const e = new Event('foo'); globalThis.__o.dispatchEvent(e); \
              return e.target === globalThis.__o && e.currentTarget === null; })()"
         ));
-        // §2.7 dispatchEvent() step 1: a re-entrant re-dispatch of an in-flight event throws
+        // §2.9 step 1: a re-entrant re-dispatch of an in-flight event throws
         // InvalidStateError (caught inside the listener here).
         assert!(eval_bool(
             vm,
@@ -284,7 +284,7 @@ fn once_listener_unreached_by_stop_immediate_survives() {
 #[test]
 fn add_event_listener_signal_removes_on_abort() {
     with_vm(|vm| {
-        // R9 #2 / WHATWG DOM §2.7 add an event listener steps 2 and 6: a listener added with `{signal}` is
+        // R9 #2 / WHATWG DOM §2.7.3: a listener added with `{signal}` is
         // removed when the signal aborts, and an already-aborted signal never
         // adds it at all.  A plain listener added afterward still fires.
         vm.eval(

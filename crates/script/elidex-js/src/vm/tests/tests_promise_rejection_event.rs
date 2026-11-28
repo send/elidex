@@ -261,7 +261,7 @@ fn once_listener_fires_only_for_first_rejection() {
     // Regression: dispatch_unhandled_rejection_event used to drop
     // the per-listener `once` flag (collected only ListenerIds),
     // so `{once: true}` listeners would re-fire on every subsequent
-    // rejection.  Mirrors WHATWG DOM §2.9 inner invoke step 2.5: remove BEFORE
+    // rejection.  Mirrors WHATWG DOM §2.10 step 15: remove BEFORE
     // invoking.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

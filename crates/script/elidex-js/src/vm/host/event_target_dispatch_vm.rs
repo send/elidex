@@ -311,7 +311,7 @@ pub(super) fn dispatch_vm_event(
         threw |= vm_walk_phase(ctx, event_id, &plan.bubble, EventPhase::Bubbling);
     }
 
-    // Finalize (§2.9 dispatch steps 7–10): clear `currentTarget` + `eventPhase` +
+    // Finalize (§2.9 steps 27-31): clear `currentTarget` + `eventPhase` +
     // the propagation flags so a captured event reads "not dispatching"
     // and a re-dispatch starts clean.  `target` stays set;
     // `default_prevented` (the canceled bit the caller inspects) is

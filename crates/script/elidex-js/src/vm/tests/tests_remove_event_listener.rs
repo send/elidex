@@ -159,7 +159,7 @@ fn remove_finds_correct_entry_among_multiple_same_type_capture() {
 
 #[test]
 fn remove_does_not_read_once_or_passive_from_options() {
-    // WHATWG DOM §2.7 removeEventListener() only flattens `capture` for removal — reading
+    // WHATWG DOM §2.7.7 only flattens `capture` for removal — reading
     // `once` / `passive` would fire user getters / Proxy traps that
     // browsers don't trigger.  Use getter-equipped options bag to
     // detect the unwanted reads.
@@ -199,7 +199,7 @@ fn remove_does_not_read_once_or_passive_from_options() {
         vm.get_global("once_read").unwrap(),
         JsValue::Boolean(false),
         "removeEventListener must NOT read .once from options bag \
-         (WHATWG DOM §2.7 removeEventListener() only flattens capture)"
+         (WHATWG DOM §2.7.7 only flattens capture)"
     );
     assert_eq!(
         vm.get_global("passive_read").unwrap(),

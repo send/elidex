@@ -8,14 +8,35 @@
 //! pointer, and the flag fields live in the canonical internal-slot
 //! location rather than as hidden JS properties.
 //!
-//! Event members return fallback values on incompatible receivers
-//! (#11-event-members-receiver-brand).
+//! ## Receiver type-check policy (PR3)
+//!
+//! Detached method handles — `const pd = e.preventDefault; pd()` —
+//! see `this === undefined`.  Calls with a non-`ObjectKind::Event`
+//! receiver get the same treatment.  PR3 chooses **silent no-op**
+//! for both cases.
+//!
+//! This deviates from WebIDL: the spec generates non-generic
+//! bindings that throw `TypeError: Illegal invocation` when `this`
+//! fails the [[Brand]] check.  Spec-correct enforcement is
+//! deferred to a later M4-12 tranche that lands the `Event`
+//! constructor and the rest of the Event prototype's strict
+//! bindings (also covers the `defaultPrevented` getter).
+//!
+//! Until then, the no-op is a pragmatic choice: real-world code
+//! that escapes a method handle off an Event is exceedingly rare
+//! (linters block it), and the silent path keeps the dispatch
+//! machinery in PR3 simple.  WPT alignment tests for §2.9 receiver
+//! brand-checks will surface the gap when they run (Phase 4 late).
 
 use super::value::{JsValue, NativeContext, ObjectKind, VmError};
 
 /// Accessor getter for `Event.prototype.defaultPrevented`.
 ///
-/// DOM §2.2 returns true when the event's canceled flag is set.
+/// WHATWG DOM §2.9 defines `defaultPrevented` as a getter attribute
+/// that returns the current state of the canceled flag — i.e. it must
+/// reflect a `preventDefault()` call inside the same listener.
+/// Exposing as a live getter (rather than a stale data property) is
+/// the only spec-conforming representation.
 pub(super) fn native_event_get_default_prevented(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -29,12 +50,14 @@ pub(super) fn native_event_get_default_prevented(
             return Ok(JsValue::Boolean(*default_prevented));
         }
     }
-    // Borrowing the getter with an incompatible receiver reaches this fallback
-    // (#11-event-members-receiver-brand).
+    // Unreachable in well-formed callers — the getter is installed on
+    // the event object only, so `this` is always an `ObjectKind::Event`.
+    // Return `false` rather than throwing to match detached-method
+    // behaviour on the other event methods.
     Ok(JsValue::Boolean(false))
 }
 
-/// `Event.prototype.preventDefault()` — WHATWG DOM §2.2 set the canceled flag only
+/// `Event.prototype.preventDefault()` — WHATWG DOM §2.9 step 1 only
 /// sets `canceled flag` when the event is `cancelable` AND the listener
 /// is NOT passive; otherwise silent no-op.  The spec warning-in-console
 /// case for passive listeners is omitted (we follow the silent-no-op
@@ -60,7 +83,8 @@ pub(super) fn native_event_prevent_default(
     Ok(JsValue::Undefined)
 }
 
-/// DOM §2.2 `stopPropagation()` sets the event's stop propagation flag.
+/// `Event.prototype.stopPropagation()` — WHATWG DOM §2.9 sets the
+/// event's `stop propagation flag`.  No preconditions.
 pub(super) fn native_event_stop_propagation(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -78,8 +102,10 @@ pub(super) fn native_event_stop_propagation(
     Ok(JsValue::Undefined)
 }
 
-/// DOM §2.2 `stopImmediatePropagation()` sets the event's stop propagation
-/// and stop immediate propagation flags.
+/// `Event.prototype.stopImmediatePropagation()` — WHATWG DOM §2.9
+/// sets BOTH the `stop propagation flag` and `stop immediate propagation
+/// flag`.  Setting only the latter is non-conforming: spec text
+/// "Set this's stop propagation flag" precedes the immediate-flag set.
 pub(super) fn native_event_stop_immediate_propagation(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

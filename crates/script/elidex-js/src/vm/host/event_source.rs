@@ -3,8 +3,12 @@
 //!
 //! ## Layering
 //!
-//! This module installs the prototype, checks receivers, parses the constructor
-//! URL, and sends close requests. EventTarget supplies listener registration.
+//! Per CLAUDE.md "Layering mandate", this file contains only the
+//! engine-bound responsibilities: prototype install, brand check,
+//! constructor + URL parse glue, close emission, and minimal
+//! `addEventListener` / `removeEventListener` shim required by
+//! WHATWG §9.2 for named-event delivery (per the in-PR fold of
+//! the originally-spec-violating silent-drop alternative).
 //! The broker handles SSE framing, reconnection, and lastEventId
 //! sticky semantics.
 //!
@@ -12,9 +16,10 @@
 //!
 //! - [`ObjectKind::EventSource`][] is payload-free.
 //! - Per-instance state ([`super::super::host_data::EventSourceState`]):
-//!   readyState, URL, origin, withCredentials, lastEventId, and broker
-//!   connection ID. Named listeners and on-event handlers use the shared
-//!   VM EventTarget listener store. EventSource state lives in
+//!   readyState + url + pre-interned origin + withCredentials +
+//!   sticky lastEventId + broker `conn_id` + 3 `on*` handler
+//!   `ObjectId`s + per-instance `addEventListener` registry
+//!   (`HashMap<String, Vec<ObjectId>>`).  Lives in
 //!   [`super::super::host_data::HostData::event_source_states`]
 //!   keyed by the instance `ObjectId`.
 //! - Reverse lookup
@@ -25,10 +30,17 @@
 //!
 //! ## addEventListener scope
 //!
-//! HTML §9.2 allows named server-sent events. EventSource inherits
-//! `addEventListener` and `removeEventListener` from EventTarget.
-//! Shared registration reads the listener options and checks for duplicates
-//! by type, callback, and capture (DOM §2.7).
+//! WHATWG HTML §9.2 lets servers emit named events
+//! (`event: notification\ndata: ...`) that JS code receives via
+//! `evtsrc.addEventListener("notification", cb)`.  Silent-dropping
+//! these would be a spec-violating user-data loss, so this PR
+//! ships the minimal `addEventListener(type, listener)` /
+//! `removeEventListener(type, listener)` pair.  Full options
+//! surface (capture / once / passive / signal) is deferred to
+//! `#11-realtime-event-listeners`.  Per WHATWG DOM §2.7.2 the
+//! `(type, callback, capture)` triple is de-duplicated on
+//! registration — the minimal shim collapses `capture` to `false`
+//! so the dedup check reduces to `(type, callback ObjectId)`.
 //!
 //! ## Lifecycle
 //!

@@ -214,7 +214,12 @@ pub enum ObjectKind {
     /// no-ops when either is `false` (DOM "set the canceled flag" for
     /// passive listeners and non-cancelable events, WHATWG DOM §2.2).
     ///
-    /// Cached JS array used by composedPath() (#11-event-composed-path-fresh-array).
+    /// `composed_path` is the lazily-built JS array returned by
+    /// `composedPath()` — cached on first call so repeated invocations
+    /// observe identical array identity, per WHATWG DOM §2.9
+    /// (`composedPath()` returns the internal list, so the same Array
+    /// exotic object is returned — exposing a different array each
+    /// call would be spec-non-conforming).
     Event {
         default_prevented: bool,
         propagation_stopped: bool,

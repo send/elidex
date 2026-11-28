@@ -156,7 +156,7 @@ impl DispatchTarget {
         }
     }
 
-    /// Remove a listener entry from this target's home (the §2.9 inner invoke step 2.5
+    /// Remove a listener entry from this target's home (the §2.9 step 15
     /// `once` remove-before-call write, home-dispatched so the shared inner
     /// invoke carries no `match target kind`).
     pub(crate) fn remove_listener_entry(self, ctx: &mut NativeContext<'_>, id: ListenerId) {

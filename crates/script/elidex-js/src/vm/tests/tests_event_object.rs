@@ -115,13 +115,18 @@ fn stop_immediate_propagation_sets_both_flags() {
     let id = alloc_event(&mut vm, true, false);
     let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_stop_immediate_propagation(&mut ctx, JsValue::Object(id), &[]).unwrap();
-    // DOM §2.2 stopImmediatePropagation() sets both propagation flags.
+    // WHATWG DOM §2.9: stopImmediatePropagation() sets BOTH flags
+    // (propagation_stopped and immediate_propagation_stopped).  Setting
+    // only the "immediate" flag is non-conforming — spec text explicitly
+    // sets the outer flag first.
     assert_eq!(event_flags(&vm, id), (false, true, true));
 }
 
 #[test]
 fn composed_path_lazy_caches_empty_array_on_first_call() {
-    // The VM caches its initially empty path array (#11-event-composed-path-fresh-array).
+    // WHATWG DOM §2.9: same Array on every call.  The slot starts
+    // None; first call must allocate an empty Array AND write it
+    // back into the slot so identity holds for subsequent calls.
     let mut vm = Vm::new();
     let id = alloc_event(&mut vm, true, false);
 

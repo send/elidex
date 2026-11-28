@@ -39,7 +39,7 @@ use super::super::{NativeFn, VmInner};
 // ---------------------------------------------------------------------------
 
 /// `DOMException("InvalidStateError")` factory.  Used by the WHATWG
-/// DOM §2.7 dispatchEvent() step 1 re-dispatch throw in `EventTarget.dispatchEvent`
+/// DOM §2.9 step 3 re-dispatch throw in `EventTarget.dispatchEvent`
 /// (event whose dispatch flag is already set); future callers may
 /// arrive as new algorithm steps pull in the error shape.
 pub(super) fn invalid_state_error(

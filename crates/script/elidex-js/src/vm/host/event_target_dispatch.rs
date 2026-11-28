@@ -1,4 +1,4 @@
-//! Script-initiated `dispatchEvent` walk (WHATWG DOM §2.9 Dispatching events).
+//! Script-initiated `dispatchEvent` walk (WHATWG DOM §2.9-§2.10).
 //!
 //! Split from [`super::event_target`] to keep both files below the
 //! 1000-line convention (cleanup tranche 2).  The entry point
@@ -35,7 +35,9 @@ use super::events::{
 ///
 /// Return contract: `Ok(!default_prevented)` on normal completion;
 /// errors are surfaced only if the VM itself cannot continue
-/// (e.g. allocator failure). Listener exceptions leave the walk running.
+/// (e.g. allocator failure).  Listener-body throws are caught and
+/// ignored (spec §2.9 inner invoke "report the exception") so the
+/// walk advances past them.
 #[allow(clippy::too_many_lines)] // single capture/target/bubble walk — splitting would scatter the §2.9 flow
 pub(super) fn dispatch_script_event(
     ctx: &mut NativeContext<'_>,
@@ -399,10 +401,10 @@ fn sync_flags_from_event(
 /// a VM EventTarget).  Iterates `entries`, and per listener:
 ///
 /// - honors `stopImmediatePropagation` (break),
-/// - removes a `once` listener before calling it (DOM §2.9 inner invoke
-///   step 2.5), so a re-entrant dispatch observes the removal,
+/// - removes a `once` listener from its home BEFORE the call (§2.9
+///   step 15 — so a re-entrant dispatch sees it gone),
 /// - resolves the callable (a miss = removed between plan-freeze and now,
-///   i.e. the §2.9 inner invoke step 2 "removed field" / removed-flag check — silent
+///   i.e. the §2.9 step 6 "removed field" / removed-flag check — silent
 ///   continue),
 /// - toggles the event's `passive` slot around the call so
 ///   `preventDefault()` observes it,
@@ -419,8 +421,10 @@ fn sync_flags_from_event(
 /// Shared by the Node walk ([`walk_phase`]) and the VM walk
 /// (`super::event_target_dispatch_vm::vm_walk_phase`).
 ///
-/// Returns whether a listener threw. IDB uses that flag to decide whether to
-/// abort the transaction (§5.9/§5.10 step 8.2). The Node walk ignores it.
+/// Returns whether any listener threw an uncaught exception (swallowed per
+/// the §2.9 report-an-exception step so the walk advances, but surfaced for
+/// callers that need it — W3C IDB §5.9/§5.10 step 8.2 aborts the
+/// transaction when an event handler threw).  The Node walk ignores it.
 ///
 /// `drain_after_each` runs a microtask checkpoint after each listener.  The
 /// Node script/UA dispatch does this (established elidex behavior, mirroring
@@ -444,7 +448,7 @@ pub(super) fn invoke_listeners_shared(
             break;
         }
 
-        // §2.9 inner invoke step 2.5: remove `once` listeners BEFORE invocation so
+        // §2.9 step 15: remove `once` listeners BEFORE invocation so
         // re-entrant dispatch sees them gone (home-dispatched via the
         // adapter).  The corresponding `listener_store` + AbortSignal
         // back-ref cleanup happens after `call_value` returns so it also
@@ -460,7 +464,7 @@ pub(super) fn invoke_listeners_shared(
         // plan-freeze and now (addEventListener inside an earlier
         // listener can't add to this plan but removeEventListener / abort
         // signals can drop planned entries).  Silent continue matches
-        // §2.9 inner invoke step 2 (the removed-field / removed-flag check).
+        // §2.9 step 6 (the removed-field / removed-flag check).
         let Some(func_obj_id) = home.resolve_callable(ctx, entry) else {
             continue;
         };
@@ -475,8 +479,10 @@ pub(super) fn invoke_listeners_shared(
         // user's event object, so we toggle the slot around each
         // call_value instead.
         set_event_passive(ctx.vm, event_id, entry.passive);
-        // Invoke the listener with currentTarget as its receiver (DOM §2.9).
-        // Record a failed call for IDB's transaction-abort check and continue.
+        // Invoke the listener.  `this` is the currentTarget per §2.9
+        // (matches WebIDL callback `this` binding).  Throw propagation is
+        // swallowed (report-an-exception — the walk advances past it) but
+        // recorded so an IDB UA-fire can run §5.9/§5.10 step 8.2.
         if ctx
             .call_value(
                 JsValue::Object(func_obj_id),
@@ -580,9 +586,12 @@ pub(super) fn dispatch_simple_event(
     // incorrect: `dispatched_events` is now itself a GC root
     // (`gc/roots.rs:215`), so a leaked id keeps its underlying
     // `Event` marked, the sweep-tail `retain(bit_get(...))` keeps
-    // the entry, and the leak is permanent. A listener throw sets a flag;
-    // VM errors return as Err. Both paths reach cleanup without unwinding.
-    // Do not rely on the sweep-tail to recover from a
+    // the entry, and the leak is permanent.  In practice the leak
+    // is unreachable — listener-thrown JS exceptions go through
+    // the spec §2.9 inner-invoke "report the exception" path (no
+    // Rust unwind), and VM-level failures return `Err(VmError)`
+    // instead of panicking — so the insert/remove pair always
+    // pairs up.  Do not rely on the sweep-tail to recover from a
     // missed `.remove`; if a future change introduces a real
     // panic path here, refactor around `RefCell<HashSet>` /
     // `catch_unwind` first.
@@ -613,8 +622,13 @@ pub(super) fn dispatch_simple_event(
     ctx.vm.dispatched_events.remove(&event_id);
 
     // `dispatch_script_event` returns `Ok(!default_prevented)` so
-    // Ok(false) means cancellation. Propagate infrastructure errors to the
-    // caller. A listener exception is handled inside the walk.
+    // `Ok(false)` means the dispatch was cancelled.  `Err` is only
+    // returned for VM-level failures (handler-loop infrastructure
+    // errors, not listener-thrown JS exceptions — those go through
+    // the report-an-exception path and never bubble to `Ok`/`Err`
+    // here).  Propagate the VM-level `Err` rather than collapsing
+    // it to `Ok(false)` so the caller (`form.reset()` etc.) does
+    // not proceed under a hidden failure.
     result.map(|not_default_prevented| !not_default_prevented)
 }
 
@@ -734,8 +748,11 @@ pub(super) fn dispatch_toggle_event(
 /// script-side `dispatchEvent` call.
 ///
 /// Returns `Ok(true)` when the event was cancelled by a listener
-/// (default prevented) and `Ok(false)` otherwise. Infrastructure errors
-/// propagate to the caller. Listener exceptions stay inside the walk.
+/// (default prevented), `Ok(false)` when it ran to completion.  `Err`
+/// is propagated only for VM-level failures (handler infrastructure
+/// errors, not listener-thrown JS exceptions — those go through the
+/// report-an-exception path).  Caller (`form.requestSubmit`) skips
+/// the `formdata` dispatch and returns `undefined` when cancelled.
 pub(super) fn dispatch_submit_event(
     ctx: &mut NativeContext<'_>,
     target_entity: elidex_ecs::Entity,

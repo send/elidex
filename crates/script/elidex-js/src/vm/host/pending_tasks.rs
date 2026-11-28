@@ -65,9 +65,11 @@ use super::structured_clone::clone_value;
 /// the caller synchronously.
 #[derive(Clone, Debug)]
 pub(crate) enum PendingTask {
-    /// The same-window path queues cloned data after comparing targetOrigin.
-    /// It captures the sender origin at enqueue time. HTML §9.3.3 puts the
-    /// comparison and origin serialization in queued steps 8.1 and 8.2.
+    /// Produced by `window.postMessage(message, targetOrigin)` after
+    /// the origin has been matched.  The stored `data` is the
+    /// already-`structuredClone`d payload; `origin` is the source
+    /// window's origin (WHATWG HTML §9.3.3 step 12 "origin of the
+    /// source's relevant settings").
     PostMessage {
         target_window_id: ObjectId,
         data: JsValue,
@@ -311,9 +313,12 @@ fn dispatch_file_read(
 /// Build a MessageEvent and dispatch it at `target_window_id`'s
 /// backing entity through the shared `dispatch_script_event` walker.
 ///
-/// HTML §9.3.3 queues a task in step 8. On successful delivery, step 8.7
-/// fires a `message` event at the target Window using MessageEvent (DOM §2.10).
-/// The shared walker handles listener options during dispatch.
+/// Matches WHATWG HTML §9.3.3 step 14 + §2.9 "fire a trusted event
+/// with name `message` at a Window".  Routing through
+/// `dispatch_script_event` gives correct per-listener `{once}` /
+/// `{signal}` / `{passive}` handling for free — the manual walk
+/// that predated this path leaked `{once}` entries and ignored
+/// aborted signals.
 fn dispatch_post_message(
     vm: &mut VmInner,
     target_window_id: ObjectId,
@@ -322,7 +327,10 @@ fn dispatch_post_message(
     last_event_id_sid: StringId,
     source_window_id: Option<ObjectId>,
 ) {
-    // Drop queued delivery if the VM has lost or unbound its host data.
+    // Resolve the target window's backing entity.  If the VM lost
+    // its HostData between enqueue and drain (vm.unbind()), silently
+    // drop — matching WHATWG §9.3.3 step 11 "if the target's
+    // associated Document is not fully active, then abort".
     let Some(host) = vm.host_data.as_deref() else {
         return;
     };
@@ -442,8 +450,11 @@ fn dispatch_post_message(
     let mut ctx = NativeContext::new_call(&mut g);
     let dispatch_result = dispatch_script_event(&mut ctx, event_id, target_entity);
     g.dispatched_events.remove(&event_id);
-    // Delivery runs in the task queued by HTML §9.3.3 step 8. This helper
-    // discards VM dispatch errors after removing the temporary GC root.
+    // VM-level errors (allocation failure etc.) are very rare and
+    // swallowed here — the dispatch has already advanced through
+    // as many listeners as possible, and postMessage has no
+    // observable error channel to the enqueuing caller (the task
+    // is an async point, §9.3.3 step 13).
     let _ = dispatch_result;
 }
 
@@ -573,7 +584,8 @@ pub(super) fn native_window_post_message(
     // 6. Resolve target origin match vs own origin.
     let own_origin_sid = compute_own_origin_sid(ctx.vm);
     if !match_target_origin(ctx, parsed_target.as_ref(), own_origin_sid) {
-        // The same-window path drops a mismatch before enqueueing.
+        // Silent return (spec §9.3.3 step 9 "if the origin of
+        // targetWindow is not … then return").
         return Ok(JsValue::Undefined);
     }
 

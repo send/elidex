@@ -730,7 +730,7 @@ fn add_event_listener_multiple_listeners_fire_in_insertion_order() {
 
 #[test]
 fn add_event_listener_dedups_same_callback_per_type() {
-    // WHATWG DOM §2.7 add an event listener step 5: same `(type, callback, capture)`
+    // WHATWG DOM §2.7.2 step 5: same `(type, callback, capture)`
     // triple is deduped on registration.  The minimal shim
     // collapses capture to false, so `(type, callback)` is
     // sufficient.
@@ -797,7 +797,7 @@ fn remove_event_listener_no_op_for_unknown_pair() {
 
 #[test]
 fn remove_event_listener_no_op_for_null_listener() {
-    // DOM §2.7 removeEventListener() step 2 finds no matching null callback.
+    // DOM §2.7.5 step 2: null / undefined listener is a silent no-op.
     // (A non-null non-callable listener throws TypeError in the shared
     // core, symmetric with addEventListener — the bespoke shim was lax.)
     with_es_vm(|vm| {
@@ -812,7 +812,7 @@ fn remove_event_listener_no_op_for_null_listener() {
 
 #[test]
 fn add_event_listener_null_undefined_listener_is_no_op() {
-    // WHATWG DOM §2.7 add an event listener step 3: a null/undefined callback returns
+    // WHATWG DOM §2.7.2 step 2: a null/undefined callback returns
     // silently and registers nothing.  (A non-null non-callable
     // listener throws TypeError in the shared core — see
     // `add_event_listener_non_callable_throws_type_error`; the bespoke
@@ -907,10 +907,11 @@ fn add_event_listener_during_dispatch_does_not_fire_in_same_tick() {
 
 #[test]
 fn remove_event_listener_during_dispatch_does_not_fire_in_same_tick() {
-    // DOM §2.9 invoke step 8 clones the current target's listener list.
-    // Inner invoke step 2 skips listeners removed since the clone. So
+    // WHATWG DOM §2.9 inner-invoke: the listener list is cloned before
+    // the walk, but a listener whose `removed` flag is set mid-dispatch
+    // is skipped ("If listener's removed is true, then continue").  So
     // `b`, removed by the first listener before its turn, does NOT fire
-    // this tick — the shared §2.9 core implements this via the inner invoke step 2
+    // this tick — the shared §2.9 core implements this via the step 6
     // removed-field check (`resolve_callable` returns None).  The
     // bespoke SSE shim fired the pre-snapshot copy, which was not
     // spec-faithful.
