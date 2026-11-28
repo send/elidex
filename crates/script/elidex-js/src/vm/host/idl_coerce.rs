@@ -89,12 +89,12 @@ pub(super) fn coerce_optional_long_idl_arg(
 
 /// Coerce a required IDL `double` argument (e.g. `<progress>.value`
 /// setter, `<meter>.value` setter) to its `f64` representation per
-/// WebIDL §3.10.5 ToNumber.  Sibling of [`coerce_long_idl_arg`] for
+/// WebIDL §3.2.7 ToNumber.  Sibling of [`coerce_long_idl_arg`] for
 /// floating-point reflect setters (slot `#11-tags-T2d-interactive`).
 ///
 /// Routes through [`to_number`] so `valueOf` / `toString` on object
 /// arguments fires per spec; `Symbol` / `BigInt` raise `TypeError`.
-/// Per WebIDL §3.10.5 the **restricted** `double` IDL type rejects
+/// Per WebIDL §3.2.7 the **restricted** `double` IDL type rejects
 /// `NaN` / ±`Infinity` with a `TypeError` — HTML §4.10.14 and
 /// §4.10.15 declare their reflect attributes as plain `double`
 /// (not `unrestricted double`), so the rejection applies.
@@ -106,7 +106,7 @@ pub(super) fn coerce_double_idl_arg(
     let n = to_number(ctx.vm, raw)?;
     if !n.is_finite() {
         return Err(VmError::type_error(
-            "value cannot be converted to a finite double per WebIDL §3.10.5",
+            "value cannot be converted to a finite double per WebIDL §3.2.7",
         ));
     }
     Ok(n)
