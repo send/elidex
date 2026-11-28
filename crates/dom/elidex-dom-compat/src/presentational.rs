@@ -749,6 +749,55 @@ mod tests {
         );
     }
 
+    // #11-dom-compat-legacy-color-code-points: HTML §2.3.6 steps 7 and 9
+    // count code points, not UTF-8 bytes.
+
+    #[test]
+    fn parse_html_color_legacy_multibyte_input_does_not_panic() {
+        // "a" + 64 × "é" is 65 code points (129 bytes; byte 128 is inside the
+        // last "é"). Step 7 keeps all 65. Step 9: "a" + 64 "0" → pad to 66 →
+        // three components of 22. Step 12 removes 14 leading characters from
+        // each, which drops the "a" → all zero → black.
+        let input = format!("a{}", "é".repeat(64));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0x00, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step9_one_zero_per_code_point() {
+        // Step 9: "1é2" → "102" (3 code points) → components "1"/"0"/"2".
+        assert_eq!(
+            parse_html_color("1é2"),
+            Some(CssColor::new(0x01, 0x00, 0x02, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_limit_counts_code_points() {
+        // 64 × "é" + 64 × "f" is exactly 128 code points, so step 7 keeps it all.
+        // Step 9: 64 "0" + 64 "f" → pad to 129 → components of 43. Step 12
+        // removes 35 from each: "00000000" / "ffffffff" / "fffffff0".
+        // Step 14 → "00" / "ff" / "ff".
+        let input = format!("{}{}", "é".repeat(64), "f".repeat(64));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0xff, 0xff, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_truncates_at_128_code_points() {
+        // 128 × "é" + 100 × "f": step 7 keeps the 128 "é" only → all zero → black.
+        // Without the truncation the trailing "f"s would reach the components.
+        let input = format!("{}{}", "é".repeat(128), "f".repeat(100));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0x00, 255))
+        );
+    }
+
     #[test]
     fn parse_html_color_legacy_bare_hex() {
         // Bare hex without '#' is handled by legacy algorithm.
