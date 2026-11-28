@@ -336,37 +336,47 @@ fn parse_html_color(value: &str) -> Option<CssColor> {
 
 /// Convert the remaining input to RGB components (HTML §2.3.6 steps 6–19).
 fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
-    // Step 6: replace non-BMP code points with "00".
-    let mut s = String::with_capacity(input.len());
+    // Steps 6–9 work on one byte per code point, so every count below is a
+    // code-point count. Hex digits and '#' keep their own byte; every other
+    // code point becomes '0' now (step 9 would map it to '0' anyway, and step 8
+    // only looks for '#'). A non-BMP code point is two code points after step 6.
+    // Only the first 128 code points survive step 7, so stop reading the input
+    // once they are in hand (a non-BMP code point may push one past 128).
+    let mut digits: Vec<u8> = Vec::with_capacity(input.len().min(129));
     for ch in input.chars() {
+        if digits.len() >= 128 {
+            break;
+        }
         if ch as u32 > 0xFFFF {
-            s.push_str("00");
+            // Step 6: replace it with "00".
+            digits.extend_from_slice(b"00");
+        } else if ch.is_ascii_hexdigit() || ch == '#' {
+            digits.push(ch as u8);
         } else {
-            s.push(ch);
+            digits.push(b'0');
         }
     }
 
-    // #11-dom-compat-legacy-color-code-points
-    // Defect against step 7: the 128-code-point limit is applied to UTF-8 bytes.
-    if s.len() > 128 {
-        s.truncate(128);
-    }
+    // Step 7: keep at most the first 128 code points.
+    digits.truncate(128);
 
     // #11-dom-compat-legacy-color-whitespace-empty-order
     // Step 8 removes a leading '#'. Defect: rejecting an empty remainder here
     // skips step 10, which pads it to three zeros.
-    let s = s.strip_prefix('#').unwrap_or(&s);
-    if s.is_empty() {
+    if digits.first() == Some(&b'#') {
+        digits.remove(0);
+    }
+    if digits.is_empty() {
         return None;
     }
 
-    // #11-dom-compat-legacy-color-code-points
-    // Defect against step 9: this emits one zero per non-hex byte. The rule
-    // emits one zero per non-hex code point.
-    let mut digits: Vec<u8> = s
-        .bytes()
-        .map(|b| if b.is_ascii_hexdigit() { b } else { b'0' })
-        .collect();
+    // Step 9: the only non-hex code points left are '#'s that step 8 did not
+    // remove.
+    for d in &mut digits {
+        if *d == b'#' {
+            *d = b'0';
+        }
+    }
 
     // Step 10: pad to multiple of 3 (min 3).
     while digits.len() < 3 || !digits.len().is_multiple_of(3) {
@@ -746,6 +756,86 @@ mod tests {
         assert_eq!(
             parse_html_color("chucknorris"),
             Some(CssColor::new(0xc0, 0x00, 0x00, 255))
+        );
+    }
+
+    // HTML §2.3.6 (rules for parsing a legacy color value) steps 7 and 9
+    // count code points, not UTF-8 bytes.
+
+    #[test]
+    fn parse_html_color_legacy_multibyte_input_does_not_panic() {
+        // "a" + 64 × "é" is 65 code points (129 bytes; byte 128 is inside the
+        // last "é"). Step 7 keeps all 65. Step 9: "a" + 64 "0" → pad to 66 →
+        // three components of 22. Step 12 removes 14 leading characters from
+        // each, which drops the "a" → all zero → black.
+        let input = format!("a{}", "é".repeat(64));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0x00, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step9_one_zero_per_code_point() {
+        // Step 9: "1é2" → "102" (3 code points) → components "1"/"0"/"2".
+        assert_eq!(
+            parse_html_color("1é2"),
+            Some(CssColor::new(0x01, 0x00, 0x02, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_limit_counts_code_points() {
+        // 64 × "é" + 64 × "f" is exactly 128 code points, so step 7 keeps it all.
+        // Step 9: 64 "0" + 64 "f" → pad to 129 → components of 43. Step 12
+        // removes 35 from each: "00000000" / "ffffffff" / "fffffff0".
+        // Step 14 → "00" / "ff" / "ff".
+        let input = format!("{}{}", "é".repeat(64), "f".repeat(64));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0xff, 0xff, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step6_non_bmp_becomes_two_zeros() {
+        // Step 6: "🔥f" → "00f" → components "0" / "0" / "f".
+        assert_eq!(
+            parse_html_color("🔥f"),
+            Some(CssColor::new(0x00, 0x00, 0x0f, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_keeps_the_128th_code_point() {
+        // 127 "0" + "f" is 128 code points; step 7 keeps the "f". Pad to 129 →
+        // components of 43; step 12 removes 35 → "00000000" / "00000000" /
+        // "000000f0"; step 13 strips 6 → "00" / "00" / "f0".
+        let input = format!("{}f", "0".repeat(127));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0xf0, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step9_second_hash_becomes_zero() {
+        // Step 8 removes only the first '#': "##ff12" → "#ff12". Step 9 maps
+        // the remaining '#' to '0': "0ff12" → pad to 6 → "0f" / "f1" / "20".
+        assert_eq!(
+            parse_html_color("##ff12"),
+            Some(CssColor::new(0x0f, 0xf1, 0x20, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_truncates_at_128_code_points() {
+        // 128 × "é" + 100 × "f": step 7 keeps the 128 "é" only → all zero → black.
+        // Without the truncation the trailing "f"s would reach the components.
+        let input = format!("{}{}", "é".repeat(128), "f".repeat(100));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0x00, 255))
         );
     }
 
