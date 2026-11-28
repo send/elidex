@@ -334,7 +334,7 @@ fn mutation_observer_observe_null_target_throws() {
 
 #[test]
 fn mutation_observer_observe_null_options_uses_defaults() {
-    // WebIDL §3.10.7: null and undefined both yield the default-init
+    // WebIDL §3.2.17: null and undefined both yield the default-init
     // dictionary; the subsequent at-least-one-flag check then fires.
     let err = run_throws(
         "var mo = new MutationObserver(function(){}); \

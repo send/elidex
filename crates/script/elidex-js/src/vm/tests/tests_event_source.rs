@@ -211,7 +211,7 @@ fn ctor_with_null_init_treated_as_empty_dict() {
 
 #[test]
 fn ctor_with_primitive_init_throws_type_error() {
-    // WebIDL §3.10.6 — non-Object dict argument throws TypeError.
+    // WebIDL §3.2.17 — non-Object dict argument throws TypeError.
     with_es_vm(|vm| {
         let err = vm
             .eval("new EventSource('https://example.com/events', 42);")

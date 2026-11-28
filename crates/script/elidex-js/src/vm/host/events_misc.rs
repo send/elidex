@@ -352,7 +352,7 @@ fn native_formdata_event_constructor(
     let mode = ctx.mode;
     let type_sid = type_arg(ctx, args, "FormDataEvent")?;
     // FormDataEventInit has `required formData` — missing 2nd arg or
-    // empty dict produces a TypeError per WebIDL §3.10.23 (matches
+    // empty dict produces a TypeError per WebIDL §3.2.17 (matches
     // Chrome wording, mirrors PromiseRejectionEvent precedent).
     let Some(init_arg) = args.get(1).copied() else {
         return Err(VmError::type_error(

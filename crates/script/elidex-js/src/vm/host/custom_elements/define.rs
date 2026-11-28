@@ -224,7 +224,7 @@ fn read_extends_option(
     ctx: &mut NativeContext<'_>,
     opts: Option<JsValue>,
 ) -> Result<Option<String>, VmError> {
-    // WebIDL §3.10.20 "dictionary": null and undefined become an
+    // WebIDL §3.2.17 "dictionary": null and undefined become an
     // empty dictionary; non-object non-null values throw TypeError.
     // (Chrome accepts non-object loosely; spec-strict rejects.)
     let Some(opts_value) = opts else {

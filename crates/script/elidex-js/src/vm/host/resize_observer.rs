@@ -249,7 +249,7 @@ fn require_target_node(
     super::node_proto::require_node_arg_required(ctx, arg, "ResizeObserver", method)
 }
 
-/// Parse the `ResizeObserverOptions` dictionary (WebIDL §3.10.7).
+/// Parse the `ResizeObserverOptions` dictionary (WebIDL §3.2.17).
 /// `undefined` / `null` / missing → default (`{ box: "content-box" }`).
 /// Object → read the `box` member as a `ResizeObserverBoxOptions` enum.
 /// Unrecognised enum values throw `TypeError` per WebIDL enum semantics.
@@ -263,11 +263,7 @@ fn parse_resize_observer_options(
         Some(v) => v,
     };
     let JsValue::Object(opts_id) = value else {
-        // Primitives would be ToObject-coerced per WebIDL §3.10.7.
-        // Inherits the simplification scope already deferred by
-        // `MutationObserver`'s `parse_mutation_observer_init` under
-        // `#11-mutation-observer-extras` — the observer family
-        // shares the simplification.
+        // WebIDL §3.2.17 step 1 rejects a non-nullish primitive.
         return Err(VmError::type_error(
             "Failed to execute 'observe' on 'ResizeObserver': options is not an object",
         ));
