@@ -238,7 +238,7 @@ fn mutation_observer_observe_explicit_character_data_false_with_old_value_throws
 
 #[test]
 fn mutation_observer_observe_attribute_filter_non_iterable_throws() {
-    // WebIDL §3.10.20 sequence conversion: a non-iterable
+    // WebIDL §3.2.21 sequence conversion: a non-iterable
     // `attributeFilter` must TypeError, not silently fall through to
     // a stale-empty filter.
     let err = run_throws(

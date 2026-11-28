@@ -26,8 +26,8 @@ use super::{
 ///   `append` each.  Non-length-2 sub-array → `TypeError`.
 /// - Plain object (Record<string,string>) → iterate own enumerable
 ///   string keys in ES spec order, `append` each.
-/// - Any other primitive / Symbol → `TypeError` (WebIDL `record<…>`
-///   dictionary coercion §3.10.34).
+/// - Other primitive inputs throw `TypeError` during HeadersInit conversion.
+///   WebIDL §3.2.23 requires an object for the record branch.
 pub(super) fn native_headers_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
