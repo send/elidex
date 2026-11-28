@@ -346,10 +346,10 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         }
     }
 
-    // #11-dom-compat-legacy-color-code-points
-    // Defect against step 7: the 128-code-point limit is applied to UTF-8 bytes.
-    if s.len() > 128 {
-        s.truncate(128);
+    // Step 7: keep at most the first 128 code points. Cut at the byte offset
+    // of the 129th code point, which is always a char boundary.
+    if let Some((cut, _)) = s.char_indices().nth(128) {
+        s.truncate(cut);
     }
 
     // #11-dom-compat-legacy-color-whitespace-empty-order
@@ -360,12 +360,11 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
         return None;
     }
 
-    // #11-dom-compat-legacy-color-code-points
-    // Defect against step 9: this emits one zero per non-hex byte. The rule
-    // emits one zero per non-hex code point.
+    // Step 9: replace each non-hex code point with one '0'. After this every
+    // element is an ASCII byte, so later steps can index by position.
     let mut digits: Vec<u8> = s
-        .bytes()
-        .map(|b| if b.is_ascii_hexdigit() { b } else { b'0' })
+        .chars()
+        .map(|c| if c.is_ascii_hexdigit() { c as u8 } else { b'0' })
         .collect();
 
     // Step 10: pad to multiple of 3 (min 3).
@@ -749,7 +748,7 @@ mod tests {
         );
     }
 
-    // #11-dom-compat-legacy-color-code-points: HTML §2.3.6 steps 7 and 9
+    // HTML §2.3.6 (rules for parsing a legacy color value) steps 7 and 9
     // count code points, not UTF-8 bytes.
 
     #[test]
