@@ -318,7 +318,7 @@ fn native_dom_rect_to_json(
 // ---------------------------------------------------------------------------
 
 /// `unrestricted double` positional argument with default `0` (WebIDL
-/// §3.10.5 ToNumber — NaN / ±Infinity pass through, no TypeError).
+/// §3.2.8 ToNumber — NaN / ±Infinity pass through, no TypeError).
 fn coerce_coord_arg(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -343,7 +343,7 @@ fn read_init_field(
     }
 }
 
-/// Convert a `DOMRectInit` argument (WebIDL §3.10.7 dictionary
+/// Convert a `DOMRectInit` argument (WebIDL §3.2.17 dictionary
 /// conversion; dictionary defined in Geometry §3): `undefined` / `null`
 /// → all-zero; object → read members; anything else → TypeError.
 fn read_rect_init(

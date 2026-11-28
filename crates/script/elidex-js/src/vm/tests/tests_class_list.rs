@@ -312,7 +312,7 @@ fn class_list_indexed_get_exact_integer_still_works() {
 }
 
 // Copilot R7 #1 — `DOMTokenList.item(unsigned long)` per WebIDL
-// §3.10.13: negative inputs are coerced via ToUint32 (mod 2^32),
+// §3.2.4.6: negative inputs are coerced via ToUint32 (mod 2^32),
 // which for `-1` yields `4294967295`, well past any token list
 // length → handler must return `null`.  Previously a generic
 // `to_number` would have passed `-1` through and the handler's

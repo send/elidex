@@ -144,7 +144,7 @@ pub(crate) fn native_ce_define(
 
     // 4. Read `constructor.observedAttributes` static getter and
     //    coerce as `Sequence<DOMString>` (HTML §4.13.4 step 14.6 +
-    //    WebIDL §3.10.21).  An exception inside the getter / ToString
+    //    WebIDL §3.2.21).  An exception inside the getter / ToString
     //    coercion propagates out of define() per spec.
     let observed_attributes = read_observed_attributes(ctx, ctor_id)?;
 
@@ -224,7 +224,7 @@ fn read_extends_option(
     ctx: &mut NativeContext<'_>,
     opts: Option<JsValue>,
 ) -> Result<Option<String>, VmError> {
-    // WebIDL §3.10.20 "dictionary": null and undefined become an
+    // WebIDL §3.2.17 "dictionary": null and undefined become an
     // empty dictionary; non-object non-null values throw TypeError.
     // (Chrome accepts non-object loosely; spec-strict rejects.)
     let Some(opts_value) = opts else {
@@ -250,7 +250,7 @@ fn read_extends_option(
 
 /// Read the static `constructor.observedAttributes` accessor and
 /// coerce its result into a `Vec<String>` per WebIDL
-/// `Sequence<DOMString>` (§3.10.16). Preserves order, deduplicates,
+/// `Sequence<DOMString>` (§3.2.21). Preserves order, deduplicates,
 /// ASCII-case-folds to lowercase (matches Chrome / Firefox + the
 /// boa-side baseline). Errors inside the getter / iterator protocol
 /// propagate out of `define()` per HTML §4.13.4.

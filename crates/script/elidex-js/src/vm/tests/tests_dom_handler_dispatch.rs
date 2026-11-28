@@ -9,7 +9,7 @@
 //!
 //! - **Call-site Symbol/BigInt coercion** (`coerce::to_string` via
 //!   `coerce_first_arg_to_string_id`): Symbol ToString throws
-//!   `TypeError` per WebIDL §3.10.14 / ECMA §7.1.17 — exercised by
+//!   `TypeError` per WebIDL §3.2.10 / ECMA §7.1.17 — exercised by
 //!   `dispatch_symbol_arg_at_callsite_throws_type_error`.  BigInt
 //!   ToString *succeeds* (`1n` ⇒ `"1"`) — exercised by
 //!   `dispatch_with_bigint_arg_through_string_coercion_succeeds`.

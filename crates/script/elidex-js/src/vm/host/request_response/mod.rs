@@ -185,9 +185,8 @@ pub(crate) enum ResponseType {
 }
 
 // ---------------------------------------------------------------------------
-// `init.*` enum-value parsing (WHATWG WebIDL §3.10.7 dictionary
-// member conversion: invalid enum strings throw TypeError; an
-// absent member falls through to the caller-provided default).
+// WebIDL §3.2.18 converts provided enum values and rejects invalid strings.
+// Dictionary member defaults are handled separately by §3.2.17.
 // ---------------------------------------------------------------------------
 
 /// Parse `init.mode`'s string into a [`RequestMode`].  Returns

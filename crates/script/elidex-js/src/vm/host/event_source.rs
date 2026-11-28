@@ -357,10 +357,7 @@ fn native_event_source_constructor(
 /// - Object → read `withCredentials` via the prototype chain
 ///   (`coerce::get_property`); apply `ToBoolean` (defaults to
 ///   `false` when the property is missing or `undefined`).
-/// - Other primitive (Number / String / Boolean / Symbol) →
-///   `TypeError` per WebIDL §3.10.6 "If V is not undefined and
-///   V is not null and Type(V) is not Object, then throw a
-///   TypeError exception."
+/// - Other primitives throw `TypeError` under WebIDL §3.2.17 step 1.
 fn parse_event_source_init(
     ctx: &mut NativeContext<'_>,
     init: Option<JsValue>,

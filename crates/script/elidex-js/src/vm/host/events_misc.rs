@@ -352,7 +352,7 @@ fn native_formdata_event_constructor(
     let mode = ctx.mode;
     let type_sid = type_arg(ctx, args, "FormDataEvent")?;
     // FormDataEventInit has `required formData` — missing 2nd arg or
-    // empty dict produces a TypeError per WebIDL §3.10.23 (matches
+    // empty dict produces a TypeError per WebIDL §3.2.17 (matches
     // Chrome wording, mirrors PromiseRejectionEvent precedent).
     let Some(init_arg) = args.get(1).copied() else {
         return Err(VmError::type_error(
@@ -386,7 +386,7 @@ fn native_formdata_event_constructor(
         ));
     }
     // WebIDL dictionary conversion: `required FormData formData` —
-    // the value must be a FormData instance (per WHATWG IDL §3.10.21
+    // the value must be a FormData instance (per WHATWG IDL §3.2.15
     // interface-type coercion), which throws TypeError at
     // dictionary conversion time if the value is not a FormData; we
     // brand-check via `ObjectKind::FormData`.  Anything else
@@ -517,7 +517,7 @@ fn native_clipboard_event_constructor(
     let opts_id = opts_object_id(init_arg);
     // `clipboardData: DataTransfer?` — D-9 brand upgrade.  Accepts
     // DataTransfer-brand Object OR null/undefined; any other Object
-    // value throws TypeError per WebIDL §3.10.21.  Was any-pass-
+    // value throws TypeError per WebIDL §3.2.15.  Was any-pass-
     // through in D-10 pending D-9 ObjectKind.
     let clipboard_data = match opts_id {
         Some(id) => {
@@ -566,7 +566,7 @@ fn native_progress_event_constructor(
         let k_loaded = ctx.vm.well_known.loaded;
         let k_total = ctx.vm.well_known.total;
         let lc = read_bool(ctx, opts_id, k_lc, false)?;
-        // `loaded` / `total` are WebIDL `unsigned long long` (§3.10.10
+        // `loaded` / `total` are WebIDL `unsigned long long` (§3.2.4.8
         // without `[EnforceRange]`): ToNumber → sign-magnitude truncate
         // toward zero → mod 2^64.  Routes the raw ToNumber result
         // through `coerce::f64_to_uint64_loose` so `loaded: -1` yields
@@ -762,8 +762,7 @@ fn native_wheel_event_constructor(
         mut slots,
     } = parse_mouse_event_members(ctx, opts_id)?;
     // 4 wheel-specific slots: deltaX, deltaY, deltaZ, deltaMode.
-    // `delta_mode` is WebIDL `unsigned long` (§3.10.10) — ToNumber +
-    // ToUint32 clamp.
+    // WebIDL §3.2.4.6 converts deltaMode to unsigned long modulo 2³².
     let (delta_x, delta_y, delta_z, delta_mode) = if let Some(opts_id) = opts_id {
         let k_dx = ctx.vm.well_known.delta_x;
         let k_dy = ctx.vm.well_known.delta_y;

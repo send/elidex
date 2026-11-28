@@ -249,12 +249,9 @@ fn native_touch_constructor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `TouchInit` is a `required` dictionary — missing or null/
-    // undefined triggers a TypeError per WebIDL §3.10.18.  Split the
-    // missing case (no argument, `undefined`, or explicit `null`)
-    // from the wrong-type case so the message matches what failed:
-    // missing → "1 argument required", wrong type → "not of type
-    // 'TouchInit'".
+    // WebIDL §3.2.17 treats null and undefined as empty dictionary inputs.
+    // TouchInit has required members, so conversion throws TypeError. The
+    // VM uses its missing-argument diagnostic for these inputs.
     let init_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     if matches!(init_arg, JsValue::Undefined | JsValue::Null) {
         return Err(VmError::type_error(

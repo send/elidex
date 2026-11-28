@@ -253,8 +253,7 @@ fn parse_file_options(
                     let n = super::super::coerce::to_number(ctx.vm, other)?;
                     // Truncate to long long range — finite trunc, NaN → 0.
                     // Normalize `-0` (from e.g. `-0.5.trunc()`) to `+0`
-                    // per WebIDL §3.10.10 step 2; same hazard as the
-                    // ProgressEvent `loaded` / `total` fix (lesson #216).
+                    // per WebIDL §3.2.4.7 `long long` and §3.2.4.9 ConvertToInt.
                     if n.is_finite() {
                         let t = n.trunc();
                         if t == 0.0 {

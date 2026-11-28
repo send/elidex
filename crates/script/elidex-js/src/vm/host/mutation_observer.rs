@@ -165,7 +165,7 @@ fn native_mutation_observer_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // Validate the callback up front — must be callable per WebIDL
-    // §3.10.2 (MutationCallback).
+    // §3.2.19 (MutationCallback).
     let callback_id = match args.first().copied() {
         Some(JsValue::Object(id)) if ctx.vm.get_object(id).kind.is_callable() => id,
         _ => {
@@ -712,7 +712,7 @@ fn parse_mutation_observer_init(
 const MAX_ATTRIBUTE_FILTER_LEN: f64 = 65_536.0;
 
 /// Coerce a JS `attributeFilter` value into a `Vec<String>` per
-/// WebIDL §3.10.20 sequence conversion.  Phase 2 simplification —
+/// WebIDL §3.2.21 sequence conversion.  Phase 2 simplification —
 /// accepts any Object with a numeric `length` (covers Array,
 /// NodeList, arguments-shaped objects); non-Object values raise
 /// TypeError so misconfigured observers fail loudly.  Full

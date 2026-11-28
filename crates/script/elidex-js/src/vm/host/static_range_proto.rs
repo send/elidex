@@ -209,12 +209,9 @@ fn native_static_range_constructor(
     let end_container_sid = ctx.vm.well_known.end_container;
     let end_offset_sid = ctx.vm.well_known.end_offset;
 
-    // Copilot R3: WebIDL `AbstractRangeInit` dictionary lists all 4
-    // members as `required`.  Per WebIDL §3.10.7 step 4, the
-    // required check is by PRESENCE (HasProperty), not by value —
-    // an explicit `startOffset: undefined` is "present" and goes
-    // through ToUint32 → 0 normally.  Copilot R9 corrects R3:
-    // distinguish absent (throw) from present-but-undefined (coerce).
+    // WebIDL §3.2.17 step 4.1.6 rejects a required member whose value is
+    // undefined. The VM accepts present `undefined` and converts it below
+    // (#11-vm-webidl-dictionary-required-undefined).
     let start_container_val =
         require_dict_member(ctx, init_id, start_container_sid, "startContainer")?;
     let start_offset_val = require_dict_member(ctx, init_id, start_offset_sid, "startOffset")?;
@@ -243,10 +240,8 @@ fn native_static_range_constructor(
     Ok(JsValue::Object(this_id))
 }
 
-/// WebIDL §3.10.7 step 4 — required-dictionary-member lookup.
-/// `HasProperty` check precedes `Get`: a member explicitly set to
-/// `undefined` IS "present" (proceeds through type conversion); a
-/// missing key throws TypeError.  Copilot R9 fix.
+/// Get a required member. The VM accepts explicit `undefined` where WebIDL
+/// §3.2.17 step 4.1.6 throws (#11-vm-webidl-dictionary-required-undefined).
 fn require_dict_member(
     ctx: &mut NativeContext<'_>,
     obj_id: super::super::value::ObjectId,

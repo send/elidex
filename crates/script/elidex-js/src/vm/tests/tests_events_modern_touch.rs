@@ -95,8 +95,8 @@ fn touch_ctor_wrong_type_message_says_not_of_type_touch_init() {
 
 #[test]
 fn touch_ctor_null_message_says_one_required() {
-    // Explicit `null` is treated as the missing-arg case (matches
-    // WebIDL §3.10.18 dictionary conversion for required dicts).
+    // A null input leaves TouchInit's required members undefined, so WebIDL
+    // §3.2.17 throws TypeError. The VM uses its missing-argument message.
     let out = run("var msg = ''; \
          try { new Touch(null); } catch (e) { msg = String(e.message); } \
          msg.indexOf('1 argument required') >= 0 ? 'ok' : 'fail';");

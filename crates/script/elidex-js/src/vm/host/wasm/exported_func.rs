@@ -150,10 +150,8 @@ fn wrap_exported_func(
     let func_id = ctx.vm.alloc_object(Object {
         kind: ObjectKind::WasmExportedFunction,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        // Function exotics chain to Function.prototype per WebIDL
-        // §3.10.16; reuse the standard `function_prototype` if
-        // populated so `typeof f === 'function'` + Function-prototype
-        // methods (`bind` / `call` / `apply`) resolve correctly.
+        // WebAssembly JS API §5.6 creates the exported function with
+        // CreateBuiltinFunction, using the realm's default Function prototype.
         prototype: ctx.vm.function_prototype,
         extensible: true,
     });

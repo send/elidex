@@ -146,7 +146,7 @@ fn request_ctor_rejects_non_string_non_request_input() {
 // `init.{mode, credentials, redirect, cache}` parsing — PR5-cors Stage 1.
 // Spec defaults flow from the URL-input path; Request-clone path
 // inherits unless `init.*` overrides.  Invalid enum strings throw
-// TypeError per WebIDL §3.10.7.
+// TypeError per WebIDL §3.2.18.
 // ---------------------------------------------------------------------------
 
 #[test]

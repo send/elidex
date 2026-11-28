@@ -109,8 +109,8 @@ fn ctor_pair_arity_error() {
 
 #[test]
 fn ctor_honours_array_iterator_override() {
-    // WebIDL §3.10.16 step 4: overridden Array `[Symbol.iterator]`
-    // must win over dense storage.
+    // WebIDL §3.2.21 step 2 reads the iterator method, including an
+    // Array instance's override.
     let mut vm = Vm::new();
     assert_eq!(
         eval_string(

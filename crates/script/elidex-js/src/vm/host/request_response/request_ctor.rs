@@ -280,7 +280,7 @@ fn resolve_request_input(
 /// independent — unset members map to `None` so the caller can
 /// preserve the source Request's value (or fall back to the
 /// per-input default for the URL-string path).  Invalid enum
-/// strings throw TypeError per WebIDL §3.10.7.
+/// strings throw TypeError per WebIDL §3.2.18.
 fn parse_request_init(
     ctx: &mut NativeContext<'_>,
     init: JsValue,

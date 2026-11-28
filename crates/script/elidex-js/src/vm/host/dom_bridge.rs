@@ -290,8 +290,8 @@ fn require_node_wrapper_kind(kind: ComponentKind) -> Result<(), VmError> {
 /// directly, `Object` extracts its bound entity bits (deferring
 /// session-side ID allocation to the materialize phase).
 ///
-/// `Symbol` raises `TypeError` per WebIDL §3.10.14 / ECMA §7.1.17
-/// (Symbol coercion is total-throw across all non-Symbol types).
+/// Converting a `Symbol` to DOMString throws `TypeError` (WebIDL §3.2.10,
+/// ECMAScript ToString).
 /// `BigInt` rejection here is a **defensive bridge-level rule**, not
 /// a WebIDL mandate — ECMA §7.1.17 lets `BigInt → String` coerce
 /// successfully (`1n` ⇒ `"1"`), and call-site coercion (e.g.
@@ -369,7 +369,7 @@ fn plugin_primitive_to_vm_value(
 
 /// Convert a `DomApiError` returned by a handler into a VM-flavoured
 /// `VmError`.  `TypeError` becomes the ECMA-flavoured plain error
-/// (WebIDL §3.10.14 — Symbol coercion failures and similar are
+/// (WebIDL §3.2.10 — Symbol coercion failures and similar are
 /// genuinely ECMA `TypeError`s); every other named variant resolves
 /// to a `DOMException` whose `name` comes from the pre-interned
 /// `WellKnownStrings` (alloc-free on the throw path).
@@ -434,7 +434,7 @@ fn dom_api_error_to_vm_error(vm: &VmInner, err: DomApiError) -> VmError {
 ///    [`PreVal`].  String args allocate (`String::from`) at the
 ///    boundary — a known cost we accept here; subsequent slots
 ///    consider a fast-path variant if benchmarks demand.  Symbol
-///    args raise `TypeError` (WebIDL §3.10.14 / ECMA §7.1.17 —
+///    args raise `TypeError` (WebIDL §3.2.10 / ECMA §7.1.17 —
 ///    Symbol ToString is total-throw); raw BigInt args also reject
 ///    here as a defensive rule (call sites that ToString-coerce
 ///    first feed `prepare_arg` a `JsValue::String` and never trip
@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn dom_api_error_type_kind_stays_ecma_type_error() {
         // Counterpart sanity check: TypeError must remain an ECMA
-        // TypeError (WebIDL §3.10.14 — Symbol coercion failures and
+        // TypeError (WebIDL §3.2.10 — Symbol coercion failures and
         // other "wrong type" diagnostics are genuinely ECMA, not
         // DOMException-typed).
         let vm = crate::vm::Vm::new();

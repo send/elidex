@@ -277,7 +277,7 @@ fn native_style_item(
 ) -> Result<JsValue, VmError> {
     let recv = require_style_receiver(ctx, this, "item")?;
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL §3.10.13 indexed getter (`unsigned long`) → ToUint32.
+    // WebIDL §3.2.4.6 indexed getter (`unsigned long`) → ToUint32.
     let idx = super::super::coerce::to_uint32(ctx.vm, arg)?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::String(ctx.vm.well_known.empty));

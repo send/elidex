@@ -502,9 +502,8 @@ fn parse_decoder_options(
     options_arg: JsValue,
 ) -> Result<(bool, bool), VmError> {
     // WebIDL dictionary: `undefined` / `null` → defaults; objects →
-    // read the two members via normal [[Get]] and ToBoolean per
-    // §3.10.23.  A non-object non-nullish value is a TypeError
-    // (WebIDL bindings gate dictionaries on IsCallable / IsObject).
+    // Read the dictionary members via Get and convert their values to boolean.
+    // WebIDL §3.2.17 step 1 rejects a non-nullish primitive.
     let obj_id = match options_arg {
         JsValue::Undefined | JsValue::Null => return Ok((false, false)),
         JsValue::Object(id) => id,
@@ -698,7 +697,7 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// Callers whose IDL signature marks the parameter required (SubtleCrypto.digest —
 /// `BufferSource data` with no `?`) pass `false` so missing /
 /// `undefined` data flows through the BufferSource-conversion
-/// TypeError path per WebIDL §3.10.18.
+/// TypeError path per WebIDL §3.2.26.
 ///
 /// `param_index` is the 1-based WebIDL parameter index used to
 /// render Chrome-parity `parameter N` text in the rejection

@@ -313,7 +313,7 @@ pub(super) fn f64_to_uint32(n: f64) -> u32 {
     result
 }
 
-/// WebIDL `unsigned long long` coercion (§3.10.10) without
+/// WebIDL `unsigned long long` coercion (§3.2.4.8) without
 /// `[EnforceRange]` / `[Clamp]`.  Returns the value as `f64` because
 /// the engine stores numbers as `f64` and the result of the spec's
 /// modulo-2^64 operation may exceed `u64::MAX` when expressed in JS
@@ -344,8 +344,8 @@ pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
         return 0.0;
     }
     let truncated = n.trunc();
-    // Per WebIDL §3.10.10 step 2 the result for `±0` is `+0`.  Inputs
-    // that fall through the early-return guard but `trunc` to a zero
+    // WebIDL §3.2.4.9 ConvertToInt returns positive zero for zero inputs.
+    // Inputs that fall through the early-return guard but truncate to zero
     // (e.g. `-0.5` → `-0.0`, `0.5` → `+0.0`) must normalise to `+0`
     // so `Object.is(e.loaded, 0) === true` rather than `-0`.  Without
     // this normalisation a small-magnitude negative `loaded` /

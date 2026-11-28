@@ -514,12 +514,13 @@ fn offscreen_canvas_rejected_as_node_argument() {
 }
 
 // ---------------------------------------------------------------------------
-// [EnforceRange] unsigned long long coercion (WebIDL §3.10.4)
+// [EnforceRange] unsigned long long (WebIDL §§3.2.4.8–3.2.4.9).
+// The VM's smaller bound and RangeError are #11-webidl-integer-conversion-canonical.
 // ---------------------------------------------------------------------------
 
 #[test]
 fn ctor_throws_range_error_on_overflow() {
-    // Above u32::MAX → RangeError per `[EnforceRange]` (spec strict path).
+    // Record the VM backend limit; WebIDL accepts this value.
     with_vm(|vm| {
         let err = vm.eval("new OffscreenCanvas(4294967296, 10)").unwrap_err();
         let msg = format!("{err:?}");
@@ -545,7 +546,7 @@ fn ctor_throws_range_error_on_negative() {
 
 #[test]
 fn ctor_throws_type_error_on_nan() {
-    // NaN / non-finite → TypeError per `[EnforceRange]` step 1.
+    // ConvertToInt step 6.1 throws TypeError for NaN.
     with_vm(|vm| {
         let err = vm.eval("new OffscreenCanvas(NaN, 10)").unwrap_err();
         let msg = format!("{err:?}");

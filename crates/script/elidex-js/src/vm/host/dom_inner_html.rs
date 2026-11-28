@@ -182,7 +182,7 @@ fn parse_get_html_options(
     if matches!(raw, JsValue::Undefined | JsValue::Null) {
         return Ok(GetHtmlOptions::defaults());
     }
-    // WebIDL §3.10.16 dictionary conversion: non-Object / non-null /
+    // WebIDL §3.2.17 dictionary conversion: non-Object / non-null /
     // non-undefined argument throws TypeError. Mirrors the
     // `attachShadow` init-dict precedent at `element_shadow.rs::parse_shadow_init`.
     let JsValue::Object(opts_id) = raw else {

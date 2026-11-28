@@ -51,8 +51,8 @@
 //! - `readyState` accessor (CONNECTING=0 / OPEN=1 / CLOSING=2 /
 //!   CLOSED=3).
 //! - `send(data)` — full `(USVString | Blob | ArrayBuffer |
-//!   ArrayBufferView)` IDL union.  Plain Object (no Blob / Buffer
-//!   brand) raises TypeError per WebIDL §3.10.18.  State semantics:
+//!   ArrayBufferView)` IDL union. The VM rejects unbranded objects where
+//!   WebIDL §3.2.25 uses the string arm (#11-websocket-send-string-union-fallback). State semantics:
 //!   throw `InvalidStateError` ONLY on CONNECTING; CLOSING/CLOSED
 //!   silently discard the transmission BUT still increment
 //!   `bufferedAmount` by the encoded byte length (per WHATWG §9.3.4
@@ -191,10 +191,8 @@ impl VmInner {
             );
         }
 
-        // `binaryType` — getter + setter pair.  Setter throws TypeError
-        // on any non-{"blob","arraybuffer"} value per WebIDL §3.10.21
-        // enum coercion (spec-mandated; the boa reference silently
-        // ignored unknown strings).
+        // The VM throws for an unknown binaryType string. WebIDL §3.7.6
+        // ignores the assignment (#11-vm-webidl-enum-attribute-invalid-assignment).
         self.install_accessor_pair(
             proto_id,
             self.well_known.binary_type,
@@ -619,18 +617,9 @@ fn native_ws_get_binary_type(
     Ok(JsValue::String(sid))
 }
 
-/// `WebSocket.prototype.binaryType` setter per WHATWG WebSockets
-/// §9.3 + WebIDL §3.10.21 enum setter:
-///
-/// 1. `ToString(v)` — propagates ECMA-262 TypeError for `Symbol`
-///    values (the `?` on `to_string` does this BEFORE the enum
-///    check fires, which is the spec-mandated ordering).
-/// 2. Compare the resulting `StringId` against the pre-interned
-///    `binary_type_blob` / `binary_type_arraybuffer` slots (cheap
-///    integer equality — no UTF-8 walk).
-/// 3. Any other string → `TypeError` with the Chrome / Firefox
-///    parity wording (spec-mandated; the boa reference silently
-///    ignored unknown values).
+/// Set `WebSocket.binaryType`. WebIDL §3.7.6 converts the input to a string
+/// and ignores unknown values. The VM throws for an unknown string
+/// (#11-vm-webidl-enum-attribute-invalid-assignment).
 fn native_ws_set_binary_type(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -638,9 +627,8 @@ fn native_ws_set_binary_type(
 ) -> Result<JsValue, VmError> {
     let id = require_websocket_this(ctx, this, "binaryType")?;
     let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL §3.10.21 step 1: ToString first.  Symbol throws here
-    // (correct spec ordering — enum-check TypeError must not pre-empt
-    // the ToString TypeError).
+    // WebIDL §3.7.6 applies ToString first. Symbol throws here. The later
+    // invalid-string exception is #11-vm-webidl-enum-attribute-invalid-assignment.
     let s_sid = super::super::coerce::to_string(ctx.vm, new_val)?;
     let bt = if s_sid == ctx.vm.well_known.binary_type_blob {
         BinaryType::Blob
@@ -670,13 +658,9 @@ fn native_ws_set_binary_type(
 
 /// `WebSocket.prototype.send(data)` per WHATWG WebSockets §9.3.4.
 ///
-/// Accepts the full IDL union `(USVString | Blob | ArrayBuffer |
-/// ArrayBufferView)`; non-Object primitives (`number` / `boolean` /
-/// `null` / `undefined`) coerce to `USVString` via the union's
-/// DOMString arm.  Plain `Object` values (not branding as Blob /
-/// ArrayBuffer / TypedArray / DataView) raise a `TypeError` —
-/// WebIDL §3.10.18 union resolution does NOT have an implicit
-/// Object → DOMString fall-through.
+/// WebIDL §3.2.25 resolves `send`'s Blob and buffer members before the
+/// USVString fallback. The VM rejects plain objects before string conversion
+/// (#11-websocket-send-string-union-fallback).
 ///
 /// State semantics per WHATWG §9.3.4:
 /// - `CONNECTING` → throw `InvalidStateError` BEFORE any coercion
@@ -717,13 +701,11 @@ fn native_ws_send(
         ));
     }
 
-    // Extract bytes + frame kind per WebIDL union resolution.  Order
-    // mirrors WebIDL §3.10.18 distinguishability for `(USVString or
-    // Blob or ArrayBuffer or ArrayBufferView)`:
+    // Select the Blob or buffer branch before the string fallback (WebIDL §3.2.25).
     //   1. Object brand-test: Blob / File → Blob arm; ArrayBuffer /
     //      TypedArray / DataView → BufferSource arm.
-    //   2. Plain Object (no matching brand) → TypeError (NO implicit
-    //      fall-through to DOMString — spec §3.10.18 step 8).
+    //   2. The VM rejects unbranded objects here. WebIDL §3.2.25 step 15
+    //      uses the USVString arm (#11-websocket-send-string-union-fallback).
     //   3. String → USVString.
     //   4. Other primitive (number / bool / null / undefined / Symbol)
     //      → USVString via `ToString` (Symbol throws TypeError here,

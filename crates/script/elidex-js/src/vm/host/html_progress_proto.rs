@@ -12,10 +12,9 @@
 //!   `clamp(value, 0, max) / max`.
 //! - `labels` — empty `NodeList` stub.
 //!
-//! Setters route the JS Number through
-//! [`super::idl_coerce::coerce_double_idl_arg`] (which delegates to
-//! `coerce::to_number` so `valueOf` / `toString` on objects fires per
-//! WebIDL §3.10.5), then serialise via the VM's ES `Number::ToString`
+//! Setters use [`super::idl_coerce::coerce_double_idl_arg`] for WebIDL
+//! §3.2.7 `double` conversion. ToNumber can invoke user code on objects.
+//! Finite results are serialized through the VM's ES `Number::ToString`
 //! (`coerce::to_string`) so reflected attribute values match browser
 //! semantics (notably `-0` → `"0"`, distinct from Rust `Display`).
 //!
