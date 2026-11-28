@@ -17,7 +17,7 @@
 //!   form, capture/once/passive, duplicate check, ECS + listener_store
 //!   wiring.
 //! - `removeEventListener` — fully implemented (PR3 C8); WHATWG
-//!   §2.7.7 (type, callback, capture) match + ECS / listener_store
+//!   §2.7 removeEventListener() (type, callback, capture) match + ECS / listener_store
 //!   cleanup, options parsed via `parse_capture_only` (no spurious
 //!   `once`/`passive` getter calls — see PR3 R7).
 //! - `dispatchEvent` — **deferred to PR5a** alongside `Event`
@@ -92,7 +92,7 @@ pub(super) fn native_event_target_add_event_listener(
 
 /// `EventTarget.prototype.addEventListener(type, listener, options)`.
 ///
-/// WHATWG DOM §2.6 / §2.7.  Behaviour:
+/// WHATWG DOM §2.7.  Behaviour:
 ///
 /// 1. `this` must be a `HostObject` — extract the entity.  Calls on
 ///    non-HostObject receivers are silent no-ops, matching browsers'
@@ -112,7 +112,7 @@ pub(super) fn native_event_target_add_event_listener(
 /// 5. DOM §2.7 "add an event listener" step 2: an already-aborted `signal` short-circuits
 ///    registration entirely — no ECS write, no listener_store entry,
 ///    no back-ref.
-/// 6. Duplicate check (§2.6 step 4): `(type, callback, capture)` —
+/// 6. Duplicate check (§2.7 add an event listener step 5): `(type, callback, capture)` —
 ///    `once` and `passive` are NOT part of the identity tuple.  A
 ///    second `addEventListener` with the same triple is silently
 ///    discarded.
@@ -179,7 +179,7 @@ pub(super) fn native_event_target_add_event_listener(
         }
     }
 
-    // Duplicate check: WHATWG §2.6 step 4 excludes `once` / `passive`
+    // Duplicate check: WHATWG §2.7 add an event listener step 5 excludes `once` / `passive`
     // from identity, so we look up by (type, capture, callback).
     if find_listener_id(ctx, target, &event_type, options.capture, listener_obj_id).is_some() {
         return Ok(JsValue::Undefined);
@@ -370,8 +370,8 @@ pub(super) struct ListenerOptions {
     pub(super) signal: Option<ObjectId>,
 }
 
-/// WHATWG DOM §2.6 step 1 — extract listener flags from the third
-/// argument of add/removeEventListener.
+/// DOM §2.7 addEventListener() step 1 flattens the third argument with
+/// “flatten more options”.
 ///
 /// - undefined / missing → all flags false.
 /// - boolean → capture only (legacy form).
@@ -438,7 +438,7 @@ pub(super) fn parse_listener_options(
 /// Extract ONLY the `capture` flag from `removeEventListener`'s
 /// third argument.
 ///
-/// WHATWG DOM §2.7.7's "flatten options" step for removal is
+/// DOM §2.7 removeEventListener() step 1 flattens options for removal. This is
 /// narrower than addEventListener's: it only consults the `capture`
 /// property.  Reading `once` / `passive` (which `parse_listener_options`
 /// does for addEventListener) would be observable through user
@@ -467,7 +467,7 @@ fn parse_capture_only(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<bool,
 /// triple matches the given arguments — returns the id if such a
 /// listener is registered, `None` otherwise.
 ///
-/// Used by both `addEventListener` (`.is_some()` for the §2.6 step 4
+/// Used by both `addEventListener` (`.is_some()` for the §2.7 add an event listener step 5
 /// duplicate check) and `removeEventListener` (the actual id to drop).
 /// Keeping a single helper prevents the two sites from drifting on
 /// what counts as a "match" — historically `removeEventListener`
@@ -533,7 +533,7 @@ pub(super) fn native_event_target_remove_event_listener(
 
 /// `EventTarget.prototype.removeEventListener(type, listener, options)`.
 ///
-/// WHATWG DOM §2.7.7: locate any listener whose (type, callback,
+/// WHATWG DOM §2.7 removeEventListener(): locate any listener whose (type, callback,
 /// capture) tuple matches and remove it from the entity's
 /// `EventListeners` component, `HostData::listener_store`, and any
 /// `AbortSignal` back-ref pointing at it (the last via the shared
@@ -550,7 +550,7 @@ pub(super) fn native_event_target_remove_event_listener(
 ///   silently dropping `el.removeEventListener('click', 42)`
 ///   would mask user bugs).
 /// - Options third arg: only `capture` is read from the object form
-///   (`once` / `passive` are not part of identity per §2.6 step 4
+///   (`once` / `passive` are not part of identity per §2.7 add an event listener step 5
 ///   and reading them would fire user getters that browsers don't
 ///   trigger here — see `parse_capture_only`).
 #[cfg(feature = "engine")]
@@ -585,14 +585,14 @@ pub(super) fn native_event_target_remove_event_listener(
     let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
     let event_type = ctx.vm.strings.get_utf8(type_sid);
 
-    // Spec §2.7.7: only `capture` is read from options for removal.
+    // Spec §2.7 removeEventListener(): only `capture` is read from options for removal.
     // `parse_listener_options` would also read `once` / `passive`,
     // which would fire user getters / Proxy traps that browsers
     // don't trigger here.
     let capture = parse_capture_only(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
 
     // Locate the matching listener via the shared (type, capture,
-    // callback) lookup.  WHATWG §2.6 step 4 forbids duplicates so at
+    // callback) lookup.  WHATWG §2.7 add an event listener step 5 forbids duplicates so at
     // most one match exists; if none matches, it's a silent no-op.
     let Some(listener_id) = find_listener_id(ctx, target, &event_type, capture, listener_obj_id)
     else {

@@ -119,7 +119,7 @@ fn duplicate_same_callback_same_capture_is_silently_skipped() {
     let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
     // Same function identity, same capture (default false) → second
-    // registration must be discarded per WHATWG DOM §2.6 step 4.
+    // registration must be discarded per WHATWG DOM §2.7 add an event listener step 5.
     vm.eval(
         "var f = function () {};
          el.addEventListener('click', f);
@@ -148,7 +148,7 @@ fn duplicate_check_is_per_capture_phase() {
 
     // Same callback registered for both bubble and capture phase
     // must yield TWO entries — capture differs, so they are not
-    // duplicates per §2.6 step 4.
+    // duplicates per §2.7 add an event listener step 5.
     vm.eval(
         "var f = function () {};
          el.addEventListener('click', f, false);
@@ -174,7 +174,7 @@ fn null_callback_is_silently_ignored() {
     #[allow(unsafe_code)]
     let el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
 
-    // §2.6 step 2: "If callback is null, then return."
+    // §2.7 add an event listener step 3: "If callback is null, then return."
     vm.eval("el.addEventListener('click', null);").unwrap();
     vm.eval("el.addEventListener('click', undefined);").unwrap();
 

@@ -37,7 +37,7 @@
 //! ships the minimal `addEventListener(type, listener)` /
 //! `removeEventListener(type, listener)` pair.  Full options
 //! surface (capture / once / passive / signal) is deferred to
-//! `#11-realtime-event-listeners`.  Per WHATWG DOM §2.7.2 the
+//! `#11-realtime-event-listeners`.  Per WHATWG DOM §2.7 the
 //! `(type, callback, capture)` triple is de-duplicated on
 //! registration — the minimal shim collapses `capture` to `false`
 //! so the dedup check reduces to `(type, callback ObjectId)`.

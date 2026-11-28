@@ -730,7 +730,7 @@ fn add_event_listener_multiple_listeners_fire_in_insertion_order() {
 
 #[test]
 fn add_event_listener_dedups_same_callback_per_type() {
-    // WHATWG DOM §2.7.2 step 5: same `(type, callback, capture)`
+    // WHATWG DOM §2.7 add an event listener step 5: same `(type, callback, capture)`
     // triple is deduped on registration.  The minimal shim
     // collapses capture to false, so `(type, callback)` is
     // sufficient.
@@ -797,7 +797,7 @@ fn remove_event_listener_no_op_for_unknown_pair() {
 
 #[test]
 fn remove_event_listener_no_op_for_null_listener() {
-    // DOM §2.7.5 step 2: null / undefined listener is a silent no-op.
+    // DOM §2.7 removeEventListener() step 2 finds no matching null callback.
     // (A non-null non-callable listener throws TypeError in the shared
     // core, symmetric with addEventListener — the bespoke shim was lax.)
     with_es_vm(|vm| {
@@ -812,7 +812,7 @@ fn remove_event_listener_no_op_for_null_listener() {
 
 #[test]
 fn add_event_listener_null_undefined_listener_is_no_op() {
-    // WHATWG DOM §2.7.2 step 2: a null/undefined callback returns
+    // WHATWG DOM §2.7 add an event listener step 3: a null/undefined callback returns
     // silently and registers nothing.  (A non-null non-callable
     // listener throws TypeError in the shared core — see
     // `add_event_listener_non_callable_throws_type_error`; the bespoke
