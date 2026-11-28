@@ -340,8 +340,13 @@ fn legacy_color_algorithm(input: &str) -> Option<CssColor> {
     // code-point count. Hex digits and '#' keep their own byte; every other
     // code point becomes '0' now (step 9 would map it to '0' anyway, and step 8
     // only looks for '#'). A non-BMP code point is two code points after step 6.
-    let mut digits: Vec<u8> = Vec::with_capacity(input.len());
+    // Only the first 128 code points survive step 7, so stop reading the input
+    // once they are in hand (a non-BMP code point may push one past 128).
+    let mut digits: Vec<u8> = Vec::with_capacity(input.len().min(129));
     for ch in input.chars() {
+        if digits.len() >= 128 {
+            break;
+        }
         if ch as u32 > 0xFFFF {
             // Step 6: replace it with "00".
             digits.extend_from_slice(b"00");
@@ -788,6 +793,27 @@ mod tests {
         assert_eq!(
             parse_html_color(&input),
             Some(CssColor::new(0x00, 0xff, 0xff, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step6_non_bmp_becomes_two_zeros() {
+        // Step 6: "🔥f" → "00f" → components "0" / "0" / "f".
+        assert_eq!(
+            parse_html_color("🔥f"),
+            Some(CssColor::new(0x00, 0x00, 0x0f, 255))
+        );
+    }
+
+    #[test]
+    fn parse_html_color_legacy_step7_keeps_the_128th_code_point() {
+        // 127 "0" + "f" is 128 code points; step 7 keeps the "f". Pad to 129 →
+        // components of 43; step 12 removes 35 → "00000000" / "00000000" /
+        // "000000f0"; step 13 strips 6 → "00" / "00" / "f0".
+        let input = format!("{}f", "0".repeat(127));
+        assert_eq!(
+            parse_html_color(&input),
+            Some(CssColor::new(0x00, 0x00, 0xf0, 255))
         );
     }
 
