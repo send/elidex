@@ -1246,7 +1246,7 @@ define_well_known_strings! {
         select_all_children_method => "selectAllChildren",
         delete_from_document_method => "deleteFromDocument",
         contains_node_method => "containsNode",
-        // SelectionType / direction enum strings (Selection API §3.1).
+        // Selection API §3 type getter strings: None, Caret, Range.
         selection_type_none => "None",
         selection_type_caret => "Caret",
         selection_type_range => "Range",

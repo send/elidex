@@ -286,10 +286,8 @@ fn walk_phase(
             break;
         }
 
-        // Retarget (§2.5) — updates `local.target` which we mirror
-        // into the event's `target` slot.  Retarget is a no-op for
-        // the common case (no shadow host crossing), matching the
-        // `retarget(A, B)` algorithm's identity short-circuit.
+        // Mirror the session walker's target into the JS event. Its slotted
+        // path can preserve the original target across an outer shadow root.
         {
             let dom = ctx.host().dom();
             apply_retarget(local, *entity, saved_target, dom);

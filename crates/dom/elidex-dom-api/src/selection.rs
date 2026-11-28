@@ -65,7 +65,7 @@ use crate::range::{
 };
 
 // ---------------------------------------------------------------------------
-// SelectionDirection (Selection API §3.1)
+// SelectionDirection (Selection API §2 Definition)
 // ---------------------------------------------------------------------------
 
 /// Per Selection API §3.1, `Selection.direction` returns one of three
@@ -97,10 +97,10 @@ impl SelectionDirection {
 }
 
 // ---------------------------------------------------------------------------
-// SelectionType (Selection API §3.1)
+// SelectionType (Selection API §3)
 // ---------------------------------------------------------------------------
 
-/// Per Selection API §3.1, `Selection.type` returns one of three strings
+/// Per Selection API §3, `Selection.type` returns one of three strings
 /// derived from the current range state. NOT stored; computed at read
 /// time by [`SelectionState::selection_type`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,15 +129,14 @@ impl SelectionType {
 }
 
 // ---------------------------------------------------------------------------
-// SelectionError (spec exceptions)
+// SelectionError
 // ---------------------------------------------------------------------------
 
-/// Spec-defined exception cases surfaced by mutating Selection methods.
-/// The VM-side wrapper maps each variant to the matching `DOMException`.
+/// Errors returned by the selection engine. The different-Range case in
+/// removeRange uses InvalidState (#11-selection-api-algorithm-conformance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionError {
-    /// `node` is a `DocumentType` (Selection API §3.2 collapse / extend
-    /// step 1).
+    /// `node` is a `DocumentType` (DOM §5.6, setting a range boundary point).
     InvalidNodeType,
     /// `offset` exceeds `node`'s length per WHATWG DOM "length of a node".
     IndexSize,
@@ -198,7 +197,7 @@ impl SelectionState {
         self.active_range_id.is_none()
     }
 
-    /// `Selection.isCollapsed` per spec §3.1 — `true` when there is no
+    /// `Selection.isCollapsed` per spec §3 — `true` when there is no
     /// range OR the range is collapsed. Read from the live registry to
     /// reflect any mutation-hook adjustments.
     pub fn is_collapsed(&self, registry: &mut LiveRangeRegistry, dom: &EcsDom) -> bool {

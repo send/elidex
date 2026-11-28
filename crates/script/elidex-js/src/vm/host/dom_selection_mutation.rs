@@ -236,7 +236,10 @@ pub(super) fn native_selection_collapse(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "collapse")?;
-    // WebIDL §3.7.6 — arg conversion in declared order.
+    // Selection §3 allows null for collapse() and its setPosition() alias.
+    // The required-node check throws before WebIDL §3.6 converts offset,
+    // skipping its observable conversion and the subsequent selection clear
+    // (#11-selection-collapse-null-removes-all-ranges).
     let node = arg_node_required(ctx, args.first().copied(), "collapse")?;
     let offset = arg_offset_or_default(ctx, args.get(1).copied())?;
     mutate_selection(ctx, "collapse", |s, reg, dom, doc| {

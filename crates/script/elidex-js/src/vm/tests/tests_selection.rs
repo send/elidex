@@ -92,7 +92,7 @@ fn selection_constructor_throws() {
     let res = vm.eval("new Selection();");
     assert!(
         res.is_err(),
-        "new Selection() must throw per spec §3.2 illegal constructor"
+        "new Selection() must throw because Selection API §3 declares no constructor"
     );
     vm.unbind();
 }
@@ -422,7 +422,7 @@ fn add_range_sets_when_empty() {
     assert_eq!(
         eval_str(&mut vm, "s.getRangeAt(0) === r ? 'eq' : 'neq'"),
         "eq",
-        "addRange preserves Range identity per Selection API §3.2"
+        "addRange preserves Range identity per Selection API §3"
     );
     vm.unbind();
 }
@@ -782,7 +782,7 @@ fn selectionchange_coalesces_multiple_mutations() {
     .unwrap();
     assert_eq!(eval_num(&mut vm, "fired"), 0.0, "no event before mutating");
     // Multiple mutations in a single eval → one event per spec
-    // §3.4 "queue a task ... if a queued task already exists, abort".
+    // Selection API §6.2.1 queues a task only if the scheduled flag is clear.
     vm.eval(
         "s.collapse(root, 0);\
          s.extend(root, 1);\
